@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-VENDOR = ROOT / "vendor" / "acp"
+VENDOR = ROOT / "src" / "commerce_agent" / "vendor" / "acp"
 
 
 def test_frozen_acp_sources_match_recorded_hashes() -> None:
