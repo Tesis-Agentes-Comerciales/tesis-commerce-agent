@@ -141,6 +141,7 @@ def create_app(
         owned_conversation_router = OpenAIConversationRouter(
             api_key=configuration.openai_api_key,
             model=configuration.openai_model,
+            feed=feed,
             timeout_seconds=configuration.openai_timeout_seconds,
         )
         conversation_router = owned_conversation_router

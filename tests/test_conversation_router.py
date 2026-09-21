@@ -1,12 +1,16 @@
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from commerce_agent.domain import HardConstraints, PurchaseIntent
+from commerce_agent.acp import load_product_feed
+from commerce_agent.domain import HardConstraints, OptionConstraint, PurchaseIntent
 from commerce_agent.llm import CommerceDecision, ConversationMessage, OpenAIConversationRouter
 from commerce_agent.llm import conversation_router as module
+
+FEED = load_product_feed(Path(__file__).parent / "fixtures" / "feed")
 
 
 class FakeResponses:
@@ -45,6 +49,7 @@ def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> N
     router = OpenAIConversationRouter(
         api_key=SecretStr("openai-test-key"),
         model="test-model",
+        feed=FEED,
     )
     messages = (
         ConversationMessage(role="user", content="Quiero comprar algo"),
@@ -61,6 +66,8 @@ def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> N
     assert call["input"] == [message.model_dump(mode="json") for message in messages]
     assert call["store"] is False
     assert "clarify" in call["instructions"]
+    assert "headphones" in call["instructions"]
+    assert "Audifonos Sonora SON-01" in call["instructions"]
     assert "never authorizes" in call["instructions"].casefold()
     assert fake.closed
 
@@ -83,3 +90,33 @@ def test_purchase_decision_allows_model_to_omit_consolidated_request() -> None:
     )
 
     assert decision.purchase_request is None
+
+
+def test_router_moves_unknown_catalog_attributes_to_preferences(monkeypatch) -> None:
+    decision = CommerceDecision(
+        action="purchase",
+        assistant_message="Buscaré una opción.",
+        intent=PurchaseIntent(
+            hard=HardConstraints(
+                categories=("headphones",),
+                required_options=(OptionConstraint(name="color", value="blue"),),
+                required_terms=("wireless", "noise-cancelling"),
+            )
+        ),
+    )
+    fake = FakeOpenAI(decision)
+    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"),
+        model="test-model",
+        feed=FEED,
+    )
+
+    result = router.route((ConversationMessage(role="user", content="Quiero audífonos"),))
+
+    assert result.intent is not None
+    assert result.intent.hard.categories == ("headphones",)
+    assert result.intent.hard.required_options == ()
+    assert result.intent.hard.required_terms == ()
+    assert result.intent.preferences.options == (OptionConstraint(name="color", value="blue"),)
+    assert result.intent.preferences.terms == ("wireless", "noise-cancelling")
