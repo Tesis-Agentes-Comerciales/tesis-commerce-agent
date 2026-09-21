@@ -20,7 +20,7 @@ mensajes del merchant se consideran datos no confiables y no se convierten en in
 
 | Dato o efecto | Autoridad |
 | --- | --- |
-| Intención y preferencia | salida tipada del intérprete; nunca autoridad comercial |
+| Intención y preferencia | salida tipada del modelo conversacional; nunca autoridad comercial |
 | Candidato | ranking determinista sobre feed validado |
 | Precio, stock, envío y total | último checkout del merchant |
 | Identidad humana | configuración/backend del agente |
@@ -54,8 +54,9 @@ mensajes del merchant se consideran datos no confiables y no se convierten en in
    multi-instancia requiere PostgreSQL o un coordinador distribuido.
 3. **Merchant único configurado.** La URL validada funciona como allowlist P0; un Merchant Registry
    persistente con altas y revocación queda para el siguiente incremento.
-4. **Intérprete externo.** LangGraph acepta un `IntentInterpreter` inyectado. El runtime HTTP recibe
-   un `PurchaseIntent` estructurado y no ata el P0 a un proveedor de modelos.
+4. **Modelo externo.** El router conversacional es inyectable y su salida se valida como
+   `CommerceDecision`. Solo el backend ve el `PurchaseIntent`; datos de entrega y autoridad de
+   compra permanecen fuera del prompt.
 5. **Evidencia parcial.** Se conservan solicitud, candidato, checkout, aprobación, operación, orden y
    eventos. El manifiesto experimental completo, métricas de modelo y comparación B0/B2 quedan fuera
    de las etapas implementadas aquí.

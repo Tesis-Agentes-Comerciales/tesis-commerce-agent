@@ -6,12 +6,7 @@ import {
 } from "@assistant-ui/react"
 import { useMemo, type ReactNode } from "react"
 
-import {
-  AgentApiError,
-  getApprovalTerms,
-  routeConversation,
-  startPurchase,
-} from "@/lib/commerce-api"
+import { AgentApiError, conversationTurn } from "@/lib/commerce-api"
 import type {
   ApprovalTerms,
   BuyerProfile,
@@ -97,12 +92,6 @@ export function CommerceRuntime({
         }
 
         try {
-          const decision = await routeConversation(conversationContext(messages), abortSignal)
-          if (decision.action !== "purchase") {
-            return {
-              content: [{ type: "text", text: decision.assistant_message }],
-            }
-          }
           if (["awaiting_approval", "approving", "completing"].includes(flowStatus)) {
             return {
               content: [
@@ -113,22 +102,26 @@ export function CommerceRuntime({
               ],
             }
           }
-          if (!decision.intent) {
-            throw new Error("El modelo no produjo una intención de compra válida.")
+          const turn = await conversationTurn(
+            conversationContext(messages),
+            profile,
+            abortSignal,
+          )
+          if (turn.action !== "purchase") {
+            return {
+              content: [{ type: "text", text: turn.assistant_message }],
+            }
+          }
+          if (!turn.purchase || !turn.approval_terms) {
+            throw new Error("El agente no devolvió una compra completa.")
           }
 
           onPreparing(request)
-          const preparation = await startPurchase(
-            decision.purchase_request ?? request,
-            profile,
-            abortSignal,
-            decision.intent,
-          )
+          const preparation = turn.purchase
           if (preparation.stage !== "awaiting_confirmation") {
             throw new Error(`La compra quedó en un estado inesperado: ${preparation.stage}`)
           }
-          const terms = await getApprovalTerms(preparation.run_id, abortSignal)
-          onPrepared(request, preparation, terms)
+          onPrepared(request, preparation, turn.approval_terms)
           const priceNote = preparation.price_changed
             ? " El precio cambió frente al feed; usé el total actual del checkout."
             : ""
@@ -136,7 +129,7 @@ export function CommerceRuntime({
             content: [
               {
                 type: "text",
-                text: `Encontré **${preparation.selected_candidate.product_title}** y preparé el checkout ACP.${priceNote}\n\nRevisa los términos y decide si quieres aprobar la compra.`,
+                text: `Encontré ${preparation.selected_candidate.product_title} y preparé el checkout ACP.${priceNote}\n\nRevisa los términos y decide si quieres aprobar la compra.`,
               },
             ],
           }

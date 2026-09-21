@@ -1,14 +1,11 @@
 import { Thread } from "@/components/assistant-ui/elements/thread.aui"
-import { BuyerProfileCard } from "@/components/buyer-profile-card"
 import { CommerceWelcome } from "@/components/commerce-welcome"
-import { PurchaseReceipt } from "@/components/purchase-receipt"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { TooltipProvider } from "@/components/ui/tooltip"
 import { CommerceRuntime } from "@/features/commerce-runtime"
 import { AGENT_API_URL, health } from "@/lib/commerce-api"
 import {
@@ -19,7 +16,18 @@ import {
   type PurchasePreparation,
 } from "@/lib/commerce-types"
 import { Settings2Icon, ShoppingBagIcon } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useState } from "react"
+
+const BuyerProfileCard = lazy(() =>
+  import("@/components/buyer-profile-card").then((module) => ({
+    default: module.BuyerProfileCard,
+  })),
+)
+const PurchaseReceipt = lazy(() =>
+  import("@/components/purchase-receipt").then((module) => ({
+    default: module.PurchaseReceipt,
+  })),
+)
 
 type ConnectionStatus = "checking" | "online" | "offline"
 
@@ -74,7 +82,7 @@ function App() {
   const purchaseBusy = flow.status === "approving" || flow.status === "completing"
 
   return (
-    <TooltipProvider>
+    <>
       <main className="flex h-svh min-h-0 flex-col overflow-hidden bg-white text-[#0d0d0d]">
         <header className="flex h-14 shrink-0 items-center justify-between px-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -141,7 +149,9 @@ function App() {
           <DialogDescription className="sr-only">
             Configura el perfil sintético utilizado para el checkout sandbox.
           </DialogDescription>
-          <BuyerProfileCard profile={profile} onChange={setProfile} />
+          <Suspense fallback={<div className="p-6 text-sm">Cargando…</div>}>
+            <BuyerProfileCard profile={profile} onChange={setProfile} />
+          </Suspense>
         </DialogContent>
       </Dialog>
 
@@ -155,10 +165,12 @@ function App() {
           <DialogDescription className="sr-only">
             Revisa los términos autoritativos antes de aprobar la compra.
           </DialogDescription>
-          <PurchaseReceipt flow={flow} onChange={setFlow} onReset={reset} />
+          <Suspense fallback={<div className="p-6 text-sm">Cargando…</div>}>
+            <PurchaseReceipt flow={flow} onChange={setFlow} onReset={reset} />
+          </Suspense>
         </DialogContent>
       </Dialog>
-    </TooltipProvider>
+    </>
   )
 }
 

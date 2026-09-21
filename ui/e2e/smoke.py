@@ -69,7 +69,7 @@ COMPLETED = {
 
 def main() -> None:
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
-    purchase_bodies: list[dict[str, object]] = []
+    turn_bodies: list[dict[str, object]] = []
 
     def api(route: Route) -> None:
         request = route.request
@@ -85,8 +85,9 @@ def main() -> None:
             return
         if path == "/health":
             payload = {"status": "ok"}
-        elif path == "/conversation/route" and request.method == "POST":
+        elif path == "/conversation/turn" and request.method == "POST":
             conversation = json.loads(request.post_data or "{}")
+            turn_bodies.append(conversation)
             latest = conversation["messages"][-1]["content"]
             if latest == "hola":
                 payload = {
@@ -95,37 +96,16 @@ def main() -> None:
                         "¡Hola! Dime qué producto buscas y, si quieres, tu presupuesto o "
                         "preferencias."
                     ),
-                    "purchase_request": None,
-                    "intent": None,
+                    "purchase": None,
+                    "approval_terms": None,
                 }
             else:
                 payload = {
                     "action": "purchase",
                     "assistant_message": "Voy a buscar una opción.",
-                    "purchase_request": latest,
-                    "intent": {
-                        "hard": {
-                            "currency": "USD",
-                            "max_total_amount_minor": 80000,
-                            "categories": ["headphones"],
-                            "conditions": ["new"],
-                            "required_options": [{"name": "color", "value": "black"}],
-                            "required_terms": [],
-                            "max_unit_amount_minor": None,
-                        },
-                        "preferences": {
-                            "terms": [],
-                            "categories": [],
-                            "conditions": [],
-                            "options": [],
-                        },
-                    },
+                    "purchase": PREPARATION,
+                    "approval_terms": TERMS,
                 }
-        elif path == "/purchases" and request.method == "POST":
-            purchase_bodies.append(json.loads(request.post_data or "{}"))
-            payload = PREPARATION
-        elif path.endswith("/approval") and request.method == "GET":
-            payload = TERMS
         elif path.endswith("/approval") and request.method == "POST":
             payload = {
                 "run_id": "run_browser_1",
@@ -158,7 +138,7 @@ def main() -> None:
         page.get_by_text(
             "¡Hola! Dime qué producto buscas y, si quieres, tu presupuesto o preferencias."
         ).wait_for()
-        assert purchase_bodies == []
+        assert len(turn_bodies) == 1
 
         composer.fill("Quiero audífonos negros, nuevos y disponibles por máximo 800 USD.")
         composer.press("Enter")
@@ -168,12 +148,12 @@ def main() -> None:
         assert page.evaluate("window.scrollY") == 0
         page.screenshot(path=ARTIFACTS / "desktop-approval.png", full_page=True)
 
-        assert len(purchase_bodies) == 1
-        body = purchase_bodies[0]
-        assert (
-            body["request"] == "Quiero audífonos negros, nuevos y disponibles por máximo 800 USD."
+        assert len(turn_bodies) == 2
+        body = turn_bodies[1]
+        assert body["messages"][-1]["content"] == (
+            "Quiero audífonos negros, nuevos y disponibles por máximo 800 USD."
         )
-        assert body["intent"]["hard"]["categories"] == ["headphones"]
+        assert "intent" not in body
         details = body["details"]
         assert isinstance(details, dict)
         assert details["buyer"]["email"] == "ana@example.test"

@@ -23,8 +23,9 @@ npm run build
 npm run lint
 ```
 
-El smoke de navegador está en `e2e/smoke.py`. Intercepta la API con una respuesta determinista,
-recorre solicitud, revisión, aprobación y completion, y guarda capturas bajo `.local/ui-e2e/`.
+El smoke de navegador está en `e2e/smoke.py`. Intercepta la única operación conversacional,
+verifica que el navegador no produzca intención, recorre revisión, aprobación y completion, y
+guarda capturas bajo `.local/ui-e2e/`.
 
 La UI no contiene llaves ni tokens. Los datos de entrega se envían a FastAPI, y el único control
 que autoriza la compra usa el fingerprint de términos que devuelve el backend.

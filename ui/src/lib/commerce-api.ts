@@ -1,11 +1,8 @@
 import type {
-  ApprovalTerms,
   BuyerProfile,
-  CommerceDecision,
   CompletedCheckout,
   ConversationMessage,
-  PurchaseIntent,
-  PurchasePreparation,
+  ConversationTurn,
 } from "@/lib/commerce-types"
 
 const configuredBaseUrl = import.meta.env.VITE_AGENT_API_URL ?? "http://127.0.0.1:43120"
@@ -65,37 +62,17 @@ export function health(signal?: AbortSignal): Promise<{ status: string }> {
   return requestJson("/health", { signal })
 }
 
-export function startPurchase(
-  request: string,
+export function conversationTurn(
+  messages: ConversationMessage[],
   profile: BuyerProfile,
   signal: AbortSignal,
-  intent?: PurchaseIntent,
-): Promise<PurchasePreparation> {
-  return requestJson("/purchases", {
+): Promise<ConversationTurn> {
+  return requestJson("/conversation/turn", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ request, intent, details: checkoutDetails(profile) }),
+    body: JSON.stringify({ messages, details: checkoutDetails(profile) }),
     signal,
   })
-}
-
-export function routeConversation(
-  messages: ConversationMessage[],
-  signal: AbortSignal,
-): Promise<CommerceDecision> {
-  return requestJson("/conversation/route", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
-    signal,
-  })
-}
-
-export function getApprovalTerms(
-  runId: string,
-  signal?: AbortSignal,
-): Promise<ApprovalTerms> {
-  return requestJson(`/purchases/${encodeURIComponent(runId)}/approval`, { signal })
 }
 
 export function approvePurchase(runId: string, fingerprint: string): Promise<void> {

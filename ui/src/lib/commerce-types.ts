@@ -15,18 +15,6 @@ export type ConversationMessage = {
   content: string
 }
 
-export type PurchaseIntent = {
-  hard: Record<string, unknown>
-  preferences: Record<string, unknown>
-}
-
-export type CommerceDecision = {
-  action: "respond" | "clarify" | "purchase"
-  assistant_message: string
-  purchase_request: string | null
-  intent: PurchaseIntent | null
-}
-
 export type ProductCandidate = {
   product_id: string
   product_title: string
@@ -73,6 +61,13 @@ export type ApprovalTerms = {
   expires_at: string
   fingerprint_version: string
   fingerprint: string
+}
+
+export type ConversationTurn = {
+  action: "respond" | "clarify" | "purchase"
+  assistant_message: string
+  purchase: PurchasePreparation | null
+  approval_terms: ApprovalTerms | null
 }
 
 export type CompletedCheckout = CheckoutSession & {

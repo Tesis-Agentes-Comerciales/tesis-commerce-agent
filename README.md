@@ -7,7 +7,7 @@ implementa intención, selección, aprobación humana, ejecución idempotente y 
 ## Alcance implementado
 
 - carga y validación del Product Feed estático;
-- `PurchaseIntent`, filtros duros y ranking determinista sobre LangGraph;
+- decisión conversacional tipada, `PurchaseIntent`, filtros duros y ranking determinista;
 - cliente ACP para discovery, create, get, update, cancel y complete;
 - validación de requests y responses contra el bundle ACP congelado;
 - persistencia SQLite de episodios, claves idempotentes, aprobaciones, órdenes y webhooks;
@@ -21,17 +21,18 @@ implementa intención, selección, aprobación humana, ejecución idempotente y 
 - interfaz React basada en `assistant-ui`, con perfil sandbox y aprobación Human Present;
 - harness E2E contra el merchant fijado, ejecutado como proceso y repositorio separados.
 
-El modelo solo puede producir un `PurchaseIntent` estructurado. No recibe Bearer, secretos, token
-de pago, actor, Request ID, clave idempotente, fingerprint de aprobación ni acceso al método de
-completion.
+El modelo solo recibe los mensajes del chat y produce una decisión tipada con una intención
+estructurada cuando detecta una compra. No recibe datos de entrega, Bearer, secretos, token de
+pago, actor, Request ID, clave idempotente, fingerprint de aprobación ni acceso al método de
+completion. El navegador tampoco construye ni envía `PurchaseIntent`.
 
 ## Arquitectura
 
 ```text
-solicitud + PurchaseIntent
-          |
-          v
-LangGraph read-only --> feed validado --> candidato
+mensajes --> modelo conversacional --> responder | aclarar | comprar
+                                           |
+                                           v
+                              feed validado --> candidato
           |
           v
 PurchaseService --> ACP create/update/get --> ready_for_payment
@@ -45,9 +46,8 @@ CompletionService --> GET + CAS + ACP complete --> orden durable
 merchant webhook --> HMAC + dedupe ------------+
 ```
 
-SQLite demuestra autoridad y coordinación local; el checkpoint del grafo no demuestra efectos
-comerciales. El package `commerce_agent` nunca importa `commerce_lab` ni accede a la base de datos
-del merchant.
+SQLite demuestra autoridad y coordinación local. El package `commerce_agent` nunca importa
+`commerce_lab` ni accede a la base de datos del merchant.
 
 ## Desarrollo
 
@@ -82,7 +82,8 @@ Configure en `.env`:
 - `AGENT_FEED_PATH`: directorio con `metadata.json` y `products.jsonl`.
 - `AGENT_PRINCIPAL_ID`: identidad humana resuelta por el backend local.
 - `AGENT_UI_ORIGIN`: origen exacto autorizado para la interfaz web local.
-- `OPENAI_API_KEY`, `OPENAI_MODEL` y `OPENAI_TIMEOUT_SECONDS`: intérprete opcional de intención.
+- `OPENAI_API_KEY`, `OPENAI_MODEL` y `OPENAI_TIMEOUT_SECONDS`: modelo conversacional que decide si
+  debe responder, aclarar o iniciar una compra.
 
 Use valores aleatorios de al menos 32 caracteres para los tres secretos. No copie valores reales a
 Git, logs, prompts, fixtures o artefactos.
@@ -97,8 +98,10 @@ uv run uvicorn commerce_agent.api:app_factory --factory --host 127.0.0.1 --port 
 
 Flujo:
 
-1. `POST /purchases` recibe solicitud, `PurchaseIntent` tipado y, opcionalmente, datos de checkout.
-2. `GET /purchases/{run_id}/approval` devuelve los términos exactos para Human Present.
+1. `POST /conversation/turn` recibe mensajes y datos de entrega. Una respuesta normal no contacta
+   al merchant; una compra prepara el checkout y devuelve los términos Human Present en la misma
+   operación.
+2. `GET /purchases/{run_id}/approval` permite volver a consultar los términos exactos.
 3. `POST /purchases/{run_id}/approval` recibe solo el fingerprint mostrado; el actor viene del
    backend.
 4. `POST /purchases/{run_id}/complete` ejecuta el gateway determinista.
@@ -158,9 +161,9 @@ uv run python scripts/run_joint_e2e.py \
 ## Límites deliberados
 
 Este P0 usa un solo merchant registrado por configuración, una moneda, cantidad uno, SQLite y pago
-sandbox. No procesa dinero real. La extracción de intención por modelo es una integración externa:
-la API recibe el `PurchaseIntent` ya validado para mantener idéntica la frontera determinista. B2,
-OPA, mandatos externos, Stripe real y operación multi-instancia quedan fuera de este incremento.
+sandbox. No procesa dinero real. El modelo conversacional es una integración externa, pero su
+salida se valida antes del ranking y nunca autoriza completion. B2, OPA, mandatos externos, Stripe
+real y operación multi-instancia quedan fuera de este incremento.
 
 La matriz de contrato, amenazas e hipótesis está en
 [`docs/compatibility.md`](docs/compatibility.md).

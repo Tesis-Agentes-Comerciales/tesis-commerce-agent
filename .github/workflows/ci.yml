@@ -34,6 +34,17 @@ jobs:
           uv python install
           uv sync --frozen --all-groups
 
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci
+
       - name: Verify
         run: |
           uv run ruff format --check .
@@ -42,3 +53,8 @@ jobs:
           uv run pytest
           uv build
 
+      - name: Verify UI
+        working-directory: ui
+        run: |
+          npm run lint
+          npm run build
