@@ -156,6 +156,8 @@ def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) ->
     call = fake.responses.calls[0]
     assert call["text_format"] is CandidateDecision
     assert "SON-01" in call["input"]
+    assert '"preference_score": 0' in call["input"]
+    assert "authoritative total is unknown" in call["instructions"]
     assert "Human approval" in call["instructions"]
 
 
