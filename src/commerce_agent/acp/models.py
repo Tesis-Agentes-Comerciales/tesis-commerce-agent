@@ -1,6 +1,6 @@
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints, model_validator
 
 ACP_VERSION = "2026-04-17"
 Identifier = Annotated[
@@ -63,10 +63,10 @@ class CheckoutCreateRequest(StrictModel):
 
 
 class Buyer(StrictModel):
-    first_name: str
-    last_name: str
     email: str
-    phone_number: str
+    first_name: str | None = None
+    last_name: str | None = None
+    phone_number: str | None = None
 
 
 class Address(StrictModel):
@@ -147,3 +147,64 @@ class CheckoutSession(BaseModel):
     def total_minor(self) -> int:
         row = next(row for row in self.totals if row.get("type") == "total")
         return int(row["amount"])
+
+
+class PaymentCredential(StrictModel):
+    type: Literal["spt"] = "spt"
+    token: SecretStr
+
+
+class SandboxPaymentInstrument(StrictModel):
+    type: Literal["sandbox_token"] = "sandbox_token"
+    credential: PaymentCredential
+
+
+class SandboxPaymentData(StrictModel):
+    handler_id: Literal["tesis_sandbox"] = "tesis_sandbox"
+    instrument: SandboxPaymentInstrument
+
+    def acp_payload(self) -> dict[str, Any]:
+        return {
+            "handler_id": self.handler_id,
+            "instrument": {
+                "type": self.instrument.type,
+                "credential": {
+                    "type": self.instrument.credential.type,
+                    "token": self.instrument.credential.token.get_secret_value(),
+                },
+            },
+        }
+
+
+class CheckoutCompleteRequest(StrictModel):
+    payment_data: SandboxPaymentData
+
+    def acp_payload(self) -> dict[str, Any]:
+        return {"payment_data": self.payment_data.acp_payload()}
+
+
+class Order(StrictModel):
+    id: Identifier
+    checkout_session_id: Identifier
+    permalink_url: str
+    type: Literal["order"] | None = None
+    order_number: str | None = None
+    client_reference_id: str | None = None
+    status: str | None = None
+    estimated_delivery: dict[str, Any] | None = None
+    confirmation: dict[str, Any] | None = None
+    support: dict[str, Any] | None = None
+    line_items: list[dict[str, Any]] | None = None
+    fulfillments: list[dict[str, Any]] | None = None
+    adjustments: list[dict[str, Any]] | None = None
+    totals: list[dict[str, Any]] | None = None
+
+
+class CheckoutSessionWithOrder(CheckoutSession):
+    order: Order
+
+    @model_validator(mode="after")
+    def require_completed_status(self) -> "CheckoutSessionWithOrder":
+        if self.status != "completed":
+            raise ValueError("Checkout with order must be completed")
+        return self

@@ -15,8 +15,23 @@ def checkout(status: str = "not_ready_for_payment") -> dict[str, Any]:
         "status": status,
         "currency": "usd",
         "capabilities": {"payment": {"handlers": []}},
-        "line_items": [{"id": "li_test", "item": {"id": "SON-01"}, "quantity": 1}],
+        "line_items": [
+            {
+                "id": "li_test",
+                "item": {
+                    "id": "SON-01",
+                    "name": "Audifonos Sonora SON-01",
+                    "unit_amount": 72_000,
+                },
+                "quantity": 1,
+                "totals": [
+                    {"type": "subtotal", "display_text": "Producto", "amount": 72_000},
+                    {"type": "total", "display_text": "Total", "amount": 72_000},
+                ],
+            }
+        ],
         "totals": [{"type": "total", "display_text": "Total", "amount": 74000}],
+        "fulfillment_options": [],
         "messages": [],
         "links": [],
         "created_at": "2026-09-20T12:00:00Z",
@@ -112,6 +127,23 @@ def test_error_normalizes_nested_current_merchant_shape() -> None:
     assert captured.value.code == "IDEMPOTENCY_IN_FLIGHT"
     assert captured.value.status_code == 409
     assert captured.value.retry_after == "1"
+    assert "Try again" not in str(captured.value)
+
+
+def test_oversized_response_is_rejected_before_json_parsing() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"x" * (2 * 1024 * 1024 + 1))
+
+    with (
+        ACPClient(
+            "http://127.0.0.1:4120",
+            SecretStr("test-token"),
+            transport=httpx.MockTransport(handler),
+        ) as client,
+        pytest.raises(ACPClientError) as captured,
+    ):
+        client.get_checkout("cs_test_001")
+    assert captured.value.code == "response_too_large"
 
 
 def test_authenticated_operation_fails_without_bearer() -> None:

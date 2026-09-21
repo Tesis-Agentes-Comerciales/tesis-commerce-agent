@@ -1,5 +1,7 @@
+from datetime import datetime
 from functools import lru_cache
 from ipaddress import ip_address
+from pathlib import Path
 from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, field_validator
@@ -22,6 +24,28 @@ def validate_service_base_url(value: str) -> str:
     return normalized
 
 
+def validate_browser_origin(value: str) -> str:
+    normalized = value.rstrip("/")
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("UI origin must be an absolute HTTP(S) origin")
+    if (
+        parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        raise ValueError("UI origin cannot contain credentials, path, query, or fragment")
+    try:
+        loopback = ip_address(parsed.hostname).is_loopback
+    except ValueError:
+        loopback = parsed.hostname == "localhost"
+    if parsed.scheme != "https" and not loopback:
+        raise ValueError("UI origin must use HTTPS outside loopback development")
+    return normalized
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -29,11 +53,33 @@ class Settings(BaseSettings):
     merchant_bearer_token: SecretStr | None = Field(default=None, repr=False)
     merchant_webhook_secret: SecretStr | None = Field(default=None, repr=False)
     merchant_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    agent_approval_secret: SecretStr | None = Field(default=None, repr=False)
+    agent_payment_secret: SecretStr | None = Field(default=None, repr=False)
+    agent_database_path: Path = Path(".local/agent.db")
+    agent_feed_path: Path = Path("artifacts/feed/p0")
+    agent_principal_id: str = Field(default="local-human", min_length=1, max_length=128)
+    agent_ui_origin: str = "http://127.0.0.1:5173"
+    agent_sandbox_clock_at: datetime | None = None
+    openai_api_key: SecretStr | None = Field(default=None, repr=False)
+    openai_model: str | None = Field(default=None, min_length=1, max_length=128)
+    openai_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
 
     @field_validator("merchant_base_url")
     @classmethod
     def validate_base_url(cls, value: str) -> str:
         return validate_service_base_url(value)
+
+    @field_validator("agent_ui_origin")
+    @classmethod
+    def validate_ui_origin(cls, value: str) -> str:
+        return validate_browser_origin(value)
+
+    @field_validator("agent_sandbox_clock_at")
+    @classmethod
+    def validate_sandbox_clock(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("Sandbox clock must include a timezone")
+        return value
 
 
 @lru_cache

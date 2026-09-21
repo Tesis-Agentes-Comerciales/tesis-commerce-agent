@@ -1,3 +1,4 @@
+import re
 from collections.abc import Mapping
 from typing import Any
 from uuid import uuid4
@@ -7,13 +8,17 @@ from pydantic import SecretStr, ValidationError
 
 from commerce_agent.acp.models import (
     ACP_VERSION,
+    CheckoutCompleteRequest,
     CheckoutCreateRequest,
     CheckoutItemRequest,
     CheckoutSession,
+    CheckoutSessionWithOrder,
     CheckoutUpdateRequest,
     DiscoveryResponse,
     Identifier,
+    SandboxPaymentData,
 )
+from commerce_agent.acp.schema import ACPContractError, validate_acp
 from commerce_agent.config import validate_service_base_url
 
 
@@ -50,6 +55,7 @@ class ACPClient:
             timeout=timeout_seconds,
             transport=transport,
             follow_redirects=False,
+            trust_env=False,
         )
 
     def __enter__(self) -> "ACPClient":
@@ -64,8 +70,9 @@ class ACPClient:
     def discover(self) -> DiscoveryResponse:
         payload = self._request("GET", "/.well-known/acp.json", authenticated=False)
         try:
+            validate_acp("DiscoveryResponse", payload)
             discovery = DiscoveryResponse.model_validate(payload)
-        except ValidationError as error:
+        except (ACPContractError, ValidationError) as error:
             raise ACPClientError("Merchant returned invalid ACP discovery") from error
         advertised = validate_service_base_url(discovery.api_base_url)
         if advertised != self._base_url:
@@ -134,6 +141,36 @@ class ACPClient:
             request_id=request_id,
         )
 
+    def complete_checkout(
+        self,
+        checkout_id: str,
+        payment_data: SandboxPaymentData,
+        *,
+        idempotency_key: str,
+        request_id: str | None = None,
+    ) -> CheckoutSessionWithOrder:
+        checked_id = self._identifier(checkout_id)
+        request = CheckoutCompleteRequest(payment_data=payment_data)
+        body = request.acp_payload()
+        try:
+            validate_acp("CheckoutSessionCompleteRequest", body)
+        except ACPContractError as error:
+            raise ACPClientError("Payment data violates the ACP contract") from error
+        if not 1 <= len(idempotency_key) <= 255:
+            raise ValueError("Idempotency key must contain between 1 and 255 characters")
+        payload = self._request(
+            "POST",
+            f"/checkout_sessions/{checked_id}/complete",
+            json=body,
+            idempotency_key=idempotency_key,
+            request_id=request_id,
+        )
+        try:
+            validate_acp("CheckoutSessionWithOrder", payload)
+            return CheckoutSessionWithOrder.model_validate(payload)
+        except (ACPContractError, ValidationError) as error:
+            raise ACPClientError("Merchant returned an invalid completed checkout") from error
+
     def _checkout_mutation(
         self,
         method: str,
@@ -177,6 +214,12 @@ class ACPClient:
             raise ACPClientError("Merchant request timed out", code="timeout") from error
         except httpx.TransportError as error:
             raise ACPClientError("Merchant transport failed", code="transport_error") from error
+        if len(response.content) > self._MAX_RESPONSE_BYTES:
+            raise ACPClientError(
+                "Merchant response exceeded the configured size limit",
+                status_code=response.status_code,
+                code="response_too_large",
+            )
         if response.is_error:
             raise self._response_error(response)
         try:
@@ -194,8 +237,9 @@ class ACPClient:
     @staticmethod
     def _parse_checkout(payload: dict[str, Any]) -> CheckoutSession:
         try:
+            validate_acp("CheckoutSession", payload)
             return CheckoutSession.model_validate(payload)
-        except ValidationError as error:
+        except (ACPContractError, ValidationError) as error:
             raise ACPClientError("Merchant returned an invalid checkout session") from error
 
     @staticmethod
@@ -216,16 +260,14 @@ class ACPClient:
             detail = payload.get("detail", payload)
             if isinstance(detail, Mapping):
                 raw_code = detail.get("code")
-                raw_message = detail.get("message")
-                if isinstance(raw_code, str):
+                if isinstance(raw_code, str) and ACPClient._ERROR_CODE.fullmatch(raw_code):
                     code = raw_code
-                if isinstance(raw_message, str):
-                    message = raw_message
-            elif isinstance(detail, str):
-                message = detail
         return ACPClientError(
             message,
             status_code=response.status_code,
             code=code,
             retry_after=response.headers.get("Retry-After"),
         )
+
+    _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+    _ERROR_CODE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
