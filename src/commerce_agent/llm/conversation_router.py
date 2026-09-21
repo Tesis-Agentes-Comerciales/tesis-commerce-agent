@@ -5,7 +5,11 @@ from openai.types.responses import ResponseInputParam
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
 
 from commerce_agent.domain import PurchaseIntent
-from commerce_agent.llm.openai_interpreter import IntentInterpretationError
+
+
+class IntentInterpretationError(RuntimeError):
+    code = "intent_model_error"
+
 
 _INSTRUCTIONS = """You are the conversation router for a commerce agent.
 
@@ -56,8 +60,8 @@ class CommerceDecision(BaseModel):
     @model_validator(mode="after")
     def validate_action_payload(self) -> "CommerceDecision":
         if self.action == "purchase":
-            if self.intent is None:
-                raise ValueError("Purchase decisions require an intent")
+            if self.purchase_request is None or self.intent is None:
+                raise ValueError("Purchase decisions require a request and an intent")
         elif self.purchase_request is not None or self.intent is not None:
             raise ValueError("Non-purchase decisions cannot contain purchase data")
         return self

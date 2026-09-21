@@ -1,14 +1,14 @@
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import cast
+from typing import Literal
 from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from commerce_agent.acp import ACPClient, ACPClientError, load_product_feed
 from commerce_agent.acp.models import CheckoutSessionWithOrder
@@ -17,34 +17,42 @@ from commerce_agent.application.purchase import PurchaseServiceError
 from commerce_agent.approval import ApprovalError, ApprovalService, ApprovalTerms
 from commerce_agent.completion import CompletionError, CompletionService
 from commerce_agent.config import Settings, get_settings
-from commerce_agent.domain import PurchaseIntent
 from commerce_agent.llm import (
-    CommerceDecision,
     ConversationMessage,
     ConversationRouter,
     IntentInterpretationError,
     OpenAIConversationRouter,
-    OpenAIIntentInterpreter,
 )
 from commerce_agent.payment import SandboxPaymentProvider
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.webhooks import register_webhook_receiver
-from commerce_agent.workflow import build_selection_workflow
-from commerce_agent.workflow.selection import SelectionOutput
 
 
-class StartPurchaseRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    request: str = Field(min_length=1, max_length=2_000)
-    intent: PurchaseIntent | None = None
-    details: CheckoutDetails | None = None
-
-
-class RouteConversationRequest(BaseModel):
+class ConversationTurnRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     messages: list[ConversationMessage] = Field(min_length=1, max_length=20)
+    details: CheckoutDetails
+
+
+class ConversationTurnResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    action: Literal["respond", "clarify", "purchase"]
+    assistant_message: str = Field(min_length=1, max_length=1_000)
+    purchase: PurchasePreparation | None = None
+    approval_terms: ApprovalTerms | None = None
+
+    @model_validator(mode="after")
+    def validate_purchase_payload(self) -> "ConversationTurnResponse":
+        has_purchase = self.purchase is not None and self.approval_terms is not None
+        if self.action == "purchase" and not has_purchase:
+            raise ValueError("Purchase responses require preparation and approval terms")
+        if self.action != "purchase" and (
+            self.purchase is not None or self.approval_terms is not None
+        ):
+            raise ValueError("Non-purchase responses cannot contain purchase data")
+        return self
 
 
 class ApprovalRequest(BaseModel):
@@ -70,16 +78,6 @@ class ApprovalReceipt(BaseModel):
     principal_id: str
     approved_at: str
     stage: str = "approved"
-
-
-class _ProvidedIntentInterpreter:
-    def __init__(self, intent: PurchaseIntent) -> None:
-        self._intent = intent
-
-    def interpret(self, request: str) -> PurchaseIntent:
-        if not request:
-            raise ValueError("Purchase request must not be empty")
-        return self._intent
 
 
 def create_app(
@@ -128,28 +126,29 @@ def create_app(
         SandboxPaymentProvider(configuration.agent_payment_secret),
         store,
     )
-    model_interpreter = None
+    purchase_service = PurchaseService(
+        feed=feed,
+        checkout=client,
+        store=store,
+        approvals=approvals,
+    )
     owned_conversation_router = None
-    if configuration.openai_api_key is not None and configuration.openai_model is not None:
-        model_interpreter = OpenAIIntentInterpreter(
+    if (
+        configuration.openai_api_key is not None
+        and configuration.openai_model is not None
+        and conversation_router is None
+    ):
+        owned_conversation_router = OpenAIConversationRouter(
             api_key=configuration.openai_api_key,
             model=configuration.openai_model,
             timeout_seconds=configuration.openai_timeout_seconds,
         )
-        if conversation_router is None:
-            owned_conversation_router = OpenAIConversationRouter(
-                api_key=configuration.openai_api_key,
-                model=configuration.openai_model,
-                timeout_seconds=configuration.openai_timeout_seconds,
-            )
-            conversation_router = owned_conversation_router
+        conversation_router = owned_conversation_router
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
         client.close()
-        if model_interpreter is not None:
-            model_interpreter.close()
         if owned_conversation_router is not None:
             owned_conversation_router.close()
 
@@ -184,42 +183,34 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.post("/conversation/route", response_model=CommerceDecision)
-    def route_conversation(body: RouteConversationRequest) -> CommerceDecision:
+    @app.post("/conversation/turn", response_model=ConversationTurnResponse)
+    def conversation_turn(body: ConversationTurnRequest) -> ConversationTurnResponse:
         if body.messages[-1].role != "user":
             raise IntentInterpretationError("Conversation must end with a user message")
         if conversation_router is None:
             raise IntentInterpretationError("No conversation model is configured")
-        return conversation_router.route(tuple(body.messages))
-
-    @app.post("/purchases", response_model=PurchasePreparation, status_code=201)
-    def start_purchase(body: StartPurchaseRequest) -> PurchasePreparation:
+        decision = conversation_router.route(tuple(body.messages))
+        if decision.action != "purchase":
+            return ConversationTurnResponse(
+                action=decision.action,
+                assistant_message=decision.assistant_message,
+            )
+        request = decision.purchase_request
+        intent = decision.intent
+        if request is None or intent is None:
+            raise IntentInterpretationError("Purchase decision is incomplete")
         client.discover()
-        interpreter = (
-            _ProvidedIntentInterpreter(body.intent)
-            if body.intent is not None
-            else model_interpreter
-        )
-        if interpreter is None:
-            raise IntentInterpretationError("No intent model is configured")
-        workflow = build_selection_workflow(
-            feed=feed,
-            interpreter=interpreter,
-        )
-
-        def selection(request: str) -> SelectionOutput:
-            return cast(SelectionOutput, workflow.invoke({"request": request}))
-
-        service = PurchaseService(
-            selection=selection,
-            checkout=client,
-            store=store,
-            approvals=approvals,
-        )
-        return service.start(
+        purchase = purchase_service.start(
             run_id=f"run_{uuid4().hex}",
-            request=body.request,
+            request=request,
+            intent=intent,
             details=body.details,
+        )
+        return ConversationTurnResponse(
+            action="purchase",
+            assistant_message=decision.assistant_message,
+            purchase=purchase,
+            approval_terms=purchase_service.approval_terms(purchase.run_id),
         )
 
     @app.get("/purchases/{run_id}", response_model=PurchaseStatus)
@@ -234,24 +225,13 @@ def create_app(
             order_id=purchase["order_id"],
         )
 
-    def purchase_service() -> PurchaseService:
-        def unavailable_selection(_: str) -> SelectionOutput:
-            raise RuntimeError("Selection is unavailable after purchase creation")
-
-        return PurchaseService(
-            selection=unavailable_selection,
-            checkout=client,
-            store=store,
-            approvals=approvals,
-        )
-
     @app.get("/purchases/{run_id}/approval", response_model=ApprovalTerms)
     def approval_terms(run_id: str) -> ApprovalTerms:
-        return purchase_service().approval_terms(run_id)
+        return purchase_service.approval_terms(run_id)
 
     @app.post("/purchases/{run_id}/approval", response_model=ApprovalReceipt)
     def approve_purchase(run_id: str, body: ApprovalRequest) -> ApprovalReceipt:
-        record = purchase_service().approve(
+        record = purchase_service.approve(
             run_id=run_id,
             actor_id=configuration.agent_principal_id,
             expected_fingerprint=body.expected_fingerprint,

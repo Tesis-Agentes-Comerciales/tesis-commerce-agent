@@ -1,8 +1,6 @@
 from pathlib import Path
 
-import pytest
-
-from commerce_agent.persistence import ApprovalRecord, SqliteAgentStore
+from commerce_agent.persistence import SqliteAgentStore
 
 
 def store(tmp_path: Path) -> SqliteAgentStore:
@@ -36,26 +34,6 @@ def test_purchase_and_idempotency_keys_are_durable(tmp_path: Path) -> None:
         "created_at": second.purchase("run-1")["created_at"],  # type: ignore[index]
         "updated_at": second.purchase("run-1")["updated_at"],  # type: ignore[index]
     }
-
-
-def test_approval_can_be_consumed_once(tmp_path: Path) -> None:
-    agent_store = store(tmp_path)
-    agent_store.create_purchase("run-1", "buy")
-    record = ApprovalRecord(
-        run_id="run-1",
-        checkout_id="cs_1",
-        checkout_fingerprint="a" * 64,
-        actor_id="actor-1",
-        approved_at="2026-09-20T12:00:00Z",
-        signature="b" * 64,
-        consumed_at=None,
-    )
-    agent_store.save_approval(record)
-    assert agent_store.approval("run-1") == record
-    agent_store.consume_approval("run-1")
-    assert agent_store.approval("run-1").consumed_at is not None  # type: ignore[union-attr]
-    with pytest.raises(RuntimeError, match="already consumed"):
-        agent_store.consume_approval("run-1")
 
 
 def test_completion_reservation_is_compare_and_swap(tmp_path: Path) -> None:

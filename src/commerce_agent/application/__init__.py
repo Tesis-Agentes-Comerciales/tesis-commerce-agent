@@ -3,6 +3,13 @@ from commerce_agent.application.purchase import (
     PurchasePreparation,
     PurchaseService,
     PurchaseServiceError,
+    PurchaseStage,
 )
 
-__all__ = ["CheckoutDetails", "PurchasePreparation", "PurchaseService", "PurchaseServiceError"]
+__all__ = [
+    "CheckoutDetails",
+    "PurchasePreparation",
+    "PurchaseService",
+    "PurchaseServiceError",
+    "PurchaseStage",
+]

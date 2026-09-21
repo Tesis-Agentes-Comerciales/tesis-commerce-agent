@@ -153,19 +153,3 @@ def test_checkout_must_be_ready_and_unexpired(tmp_path: Path) -> None:
     with pytest.raises(ApprovalError) as expiration:
         approval.present(expired)
     assert expiration.value.code == "checkout_expired"
-
-
-def test_consumed_approval_cannot_authorize_again(tmp_path: Path) -> None:
-    _, approval = service(tmp_path)
-    current = checkout()
-    approval.approve(
-        run_id="run-1",
-        actor_id="actor-1",
-        expected_fingerprint=approval.present(current).fingerprint,
-        checkout=current,
-    )
-    approval.consume("run-1")
-
-    with pytest.raises(ApprovalError) as captured:
-        approval.authorize(run_id="run-1", checkout=current)
-    assert captured.value.code == "approval_consumed"

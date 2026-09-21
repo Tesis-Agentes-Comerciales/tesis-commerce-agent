@@ -8,6 +8,7 @@ from pydantic import SecretStr
 
 from commerce_agent.api import create_app
 from commerce_agent.config import Settings
+from commerce_agent.domain import PurchaseIntent
 from commerce_agent.llm import CommerceDecision, ConversationMessage
 
 FEED = Path(__file__).parent / "fixtures" / "feed"
@@ -81,6 +82,29 @@ def checkout(status: str, *, with_details: bool) -> dict[str, Any]:
     return payload
 
 
+def checkout_details() -> dict[str, Any]:
+    return {
+        "buyer": {
+            "email": "buyer@example.test",
+            "first_name": "Buyer",
+            "last_name": "Test",
+        },
+        "fulfillment": {
+            "name": "Buyer Test",
+            "email": "buyer@example.test",
+            "phone_number": "+573000000000",
+            "address": {
+                "name": "Buyer Test",
+                "line_one": "Calle 100 # 10-20",
+                "city": "Bogota",
+                "state": "DC",
+                "country": "CO",
+                "postal_code": "110111",
+            },
+        },
+    }
+
+
 def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> None:
     ready = checkout("ready_for_payment", with_details=True)
 
@@ -133,7 +157,19 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
         agent_feed_path=FEED,
         agent_principal_id="human-api-1",
     )
-    app = create_app(settings=settings, transport=httpx.MockTransport(handler))
+    router = StubConversationRouter(
+        CommerceDecision(
+            action="purchase",
+            assistant_message="Voy a preparar esos audífonos.",
+            purchase_request="audífonos disponibles",
+            intent=PurchaseIntent(),
+        )
+    )
+    app = create_app(
+        settings=settings,
+        transport=httpx.MockTransport(handler),
+        conversation_router=router,
+    )
 
     with TestClient(app) as client:
         preflight = client.options(
@@ -147,22 +183,18 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
         assert preflight.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
 
         start = client.post(
-            "/purchases",
+            "/conversation/turn",
             json={
-                "request": "Quiero los audifonos disponibles",
-                "intent": {},
-                "details": {
-                    "buyer": {
-                        "email": "buyer@example.test",
-                        "first_name": "Buyer",
-                        "last_name": "Test",
-                    },
-                    "fulfillment": ready["fulfillment_details"],
-                },
+                "messages": [{"role": "user", "content": "Quiero los audífonos disponibles"}],
+                "details": checkout_details(),
             },
         )
-        assert start.status_code == 201, start.text
-        run_id = start.json()["run_id"]
+        assert start.status_code == 200, start.text
+        payload = start.json()
+        assert payload["action"] == "purchase"
+        assert "intent" not in payload
+        assert payload["approval_terms"]["merchant_origin"] == "http://127.0.0.1:4120"
+        run_id = payload["purchase"]["run_id"]
 
         blocked = client.post(f"/purchases/{run_id}/complete")
         assert blocked.status_code == 409
@@ -187,7 +219,7 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
         assert client.get(f"/purchases/{run_id}").json()["stage"] == "completed"
 
 
-def test_conversation_route_can_reply_without_contacting_merchant(tmp_path: Path) -> None:
+def test_conversation_turn_can_reply_without_contacting_merchant(tmp_path: Path) -> None:
     def unexpected_request(_: httpx.Request) -> httpx.Response:
         raise AssertionError("Conversation-only turns must not contact the merchant")
 
@@ -213,15 +245,18 @@ def test_conversation_route_can_reply_without_contacting_merchant(tmp_path: Path
 
     with TestClient(app) as client:
         response = client.post(
-            "/conversation/route",
-            json={"messages": [{"role": "user", "content": "Quiero comprar algo"}]},
+            "/conversation/turn",
+            json={
+                "messages": [{"role": "user", "content": "Quiero comprar algo"}],
+                "details": checkout_details(),
+            },
         )
 
     assert response.status_code == 200
     assert response.json() == {
         "action": "clarify",
         "assistant_message": "¿Qué producto estás buscando?",
-        "purchase_request": None,
-        "intent": None,
+        "purchase": None,
+        "approval_terms": None,
     }
     assert router.messages == (ConversationMessage(role="user", content="Quiero comprar algo"),)

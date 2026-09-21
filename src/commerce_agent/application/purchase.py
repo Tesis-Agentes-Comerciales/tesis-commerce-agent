@@ -1,8 +1,9 @@
-from collections.abc import Callable
+from enum import StrEnum
+from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict
 
-from commerce_agent.acp.feed import ProductCandidate
+from commerce_agent.acp.feed import ProductCandidate, ProductFeed
 from commerce_agent.acp.models import (
     Buyer,
     CheckoutSession,
@@ -11,13 +12,43 @@ from commerce_agent.acp.models import (
     SelectedFulfillmentOption,
 )
 from commerce_agent.approval import ApprovalService, ApprovalTerms
-from commerce_agent.domain.intent import PurchaseIntent
+from commerce_agent.domain import PurchaseIntent, rank_candidates
 from commerce_agent.persistence import ApprovalRecord, SqliteAgentStore
-from commerce_agent.ports import CheckoutGateway
-from commerce_agent.workflow.selection import SelectionOutput
-from commerce_agent.workflow.state import PurchaseStage
 
-SelectionRunner = Callable[[str], SelectionOutput]
+
+class PurchaseStage(StrEnum):
+    RECEIVED = "received"
+    SELECTED = "selected"
+    CHECKOUT_PREPARED = "checkout_prepared"
+    AWAITING_CONFIRMATION = "awaiting_confirmation"
+    APPROVED = "approved"
+    COMPLETING = "completing"
+    UNCERTAIN = "uncertain"
+    COMPLETED = "completed"
+    CANCELED = "canceled"
+    FAILED = "failed"
+
+
+class CheckoutGateway(Protocol):
+    def create_checkout(self, variant_id: str, *, idempotency_key: str) -> CheckoutSession: ...
+
+    def get_checkout(self, checkout_id: str) -> CheckoutSession: ...
+
+    def update_checkout(
+        self,
+        checkout_id: str,
+        update: CheckoutUpdateRequest,
+        *,
+        idempotency_key: str,
+    ) -> CheckoutSession: ...
+
+    def cancel_checkout(
+        self,
+        checkout_id: str,
+        *,
+        idempotency_key: str,
+        reason_code: str | None = None,
+    ) -> CheckoutSession: ...
 
 
 class PurchaseServiceError(RuntimeError):
@@ -47,12 +78,12 @@ class PurchaseService:
     def __init__(
         self,
         *,
-        selection: SelectionRunner,
+        feed: ProductFeed,
         checkout: CheckoutGateway,
         store: SqliteAgentStore,
         approvals: ApprovalService,
     ) -> None:
-        self._selection = selection
+        self._feed = feed
         self._checkout = checkout
         self._store = store
         self._approvals = approvals
@@ -62,15 +93,14 @@ class PurchaseService:
         *,
         run_id: str,
         request: str,
-        details: CheckoutDetails | None = None,
+        intent: PurchaseIntent,
+        details: CheckoutDetails,
     ) -> PurchasePreparation:
         self._store.create_purchase(run_id, request)
-        selected = self._selection(request)
-        candidate = selected.get("selected_candidate")
+        candidate = rank_candidates(self._feed, intent).selected
         if candidate is None:
             self._store.update_purchase(run_id, stage=PurchaseStage.FAILED)
             raise PurchaseServiceError("No candidate satisfies the request", code="no_candidate")
-        intent = selected["intent"]
         self._store.update_purchase(
             run_id,
             stage=PurchaseStage.SELECTED,
@@ -90,15 +120,6 @@ class PurchaseService:
             candidate.observed_unit_amount_minor
         )
         self._enforce_authoritative_budget(run_id, checkout, intent)
-        if details is None:
-            self._store.update_purchase(run_id, stage=PurchaseStage.COLLECTING_DETAILS)
-            return PurchasePreparation(
-                run_id=run_id,
-                stage=PurchaseStage.COLLECTING_DETAILS,
-                selected_candidate=candidate,
-                checkout=checkout,
-                price_changed=price_changed,
-            )
         ready = self._apply_details(run_id, checkout, details)
         return PurchasePreparation(
             run_id=run_id,
@@ -107,18 +128,6 @@ class PurchaseService:
             checkout=ready,
             price_changed=price_changed,
         )
-
-    def provide_details(self, run_id: str, details: CheckoutDetails) -> CheckoutSession:
-        purchase = self._require_purchase(run_id)
-        checkout_id = purchase.get("checkout_id")
-        if not isinstance(checkout_id, str):
-            raise PurchaseServiceError("Purchase has no checkout", code="checkout_missing")
-        if purchase.get("stage") != PurchaseStage.COLLECTING_DETAILS:
-            raise PurchaseServiceError(
-                "Purchase is not collecting checkout details", code="invalid_stage"
-            )
-        current = self._checkout.get_checkout(checkout_id)
-        return self._apply_details(run_id, current, details)
 
     def approval_terms(self, run_id: str) -> ApprovalTerms:
         checkout = self._current_checkout(run_id)

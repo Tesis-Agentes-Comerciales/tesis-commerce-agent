@@ -7,7 +7,6 @@ import threading
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import cast
 
 import httpx
 import pytest
@@ -23,19 +22,11 @@ from commerce_agent.domain import PurchaseIntent
 from commerce_agent.payment import SandboxPaymentProvider
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.webhooks import create_webhook_app
-from commerce_agent.workflow import build_selection_workflow
-from commerce_agent.workflow.selection import SelectionOutput
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_JOINT_E2E") != "1",
     reason="requires the pinned merchant service and PostgreSQL",
 )
-
-
-class _Interpreter:
-    def interpret(self, request: str) -> PurchaseIntent:
-        assert request
-        return PurchaseIntent()
 
 
 class _ForwardingHandler(BaseHTTPRequestHandler):
@@ -110,14 +101,6 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
         SecretStr(_required("AGENT_APPROVAL_SECRET")),
         clock=lambda: datetime(2026, 9, 10, 14, 5, tzinfo=UTC),
     )
-    workflow = build_selection_workflow(
-        feed=load_product_feed(Path(_required("PRODUCT_FEED_PATH"))),
-        interpreter=_Interpreter(),
-    )
-
-    def select(request: str) -> SelectionOutput:
-        return cast(SelectionOutput, workflow.invoke({"request": request}))
-
     app = create_webhook_app(
         store=store,
         secret=_required("MERCHANT_WEBHOOK_SECRET"),
@@ -139,7 +122,7 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
                 discovery = gateway.discover()
                 assert discovery.protocol.version == "2026-04-17"
                 purchase = PurchaseService(
-                    selection=select,
+                    feed=load_product_feed(Path(_required("PRODUCT_FEED_PATH"))),
                     checkout=gateway,
                     store=store,
                     approvals=approvals,
@@ -148,6 +131,7 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
                 prepared = purchase.start(
                     run_id=run_id,
                     request="Buy one available product",
+                    intent=PurchaseIntent(),
                     details=_details(),
                 )
                 assert prepared.stage == "awaiting_confirmation"

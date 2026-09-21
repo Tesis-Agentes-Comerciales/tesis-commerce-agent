@@ -75,12 +75,10 @@ def test_non_purchase_decision_rejects_purchase_payload() -> None:
         )
 
 
-def test_purchase_decision_can_reuse_latest_user_message() -> None:
-    decision = CommerceDecision(
-        action="purchase",
-        assistant_message="Buscaré una opción.",
-        intent=PurchaseIntent(hard=HardConstraints(categories=("headphones",))),
-    )
-
-    assert decision.purchase_request is None
-    assert decision.intent is not None
+def test_purchase_decision_requires_a_consolidated_request() -> None:
+    with pytest.raises(ValidationError):
+        CommerceDecision(
+            action="purchase",
+            assistant_message="Buscaré una opción.",
+            intent=PurchaseIntent(hard=HardConstraints(categories=("headphones",))),
+        )

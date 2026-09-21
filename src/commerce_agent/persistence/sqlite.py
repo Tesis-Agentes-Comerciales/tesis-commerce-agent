@@ -286,18 +286,6 @@ class SqliteAgentStore:
             ).fetchone()
         return json.loads(row[0]) if row is not None else None
 
-    def consume_approval(self, run_id: str) -> None:
-        with self._connect() as connection:
-            cursor = connection.execute(
-                """
-                UPDATE approvals SET consumed_at = ?
-                WHERE run_id = ? AND consumed_at IS NULL
-                """,
-                (_timestamp(), run_id),
-            )
-            if cursor.rowcount != 1:
-                raise RuntimeError("Approval is absent or already consumed")
-
     def record_webhook(
         self,
         *,

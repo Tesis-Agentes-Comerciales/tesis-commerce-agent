@@ -1,6 +1,5 @@
 from commerce_agent.domain.intent import (
     HardConstraints,
-    IntentInterpreter,
     OptionConstraint,
     PurchaseIntent,
     SoftPreferences,
@@ -9,7 +8,6 @@ from commerce_agent.domain.selection import RankedCandidate, SelectionResult, ra
 
 __all__ = [
     "HardConstraints",
-    "IntentInterpreter",
     "OptionConstraint",
     "PurchaseIntent",
     "RankedCandidate",

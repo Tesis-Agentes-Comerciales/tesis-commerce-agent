@@ -1,4 +1,4 @@
-from typing import Annotated, Protocol
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
@@ -76,7 +76,3 @@ class SoftPreferences(IntentModel):
 class PurchaseIntent(IntentModel):
     hard: HardConstraints = Field(default_factory=HardConstraints)
     preferences: SoftPreferences = Field(default_factory=SoftPreferences)
-
-
-class IntentInterpreter(Protocol):
-    def interpret(self, request: str) -> PurchaseIntent: ...

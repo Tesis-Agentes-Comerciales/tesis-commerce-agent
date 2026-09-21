@@ -137,9 +137,6 @@ class ApprovalService:
             raise ApprovalError("Approval signature is invalid", code="invalid_approval")
         return record
 
-    def consume(self, run_id: str) -> None:
-        self._store.consume_approval(run_id)
-
     def _require_approvable(self, checkout: CheckoutSession) -> None:
         if checkout.status != "ready_for_payment":
             raise ApprovalError("Checkout is not ready for payment", code="checkout_not_ready")

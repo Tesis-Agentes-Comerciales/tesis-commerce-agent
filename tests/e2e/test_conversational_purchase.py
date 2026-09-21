@@ -8,6 +8,8 @@ from pydantic import SecretStr
 
 from commerce_agent.api import create_app
 from commerce_agent.config import Settings
+from commerce_agent.domain import PurchaseIntent
+from commerce_agent.llm import CommerceDecision, ConversationMessage
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_JOINT_E2E") != "1",
@@ -20,6 +22,21 @@ def _required(name: str) -> str:
     if not value:
         pytest.fail(f"joint E2E environment is missing {name}")
     return value
+
+
+class _StaticConversationRouter:
+    def __init__(self, request: str, intent: PurchaseIntent) -> None:
+        self._request = request
+        self._intent = intent
+
+    def route(self, messages: tuple[ConversationMessage, ...]) -> CommerceDecision:
+        assert messages[-1].content == self._request
+        return CommerceDecision(
+            action="purchase",
+            assistant_message="Voy a preparar la compra.",
+            purchase_request=self._request,
+            intent=self._intent,
+        )
 
 
 def test_natural_request_crosses_the_model_boundary_and_completes() -> None:
@@ -48,14 +65,21 @@ def test_natural_request_crosses_the_model_boundary_and_completes() -> None:
         agent_principal_id="human-conversational-e2e",
     )
 
+    router = None
+    if os.getenv("RUN_LIVE_LLM") != "1":
+        router = _StaticConversationRouter(
+            natural_request,
+            PurchaseIntent.model_validate(simulated_llm_intent),
+        )
     with TestClient(
         create_app(
             settings=settings,
             clock=lambda: datetime(2026, 9, 10, 14, 5, tzinfo=UTC),
+            conversation_router=router,
         )
     ) as client:
         request_body = {
-            "request": natural_request,
+            "messages": [{"role": "user", "content": natural_request}],
             "details": {
                 "buyer": {
                     "email": "buyer.conversation@example.test",
@@ -77,14 +101,14 @@ def test_natural_request_crosses_the_model_boundary_and_completes() -> None:
                 },
             },
         }
-        if os.getenv("RUN_LIVE_LLM") != "1":
-            request_body["intent"] = simulated_llm_intent
         prepared = client.post(
-            "/purchases",
+            "/conversation/turn",
             json=request_body,
         )
-        assert prepared.status_code == 201, prepared.text
-        preparation = prepared.json()
+        assert prepared.status_code == 200, prepared.text
+        turn = prepared.json()
+        assert turn["action"] == "purchase"
+        preparation = turn["purchase"]
         assert preparation["selected_candidate"]["variant_id"] == "SON-01"
         assert preparation["checkout"]["status"] == "ready_for_payment"
         assert preparation["checkout"]["totals"][-1]["amount"] <= 80_000
@@ -93,12 +117,11 @@ def test_natural_request_crosses_the_model_boundary_and_completes() -> None:
         blocked = client.post(f"/purchases/{run_id}/complete")
         assert blocked.status_code == 409
 
-        terms = client.get(f"/purchases/{run_id}/approval")
-        assert terms.status_code == 200, terms.text
-        assert terms.json()["total_minor"] <= 80_000
+        terms = turn["approval_terms"]
+        assert terms["total_minor"] <= 80_000
         approved = client.post(
             f"/purchases/{run_id}/approval",
-            json={"expected_fingerprint": terms.json()["fingerprint"]},
+            json={"expected_fingerprint": terms["fingerprint"]},
         )
         assert approved.status_code == 200
         assert approved.json()["principal_id"] == "human-conversational-e2e"

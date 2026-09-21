@@ -1,6 +1,5 @@
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
 
 import pytest
 from pydantic import SecretStr
@@ -11,19 +10,8 @@ from commerce_agent.application import CheckoutDetails, PurchaseService, Purchas
 from commerce_agent.approval import ApprovalService
 from commerce_agent.domain import HardConstraints, PurchaseIntent
 from commerce_agent.persistence import SqliteAgentStore
-from commerce_agent.workflow import build_selection_workflow
-from commerce_agent.workflow.selection import SelectionOutput
 
 FIXTURE = Path(__file__).parent / "fixtures" / "feed"
-
-
-class Interpreter:
-    def __init__(self, intent: PurchaseIntent) -> None:
-        self.intent = intent
-
-    def interpret(self, request: str) -> PurchaseIntent:
-        assert request
-        return self.intent
 
 
 class FakeCheckoutGateway:
@@ -114,15 +102,7 @@ def details() -> CheckoutDetails:
 def make_service(
     tmp_path: Path,
     gateway: FakeCheckoutGateway,
-    intent: PurchaseIntent,
 ) -> tuple[PurchaseService, SqliteAgentStore]:
-    workflow = build_selection_workflow(
-        feed=load_product_feed(FIXTURE), interpreter=Interpreter(intent)
-    )
-
-    def selection(request: str) -> SelectionOutput:
-        return cast(SelectionOutput, workflow.invoke({"request": request}))
-
     store = SqliteAgentStore(tmp_path / "agent.db")
     store.initialize()
     approvals = ApprovalService(
@@ -132,7 +112,7 @@ def make_service(
     )
     return (
         PurchaseService(
-            selection=selection,
+            feed=load_product_feed(FIXTURE),
             checkout=gateway,
             store=store,
             approvals=approvals,
@@ -143,9 +123,14 @@ def make_service(
 
 def test_purchase_reaches_human_confirmation_with_backend_only_details(tmp_path: Path) -> None:
     gateway = FakeCheckoutGateway()
-    service, store = make_service(tmp_path, gateway, PurchaseIntent())
+    service, store = make_service(tmp_path, gateway)
 
-    result = service.start(run_id="run-1", request="buy headphones", details=details())
+    result = service.start(
+        run_id="run-1",
+        request="buy headphones",
+        intent=PurchaseIntent(),
+        details=details(),
+    )
 
     assert result.stage == "awaiting_confirmation"
     assert result.checkout.status == "ready_for_payment"
@@ -155,27 +140,17 @@ def test_purchase_reaches_human_confirmation_with_backend_only_details(tmp_path:
     assert "buyer@example.test" not in repr(result.selected_candidate)
 
 
-def test_purchase_can_pause_for_details_then_resume(tmp_path: Path) -> None:
-    gateway = FakeCheckoutGateway()
-    service, _ = make_service(tmp_path, gateway, PurchaseIntent())
-    prepared = service.start(run_id="run-1", request="buy headphones")
-    assert prepared.stage == "collecting_details"
-
-    ready = service.provide_details("run-1", details())
-    assert ready.status == "ready_for_payment"
-    assert service.approval_terms("run-1").total_minor == 74_000
-
-
 def test_authoritative_total_above_hard_budget_cancels(tmp_path: Path) -> None:
     gateway = FakeCheckoutGateway(total=90_000)
-    service, store = make_service(
-        tmp_path,
-        gateway,
-        PurchaseIntent(hard=HardConstraints(max_total_amount_minor=80_000)),
-    )
+    service, store = make_service(tmp_path, gateway)
 
     with pytest.raises(PurchaseServiceError) as captured:
-        service.start(run_id="run-1", request="under budget")
+        service.start(
+            run_id="run-1",
+            request="under budget",
+            intent=PurchaseIntent(hard=HardConstraints(max_total_amount_minor=80_000)),
+            details=details(),
+        )
     assert captured.value.code == "budget_exceeded"
     assert store.purchase("run-1")["stage"] == "canceled"  # type: ignore[index]
     assert [call[0] for call in gateway.calls] == ["create", "cancel"]
@@ -183,16 +158,18 @@ def test_authoritative_total_above_hard_budget_cancels(tmp_path: Path) -> None:
 
 def test_feed_price_change_is_reported_but_checkout_remains_authoritative(tmp_path: Path) -> None:
     gateway = FakeCheckoutGateway(unit_amount=73_000, total=75_000)
-    service, _ = make_service(tmp_path, gateway, PurchaseIntent())
-    result = service.start(run_id="run-1", request="buy", details=details())
+    service, _ = make_service(tmp_path, gateway)
+    result = service.start(
+        run_id="run-1", request="buy", intent=PurchaseIntent(), details=details()
+    )
     assert result.price_changed is True
     assert result.checkout.total_minor == 75_000
 
 
 def test_approval_requires_exact_fingerprint_and_updates_stage(tmp_path: Path) -> None:
     gateway = FakeCheckoutGateway()
-    service, store = make_service(tmp_path, gateway, PurchaseIntent())
-    service.start(run_id="run-1", request="buy", details=details())
+    service, store = make_service(tmp_path, gateway)
+    service.start(run_id="run-1", request="buy", intent=PurchaseIntent(), details=details())
     terms = service.approval_terms("run-1")
 
     service.approve(run_id="run-1", actor_id="human-1", expected_fingerprint=terms.fingerprint)
