@@ -154,11 +154,33 @@ def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) ->
 
     assert result == decision
     call = fake.responses.calls[0]
-    assert call["text_format"] is CandidateDecision
+    assert call["text_format"] is module.CandidateChoice
     assert "SON-01" in call["input"]
     assert '"preference_score": 0' in call["input"]
     assert "authoritative total is unknown" in call["instructions"]
     assert "Human approval" in call["instructions"]
+
+
+def test_unmatched_preferences_allow_candidate_clarification(monkeypatch) -> None:
+    decision = CandidateDecision(
+        action="clarify",
+        assistant_message="El catálogo no confirma cancelación de ruido.",
+    )
+    fake = FakeOpenAI(decision)
+    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"),
+        model="test-model",
+        feed=FEED,
+    )
+    messages = (ConversationMessage(role="user", content="Quiero cancelación de ruido"),)
+    intent = PurchaseIntent.model_validate({"preferences": {"terms": ["noise-cancelling"]}})
+    candidates = rank_candidates(FEED, intent).ranked
+
+    result = router.choose_candidate(messages, intent, candidates)
+
+    assert result == decision
+    assert fake.responses.calls[0]["text_format"] is CandidateDecision
 
 
 def test_router_explains_real_alternatives_when_no_candidate_matches(monkeypatch) -> None:

@@ -201,6 +201,14 @@ class CandidateDecision(BaseModel):
         return self
 
 
+class CandidateChoice(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    action: Literal["purchase"]
+    assistant_message: str = Field(min_length=1, max_length=1_000)
+    selected_variant_id: str = Field(min_length=1, max_length=256)
+
+
 class CatalogRecovery(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -283,6 +291,16 @@ class OpenAIConversationRouter:
     ) -> CandidateDecision:
         if not candidates:
             raise ValueError("Candidate selection requires at least one candidate")
+        preference_labels = {
+            *(f"term:{value}" for value in intent.preferences.terms),
+            *(f"category:{value}" for value in intent.preferences.categories),
+            *(f"condition:{value}" for value in intent.preferences.conditions),
+            *(f"option:{option.name}={option.value}" for option in intent.preferences.options),
+        }
+        matched_preferences = {value for item in candidates for value in item.matched_preferences}
+        response_model = (
+            CandidateDecision if preference_labels - matched_preferences else CandidateChoice
+        )
         payload = {
             "conversation": [message.model_dump(mode="json") for message in messages],
             "intent": intent.model_dump(mode="json"),
@@ -300,7 +318,7 @@ class OpenAIConversationRouter:
                 model=self._model,
                 instructions=_SELECTION_INSTRUCTIONS,
                 input=json.dumps(payload, ensure_ascii=False),
-                text_format=CandidateDecision,
+                text_format=response_model,
                 store=False,
             )
         except (OpenAIError, ValidationError) as error:
@@ -308,10 +326,16 @@ class OpenAIConversationRouter:
         parsed = response.output_parsed
         if parsed is None:
             raise IntentInterpretationError("The candidate model returned no decision")
+        try:
+            decision = CandidateDecision.model_validate(parsed.model_dump(mode="json"))
+        except ValidationError as error:
+            raise IntentInterpretationError(
+                "The candidate model returned an invalid decision"
+            ) from error
         allowed = {item.candidate.variant_id for item in candidates}
-        if parsed.selected_variant_id is not None and parsed.selected_variant_id not in allowed:
+        if decision.selected_variant_id is not None and decision.selected_variant_id not in allowed:
             raise IntentInterpretationError("The candidate model selected an unknown variant")
-        return parsed
+        return decision
 
     def recover_no_candidate(
         self,
