@@ -8,20 +8,37 @@ from pydantic import SecretStr
 
 from commerce_agent.api import create_app
 from commerce_agent.config import Settings
-from commerce_agent.domain import PurchaseIntent
-from commerce_agent.llm import CommerceDecision, ConversationMessage
+from commerce_agent.domain import PurchaseIntent, RankedCandidate
+from commerce_agent.llm import CandidateDecision, CommerceDecision, ConversationMessage
 
 FEED = Path(__file__).parent / "fixtures" / "feed"
 
 
 class StubConversationRouter:
-    def __init__(self, decision: CommerceDecision) -> None:
+    def __init__(
+        self,
+        decision: CommerceDecision,
+        candidate_decision: CandidateDecision | None = None,
+    ) -> None:
         self.decision = decision
+        self.candidate_decision = candidate_decision
         self.messages: tuple[ConversationMessage, ...] | None = None
 
     def route(self, messages: tuple[ConversationMessage, ...]) -> CommerceDecision:
         self.messages = messages
         return self.decision
+
+    def choose_candidate(
+        self,
+        messages: tuple[ConversationMessage, ...],
+        intent: PurchaseIntent,
+        candidates: tuple[RankedCandidate, ...],
+    ) -> CandidateDecision:
+        assert messages
+        assert intent == self.decision.intent
+        assert candidates
+        assert self.candidate_decision is not None
+        return self.candidate_decision
 
 
 def checkout(status: str, *, with_details: bool) -> dict[str, Any]:
@@ -162,7 +179,12 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
             action="purchase",
             assistant_message="Voy a preparar esos audífonos.",
             intent=PurchaseIntent(),
-        )
+        ),
+        CandidateDecision(
+            action="purchase",
+            assistant_message="Elegí los Sonora negros porque son la opción disponible.",
+            selected_variant_id="SON-01",
+        ),
     )
     app = create_app(
         settings=settings,
@@ -191,6 +213,7 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
         assert start.status_code == 200, start.text
         payload = start.json()
         assert payload["action"] == "purchase"
+        assert payload["assistant_message"].startswith("Elegí los Sonora")
         assert "intent" not in payload
         assert payload["approval_terms"]["merchant_origin"] == "http://127.0.0.1:4120"
         run_id = payload["purchase"]["run_id"]
@@ -259,3 +282,50 @@ def test_conversation_turn_can_reply_without_contacting_merchant(tmp_path: Path)
         "approval_terms": None,
     }
     assert router.messages == (ConversationMessage(role="user", content="Quiero comprar algo"),)
+
+
+def test_candidate_choice_can_ask_for_clarification_without_checkout(tmp_path: Path) -> None:
+    def unexpected_request(_: httpx.Request) -> httpx.Response:
+        raise AssertionError("Clarification must not contact the merchant")
+
+    settings = Settings(
+        merchant_bearer_token=SecretStr("merchant-token"),
+        merchant_webhook_secret=SecretStr("webhook-secret-with-at-least-32-characters"),
+        agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
+        agent_payment_secret=SecretStr("payment-secret-with-at-least-32-characters"),
+        agent_database_path=tmp_path / "agent.db",
+        agent_feed_path=FEED,
+    )
+    router = StubConversationRouter(
+        CommerceDecision(
+            action="purchase",
+            assistant_message="Buscaré opciones.",
+            intent=PurchaseIntent(),
+        ),
+        CandidateDecision(
+            action="clarify",
+            assistant_message="Solo tengo audífonos negros. ¿Te sirven?",
+        ),
+    )
+    app = create_app(
+        settings=settings,
+        transport=httpx.MockTransport(unexpected_request),
+        conversation_router=router,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/conversation/turn",
+            json={
+                "messages": [{"role": "user", "content": "Busco audífonos azules"}],
+                "details": checkout_details(),
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "action": "clarify",
+        "assistant_message": "Solo tengo audífonos negros. ¿Te sirven?",
+        "purchase": None,
+        "approval_terms": None,
+    }

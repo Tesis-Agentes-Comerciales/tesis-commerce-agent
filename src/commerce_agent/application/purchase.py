@@ -94,13 +94,27 @@ class PurchaseService:
         run_id: str,
         request: str,
         intent: PurchaseIntent,
+        selected_variant_id: str,
         details: CheckoutDetails,
     ) -> PurchasePreparation:
         self._store.create_purchase(run_id, request)
-        candidate = rank_candidates(self._feed, intent).selected
-        if candidate is None:
+        selection = rank_candidates(self._feed, intent)
+        if selection.selected is None:
             self._store.update_purchase(run_id, stage=PurchaseStage.FAILED)
             raise PurchaseServiceError("No candidate satisfies the request", code="no_candidate")
+        candidate = next(
+            (
+                item.candidate
+                for item in selection.ranked
+                if item.candidate.variant_id == selected_variant_id
+            ),
+            None,
+        )
+        if candidate is None:
+            self._store.update_purchase(run_id, stage=PurchaseStage.FAILED)
+            raise PurchaseServiceError(
+                "Selected candidate does not satisfy the request", code="invalid_candidate"
+            )
         self._store.update_purchase(
             run_id,
             stage=PurchaseStage.SELECTED,

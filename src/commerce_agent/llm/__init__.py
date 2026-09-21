@@ -1,4 +1,5 @@
 from commerce_agent.llm.conversation_router import (
+    CandidateDecision,
     CommerceDecision,
     ConversationMessage,
     ConversationRouter,
@@ -7,6 +8,7 @@ from commerce_agent.llm.conversation_router import (
 )
 
 __all__ = [
+    "CandidateDecision",
     "CommerceDecision",
     "ConversationMessage",
     "ConversationRouter",

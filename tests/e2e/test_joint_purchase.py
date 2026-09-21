@@ -132,6 +132,7 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
                     run_id=run_id,
                     request="Buy one available product",
                     intent=PurchaseIntent(),
+                    selected_variant_id="SON-01",
                     details=_details(),
                 )
                 assert prepared.stage == "awaiting_confirmation"

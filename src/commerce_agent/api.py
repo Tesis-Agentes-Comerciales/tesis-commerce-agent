@@ -17,6 +17,7 @@ from commerce_agent.application.purchase import PurchaseServiceError
 from commerce_agent.approval import ApprovalError, ApprovalService, ApprovalTerms
 from commerce_agent.completion import CompletionError, CompletionService
 from commerce_agent.config import Settings, get_settings
+from commerce_agent.domain import rank_candidates
 from commerce_agent.llm import (
     ConversationMessage,
     ConversationRouter,
@@ -200,16 +201,33 @@ def create_app(
         intent = decision.intent
         if intent is None:
             raise IntentInterpretationError("Purchase decision is incomplete")
+        selection = rank_candidates(feed, intent)
+        if not selection.ranked:
+            raise PurchaseServiceError("No candidate satisfies the request", code="no_candidate")
+        candidate_decision = conversation_router.choose_candidate(
+            tuple(body.messages),
+            intent,
+            selection.ranked[:10],
+        )
+        if candidate_decision.action == "clarify":
+            return ConversationTurnResponse(
+                action="clarify",
+                assistant_message=candidate_decision.assistant_message,
+            )
+        selected_variant_id = candidate_decision.selected_variant_id
+        if selected_variant_id is None:
+            raise IntentInterpretationError("Candidate selection is incomplete")
         client.discover()
         purchase = purchase_service.start(
             run_id=f"run_{uuid4().hex}",
             request=request,
             intent=intent,
+            selected_variant_id=selected_variant_id,
             details=body.details,
         )
         return ConversationTurnResponse(
             action="purchase",
-            assistant_message=decision.assistant_message,
+            assistant_message=candidate_decision.assistant_message,
             purchase=purchase,
             approval_terms=purchase_service.approval_terms(purchase.run_id),
         )

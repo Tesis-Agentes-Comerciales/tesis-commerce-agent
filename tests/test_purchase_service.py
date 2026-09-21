@@ -129,6 +129,7 @@ def test_purchase_reaches_human_confirmation_with_backend_only_details(tmp_path:
         run_id="run-1",
         request="buy headphones",
         intent=PurchaseIntent(),
+        selected_variant_id="SON-01",
         details=details(),
     )
 
@@ -149,6 +150,7 @@ def test_authoritative_total_above_hard_budget_cancels(tmp_path: Path) -> None:
             run_id="run-1",
             request="under budget",
             intent=PurchaseIntent(hard=HardConstraints(max_total_amount_minor=80_000)),
+            selected_variant_id="SON-01",
             details=details(),
         )
     assert captured.value.code == "budget_exceeded"
@@ -160,16 +162,44 @@ def test_feed_price_change_is_reported_but_checkout_remains_authoritative(tmp_pa
     gateway = FakeCheckoutGateway(unit_amount=73_000, total=75_000)
     service, _ = make_service(tmp_path, gateway)
     result = service.start(
-        run_id="run-1", request="buy", intent=PurchaseIntent(), details=details()
+        run_id="run-1",
+        request="buy",
+        intent=PurchaseIntent(),
+        selected_variant_id="SON-01",
+        details=details(),
     )
     assert result.price_changed is True
     assert result.checkout.total_minor == 75_000
 
 
+def test_model_can_only_select_a_deterministically_eligible_candidate(tmp_path: Path) -> None:
+    gateway = FakeCheckoutGateway()
+    service, store = make_service(tmp_path, gateway)
+
+    with pytest.raises(PurchaseServiceError) as captured:
+        service.start(
+            run_id="run-1",
+            request="buy",
+            intent=PurchaseIntent(),
+            selected_variant_id="SON-07",
+            details=details(),
+        )
+
+    assert captured.value.code == "invalid_candidate"
+    assert store.purchase("run-1")["stage"] == "failed"  # type: ignore[index]
+    assert gateway.calls == []
+
+
 def test_approval_requires_exact_fingerprint_and_updates_stage(tmp_path: Path) -> None:
     gateway = FakeCheckoutGateway()
     service, store = make_service(tmp_path, gateway)
-    service.start(run_id="run-1", request="buy", intent=PurchaseIntent(), details=details())
+    service.start(
+        run_id="run-1",
+        request="buy",
+        intent=PurchaseIntent(),
+        selected_variant_id="SON-01",
+        details=details(),
+    )
     terms = service.approval_terms("run-1")
 
     service.approve(run_id="run-1", actor_id="human-1", expected_fingerprint=terms.fingerprint)

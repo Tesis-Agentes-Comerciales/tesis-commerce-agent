@@ -6,15 +6,25 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from commerce_agent.acp import load_product_feed
-from commerce_agent.domain import HardConstraints, OptionConstraint, PurchaseIntent
-from commerce_agent.llm import CommerceDecision, ConversationMessage, OpenAIConversationRouter
+from commerce_agent.domain import (
+    HardConstraints,
+    OptionConstraint,
+    PurchaseIntent,
+    rank_candidates,
+)
+from commerce_agent.llm import (
+    CandidateDecision,
+    CommerceDecision,
+    ConversationMessage,
+    OpenAIConversationRouter,
+)
 from commerce_agent.llm import conversation_router as module
 
 FEED = load_product_feed(Path(__file__).parent / "fixtures" / "feed")
 
 
 class FakeResponses:
-    def __init__(self, decision: CommerceDecision) -> None:
+    def __init__(self, decision: CommerceDecision | CandidateDecision) -> None:
         self.decision = decision
         self.calls: list[dict[str, Any]] = []
 
@@ -24,7 +34,7 @@ class FakeResponses:
 
 
 class FakeOpenAI:
-    def __init__(self, decision: CommerceDecision) -> None:
+    def __init__(self, decision: CommerceDecision | CandidateDecision) -> None:
         self.responses = FakeResponses(decision)
         self.closed = False
 
@@ -120,3 +130,29 @@ def test_router_moves_unknown_catalog_attributes_to_preferences(monkeypatch) -> 
     assert result.intent.hard.required_terms == ()
     assert result.intent.preferences.options == (OptionConstraint(name="color", value="blue"),)
     assert result.intent.preferences.terms == ("wireless", "noise-cancelling")
+
+
+def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) -> None:
+    decision = CandidateDecision(
+        action="purchase",
+        assistant_message="Elegí Sonora porque coincide con tu marca preferida.",
+        selected_variant_id="SON-01",
+    )
+    fake = FakeOpenAI(decision)
+    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"),
+        model="test-model",
+        feed=FEED,
+    )
+    messages = (ConversationMessage(role="user", content="Quiero audífonos Sonora"),)
+    intent = PurchaseIntent(hard=HardConstraints(categories=("headphones",)))
+    candidates = rank_candidates(FEED, intent).ranked
+
+    result = router.choose_candidate(messages, intent, candidates)
+
+    assert result == decision
+    call = fake.responses.calls[0]
+    assert call["text_format"] is CandidateDecision
+    assert "SON-01" in call["input"]
+    assert "Human approval" in call["instructions"]

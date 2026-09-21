@@ -8,8 +8,8 @@ from pydantic import SecretStr
 
 from commerce_agent.api import create_app
 from commerce_agent.config import Settings
-from commerce_agent.domain import PurchaseIntent
-from commerce_agent.llm import CommerceDecision, ConversationMessage
+from commerce_agent.domain import PurchaseIntent, RankedCandidate
+from commerce_agent.llm import CandidateDecision, CommerceDecision, ConversationMessage
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_JOINT_E2E") != "1",
@@ -36,6 +36,19 @@ class _StaticConversationRouter:
             assistant_message="Voy a preparar la compra.",
             purchase_request=self._request,
             intent=self._intent,
+        )
+
+    def choose_candidate(
+        self,
+        messages: tuple[ConversationMessage, ...],
+        intent: PurchaseIntent,
+        candidates: tuple[RankedCandidate, ...],
+    ) -> CandidateDecision:
+        assert messages and intent == self._intent and candidates
+        return CandidateDecision(
+            action="purchase",
+            assistant_message="Elegí la opción disponible que cumple tu solicitud.",
+            selected_variant_id=candidates[0].candidate.variant_id,
         )
 
 
