@@ -6,10 +6,16 @@ import httpx
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from commerce_agent.acp.feed import ProductCandidate
 from commerce_agent.api import create_app
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
-from commerce_agent.llm import CandidateDecision, CommerceDecision, ConversationMessage
+from commerce_agent.llm import (
+    CandidateDecision,
+    CatalogRecovery,
+    CommerceDecision,
+    ConversationMessage,
+)
 
 FEED = Path(__file__).parent / "fixtures" / "feed"
 
@@ -19,9 +25,11 @@ class StubConversationRouter:
         self,
         decision: CommerceDecision,
         candidate_decision: CandidateDecision | None = None,
+        recovery: CatalogRecovery | None = None,
     ) -> None:
         self.decision = decision
         self.candidate_decision = candidate_decision
+        self.recovery = recovery
         self.messages: tuple[ConversationMessage, ...] | None = None
 
     def route(self, messages: tuple[ConversationMessage, ...]) -> CommerceDecision:
@@ -39,6 +47,18 @@ class StubConversationRouter:
         assert candidates
         assert self.candidate_decision is not None
         return self.candidate_decision
+
+    def recover_no_candidate(
+        self,
+        messages: tuple[ConversationMessage, ...],
+        intent: PurchaseIntent,
+        rejection_counts: dict[str, int],
+        alternatives: tuple[ProductCandidate, ...],
+    ) -> CatalogRecovery:
+        assert messages and intent == self.decision.intent
+        assert rejection_counts and alternatives
+        assert self.recovery is not None
+        return self.recovery
 
 
 def checkout(status: str, *, with_details: bool) -> dict[str, Any]:
@@ -329,3 +349,47 @@ def test_candidate_choice_can_ask_for_clarification_without_checkout(tmp_path: P
         "purchase": None,
         "approval_terms": None,
     }
+
+
+def test_no_candidate_returns_catalog_alternatives_instead_of_an_error(tmp_path: Path) -> None:
+    def unexpected_request(_: httpx.Request) -> httpx.Response:
+        raise AssertionError("Catalog recovery must not contact the merchant")
+
+    settings = Settings(
+        merchant_bearer_token=SecretStr("merchant-token"),
+        merchant_webhook_secret=SecretStr("webhook-secret-with-at-least-32-characters"),
+        agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
+        agent_payment_secret=SecretStr("payment-secret-with-at-least-32-characters"),
+        agent_database_path=tmp_path / "agent.db",
+        agent_feed_path=FEED,
+    )
+    intent = PurchaseIntent.model_validate({"hard": {"max_unit_amount_minor": 1}})
+    router = StubConversationRouter(
+        CommerceDecision(
+            action="purchase",
+            assistant_message="Buscaré opciones.",
+            intent=intent,
+        ),
+        recovery=CatalogRecovery(
+            action="clarify",
+            assistant_message="No hay opciones en ese presupuesto; tengo Sonora por 720 USD.",
+        ),
+    )
+    app = create_app(
+        settings=settings,
+        transport=httpx.MockTransport(unexpected_request),
+        conversation_router=router,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/conversation/turn",
+            json={
+                "messages": [{"role": "user", "content": "Quiero audífonos por un centavo"}],
+                "details": checkout_details(),
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["action"] == "clarify"
+    assert response.json()["purchase"] is None

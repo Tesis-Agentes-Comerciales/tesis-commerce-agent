@@ -203,7 +203,16 @@ def create_app(
             raise IntentInterpretationError("Purchase decision is incomplete")
         selection = rank_candidates(feed, intent)
         if not selection.ranked:
-            raise PurchaseServiceError("No candidate satisfies the request", code="no_candidate")
+            recovery = conversation_router.recover_no_candidate(
+                tuple(body.messages),
+                intent,
+                selection.rejection_counts,
+                feed.available_candidates[:10],
+            )
+            return ConversationTurnResponse(
+                action="clarify",
+                assistant_message=recovery.assistant_message,
+            )
         candidate_decision = conversation_router.choose_candidate(
             tuple(body.messages),
             intent,

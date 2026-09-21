@@ -14,6 +14,7 @@ from commerce_agent.domain import (
 )
 from commerce_agent.llm import (
     CandidateDecision,
+    CatalogRecovery,
     CommerceDecision,
     ConversationMessage,
     OpenAIConversationRouter,
@@ -24,7 +25,7 @@ FEED = load_product_feed(Path(__file__).parent / "fixtures" / "feed")
 
 
 class FakeResponses:
-    def __init__(self, decision: CommerceDecision | CandidateDecision) -> None:
+    def __init__(self, decision: CommerceDecision | CandidateDecision | CatalogRecovery) -> None:
         self.decision = decision
         self.calls: list[dict[str, Any]] = []
 
@@ -34,7 +35,7 @@ class FakeResponses:
 
 
 class FakeOpenAI:
-    def __init__(self, decision: CommerceDecision | CandidateDecision) -> None:
+    def __init__(self, decision: CommerceDecision | CandidateDecision | CatalogRecovery) -> None:
         self.responses = FakeResponses(decision)
         self.closed = False
 
@@ -156,3 +157,33 @@ def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) ->
     assert call["text_format"] is CandidateDecision
     assert "SON-01" in call["input"]
     assert "Human approval" in call["instructions"]
+
+
+def test_router_explains_real_alternatives_when_no_candidate_matches(monkeypatch) -> None:
+    decision = CatalogRecovery(
+        action="clarify",
+        assistant_message="No hay opciones en ese presupuesto; tengo Sonora por 720 USD.",
+    )
+    fake = FakeOpenAI(decision)
+    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"),
+        model="test-model",
+        feed=FEED,
+    )
+    messages = (ConversationMessage(role="user", content="Quiero audífonos por un centavo"),)
+    intent = PurchaseIntent(hard=HardConstraints(max_unit_amount_minor=1))
+    selection = rank_candidates(FEED, intent)
+
+    result = router.recover_no_candidate(
+        messages,
+        intent,
+        selection.rejection_counts,
+        FEED.available_candidates,
+    )
+
+    assert result == decision
+    call = fake.responses.calls[0]
+    assert call["text_format"] is CatalogRecovery
+    assert '"budget": 1' in call["input"]
+    assert "SON-01" in call["input"]

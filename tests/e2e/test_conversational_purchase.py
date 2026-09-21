@@ -6,10 +6,16 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from commerce_agent.acp.feed import ProductCandidate
 from commerce_agent.api import create_app
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
-from commerce_agent.llm import CandidateDecision, CommerceDecision, ConversationMessage
+from commerce_agent.llm import (
+    CandidateDecision,
+    CatalogRecovery,
+    CommerceDecision,
+    ConversationMessage,
+)
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_JOINT_E2E") != "1",
@@ -49,6 +55,19 @@ class _StaticConversationRouter:
             action="purchase",
             assistant_message="Elegí la opción disponible que cumple tu solicitud.",
             selected_variant_id=candidates[0].candidate.variant_id,
+        )
+
+    def recover_no_candidate(
+        self,
+        messages: tuple[ConversationMessage, ...],
+        intent: PurchaseIntent,
+        rejection_counts: dict[str, int],
+        alternatives: tuple[ProductCandidate, ...],
+    ) -> CatalogRecovery:
+        assert messages and intent == self._intent and rejection_counts and alternatives
+        return CatalogRecovery(
+            action="clarify",
+            assistant_message="No encontré una coincidencia exacta.",
         )
 
 
