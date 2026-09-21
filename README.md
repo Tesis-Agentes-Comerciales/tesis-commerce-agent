@@ -7,7 +7,8 @@ implementa intención, selección, aprobación humana, ejecución idempotente y 
 ## Alcance implementado
 
 - carga y validación del Product Feed estático;
-- decisión conversacional tipada, `PurchaseIntent`, filtros duros y ranking determinista;
+- decisión conversacional tipada, `PurchaseIntent`, filtros duros, ranking determinista y elección
+  explicada entre candidatos elegibles;
 - cliente ACP para discovery, create, get, update, cancel y complete;
 - validación de requests y responses contra el bundle ACP congelado;
 - persistencia SQLite de episodios, claves idempotentes, aprobaciones, órdenes y webhooks;
@@ -21,18 +22,19 @@ implementa intención, selección, aprobación humana, ejecución idempotente y 
 - interfaz React basada en `assistant-ui`, con perfil sandbox y aprobación Human Present;
 - harness E2E contra el merchant fijado, ejecutado como proceso y repositorio separados.
 
-El modelo solo recibe los mensajes del chat y produce una decisión tipada con una intención
-estructurada cuando detecta una compra. No recibe datos de entrega, Bearer, secretos, token de
-pago, actor, Request ID, clave idempotente, fingerprint de aprobación ni acceso al método de
-completion. El navegador tampoco construye ni envía `PurchaseIntent`.
+El modelo recibe los mensajes del chat y vocabulario validado del feed. Primero produce una decisión
+tipada con una intención estructurada; después puede elegir o aclarar entre candidatos que ya
+pasaron los filtros deterministas. No recibe datos de entrega, Bearer, secretos, token de pago,
+actor, Request ID, clave idempotente, fingerprint de aprobación ni acceso al método de completion.
+El navegador tampoco construye ni envía `PurchaseIntent`.
 
 ## Arquitectura
 
 ```text
-mensajes --> modelo conversacional --> responder | aclarar | comprar
-                                           |
-                                           v
-                              feed validado --> candidato
+mensajes + vocabulario --> router --> responder | aclarar | intención
+                                                       |
+                                                       v
+feed validado --> ranking elegible --> selector LLM --> aclarar | candidato
           |
           v
 PurchaseService --> ACP create/update/get --> ready_for_payment
@@ -82,8 +84,8 @@ Configure en `.env`:
 - `AGENT_FEED_PATH`: directorio con `metadata.json` y `products.jsonl`.
 - `AGENT_PRINCIPAL_ID`: identidad humana resuelta por el backend local.
 - `AGENT_UI_ORIGIN`: origen exacto autorizado para la interfaz web local.
-- `OPENAI_API_KEY`, `OPENAI_MODEL` y `OPENAI_TIMEOUT_SECONDS`: modelo conversacional que decide si
-  debe responder, aclarar o iniciar una compra.
+- `OPENAI_API_KEY`, `OPENAI_MODEL` y `OPENAI_TIMEOUT_SECONDS`: modelo conversacional que enruta la
+  solicitud y elige o explica entre candidatos elegibles.
 
 Use valores aleatorios de al menos 32 caracteres para los tres secretos. No copie valores reales a
 Git, logs, prompts, fixtures o artefactos.
@@ -98,9 +100,10 @@ uv run uvicorn commerce_agent.api:app_factory --factory --host 127.0.0.1 --port 
 
 Flujo:
 
-1. `POST /conversation/turn` recibe mensajes y datos de entrega. Una respuesta normal no contacta
-   al merchant; una compra prepara el checkout y devuelve los términos Human Present en la misma
-   operación.
+1. `POST /conversation/turn` recibe mensajes y datos de entrega. Una respuesta o aclaración no
+   contacta al merchant; una elección válida prepara el checkout y devuelve los términos Human
+   Present en la misma operación. Si ningún producto pasa los filtros, el modelo explica alternativas
+   reales del catálogo en vez de convertirlo en error HTTP.
 2. `GET /purchases/{run_id}/approval` permite volver a consultar los términos exactos.
 3. `POST /purchases/{run_id}/approval` recibe solo el fingerprint mostrado; el actor viene del
    backend.

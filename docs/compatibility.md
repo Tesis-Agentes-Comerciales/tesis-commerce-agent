@@ -21,7 +21,8 @@ mensajes del merchant se consideran datos no confiables y no se convierten en in
 | Dato o efecto | Autoridad |
 | --- | --- |
 | Intención y preferencia | salida tipada del modelo conversacional; nunca autoridad comercial |
-| Candidato | ranking determinista sobre feed validado |
+| Conjunto elegible | ranking determinista sobre feed validado |
+| Candidato | elección tipada del modelo, limitada al conjunto elegible y revalidada antes de ACP |
 | Precio, stock, envío y total | último checkout del merchant |
 | Identidad humana | configuración/backend del agente |
 | Aprobación | HMAC durable sobre términos exactos |
@@ -55,8 +56,9 @@ mensajes del merchant se consideran datos no confiables y no se convierten en in
 3. **Merchant único configurado.** La URL validada funciona como allowlist P0; un Merchant Registry
    persistente con altas y revocación queda para el siguiente incremento.
 4. **Modelo externo.** El router conversacional es inyectable y su salida se valida como
-   `CommerceDecision`. Solo el backend ve el `PurchaseIntent`; datos de entrega y autoridad de
-   compra permanecen fuera del prompt.
+   `CommerceDecision`. El selector solo ve candidatos previamente filtrados y su ID se revalida
+   antes de crear un checkout. Solo el backend ve el `PurchaseIntent`; datos de entrega y autoridad
+   de compra permanecen fuera del prompt.
 5. **Evidencia parcial.** Se conservan solicitud, candidato, checkout, aprobación, operación, orden y
    eventos. El manifiesto experimental completo, métricas de modelo y comparación B0/B2 quedan fuera
    de las etapas implementadas aquí.
