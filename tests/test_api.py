@@ -161,7 +161,6 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
         CommerceDecision(
             action="purchase",
             assistant_message="Voy a preparar esos audífonos.",
-            purchase_request="audífonos disponibles",
             intent=PurchaseIntent(),
         )
     )

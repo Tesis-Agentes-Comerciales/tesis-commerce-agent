@@ -75,10 +75,11 @@ def test_non_purchase_decision_rejects_purchase_payload() -> None:
         )
 
 
-def test_purchase_decision_requires_a_consolidated_request() -> None:
-    with pytest.raises(ValidationError):
-        CommerceDecision(
-            action="purchase",
-            assistant_message="Buscaré una opción.",
-            intent=PurchaseIntent(hard=HardConstraints(categories=("headphones",))),
-        )
+def test_purchase_decision_allows_model_to_omit_consolidated_request() -> None:
+    decision = CommerceDecision(
+        action="purchase",
+        assistant_message="Buscaré una opción.",
+        intent=PurchaseIntent(hard=HardConstraints(categories=("headphones",))),
+    )
+
+    assert decision.purchase_request is None

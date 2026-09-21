@@ -195,9 +195,9 @@ def create_app(
                 action=decision.action,
                 assistant_message=decision.assistant_message,
             )
-        request = decision.purchase_request
+        request = decision.purchase_request or body.messages[-1].content
         intent = decision.intent
-        if request is None or intent is None:
+        if intent is None:
             raise IntentInterpretationError("Purchase decision is incomplete")
         client.discover()
         purchase = purchase_service.start(

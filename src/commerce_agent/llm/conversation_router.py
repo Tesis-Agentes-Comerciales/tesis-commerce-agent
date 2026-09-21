@@ -60,8 +60,8 @@ class CommerceDecision(BaseModel):
     @model_validator(mode="after")
     def validate_action_payload(self) -> "CommerceDecision":
         if self.action == "purchase":
-            if self.purchase_request is None or self.intent is None:
-                raise ValueError("Purchase decisions require a request and an intent")
+            if self.intent is None:
+                raise ValueError("Purchase decisions require an intent")
         elif self.purchase_request is not None or self.intent is not None:
             raise ValueError("Non-purchase decisions cannot contain purchase data")
         return self
