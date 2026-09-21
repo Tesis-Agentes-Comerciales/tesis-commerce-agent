@@ -129,7 +129,7 @@ export function CommerceRuntime({
             content: [
               {
                 type: "text",
-                text: `Encontré ${preparation.selected_candidate.product_title} y preparé el checkout ACP.${priceNote}\n\nRevisa los términos y decide si quieres aprobar la compra.`,
+                text: `${turn.assistant_message}${priceNote}\n\nRevisa los términos y decide si quieres aprobar la compra.`,
               },
             ],
           }

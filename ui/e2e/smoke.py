@@ -102,7 +102,9 @@ def main() -> None:
             else:
                 payload = {
                     "action": "purchase",
-                    "assistant_message": "Voy a buscar una opción.",
+                    "assistant_message": (
+                        "Elegí los Sonora negros porque cumplen el presupuesto y están disponibles."
+                    ),
                     "purchase": PREPARATION,
                     "approval_terms": TERMS,
                 }
@@ -142,6 +144,9 @@ def main() -> None:
 
         composer.fill("Quiero audífonos negros, nuevos y disponibles por máximo 800 USD.")
         composer.press("Enter")
+        page.get_by_text(
+            "Elegí los Sonora negros porque cumplen el presupuesto y están disponibles."
+        ).wait_for()
         page.get_by_test_id("receipt-pending").wait_for()
         page.get_by_text("CONFIRMAR COMPRA").wait_for()
         page.wait_for_timeout(500)
