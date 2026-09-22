@@ -83,6 +83,7 @@ def test_purchase_intent_normalizes_interpreter_output() -> None:
             "preferences": {
                 "terms": [" Noise   Cancelling "],
                 "options": [{"name": "Color", "value": "BLUE"}],
+                "selection_strategy": "lowest_observed_price",
             },
         }
     )
@@ -94,6 +95,7 @@ def test_purchase_intent_normalizes_interpreter_output() -> None:
     assert intent.hard.required_terms == ("wireless headphones",)
     assert intent.preferences.terms == ("noise cancelling",)
     assert intent.preferences.options == (OptionConstraint(name="color", value="blue"),)
+    assert intent.preferences.selection_strategy == "lowest_observed_price"
 
 
 def test_purchase_intent_rejects_unknown_fields_and_invalid_currency() -> None:

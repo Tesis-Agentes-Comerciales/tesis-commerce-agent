@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
@@ -59,6 +59,7 @@ class SoftPreferences(IntentModel):
     categories: tuple[NormalizedText, ...] = ()
     conditions: tuple[NormalizedText, ...] = ()
     options: tuple[OptionConstraint, ...] = ()
+    selection_strategy: Literal["lowest_observed_price"] | None = None
 
     @field_validator("terms", "categories", "conditions", mode="before")
     @classmethod

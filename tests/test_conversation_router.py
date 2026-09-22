@@ -10,6 +10,7 @@ from commerce_agent.domain import (
     HardConstraints,
     OptionConstraint,
     PurchaseIntent,
+    SoftPreferences,
     rank_candidates,
 )
 from commerce_agent.llm import (
@@ -133,6 +134,27 @@ def test_router_moves_unknown_catalog_attributes_to_preferences(monkeypatch) -> 
     assert result.intent.preferences.terms == ("wireless", "noise-cancelling")
 
 
+def test_router_turns_ungrounded_purchase_into_clarification(monkeypatch) -> None:
+    decision = CommerceDecision(
+        action="purchase",
+        assistant_message="Procederé con ese artículo.",
+        intent=PurchaseIntent(),
+    )
+    fake = FakeOpenAI(decision)
+    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"),
+        model="test-model",
+        feed=FEED,
+    )
+
+    result = router.route((ConversationMessage(role="user", content="Sí, ese está bien"),))
+
+    assert result.action == "clarify"
+    assert result.intent is None
+    assert "qué producto" in result.assistant_message.casefold()
+
+
 def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) -> None:
     decision = CandidateDecision(
         action="purchase",
@@ -179,7 +201,10 @@ def test_broad_category_requires_candidate_clarification(monkeypatch) -> None:
         feed=FEED,
     )
     messages = (ConversationMessage(role="user", content="Quiero comprar unos audífonos"),)
-    intent = PurchaseIntent(hard=HardConstraints(categories=("headphones",)))
+    intent = PurchaseIntent(
+        hard=HardConstraints(categories=("headphones",)),
+        preferences=SoftPreferences(terms=("audífonos",)),
+    )
     first = rank_candidates(FEED, intent).ranked[0]
     alternative = first.model_copy(
         update={
@@ -202,6 +227,35 @@ def test_broad_category_requires_candidate_clarification(monkeypatch) -> None:
     assert call["text_format"] is module.CandidateClarification
     assert "ask one focused question" in call["instructions"]
     assert "arbitrary color" in call["instructions"]
+
+
+def test_lowest_price_strategy_allows_candidate_choice(monkeypatch) -> None:
+    decision = CandidateDecision(
+        action="purchase",
+        assistant_message="Elegí la opción de menor precio observado.",
+        selected_variant_id="SON-01",
+    )
+    fake = FakeOpenAI(decision)
+    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"),
+        model="test-model",
+        feed=FEED,
+    )
+    intent = PurchaseIntent(
+        hard=HardConstraints(categories=("headphones",)),
+        preferences=SoftPreferences(selection_strategy="lowest_observed_price"),
+    )
+    candidates = rank_candidates(FEED, intent).ranked
+
+    result = router.choose_candidate(
+        (ConversationMessage(role="user", content="Dame los más baratos"),),
+        intent,
+        candidates,
+    )
+
+    assert result == decision
+    assert fake.responses.calls[0]["text_format"] is module.CandidateChoice
 
 
 def test_unmatched_preferences_allow_candidate_clarification(monkeypatch) -> None:
