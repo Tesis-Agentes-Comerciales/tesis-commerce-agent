@@ -312,6 +312,19 @@ def create_app(
             approved_at=record.approved_at,
         )
 
+    @app.post("/purchases/{run_id}/cancel", response_model=PurchaseStatus)
+    def cancel_purchase(run_id: str) -> PurchaseStatus:
+        purchase_service.cancel(run_id=run_id)
+        purchase = store.purchase(run_id)
+        if purchase is None:
+            raise PurchaseServiceError("Purchase run does not exist", code="purchase_not_found")
+        return PurchaseStatus(
+            run_id=run_id,
+            stage=str(purchase["stage"]),
+            checkout_id=purchase["checkout_id"],
+            order_id=purchase["order_id"],
+        )
+
     @app.post("/purchases/{run_id}/complete", response_model=CheckoutSessionWithOrder)
     def complete_purchase(run_id: str) -> CheckoutSessionWithOrder:
         return completion.complete(run_id=run_id)

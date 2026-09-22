@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -318,6 +319,85 @@ def test_conversation_turn_can_reply_without_contacting_merchant(tmp_path: Path)
         "approval_terms": None,
     }
     assert router.messages == (ConversationMessage(role="user", content="Quiero comprar algo"),)
+
+
+def test_pending_purchase_can_be_canceled_through_api(tmp_path: Path) -> None:
+    ready = checkout("ready_for_payment", with_details=True)
+    canceled = deepcopy(ready)
+    canceled["status"] = "canceled"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/.well-known/acp.json":
+            return httpx.Response(
+                200,
+                json={
+                    "protocol": {
+                        "name": "acp",
+                        "version": "2026-04-17",
+                        "supported_versions": ["2026-04-17"],
+                    },
+                    "api_base_url": "http://127.0.0.1:4120",
+                    "transports": ["rest"],
+                    "capabilities": {
+                        "services": ["checkout"],
+                        "supported_currencies": ["usd"],
+                        "supported_locales": ["es-CO"],
+                    },
+                },
+            )
+        if request.method == "POST" and request.url.path == "/checkout_sessions":
+            return httpx.Response(201, json=checkout("not_ready_for_payment", with_details=False))
+        if request.method == "POST" and request.url.path == "/checkout_sessions/cs_api_1":
+            return httpx.Response(200, json=ready)
+        if request.method == "GET" and request.url.path == "/checkout_sessions/cs_api_1":
+            return httpx.Response(200, json=ready)
+        if request.url.path == "/checkout_sessions/cs_api_1/cancel":
+            assert json.loads(request.content)["intent_trace"]["reason_code"] == "user_canceled"
+            return httpx.Response(200, json=canceled)
+        raise AssertionError(f"Unexpected request: {request.method} {request.url.path}")
+
+    settings = Settings(
+        merchant_bearer_token=SecretStr("merchant-token"),
+        merchant_webhook_secret=SecretStr("webhook-secret-with-at-least-32-characters"),
+        agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
+        agent_payment_secret=SecretStr("payment-secret-with-at-least-32-characters"),
+        agent_database_path=tmp_path / "agent.db",
+        agent_feed_path=FEED,
+    )
+    router = StubConversationRouter(
+        CommerceDecision(
+            action="purchase",
+            assistant_message="Prepararé los audífonos.",
+            intent=PurchaseIntent(),
+        ),
+        CandidateDecision(
+            action="purchase",
+            assistant_message="Elegí los Sonora.",
+            selected_variant_id="SON-01",
+        ),
+    )
+    app = create_app(
+        settings=settings,
+        transport=httpx.MockTransport(handler),
+        conversation_router=router,
+    )
+
+    with TestClient(app) as client:
+        prepared = client.post(
+            "/conversation/turn",
+            json={
+                "turn_id": "turn-api-cancel",
+                "messages": [{"role": "user", "content": "Quiero audífonos"}],
+                "details": checkout_details(),
+            },
+        )
+        run_id = prepared.json()["purchase"]["run_id"]
+        response = client.post(f"/purchases/{run_id}/cancel")
+        replay = client.post(f"/purchases/{run_id}/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["stage"] == "canceled"
+    assert replay.status_code == 200
 
 
 def test_candidate_choice_can_ask_for_clarification_without_checkout(tmp_path: Path) -> None:

@@ -100,16 +100,17 @@ uv run uvicorn commerce_agent.api:app_factory --factory --host 127.0.0.1 --port 
 
 Flujo:
 
-1. `POST /conversation/turn` recibe mensajes y datos de entrega. Una respuesta o aclaración no
+1. `POST /conversation/turn` recibe un `turn_id` idempotente, mensajes y datos de entrega. Una respuesta o aclaración no
    contacta al merchant; una elección válida prepara el checkout y devuelve los términos Human
    Present en la misma operación. Si ningún producto pasa los filtros, el modelo explica alternativas
    reales del catálogo en vez de convertirlo en error HTTP.
 2. `GET /purchases/{run_id}/approval` permite volver a consultar los términos exactos.
 3. `POST /purchases/{run_id}/approval` recibe solo el fingerprint mostrado; el actor viene del
    backend.
-4. `POST /purchases/{run_id}/complete` ejecuta el gateway determinista.
-5. `GET /purchases/{run_id}` consulta el estado local.
-6. `POST /agentic_checkout/webhooks/order_events` recibe eventos firmados del merchant.
+4. `POST /purchases/{run_id}/cancel` cancela un checkout que aún espera aprobación.
+5. `POST /purchases/{run_id}/complete` ejecuta el gateway determinista.
+6. `GET /purchases/{run_id}` consulta el estado local.
+7. `POST /agentic_checkout/webhooks/order_events` recibe eventos firmados del merchant.
 
 `complete` devuelve conflicto si el episodio no está aprobado. Dos intentos concurrentes no pueden
 adquirir la misma reserva local. Un timeout posterior al despacho queda `uncertain`; el siguiente

@@ -79,7 +79,7 @@ function App() {
       : connection === "offline"
         ? "Agente sin conexión"
         : "Conectando"
-  const purchaseBusy = flow.status === "approving" || flow.status === "completing"
+  const purchaseBusy = ["approving", "canceling", "completing"].includes(flow.status)
 
   return (
     <>

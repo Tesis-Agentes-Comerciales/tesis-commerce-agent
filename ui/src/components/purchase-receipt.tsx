@@ -3,11 +3,12 @@ import {
   ExternalLinkIcon,
   LoaderCircleIcon,
   RotateCcwIcon,
+  XIcon,
 } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { approvePurchase, completePurchase } from "@/lib/commerce-api"
+import { approvePurchase, cancelPurchase, completePurchase } from "@/lib/commerce-api"
 import type { PurchaseFlow } from "@/lib/commerce-types"
 
 type PurchaseReceiptProps = {
@@ -29,7 +30,7 @@ function compactFingerprint(value: string) {
 
 export function PurchaseReceipt({ flow, onChange, onReset }: PurchaseReceiptProps) {
   const [workingError, setWorkingError] = useState<string | null>(null)
-  const busy = flow.status === "approving" || flow.status === "completing"
+  const busy = ["approving", "canceling", "completing"].includes(flow.status)
   const preparation = flow.preparation
   const terms = flow.terms
 
@@ -52,6 +53,20 @@ export function PurchaseReceipt({ flow, onChange, onReset }: PurchaseReceiptProp
       const message = error instanceof Error ? error.message : "No se pudo completar la compra."
       setWorkingError(message)
       onChange({ ...flow, status: "error", approvalRecorded, error: message })
+    }
+  }
+
+  const cancel = async () => {
+    if (!preparation || busy || flow.approvalRecorded) return
+    setWorkingError(null)
+    try {
+      onChange({ ...flow, status: "canceling", error: undefined })
+      await cancelPurchase(preparation.run_id)
+      onReset()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo cancelar la compra."
+      setWorkingError(message)
+      onChange({ ...flow, status: "error", error: message })
     }
   }
 
@@ -157,22 +172,42 @@ export function PurchaseReceipt({ flow, onChange, onReset }: PurchaseReceiptProp
         </p>
       )}
 
-      <Button
-        type="button"
-        onClick={submit}
-        disabled={busy}
-        className="h-12 w-full rounded-full bg-[#0d0d0d] text-white hover:bg-[#0d0d0d]/85"
-        data-testid="approve-purchase"
-      >
-        {busy && <LoaderCircleIcon data-icon="inline-start" className="animate-spin" aria-hidden />}
-        {flow.status === "approving"
-          ? "Registrando aprobación…"
-          : flow.status === "completing"
-            ? "Completando compra…"
-            : retryingCompletion
-              ? "Reintentar compra"
-              : `Aprobar y comprar · ${money(terms.total_minor, terms.currency)}`}
-      </Button>
+      <div className={retryingCompletion ? undefined : "grid grid-cols-[auto_1fr] gap-2"}>
+        {!retryingCompletion && (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={cancel}
+            disabled={busy}
+            className="h-12 rounded-full"
+          >
+            {flow.status === "canceling" ? (
+              <LoaderCircleIcon data-icon="inline-start" className="animate-spin" aria-hidden />
+            ) : (
+              <XIcon data-icon="inline-start" aria-hidden />
+            )}
+            Cancelar
+          </Button>
+        )}
+        <Button
+          type="button"
+          onClick={submit}
+          disabled={busy}
+          className="h-12 w-full rounded-full bg-[#0d0d0d] text-white hover:bg-[#0d0d0d]/85"
+          data-testid="approve-purchase"
+        >
+          {busy && flow.status !== "canceling" && (
+            <LoaderCircleIcon data-icon="inline-start" className="animate-spin" aria-hidden />
+          )}
+          {flow.status === "approving"
+            ? "Registrando aprobación…"
+            : flow.status === "completing"
+              ? "Completando compra…"
+              : retryingCompletion
+                ? "Reintentar compra"
+                : `Aprobar y comprar · ${money(terms.total_minor, terms.currency)}`}
+        </Button>
+      </div>
       <p className="mt-3 text-center text-xs leading-5 text-[#6b6b6b]">
         Autoriza únicamente estos términos. No mueve dinero real.
       </p>

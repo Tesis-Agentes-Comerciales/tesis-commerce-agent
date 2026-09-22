@@ -47,7 +47,7 @@ class FakeCheckoutGateway:
         self, checkout_id: str, *, idempotency_key: str, reason_code: str | None = None
     ) -> CheckoutSession:
         self.calls.append(("cancel", idempotency_key))
-        assert reason_code == "price_sensitivity"
+        assert reason_code in {"price_sensitivity", "user_canceled"}
         self.current = checkout(status="canceled", total=self.total, unit_amount=self.unit_amount)
         return self.current
 
@@ -204,3 +204,38 @@ def test_approval_requires_exact_fingerprint_and_updates_stage(tmp_path: Path) -
 
     service.approve(run_id="run-1", actor_id="human-1", expected_fingerprint=terms.fingerprint)
     assert store.purchase("run-1")["stage"] == "approved"  # type: ignore[index]
+
+
+def test_pending_purchase_can_be_canceled_but_approved_purchase_cannot(tmp_path: Path) -> None:
+    gateway = FakeCheckoutGateway()
+    service, store = make_service(tmp_path, gateway)
+    service.start(
+        run_id="run-1",
+        request="buy",
+        intent=PurchaseIntent(),
+        selected_variant_id="SON-01",
+        details=details(),
+    )
+
+    service.cancel(run_id="run-1")
+    service.cancel(run_id="run-1")
+
+    assert store.purchase("run-1")["stage"] == "canceled"  # type: ignore[index]
+    assert [call[0] for call in gateway.calls].count("cancel") == 1
+
+    approved_service, _ = make_service(tmp_path / "approved", FakeCheckoutGateway())
+    approved_service.start(
+        run_id="run-2",
+        request="buy again",
+        intent=PurchaseIntent(),
+        selected_variant_id="SON-01",
+        details=details(),
+    )
+    terms = approved_service.approval_terms("run-2")
+    approved_service.approve(
+        run_id="run-2", actor_id="human-1", expected_fingerprint=terms.fingerprint
+    )
+
+    with pytest.raises(PurchaseServiceError) as captured:
+        approved_service.cancel(run_id="run-2")
+    assert captured.value.code == "invalid_stage"

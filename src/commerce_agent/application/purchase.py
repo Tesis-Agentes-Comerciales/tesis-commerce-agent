@@ -161,6 +161,25 @@ class PurchaseService:
         self._store.update_purchase(run_id, stage=PurchaseStage.APPROVED)
         return record
 
+    def cancel(self, *, run_id: str) -> None:
+        purchase = self._require_purchase(run_id)
+        if purchase.get("stage") == PurchaseStage.CANCELED:
+            return
+        if purchase.get("stage") != PurchaseStage.AWAITING_CONFIRMATION:
+            raise PurchaseServiceError("Purchase cannot be canceled", code="invalid_stage")
+        checkout = self._current_checkout(run_id)
+        key = self._store.idempotency_key(run_id, "checkout.cancel.user")
+        canceled = self._checkout.cancel_checkout(
+            checkout.id,
+            idempotency_key=key,
+            reason_code="user_canceled",
+        )
+        if canceled.id != checkout.id or canceled.status != "canceled":
+            raise PurchaseServiceError(
+                "Merchant did not cancel the expected checkout", code="checkout_mismatch"
+            )
+        self._store.update_purchase(run_id, stage=PurchaseStage.CANCELED)
+
     def _apply_details(
         self, run_id: str, checkout: CheckoutSession, details: CheckoutDetails
     ) -> CheckoutSession:

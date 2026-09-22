@@ -84,6 +84,12 @@ export function approvePurchase(runId: string, fingerprint: string): Promise<voi
   })
 }
 
+export function cancelPurchase(runId: string): Promise<void> {
+  return requestJson(`/purchases/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST",
+  })
+}
+
 export function completePurchase(runId: string): Promise<CompletedCheckout> {
   return requestJson(`/purchases/${encodeURIComponent(runId)}/complete`, {
     method: "POST",

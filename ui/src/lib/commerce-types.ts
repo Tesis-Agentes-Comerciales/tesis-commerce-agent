@@ -85,6 +85,7 @@ export type PurchaseFlowStatus =
   | "preparing"
   | "awaiting_approval"
   | "approving"
+  | "canceling"
   | "completing"
   | "completed"
   | "error"

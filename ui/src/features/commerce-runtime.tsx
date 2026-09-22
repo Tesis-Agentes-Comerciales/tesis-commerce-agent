@@ -94,12 +94,16 @@ export function CommerceRuntime({
         const request = latest.text
 
         try {
-          if (["awaiting_approval", "approving", "completing"].includes(flowStatus)) {
+          if (
+            ["awaiting_approval", "approving", "canceling", "completing"].includes(
+              flowStatus,
+            )
+          ) {
             return {
               content: [
                 {
                   type: "text",
-                  text: "Ya hay una compra pendiente. Revísala antes de iniciar otra.",
+                  text: "Ya hay una compra pendiente. Revísala o cancélala antes de iniciar otra.",
                 },
               ],
             }
