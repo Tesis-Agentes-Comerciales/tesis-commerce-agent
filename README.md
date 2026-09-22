@@ -112,6 +112,13 @@ Flujo:
 6. `GET /purchases/{run_id}` consulta el estado local.
 7. `POST /agentic_checkout/webhooks/order_events` recibe eventos firmados del merchant.
 
+Con el agente y el merchant locales activos, la evaluación conversacional opcional usa el LLM
+configurado y cancela todos los checkouts sandbox que prepara:
+
+```sh
+uv run python scripts/evaluate_conversation.py
+```
+
 `complete` devuelve conflicto si el episodio no está aprobado. Dos intentos concurrentes no pueden
 adquirir la misma reserva local. Un timeout posterior al despacho queda `uncertain`; el siguiente
 intento consulta primero el checkout y conserva la misma clave idempotente.

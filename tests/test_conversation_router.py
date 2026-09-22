@@ -155,6 +155,38 @@ def test_router_turns_ungrounded_purchase_into_clarification(monkeypatch) -> Non
     assert "qué producto" in result.assistant_message.casefold()
 
 
+@pytest.mark.parametrize(
+    "intent",
+    [
+        PurchaseIntent(hard=HardConstraints(max_unit_amount_minor=80_000)),
+        PurchaseIntent(hard=HardConstraints(conditions=("new",))),
+        PurchaseIntent(
+            hard=HardConstraints(required_options=(OptionConstraint(name="color", value="black"),))
+        ),
+        PurchaseIntent(preferences=SoftPreferences(categories=("cellphones",))),
+    ],
+    ids=("budget-only", "condition-only", "option-only", "unknown-category"),
+)
+def test_router_requires_product_identity_for_purchase(monkeypatch, intent) -> None:
+    decision = CommerceDecision(
+        action="purchase",
+        assistant_message="Buscaré una opción.",
+        intent=intent,
+    )
+    fake = FakeOpenAI(decision)
+    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"),
+        model="test-model",
+        feed=FEED,
+    )
+
+    result = router.route((ConversationMessage(role="user", content="Sí"),))
+
+    assert result.action == "clarify"
+    assert result.intent is None
+
+
 def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) -> None:
     decision = CandidateDecision(
         action="purchase",
