@@ -71,6 +71,14 @@ class SqliteAgentStore:
                     snapshot TEXT NOT NULL,
                     completed_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS conversation_turns (
+                    turn_id TEXT PRIMARY KEY,
+                    request_sha256 TEXT NOT NULL,
+                    response TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
             self._initialize_webhook_events(connection)
@@ -83,9 +91,51 @@ class SqliteAgentStore:
                 INSERT INTO purchases
                   (run_id, request_text, stage, created_at, updated_at)
                 VALUES (?, ?, 'received', ?, ?)
+                ON CONFLICT (run_id) DO NOTHING
                 """,
                 (run_id, request_text, now, now),
             )
+            row = connection.execute(
+                "SELECT request_text FROM purchases WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if row is None or row[0] != request_text:
+                raise ValueError("Purchase run conflicts with another request")
+
+    def claim_conversation_turn(self, turn_id: str, request_sha256: str) -> dict[str, Any] | None:
+        now = _timestamp()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO conversation_turns
+                  (turn_id, request_sha256, response, created_at, updated_at)
+                VALUES (?, ?, NULL, ?, ?)
+                ON CONFLICT (turn_id) DO NOTHING
+                """,
+                (turn_id, request_sha256, now, now),
+            )
+            row = connection.execute(
+                "SELECT request_sha256, response FROM conversation_turns WHERE turn_id = ?",
+                (turn_id,),
+            ).fetchone()
+        if row is None or row["request_sha256"] != request_sha256:
+            raise ValueError("Conversation turn conflicts with another request")
+        return json.loads(row["response"]) if row["response"] is not None else None
+
+    def save_conversation_turn(
+        self, turn_id: str, request_sha256: str, response: dict[str, Any]
+    ) -> None:
+        serialized = json.dumps(response, sort_keys=True, separators=(",", ":"))
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE conversation_turns
+                SET response = ?, updated_at = ?
+                WHERE turn_id = ? AND request_sha256 = ?
+                """,
+                (serialized, _timestamp(), turn_id, request_sha256),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Conversation turn was not claimed")
 
     def update_purchase(
         self,

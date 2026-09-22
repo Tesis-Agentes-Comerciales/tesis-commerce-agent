@@ -1,8 +1,10 @@
+import hashlib
+import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
+from threading import Lock
 from typing import Literal
-from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI
@@ -32,6 +34,7 @@ from commerce_agent.webhooks import register_webhook_receiver
 class ConversationTurnRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    turn_id: str = Field(min_length=1, max_length=128)
     messages: list[ConversationMessage] = Field(min_length=1, max_length=20)
     details: CheckoutDetails
 
@@ -79,6 +82,17 @@ class ApprovalReceipt(BaseModel):
     principal_id: str
     approved_at: str
     stage: str = "approved"
+
+
+def _turn_request_sha256(body: ConversationTurnRequest) -> str:
+    payload = body.model_dump(mode="json", exclude={"turn_id"})
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode()).hexdigest()
+
+
+def _turn_run_id(turn_id: str) -> str:
+    digest = hashlib.sha256(f"purchase:{turn_id}".encode()).hexdigest()
+    return f"run_{digest[:32]}"
 
 
 def create_app(
@@ -133,6 +147,8 @@ def create_app(
         store=store,
         approvals=approvals,
     )
+    # ponytail: one local lock is enough for this single-process demo; use DB leases when scaling.
+    conversation_turn_lock = Lock()
     owned_conversation_router = None
     if (
         configuration.openai_api_key is not None
@@ -185,18 +201,28 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.post("/conversation/turn", response_model=ConversationTurnResponse)
-    def conversation_turn(body: ConversationTurnRequest) -> ConversationTurnResponse:
+    def process_conversation_turn(body: ConversationTurnRequest) -> ConversationTurnResponse:
+        request_sha256 = _turn_request_sha256(body)
+        try:
+            cached = store.claim_conversation_turn(body.turn_id, request_sha256)
+        except ValueError as error:
+            raise PurchaseServiceError(str(error), code="turn_conflict") from error
+        if cached is not None:
+            return ConversationTurnResponse.model_validate_json(json.dumps(cached))
         if body.messages[-1].role != "user":
             raise IntentInterpretationError("Conversation must end with a user message")
         if conversation_router is None:
             raise IntentInterpretationError("No conversation model is configured")
         decision = conversation_router.route(tuple(body.messages))
         if decision.action != "purchase":
-            return ConversationTurnResponse(
+            response = ConversationTurnResponse(
                 action=decision.action,
                 assistant_message=decision.assistant_message,
             )
+            store.save_conversation_turn(
+                body.turn_id, request_sha256, response.model_dump(mode="json")
+            )
+            return response
         request = decision.purchase_request or body.messages[-1].content
         intent = decision.intent
         if intent is None:
@@ -209,37 +235,52 @@ def create_app(
                 selection.rejection_counts,
                 feed.available_candidates[:10],
             )
-            return ConversationTurnResponse(
+            response = ConversationTurnResponse(
                 action="clarify",
                 assistant_message=recovery.assistant_message,
             )
+            store.save_conversation_turn(
+                body.turn_id, request_sha256, response.model_dump(mode="json")
+            )
+            return response
         candidate_decision = conversation_router.choose_candidate(
             tuple(body.messages),
             intent,
             selection.ranked[:10],
         )
         if candidate_decision.action == "clarify":
-            return ConversationTurnResponse(
+            response = ConversationTurnResponse(
                 action="clarify",
                 assistant_message=candidate_decision.assistant_message,
             )
+            store.save_conversation_turn(
+                body.turn_id, request_sha256, response.model_dump(mode="json")
+            )
+            return response
         selected_variant_id = candidate_decision.selected_variant_id
         if selected_variant_id is None:
             raise IntentInterpretationError("Candidate selection is incomplete")
         client.discover()
         purchase = purchase_service.start(
-            run_id=f"run_{uuid4().hex}",
+            run_id=_turn_run_id(body.turn_id),
             request=request,
             intent=intent,
             selected_variant_id=selected_variant_id,
             details=body.details,
         )
-        return ConversationTurnResponse(
+        response = ConversationTurnResponse(
             action="purchase",
             assistant_message=candidate_decision.assistant_message,
             purchase=purchase,
             approval_terms=purchase_service.approval_terms(purchase.run_id),
         )
+        store.save_conversation_turn(body.turn_id, request_sha256, response.model_dump(mode="json"))
+        return response
+
+    @app.post("/conversation/turn", response_model=ConversationTurnResponse)
+    def conversation_turn(body: ConversationTurnRequest) -> ConversationTurnResponse:
+        with conversation_turn_lock:
+            return process_conversation_turn(body)
 
     @app.get("/purchases/{run_id}", response_model=PurchaseStatus)
     def purchase_status(run_id: str) -> PurchaseStatus:

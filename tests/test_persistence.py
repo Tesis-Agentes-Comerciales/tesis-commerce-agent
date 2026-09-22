@@ -18,6 +18,7 @@ def test_purchase_and_idempotency_keys_are_durable(tmp_path: Path) -> None:
     second = SqliteAgentStore(tmp_path / "agent.db")
     second.initialize()
     assert second.idempotency_key("run-1", "checkout.create") == key
+    second.create_purchase("run-1", "buy headphones")
     second.update_purchase(
         "run-1",
         stage="checkout_prepared",
@@ -34,6 +35,21 @@ def test_purchase_and_idempotency_keys_are_durable(tmp_path: Path) -> None:
         "created_at": second.purchase("run-1")["created_at"],  # type: ignore[index]
         "updated_at": second.purchase("run-1")["updated_at"],  # type: ignore[index]
     }
+
+
+def test_conversation_turns_are_cached_and_reject_conflicting_reuse(tmp_path: Path) -> None:
+    agent_store = store(tmp_path)
+
+    assert agent_store.claim_conversation_turn("turn-1", "a" * 64) is None
+    agent_store.save_conversation_turn("turn-1", "a" * 64, {"action": "clarify"})
+    assert agent_store.claim_conversation_turn("turn-1", "a" * 64) == {"action": "clarify"}
+
+    try:
+        agent_store.claim_conversation_turn("turn-1", "b" * 64)
+    except ValueError as error:
+        assert "conflicts" in str(error)
+    else:
+        raise AssertionError("conflicting turn reuse was accepted")
 
 
 def test_completion_reservation_is_compare_and_swap(tmp_path: Path) -> None:

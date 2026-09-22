@@ -28,14 +28,15 @@ type CommerceRuntimeProps = {
   onError: (request: string, message: string) => void
 }
 
-function latestUserText(messages: readonly ThreadMessage[]): string {
+function latestUserMessage(messages: readonly ThreadMessage[]) {
   const message = [...messages].reverse().find((item) => item.role === "user")
-  if (!message) return ""
-  return message.content
+  if (!message) return null
+  const text = message.content
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("\n")
     .trim()
+  return { id: message.id, text }
 }
 
 function conversationContext(messages: readonly ThreadMessage[]): ConversationMessage[] {
@@ -84,12 +85,13 @@ export function CommerceRuntime({
   const adapter = useMemo<ChatModelAdapter>(
     () => ({
       async run({ messages, abortSignal }) {
-        const request = latestUserText(messages)
-        if (!request) {
+        const latest = latestUserMessage(messages)
+        if (!latest?.text) {
           return {
             content: [{ type: "text", text: "Escribe qué producto quieres comprar." }],
           }
         }
+        const request = latest.text
 
         try {
           if (["awaiting_approval", "approving", "completing"].includes(flowStatus)) {
@@ -105,6 +107,7 @@ export function CommerceRuntime({
           const turn = await conversationTurn(
             conversationContext(messages),
             profile,
+            latest.id,
             abortSignal,
           )
           if (turn.action !== "purchase") {

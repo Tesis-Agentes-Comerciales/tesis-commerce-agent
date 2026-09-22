@@ -111,6 +111,7 @@ def test_natural_request_crosses_the_model_boundary_and_completes() -> None:
         )
     ) as client:
         request_body = {
+            "turn_id": "turn-conversational-e2e",
             "messages": [{"role": "user", "content": natural_request}],
             "details": {
                 "buyer": {

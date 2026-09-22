@@ -65,12 +65,13 @@ export function health(signal?: AbortSignal): Promise<{ status: string }> {
 export function conversationTurn(
   messages: ConversationMessage[],
   profile: BuyerProfile,
+  turnId: string,
   signal: AbortSignal,
 ): Promise<ConversationTurn> {
   return requestJson("/conversation/turn", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, details: checkoutDetails(profile) }),
+    body: JSON.stringify({ turn_id: turnId, messages, details: checkoutDetails(profile) }),
     signal,
   })
 }

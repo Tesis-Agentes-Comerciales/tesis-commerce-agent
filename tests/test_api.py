@@ -31,8 +31,10 @@ class StubConversationRouter:
         self.candidate_decision = candidate_decision
         self.recovery = recovery
         self.messages: tuple[ConversationMessage, ...] | None = None
+        self.route_calls = 0
 
     def route(self, messages: tuple[ConversationMessage, ...]) -> CommerceDecision:
+        self.route_calls += 1
         self.messages = messages
         return self.decision
 
@@ -226,6 +228,7 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
         start = client.post(
             "/conversation/turn",
             json={
+                "turn_id": "turn-api-purchase",
                 "messages": [{"role": "user", "content": "Quiero los audífonos disponibles"}],
                 "details": checkout_details(),
             },
@@ -237,6 +240,18 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
         assert "intent" not in payload
         assert payload["approval_terms"]["merchant_origin"] == "http://127.0.0.1:4120"
         run_id = payload["purchase"]["run_id"]
+
+        replay = client.post(
+            "/conversation/turn",
+            json={
+                "turn_id": "turn-api-purchase",
+                "messages": [{"role": "user", "content": "Quiero los audífonos disponibles"}],
+                "details": checkout_details(),
+            },
+        )
+        assert replay.status_code == 200
+        assert replay.json() == payload
+        assert router.route_calls == 1
 
         blocked = client.post(f"/purchases/{run_id}/complete")
         assert blocked.status_code == 409
@@ -289,6 +304,7 @@ def test_conversation_turn_can_reply_without_contacting_merchant(tmp_path: Path)
         response = client.post(
             "/conversation/turn",
             json={
+                "turn_id": "turn-api-clarify",
                 "messages": [{"role": "user", "content": "Quiero comprar algo"}],
                 "details": checkout_details(),
             },
@@ -337,6 +353,7 @@ def test_candidate_choice_can_ask_for_clarification_without_checkout(tmp_path: P
         response = client.post(
             "/conversation/turn",
             json={
+                "turn_id": "turn-api-candidate-clarify",
                 "messages": [{"role": "user", "content": "Busco audífonos azules"}],
                 "details": checkout_details(),
             },
@@ -385,6 +402,7 @@ def test_no_candidate_returns_catalog_alternatives_instead_of_an_error(tmp_path:
         response = client.post(
             "/conversation/turn",
             json={
+                "turn_id": "turn-api-recovery",
                 "messages": [{"role": "user", "content": "Quiero audífonos por un centavo"}],
                 "details": checkout_details(),
             },
