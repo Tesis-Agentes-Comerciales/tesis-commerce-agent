@@ -1,0 +1,18 @@
+data: {"type": "update-state", "operations": [{"type": "set", "path": [], "value": {"messages": [], "purchase": null}}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "0"], "value": {"id": "msg_001", "role": "user", "content": [{"type": "text", "text": "hola"}]}}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "1"], "value": {"id": "msg_002", "role": "assistant", "status": {"type": "running"}, "content": []}}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "1", "content", "0"], "value": {"type": "tool-call", "toolCallId": "call_001", "toolName": "interpret_request", "args": {}, "argsText": "{}"}}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "1", "content", "0", "result"], "value": {"action": "respond", "constraints": null, "preferences": null}}, {"type": "set", "path": ["messages", "1", "content", "0", "isError"], "value": false}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "1", "content", "1"], "value": {"type": "text", "text": ""}}]}
+
+data: {"type": "update-state", "operations": [{"type": "append-text", "path": ["messages", "1", "content", "1", "text"], "value": "\u00a1Hola! Dime qu\u00e9 producto buscas y, si quieres, tu presupuesto o preferencias."}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "1", "status"], "value": {"type": "complete", "reason": "stop"}}]}
+
+data: [DONE]
+

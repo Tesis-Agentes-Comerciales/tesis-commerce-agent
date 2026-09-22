@@ -1,6 +1,7 @@
 import json
 import secrets
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -77,6 +78,12 @@ class SqliteAgentStore:
                     request_sha256 TEXT NOT NULL,
                     response TEXT,
                     created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS approval_terms (
+                    run_id TEXT PRIMARY KEY REFERENCES purchases(run_id) ON DELETE CASCADE,
+                    terms TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
                 """
@@ -163,6 +170,46 @@ class SqliteAgentStore:
             )
             if cursor.rowcount != 1:
                 raise KeyError("Purchase run does not exist")
+
+    def pending_purchase(self, stages: Sequence[str]) -> dict[str, str | None] | None:
+        """Oldest purchase still in one of ``stages``, without asking the client for a run ID."""
+        if not stages:
+            return None
+        placeholders = ", ".join("?" for _ in stages)
+        with self._connect() as connection:
+            row = connection.execute(
+                f"""
+                SELECT run_id, stage, order_id
+                FROM purchases WHERE stage IN ({placeholders})
+                ORDER BY created_at, run_id LIMIT 1
+                """,
+                tuple(stages),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def save_approval_terms(self, run_id: str, terms: dict[str, Any]) -> None:
+        """Keep the terms shown for a run, so an echoed approval card can be rebuilt server side."""
+        serialized = json.dumps(terms, sort_keys=True, separators=(",", ":"))
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO approval_terms (run_id, terms, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT (run_id) DO UPDATE SET terms = excluded.terms,
+                                                   updated_at = excluded.updated_at
+                """,
+                (run_id, serialized, _timestamp()),
+            )
+
+    def approval_terms(self, run_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
+        if not run_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in run_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT run_id, terms FROM approval_terms WHERE run_id IN ({placeholders})",
+                tuple(run_ids),
+            ).fetchall()
+        return {row["run_id"]: json.loads(row["terms"]) for row in rows}
 
     def purchase(self, run_id: str) -> dict[str, str | None] | None:
         with self._connect() as connection:

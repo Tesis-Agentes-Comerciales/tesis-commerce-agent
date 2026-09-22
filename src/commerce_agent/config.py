@@ -2,6 +2,7 @@ from datetime import datetime
 from functools import lru_cache
 from ipaddress import ip_address
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, field_validator
@@ -63,6 +64,8 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = Field(default=None, repr=False)
     openai_model: str | None = Field(default=None, min_length=1, max_length=128)
     openai_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    openai_reasoning_summary: bool = False
+    openai_reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
 
     @field_validator("merchant_base_url")
     @classmethod

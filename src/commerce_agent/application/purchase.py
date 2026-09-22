@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from enum import StrEnum
 from typing import Protocol
 
@@ -121,20 +123,23 @@ class PurchaseService:
             selected_variant_id=candidate.variant_id,
         )
         idempotency_key = self._store.idempotency_key(run_id, "checkout.create")
-        checkout = self._checkout.create_checkout(
-            candidate.variant_id, idempotency_key=idempotency_key
-        )
-        self._validate_created_checkout(checkout, candidate)
-        self._store.update_purchase(
-            run_id,
-            stage=PurchaseStage.CHECKOUT_PREPARED,
-            checkout_id=checkout.id,
-        )
-        price_changed = _checkout_unit_amount(checkout, candidate.variant_id) != (
-            candidate.observed_unit_amount_minor
-        )
-        self._enforce_authoritative_budget(run_id, checkout, intent)
-        ready = self._apply_details(run_id, checkout, details)
+        # Un fallo a medio camino deja la compra en `selected` o `checkout_prepared`: se marca
+        # `failed` para que no quede bloqueando la siguiente compra sin poder cancelarse.
+        with self._abandon_on_error(run_id):
+            checkout = self._checkout.create_checkout(
+                candidate.variant_id, idempotency_key=idempotency_key
+            )
+            self._validate_created_checkout(checkout, candidate)
+            self._store.update_purchase(
+                run_id,
+                stage=PurchaseStage.CHECKOUT_PREPARED,
+                checkout_id=checkout.id,
+            )
+            price_changed = _checkout_unit_amount(checkout, candidate.variant_id) != (
+                candidate.observed_unit_amount_minor
+            )
+            self._enforce_authoritative_budget(run_id, checkout, intent)
+            ready = self._apply_details(run_id, checkout, details)
         return PurchasePreparation(
             run_id=run_id,
             stage=PurchaseStage.AWAITING_CONFIRMATION,
@@ -179,6 +184,17 @@ class PurchaseService:
                 "Merchant did not cancel the expected checkout", code="checkout_mismatch"
             )
         self._store.update_purchase(run_id, stage=PurchaseStage.CANCELED)
+
+    @contextmanager
+    def _abandon_on_error(self, run_id: str) -> Iterator[None]:
+        try:
+            yield
+        except BaseException:
+            purchase = self._store.purchase(run_id)
+            unfinished = {PurchaseStage.SELECTED, PurchaseStage.CHECKOUT_PREPARED}
+            if purchase is not None and purchase.get("stage") in unfinished:
+                self._store.update_purchase(run_id, stage=PurchaseStage.FAILED)
+            raise
 
     def _apply_details(
         self, run_id: str, checkout: CheckoutSession, details: CheckoutDetails

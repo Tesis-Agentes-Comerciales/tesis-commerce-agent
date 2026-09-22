@@ -1,0 +1,18 @@
+data: {"type": "update-state", "operations": [{"type": "set", "path": [], "value": {"messages": [{"id": "msg_001", "role": "user", "content": [{"type": "text", "text": "hola"}]}, {"id": "msg_002", "role": "assistant", "content": [{"type": "tool-call", "toolCallId": "call_001", "toolName": "interpret_request", "args": {}, "argsText": "{}", "result": {"action": "respond", "constraints": null, "preferences": null}, "isError": false}, {"type": "text", "text": "\u00a1Hola! Dime qu\u00e9 producto buscas y, si quieres, tu presupuesto o preferencias."}], "status": {"type": "complete", "reason": "stop"}}], "purchase": null}}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "2"], "value": {"id": "msg_003", "role": "user", "content": [{"type": "text", "text": "Busco algo para escuchar m\u00fasica"}]}}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "3"], "value": {"id": "msg_004", "role": "assistant", "status": {"type": "running"}, "content": []}}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "3", "content", "0"], "value": {"type": "tool-call", "toolCallId": "call_002", "toolName": "interpret_request", "args": {}, "argsText": "{}"}}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "3", "content", "0", "result"], "value": {"action": "clarify", "constraints": null, "preferences": null}}, {"type": "set", "path": ["messages", "3", "content", "0", "isError"], "value": false}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "3", "content", "1"], "value": {"type": "text", "text": ""}}]}
+
+data: {"type": "update-state", "operations": [{"type": "append-text", "path": ["messages", "3", "content", "1", "text"], "value": "Puedo ayudarte con aud\u00edfonos del cat\u00e1logo. \u00bfTienes un presupuesto o un color preferido?"}]}
+
+data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "3", "status"], "value": {"type": "complete", "reason": "stop"}}]}
+
+data: [DONE]
+

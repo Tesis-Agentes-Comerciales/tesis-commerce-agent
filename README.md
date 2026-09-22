@@ -86,6 +86,11 @@ Configure en `.env`:
 - `AGENT_UI_ORIGIN`: origen exacto autorizado para la interfaz web local.
 - `OPENAI_API_KEY`, `OPENAI_MODEL` y `OPENAI_TIMEOUT_SECONDS`: modelo conversacional que enruta la
   solicitud y elige o explica entre candidatos elegibles.
+- `OPENAI_REASONING_SUMMARY` (por defecto `false`): si es `true`, `POST /assistant` pide a la
+  Responses API resúmenes de razonamiento y los muestra como partes `reasoning`; nunca vuelven al
+  prompt. `/conversation/turn` no los solicita.
+- `OPENAI_REASONING_EFFORT` (opcional: `minimal`, `low`, `medium` o `high`): esfuerzo de
+  razonamiento para modelos que lo soportan. Sin estas dos variables los requests no cambian.
 
 Use valores aleatorios de al menos 32 caracteres para los tres secretos. No copie valores reales a
 Git, logs, prompts, fixtures o artefactos.
@@ -111,6 +116,14 @@ Flujo:
 5. `POST /purchases/{run_id}/complete` ejecuta el gateway determinista.
 6. `GET /purchases/{run_id}` consulta el estado local.
 7. `POST /agentic_checkout/webhooks/order_events` recibe eventos firmados del merchant.
+8. `POST /assistant` expone el mismo pipeline como stream Assistant Transport para
+   `useAssistantTransportRuntime`: cada paso (`interpret_request`, `search_catalog`,
+   `select_product`, `prepare_checkout`, `request_approval`) llega como tool call con argumentos y
+   resultado, y `purchase` se relee de SQLite. El estado del cliente no es autoritativo; ver
+   [`docs/agent-ui-contract.md`](docs/agent-ui-contract.md).
+
+Los fixtures SSE de Storybook se regeneran con `uv run python scripts/export_assistant_fixtures.py`;
+un test falla si los archivos versionados quedan desactualizados.
 
 Con el agente y el merchant locales activos, la evaluación conversacional opcional usa el LLM
 configurado y cancela todos los checkouts sandbox que prepara:

@@ -44,6 +44,12 @@ mensajes del merchant se consideran datos no confiables y no se convierten en in
 - Webhook autenticado antes de parsear, máximo 1 MiB, tolerancia simétrica de 300 segundos,
   comparación constante y dedupe por SHA-256 del body firmado.
 - Los eventos fuera de orden se guardan, pero la proyección no regresa un estado conocido.
+- `POST /assistant` trata el estado del cliente como no confiable: limita el body a 1 MiB, solo usa
+  el texto de mensajes `user`/`assistant` como historial (máximo 20), relee compra y etapa de
+  SQLite por `run_id` y nunca envía `system`, `tools`, tool calls ni razonamiento del cliente al
+  modelo. Imagen y descripción del feed solo se proyectan para la UI (HTTPS, mismo host, sin
+  credenciales, texto plano truncado) y no entran a los prompts. Los errores se traducen a
+  mensajes fijos en español sin texto de excepciones.
 
 ## Hipótesis y desviaciones conocidas
 

@@ -1,12 +1,16 @@
 import json
-from typing import Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from openai import OpenAI, OpenAIError
 from openai.types.responses import ResponseInputParam
+from openai.types.shared_params import Reasoning
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
 
 from commerce_agent.acp.feed import ProductCandidate, ProductFeed
 from commerce_agent.domain import HardConstraints, PurchaseIntent, RankedCandidate, SoftPreferences
+from commerce_agent.llm.reasoning import emit_reasoning, reasoning_requested
+
+ReasoningEffort = Literal["minimal", "low", "medium", "high"]
 
 
 class IntentInterpretationError(RuntimeError):
@@ -290,10 +294,14 @@ class OpenAIConversationRouter:
         model: str,
         feed: ProductFeed,
         timeout_seconds: float = 20.0,
+        reasoning_summary: bool = False,
+        reasoning_effort: ReasoningEffort | None = None,
     ) -> None:
         if not model.strip():
             raise ValueError("OpenAI model must not be empty")
         self._model = model
+        self._reasoning_summary = reasoning_summary
+        self._reasoning_effort: ReasoningEffort | None = reasoning_effort
         self._feed = feed
         self._instructions = (
             f"{_INSTRUCTIONS}\nCurrent catalog vocabulary:\n{_catalog_vocabulary(feed)}"
@@ -311,17 +319,12 @@ class OpenAIConversationRouter:
             ResponseInputParam,
             [message.model_dump(mode="json") for message in messages],
         )
-        try:
-            response = self._client.responses.parse(
-                model=self._model,
-                instructions=self._instructions,
-                input=model_input,
-                text_format=CommerceDecision,
-                store=False,
-            )
-        except (OpenAIError, ValidationError) as error:
-            raise IntentInterpretationError("The conversation model request failed") from error
-        parsed = response.output_parsed
+        parsed = self._parse(
+            instructions=self._instructions,
+            model_input=model_input,
+            text_format=CommerceDecision,
+            failure="The conversation model request failed",
+        )
         if parsed is None:
             raise IntentInterpretationError("The conversation model returned no decision")
         if parsed.intent is not None:
@@ -370,17 +373,12 @@ class OpenAIConversationRouter:
                 for item in candidates
             ],
         }
-        try:
-            response = self._client.responses.parse(
-                model=self._model,
-                instructions=_SELECTION_INSTRUCTIONS,
-                input=json.dumps(payload, ensure_ascii=False),
-                text_format=response_model,
-                store=False,
-            )
-        except (OpenAIError, ValidationError) as error:
-            raise IntentInterpretationError("The candidate model request failed") from error
-        parsed = response.output_parsed
+        parsed = self._parse(
+            instructions=_SELECTION_INSTRUCTIONS,
+            model_input=json.dumps(payload, ensure_ascii=False),
+            text_format=response_model,
+            failure="The candidate model request failed",
+        )
         if parsed is None:
             raise IntentInterpretationError("The candidate model returned no decision")
         try:
@@ -407,20 +405,73 @@ class OpenAIConversationRouter:
             "rejection_counts": rejection_counts,
             "available_alternatives": [_candidate_payload(item) for item in alternatives],
         }
-        try:
-            response = self._client.responses.parse(
-                model=self._model,
-                instructions=_RECOVERY_INSTRUCTIONS,
-                input=json.dumps(payload, ensure_ascii=False),
-                text_format=CatalogRecovery,
-                store=False,
-            )
-        except (OpenAIError, ValidationError) as error:
-            raise IntentInterpretationError("The recovery model request failed") from error
-        parsed = response.output_parsed
+        parsed = self._parse(
+            instructions=_RECOVERY_INSTRUCTIONS,
+            model_input=json.dumps(payload, ensure_ascii=False),
+            text_format=CatalogRecovery,
+            failure="The recovery model request failed",
+        )
         if parsed is None:
             raise IntentInterpretationError("The recovery model returned no decision")
         return parsed
+
+    def _parse[ParsedT: BaseModel](
+        self,
+        *,
+        instructions: str,
+        model_input: str | ResponseInputParam,
+        text_format: type[ParsedT],
+        failure: str,
+    ) -> ParsedT | None:
+        """Run one structured-output request.
+
+        Reasoning summaries are requested only when enabled and a caller listens for them, so
+        ``/conversation/turn`` keeps sending the plain structured-output request.
+        """
+        effort = self._reasoning_effort
+        options: dict[str, Any] = {}
+        if effort is not None:
+            options["reasoning"] = Reasoning(effort=effort)
+        if not (self._reasoning_summary and reasoning_requested()):
+            try:
+                response = self._client.responses.parse(
+                    model=self._model,
+                    instructions=instructions,
+                    input=model_input,
+                    text_format=text_format,
+                    store=False,
+                    **options,
+                )
+            except (OpenAIError, ValidationError) as error:
+                raise IntentInterpretationError(failure) from error
+            return response.output_parsed
+        reasoning = Reasoning(summary="auto")
+        if effort is not None:
+            reasoning["effort"] = effort
+        try:
+            with self._client.responses.stream(
+                model=self._model,
+                instructions=instructions,
+                input=model_input,
+                text_format=text_format,
+                store=False,
+                reasoning=reasoning,
+            ) as stream:
+                for event in stream:
+                    if event.type == "response.reasoning_summary_part.added":
+                        if event.summary_index > 0:
+                            emit_reasoning("\n\n")
+                    elif event.type == "response.reasoning_summary_text.delta":
+                        emit_reasoning(event.delta)
+                response = stream.get_final_response()
+        except (OpenAIError, ValidationError) as error:
+            raise IntentInterpretationError(failure) from error
+        except RuntimeError as error:
+            # The SDK raises RuntimeError when the stream ends without response.completed.
+            if isinstance(error, IntentInterpretationError):
+                raise
+            raise IntentInterpretationError(failure) from error
+        return response.output_parsed
 
     def close(self) -> None:
         self._client.close()
