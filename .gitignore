@@ -11,5 +11,6 @@ __pycache__/
 htmlcov/
 build/
 dist/
+artifacts/
 *.egg-info/
 .DS_Store
