@@ -11,14 +11,13 @@ import type {
   ApprovalTerms,
   BuyerProfile,
   ConversationMessage,
-  PurchaseFlowStatus,
   PurchasePreparation,
 } from "@/lib/commerce-types"
 
 type CommerceRuntimeProps = {
   children: ReactNode
   profile: BuyerProfile
-  flowStatus: PurchaseFlowStatus
+  hasActivePurchase: boolean
   onPreparing: (request: string) => void
   onPrepared: (
     request: string,
@@ -77,7 +76,7 @@ function errorMessage(error: unknown): string {
 export function CommerceRuntime({
   children,
   profile,
-  flowStatus,
+  hasActivePurchase,
   onPreparing,
   onPrepared,
   onError,
@@ -94,11 +93,7 @@ export function CommerceRuntime({
         const request = latest.text
 
         try {
-          if (
-            ["awaiting_approval", "approving", "canceling", "completing"].includes(
-              flowStatus,
-            )
-          ) {
+          if (hasActivePurchase) {
             return {
               content: [
                 {
@@ -155,7 +150,7 @@ export function CommerceRuntime({
         }
       },
     }),
-    [flowStatus, onError, onPrepared, onPreparing, profile],
+    [hasActivePurchase, onError, onPrepared, onPreparing, profile],
   )
 
   const runtime = useLocalRuntime(adapter)

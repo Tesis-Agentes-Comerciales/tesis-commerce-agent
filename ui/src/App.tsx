@@ -73,6 +73,7 @@ function App() {
   }
 
   const hasReceipt = flow.preparation !== undefined && flow.terms !== undefined
+  const hasActivePurchase = hasReceipt && flow.status !== "completed"
   const connectionLabel =
     connection === "online"
       ? "Agente conectado"
@@ -133,7 +134,7 @@ function App() {
           <CommerceRuntime
             key={session}
             profile={profile}
-            flowStatus={flow.status}
+            hasActivePurchase={hasActivePurchase}
             onPreparing={handlePreparing}
             onPrepared={handlePrepared}
             onError={handleError}
