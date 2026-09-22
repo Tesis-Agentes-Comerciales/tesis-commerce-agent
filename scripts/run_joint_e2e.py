@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the buyer-agent/merchant boundary test against separate processes."""
+"""Run the buyer-agent, merchant, and payment-provider boundary test."""
 
 from __future__ import annotations
 
@@ -15,8 +15,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
-
-MERCHANT_REVISION = "361bfe7436dd0167cad3b4b3fedbf79c82a9c76b"
 
 
 class HarnessError(RuntimeError):
@@ -55,19 +53,11 @@ def _run_json(command: list[str], *, cwd: Path, env: dict[str, str]) -> dict[str
     return value
 
 
-def _verify_merchant_revision(merchant: Path, env: dict[str, str]) -> None:
-    result = _run(["git", "rev-parse", "HEAD"], cwd=merchant, env=env, capture=True)
-    if result.stdout.strip() != MERCHANT_REVISION:
-        raise HarnessError(
-            f"Merchant checkout is not the pinned integration revision {MERCHANT_REVISION}"
-        )
-
-
 def _wait_until_ready(url: str, process: subprocess.Popen[str], timeout_seconds: float) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise HarnessError("Merchant API stopped before becoming ready")
+            raise HarnessError(f"Service stopped before becoming ready: {url}")
         try:
             with urllib.request.urlopen(url, timeout=1) as response:
                 payload = json.load(response)
@@ -76,7 +66,7 @@ def _wait_until_ready(url: str, process: subprocess.Popen[str], timeout_seconds:
         except (OSError, ValueError, urllib.error.URLError):
             pass
         time.sleep(0.25)
-    raise HarnessError("Merchant API readiness check timed out")
+    raise HarnessError(f"Service readiness check timed out: {url}")
 
 
 def _terminate(process: subprocess.Popen[str]) -> None:
@@ -105,6 +95,12 @@ def _parser() -> argparse.ArgumentParser:
         default=Path(__file__).resolve().parents[2] / "tesis-commerce-merchant",
     )
     parser.add_argument("--merchant-port", type=int, default=4120)
+    parser.add_argument(
+        "--payment-repo",
+        type=Path,
+        default=Path(__file__).resolve().parents[2] / "tesis-payment-provider-sandbox",
+    )
+    parser.add_argument("--payment-port", type=int, default=4130)
     parser.add_argument("--webhook-port", type=int, default=43120)
     parser.add_argument(
         "--skip-postgres-start",
@@ -123,8 +119,11 @@ def main() -> int:
     arguments = _parser().parse_args()
     agent = Path(__file__).resolve().parents[1]
     merchant = arguments.merchant_repo.resolve()
+    payment = arguments.payment_repo.resolve()
     if not (merchant / "pyproject.toml").is_file():
         raise HarnessError(f"Merchant repository not found: {merchant}")
+    if not (payment / "pyproject.toml").is_file():
+        raise HarnessError(f"Payment repository not found: {payment}")
 
     environment = os.environ.copy()
     environment.pop("VIRTUAL_ENV", None)
@@ -134,13 +133,18 @@ def main() -> int:
             "WEBHOOK_RECEIVER_URL": f"http://127.0.0.1:{arguments.webhook_port}",
             "MERCHANT_WEBHOOK_SECRET": secrets.token_urlsafe(32),
             "AGENT_APPROVAL_SECRET": secrets.token_urlsafe(32),
-            "AGENT_PAYMENT_SECRET": secrets.token_urlsafe(32),
+            "PAYMENT_PROVIDER_URL": f"http://127.0.0.1:{arguments.payment_port}",
+            "PAYMENT_AGENT_BEARER_TOKEN": secrets.token_urlsafe(32),
+            "PAYMENT_MERCHANT_BEARER_TOKEN": secrets.token_urlsafe(32),
+            "PAYMENT_TOKEN_SECRET": secrets.token_urlsafe(32),
+            "PAYMENT_SANDBOX_CLOCK_AT": "2026-09-10T14:05:00Z",
+            "AGENT_SANDBOX_CLOCK_AT": "2026-09-10T14:05:00Z",
             "NO_PROXY": "127.0.0.1,localhost",
             "no_proxy": "127.0.0.1,localhost",
         }
     )
-    _verify_merchant_revision(merchant, environment)
     _run(["uv", "sync", "--frozen", "--all-groups"], cwd=merchant, env=environment)
+    _run(["uv", "sync", "--frozen", "--all-groups"], cwd=payment, env=environment)
     if not arguments.skip_postgres_start:
         _run(
             ["docker", "compose", "up", "-d", "--wait", "postgres"],
@@ -174,6 +178,7 @@ def main() -> int:
         temp = Path(temporary)
         feed = temp / "feed"
         environment["AGENT_DATABASE_PATH"] = str(temp / "agent.db")
+        environment["PAYMENT_DATABASE_PATH"] = str(temp / "payments.db")
         _run(
             [
                 "uv",
@@ -227,7 +232,29 @@ def main() -> int:
             print(f"::add-mask::{token}")
 
         log_path = temp / "merchant-api.log"
-        with log_path.open("w", encoding="utf-8") as log:
+        payment_log_path = temp / "payment-api.log"
+        with (
+            log_path.open("w", encoding="utf-8") as log,
+            payment_log_path.open("w", encoding="utf-8") as payment_log,
+        ):
+            payment_process = subprocess.Popen(
+                [
+                    "uv",
+                    "run",
+                    "uvicorn",
+                    "tesis_payment_provider.api:app_factory",
+                    "--factory",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(arguments.payment_port),
+                ],
+                cwd=payment,
+                env=environment,
+                text=True,
+                stdout=payment_log,
+                stderr=subprocess.STDOUT,
+            )
             process = subprocess.Popen(
                 [
                     "uv",
@@ -247,6 +274,11 @@ def main() -> int:
             )
             try:
                 _wait_until_ready(
+                    f"{environment['PAYMENT_PROVIDER_URL']}/health",
+                    payment_process,
+                    timeout_seconds=30,
+                )
+                _wait_until_ready(
                     f"{environment['ACP_API_BASE_URL']}/health/ready",
                     process,
                     timeout_seconds=30,
@@ -265,15 +297,30 @@ def main() -> int:
                         token,
                         environment["MERCHANT_WEBHOOK_SECRET"],
                         environment["AGENT_APPROVAL_SECRET"],
-                        environment["AGENT_PAYMENT_SECRET"],
+                        environment["PAYMENT_AGENT_BEARER_TOKEN"],
+                        environment["PAYMENT_MERCHANT_BEARER_TOKEN"],
+                        environment["PAYMENT_TOKEN_SECRET"],
                     ),
                 )
                 if safe_log:
                     print("Merchant API log tail:", file=sys.stderr)
                     print(safe_log, file=sys.stderr)
+                payment_log.flush()
+                safe_payment_log = _redact(
+                    payment_log_path.read_text(encoding="utf-8", errors="replace")[-4000:],
+                    (
+                        environment["PAYMENT_AGENT_BEARER_TOKEN"],
+                        environment["PAYMENT_MERCHANT_BEARER_TOKEN"],
+                        environment["PAYMENT_TOKEN_SECRET"],
+                    ),
+                )
+                if safe_payment_log:
+                    print("Payment API log tail:", file=sys.stderr)
+                    print(safe_payment_log, file=sys.stderr)
                 raise
             finally:
                 _terminate(process)
+                _terminate(payment_process)
     return 0
 
 

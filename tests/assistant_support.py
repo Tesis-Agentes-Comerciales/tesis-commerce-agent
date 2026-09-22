@@ -268,7 +268,7 @@ def settings(database: Path) -> Settings:
         merchant_bearer_token=SecretStr("merchant-token-for-tests"),
         merchant_webhook_secret=SecretStr("webhook-secret-with-at-least-32-characters"),
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
-        agent_payment_secret=SecretStr("payment-secret-with-at-least-32-characters"),
+        payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=database,
         agent_feed_path=ASSISTANT_FEED,
         merchant_base_url=MERCHANT_ORIGIN,
@@ -284,6 +284,9 @@ def build_app(
     return create_app(
         settings=settings(database),
         transport=(merchant or Merchant()).transport(),
+        payment_transport=httpx.MockTransport(
+            lambda request: httpx.Response(201, json={"id": "vt_" + "a" * 64})
+        ),
         conversation_router=router if router is not None else ScriptedRouter(),
         id_factory=counter_ids(),
     )

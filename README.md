@@ -14,13 +14,13 @@ implementa intención, selección, aprobación humana, ejecución idempotente y 
 - persistencia SQLite de episodios, claves idempotentes, aprobaciones, órdenes y webhooks;
 - Human Present ligado mediante HMAC a comercio, checkout, líneas, identidad, dirección,
   fulfillment, total, revisión y expiración;
-- gateway de completion fuera del modelo, con pago sandbox reproducible y CAS local;
+- gateway de completion fuera del modelo, delegación a un proveedor sandbox independiente y CAS local;
 - estado `uncertain` y reconciliación desde el checkout autoritativo;
 - receptor de webhooks con HMAC, ventana temporal, límite de body, deduplicación y proyección
   monotónica;
 - API FastAPI para preparar, revisar, aprobar y completar compras;
 - interfaz React basada en `assistant-ui`, con perfil sandbox y aprobación Human Present;
-- harness E2E contra el merchant fijado, ejecutado como proceso y repositorio separados.
+- harness E2E contra merchant y proveedor de pagos como procesos y repositorios separados.
 
 El modelo recibe los mensajes del chat y vocabulario validado del feed. Primero produce una decisión
 tipada con una intención estructurada; después puede elegir o aclarar entre candidatos que ya
@@ -43,7 +43,8 @@ PurchaseService --> ACP create/update/get --> ready_for_payment
 resumen Human Present --> aprobación HMAC durable
           |
           v
-CompletionService --> GET + CAS + ACP complete --> orden durable
+CompletionService --> GET + CAS --> proveedor: delegate_payment
+                              --> ACP complete --> merchant: proveedor /confirm --> orden
                                                |
 merchant webhook --> HMAC + dedupe ------------+
 ```
@@ -79,7 +80,8 @@ Configure en `.env`:
 - `MERCHANT_BEARER_TOKEN`: sesión emitida por el CLI del merchant.
 - `MERCHANT_WEBHOOK_SECRET`: secreto compartido únicamente para verificar eventos.
 - `AGENT_APPROVAL_SECRET`: secreto independiente para vincular la aprobación.
-- `AGENT_PAYMENT_SECRET`: secreto independiente para el token sandbox reproducible.
+- `PAYMENT_PROVIDER_URL`: origen del proveedor sandbox independiente.
+- `PAYMENT_AGENT_BEARER_TOKEN`: credencial del agente ante ese proveedor, no ante el merchant.
 - `AGENT_DATABASE_PATH`: SQLite local.
 - `AGENT_FEED_PATH`: directorio con `metadata.json` y `products.jsonl`.
 - `AGENT_PRINCIPAL_ID`: identidad humana resuelta por el backend local.
@@ -92,7 +94,7 @@ Configure en `.env`:
 - `OPENAI_REASONING_EFFORT` (opcional: `minimal`, `low`, `medium` o `high`): esfuerzo de
   razonamiento para modelos que lo soportan. Sin estas dos variables los requests no cambian.
 
-Use valores aleatorios de al menos 32 caracteres para los tres secretos. No copie valores reales a
+Use valores aleatorios de al menos 32 caracteres para los secretos. No copie valores reales a
 Git, logs, prompts, fixtures o artefactos.
 
 ## API del agente
@@ -152,18 +154,18 @@ Abra `http://127.0.0.1:5173` después de iniciar FastAPI. El perfil incluido es 
 el chat prepara el checkout, pero la compra solo se completa al pulsar el botón que muestra el total
 y el fingerprint autoritativos.
 
-## Integración real con el merchant
+## Integración entre los tres servicios
 
-El smoke compartido fija el merchant en
-`361bfe7436dd0167cad3b4b3fedbf79c82a9c76b`:
+El smoke compartido levanta merchant y proveedor de pagos en procesos separados:
 
 ```sh
 uv run python scripts/run_joint_e2e.py \
-  --merchant-repo ../tesis-commerce-merchant
+  --merchant-repo ../tesis-commerce-merchant \
+  --payment-repo ../tesis-payment-provider-sandbox
 ```
 
 El runner levanta PostgreSQL si hace falta, migra, crea un episodio B0, exporta el feed, emite un
-Bearer efímero, inicia el merchant, completa una compra y verifica:
+Bearer efímero para cada frontera, inicia ambos servicios, completa una compra y verifica:
 
 - replay local y replay idempotente remoto;
 - permalink sin PII ni token sandbox;
@@ -171,21 +173,22 @@ Bearer efímero, inicia el merchant, completa una compra y verifica:
 - `order_update` firmado y transición a `processing`.
 
 Si PostgreSQL ya está levantado, agregue `--skip-postgres-start`. Los puertos se cambian con
-`--merchant-port` y `--webhook-port`. GitHub Actions expone el mismo recorrido como workflow manual
-`Joint ACP end-to-end`.
+`--merchant-port`, `--payment-port` y `--webhook-port`. El checkout usa el reloj sintético del
+episodio; el runner sincroniza ese reloj con el proveedor.
 
 Para incluir la extracción de intención con el modelo OpenAI configurado en `.env`:
 
 ```sh
 uv run python scripts/run_joint_e2e.py \
   --merchant-repo ../tesis-commerce-merchant \
+  --payment-repo ../tesis-payment-provider-sandbox \
   --live-llm
 ```
 
 ## Límites deliberados
 
 Este P0 usa un solo merchant registrado por configuración, una moneda, cantidad uno, SQLite y pago
-sandbox. No procesa dinero real. El modelo conversacional es una integración externa, pero su
+sandbox independiente. No procesa dinero real ni datos de tarjetas reales. El modelo conversacional es una integración externa, pero su
 salida se valida antes del ranking y nunca autoriza completion. B2, OPA, mandatos externos, Stripe
 real y operación multi-instancia quedan fuera de este incremento.
 

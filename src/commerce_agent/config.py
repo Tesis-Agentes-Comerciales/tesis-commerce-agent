@@ -55,7 +55,8 @@ class Settings(BaseSettings):
     merchant_webhook_secret: SecretStr | None = Field(default=None, repr=False)
     merchant_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     agent_approval_secret: SecretStr | None = Field(default=None, repr=False)
-    agent_payment_secret: SecretStr | None = Field(default=None, repr=False)
+    payment_provider_url: str = "http://127.0.0.1:4130"
+    payment_agent_bearer_token: SecretStr | None = Field(default=None, repr=False)
     agent_database_path: Path = Path(".local/agent.db")
     agent_feed_path: Path = Path("artifacts/feed/p0")
     agent_principal_id: str = Field(default="local-human", min_length=1, max_length=128)
@@ -70,6 +71,11 @@ class Settings(BaseSettings):
     @field_validator("merchant_base_url")
     @classmethod
     def validate_base_url(cls, value: str) -> str:
+        return validate_service_base_url(value)
+
+    @field_validator("payment_provider_url")
+    @classmethod
+    def validate_payment_provider_url(cls, value: str) -> str:
         return validate_service_base_url(value)
 
     @field_validator("agent_ui_origin")

@@ -150,7 +150,7 @@ class CheckoutSession(BaseModel):
 
 
 class PaymentCredential(StrictModel):
-    type: Literal["spt"] = "spt"
+    type: Literal["vault_token"] = "vault_token"
     token: SecretStr
 
 

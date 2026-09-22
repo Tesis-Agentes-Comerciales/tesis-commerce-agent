@@ -19,7 +19,7 @@ from commerce_agent.llm import (
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_JOINT_E2E") != "1",
-    reason="requires the pinned merchant service and PostgreSQL",
+    reason="requires the merchant, payment provider, and PostgreSQL",
 )
 
 
@@ -91,7 +91,7 @@ def test_natural_request_crosses_the_model_boundary_and_completes() -> None:
         merchant_bearer_token=SecretStr(_required("MERCHANT_BEARER_TOKEN")),
         merchant_webhook_secret=SecretStr(_required("MERCHANT_WEBHOOK_SECRET")),
         agent_approval_secret=SecretStr(_required("AGENT_APPROVAL_SECRET")),
-        agent_payment_secret=SecretStr(_required("AGENT_PAYMENT_SECRET")),
+        payment_agent_bearer_token=SecretStr(_required("PAYMENT_AGENT_BEARER_TOKEN")),
         agent_database_path=Path(_required("AGENT_DATABASE_PATH")),
         agent_feed_path=Path(_required("PRODUCT_FEED_PATH")),
         agent_principal_id="human-conversational-e2e",

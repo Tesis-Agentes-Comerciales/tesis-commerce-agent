@@ -9,8 +9,8 @@
 | Catálogo | reemplazo completo `metadata.json` + `products.jsonl` |
 | Moneda | `USD` en feed, `usd` en checkout |
 | Cantidad | una unidad |
-| Pago | `tesis_sandbox`, credencial `spt_test_*` |
-| Merchant E2E | `Maldinho18/tesis-commerce-merchant@361bfe7436dd0167cad3b4b3fedbf79c82a9c76b` |
+| Pago | `tesis_sandbox`, credencial opaca `vt_*` emitida por el proveedor propio |
+| E2E | agente, merchant y proveedor en procesos separados |
 | Webhook | `t=<unix>,v1=<HMAC-SHA256>` sobre `timestamp + "." + raw_body` |
 
 Todos los requests y responses ACP usados por el agente se validan contra el bundle vendorado. Los
@@ -27,7 +27,7 @@ mensajes del merchant se consideran datos no confiables y no se convierten en in
 | Identidad humana | configuración/backend del agente |
 | Aprobación | HMAC durable sobre términos exactos |
 | Clave idempotente | SQLite del agente |
-| Credencial sandbox | adaptador backend; no se persiste |
+| Credencial sandbox | proveedor externo al agente y merchant; el agente no la persiste |
 | Orden | respuesta o consulta autoritativa del merchant |
 | Estado posterior | webhook firmado y proyección monotónica |
 
@@ -39,7 +39,7 @@ mensajes del merchant se consideran datos no confiables y no se convierten en in
 - Fingerprint HMAC versionado que incluye comercio, protocolo, checkout, líneas, total, comprador,
   destino, fulfillment, `updated_at` y expiración.
 - CAS SQLite `approved|uncertain → completing`; solo el ganador despacha `complete`.
-- Clave idempotente estable tras restart y pago sandbox derivado de la misma operación.
+- Claves idempotentes estables tras restart para delegación y completion; el proveedor decide el resultado.
 - Timeout/transport marcan `uncertain`; la reanudación consulta el checkout antes de redespachar.
 - Webhook autenticado antes de parsear, máximo 1 MiB, tolerancia simétrica de 300 segundos,
   comparación constante y dedupe por SHA-256 del body firmado.
@@ -68,7 +68,10 @@ mensajes del merchant se consideran datos no confiables y no se convierten en in
 5. **Evidencia parcial.** Se conservan solicitud, candidato, checkout, aprobación, operación, orden y
    eventos. El manifiesto experimental completo, métricas de modelo y comparación B0/B2 quedan fuera
    de las etapas implementadas aquí.
-6. **Pago sintético.** No existe PSP real, PAN, CVC, 3DS, devolución o disputa.
+6. **Pago sintético.** El proveedor es un servicio propio con estado independiente, no un PSP real.
+   Solo acepta tarjetas de prueba, no almacena PAN ni CVC y no mueve dinero. Este P0 no modela 3DS,
+   devolución ni disputa. El checkout del merchant confirma contra el proveedor antes de crear la
+   orden; un fallo tras la confirmación se recupera con la misma clave idempotente al reintentar.
 
 ## Criterio de fallo seguro
 

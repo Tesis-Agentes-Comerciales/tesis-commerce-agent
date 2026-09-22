@@ -39,7 +39,7 @@ def completed_checkout() -> dict[str, Any]:
 
 
 def test_complete_sends_schema_valid_payment_and_parses_schema_valid_order() -> None:
-    token = "spt_test_success_not-persisted"
+    token = "vt_" + "a" * 64
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/checkout_sessions/cs_test_001/complete"

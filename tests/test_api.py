@@ -192,7 +192,7 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
         merchant_bearer_token=SecretStr("merchant-token"),
         merchant_webhook_secret=SecretStr("webhook-secret-with-at-least-32-characters"),
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
-        agent_payment_secret=SecretStr("payment-secret-with-at-least-32-characters"),
+        payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=tmp_path / "agent.db",
         agent_feed_path=FEED,
         agent_principal_id="human-api-1",
@@ -212,6 +212,9 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
     app = create_app(
         settings=settings,
         transport=httpx.MockTransport(handler),
+        payment_transport=httpx.MockTransport(
+            lambda request: httpx.Response(201, json={"id": "vt_" + "a" * 64})
+        ),
         conversation_router=router,
     )
 
@@ -285,7 +288,7 @@ def test_conversation_turn_can_reply_without_contacting_merchant(tmp_path: Path)
         merchant_bearer_token=SecretStr("merchant-token"),
         merchant_webhook_secret=SecretStr("webhook-secret-with-at-least-32-characters"),
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
-        agent_payment_secret=SecretStr("payment-secret-with-at-least-32-characters"),
+        payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=tmp_path / "agent.db",
         agent_feed_path=FEED,
     )
@@ -360,7 +363,7 @@ def test_pending_purchase_can_be_canceled_through_api(tmp_path: Path) -> None:
         merchant_bearer_token=SecretStr("merchant-token"),
         merchant_webhook_secret=SecretStr("webhook-secret-with-at-least-32-characters"),
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
-        agent_payment_secret=SecretStr("payment-secret-with-at-least-32-characters"),
+        payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=tmp_path / "agent.db",
         agent_feed_path=FEED,
     )
@@ -408,7 +411,7 @@ def test_candidate_choice_can_ask_for_clarification_without_checkout(tmp_path: P
         merchant_bearer_token=SecretStr("merchant-token"),
         merchant_webhook_secret=SecretStr("webhook-secret-with-at-least-32-characters"),
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
-        agent_payment_secret=SecretStr("payment-secret-with-at-least-32-characters"),
+        payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=tmp_path / "agent.db",
         agent_feed_path=FEED,
     )
@@ -456,7 +459,7 @@ def test_no_candidate_returns_catalog_alternatives_instead_of_an_error(tmp_path:
         merchant_bearer_token=SecretStr("merchant-token"),
         merchant_webhook_secret=SecretStr("webhook-secret-with-at-least-32-characters"),
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
-        agent_payment_secret=SecretStr("payment-secret-with-at-least-32-characters"),
+        payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=tmp_path / "agent.db",
         agent_feed_path=FEED,
     )

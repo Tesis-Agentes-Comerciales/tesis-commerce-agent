@@ -7,7 +7,7 @@ from commerce_agent.acp.models import (
     SandboxPaymentData,
 )
 from commerce_agent.approval import ApprovalService
-from commerce_agent.payment import SandboxPaymentProvider
+from commerce_agent.delegated_payment import DelegatedPaymentClient, DelegationError
 from commerce_agent.persistence import SqliteAgentStore
 
 
@@ -34,7 +34,7 @@ class CompletionService:
         self,
         gateway: TrustedCompletionGateway,
         approvals: ApprovalService,
-        payments: SandboxPaymentProvider,
+        payments: DelegatedPaymentClient,
         store: SqliteAgentStore,
     ) -> None:
         self._gateway = gateway
@@ -78,11 +78,13 @@ class CompletionService:
         self._approvals.authorize(run_id=run_id, checkout=checkout)
 
         idempotency_key = self._store.idempotency_key(run_id, "checkout.complete")
-        payment_data = self._payments.payment_data(
-            run_id=run_id,
-            checkout_id=checkout_id,
-            idempotency_key=idempotency_key,
-        )
+        try:
+            payment_data = self._payments.payment_data(
+                checkout=checkout,
+                idempotency_key=self._store.idempotency_key(run_id, "payment.delegate"),
+            )
+        except DelegationError as error:
+            raise CompletionError("Payment delegation failed", code=error.code) from error
         if not self._store.claim_completion(run_id):
             raise CompletionError(
                 "Another completion attempt already owns this purchase",

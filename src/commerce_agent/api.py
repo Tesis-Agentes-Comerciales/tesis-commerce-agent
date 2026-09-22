@@ -25,12 +25,12 @@ from commerce_agent.assistant_transport import (
 )
 from commerce_agent.completion import CompletionError, CompletionService
 from commerce_agent.config import Settings, get_settings
+from commerce_agent.delegated_payment import DelegatedPaymentClient
 from commerce_agent.llm import (
     ConversationRouter,
     IntentInterpretationError,
     OpenAIConversationRouter,
 )
-from commerce_agent.payment import SandboxPaymentProvider
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.webhooks import register_webhook_receiver
 
@@ -64,6 +64,7 @@ def create_app(
     *,
     settings: Settings | None = None,
     transport: httpx.BaseTransport | None = None,
+    payment_transport: httpx.BaseTransport | None = None,
     clock: Callable[[], datetime] | None = None,
     conversation_router: ConversationRouter | None = None,
     id_factory: IdFactory = default_id_factory,
@@ -75,8 +76,8 @@ def create_app(
         raise RuntimeError("MERCHANT_WEBHOOK_SECRET is required")
     if configuration.agent_approval_secret is None:
         raise RuntimeError("AGENT_APPROVAL_SECRET is required")
-    if configuration.agent_payment_secret is None:
-        raise RuntimeError("AGENT_PAYMENT_SECRET is required")
+    if configuration.payment_agent_bearer_token is None:
+        raise RuntimeError("PAYMENT_AGENT_BEARER_TOKEN is required")
 
     store = SqliteAgentStore(configuration.agent_database_path)
     store.initialize()
@@ -101,10 +102,15 @@ def create_app(
         merchant_origin=configuration.merchant_base_url,
         clock=approval_clock,
     )
+    payments = DelegatedPaymentClient(
+        configuration.payment_provider_url,
+        configuration.payment_agent_bearer_token,
+        transport=payment_transport,
+    )
     completion = CompletionService(
         client,
         approvals,
-        SandboxPaymentProvider(configuration.agent_payment_secret),
+        payments,
         store,
     )
     purchase_service = PurchaseService(
@@ -140,6 +146,7 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
         client.close()
+        payments.close()
         if owned_conversation_router is not None:
             owned_conversation_router.close()
 
@@ -166,6 +173,12 @@ def create_app(
         code = getattr(error, "code", "agent_error")
         if code == "intent_model_error":
             status = 502
+        elif code == "provider_unavailable":
+            status = 503
+        elif code == "invalid_provider_response":
+            status = 502
+        elif code == "delegation_rejected":
+            status = 422
         else:
             status = 409 if code not in {"purchase_not_found", "checkout_missing"} else 404
         return JSONResponse({"code": code, "message": str(error)}, status_code=status)

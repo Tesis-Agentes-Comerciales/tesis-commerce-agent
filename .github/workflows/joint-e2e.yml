@@ -2,6 +2,23 @@ name: Joint ACP end-to-end
 
 on:
   workflow_dispatch:
+    inputs:
+      merchant_repository:
+        description: Merchant repository with the delegated-payment integration
+        required: true
+        type: string
+      merchant_ref:
+        description: Merchant commit or branch to test
+        required: true
+        type: string
+      payment_repository:
+        description: Independent payment-provider repository
+        required: true
+        type: string
+      payment_ref:
+        description: Payment-provider commit or branch to test
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -36,12 +53,20 @@ jobs:
           path: agent
           persist-credentials: false
 
-      - name: Checkout pinned merchant
+      - name: Checkout merchant
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: Maldinho18/tesis-commerce-merchant
-          ref: 361bfe7436dd0167cad3b4b3fedbf79c82a9c76b
+          repository: ${{ inputs.merchant_repository }}
+          ref: ${{ inputs.merchant_ref }}
           path: merchant
+          persist-credentials: false
+
+      - name: Checkout payment provider
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.payment_repository }}
+          ref: ${{ inputs.payment_ref }}
+          path: payment
           persist-credentials: false
 
       - name: Install uv
@@ -63,4 +88,5 @@ jobs:
         run: >-
           uv run python scripts/run_joint_e2e.py
           --merchant-repo ../merchant
+          --payment-repo ../payment
           --skip-postgres-start

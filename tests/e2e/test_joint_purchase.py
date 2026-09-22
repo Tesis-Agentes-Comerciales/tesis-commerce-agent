@@ -13,19 +13,19 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from commerce_agent.acp import ACPClient, load_product_feed
+from commerce_agent.acp import ACPClient, ACPClientError, load_product_feed
 from commerce_agent.acp.models import Address, Buyer, FulfillmentDetails
 from commerce_agent.application import CheckoutDetails, PurchaseService
 from commerce_agent.approval import ApprovalService
 from commerce_agent.completion import CompletionService
+from commerce_agent.delegated_payment import DelegatedPaymentClient
 from commerce_agent.domain import PurchaseIntent
-from commerce_agent.payment import SandboxPaymentProvider
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.webhooks import create_webhook_app
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_JOINT_E2E") != "1",
-    reason="requires the pinned merchant service and PostgreSQL",
+    reason="requires the merchant, payment provider, and PostgreSQL",
 )
 
 
@@ -113,6 +113,7 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
         )
         receiver = threading.Thread(target=server.serve_forever, daemon=True)
         receiver.start()
+        payment_provider: DelegatedPaymentClient | None = None
         try:
             with ACPClient(
                 merchant_url,
@@ -144,8 +145,9 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
                     actor_id="human-e2e",
                     expected_fingerprint=terms.fingerprint,
                 )
-                payment_provider = SandboxPaymentProvider(
-                    SecretStr(_required("AGENT_PAYMENT_SECRET"))
+                payment_provider = DelegatedPaymentClient(
+                    _required("PAYMENT_PROVIDER_URL"),
+                    SecretStr(_required("PAYMENT_AGENT_BEARER_TOKEN")),
                 )
                 completion = CompletionService(
                     gateway,
@@ -164,13 +166,45 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
                 merchant_replay = gateway.complete_checkout(
                     completed.id,
                     payment_provider.payment_data(
-                        run_id=run_id,
-                        checkout_id=completed.id,
-                        idempotency_key=complete_key,
+                        checkout=prepared.checkout,
+                        idempotency_key=store.idempotency_key(run_id, "payment.delegate"),
                     ),
                     idempotency_key=complete_key,
                 )
                 assert merchant_replay == completed
+
+                declined_run_id = f"{run_id}-declined"
+                declined_checkout = purchase.start(
+                    run_id=declined_run_id,
+                    request="Buy another available product",
+                    intent=PurchaseIntent(),
+                    selected_variant_id="ALT-01",
+                    details=_details(),
+                )
+                declined_terms = purchase.approval_terms(declined_run_id)
+                purchase.approve(
+                    run_id=declined_run_id,
+                    actor_id="human-e2e",
+                    expected_fingerprint=declined_terms.fingerprint,
+                )
+                declined_provider = DelegatedPaymentClient(
+                    _required("PAYMENT_PROVIDER_URL"),
+                    SecretStr(_required("PAYMENT_AGENT_BEARER_TOKEN")),
+                    test_card="4000000000000002",
+                )
+                try:
+                    declined_completion = CompletionService(
+                        gateway, approvals, declined_provider, store
+                    )
+                    with pytest.raises(ACPClientError) as declined:
+                        declined_completion.complete(run_id=declined_run_id)
+                    assert declined.value.code == "PAYMENT_DECLINED"
+                    assert gateway.get_checkout(declined_checkout.checkout.id).status == (
+                        "ready_for_payment"
+                    )
+                    assert store.purchase(declined_run_id)["order_id"] is None  # type: ignore[index]
+                finally:
+                    declined_provider.close()
 
                 permalink = httpx.get(completed.order.permalink_url, timeout=5)
                 assert permalink.status_code == 200
@@ -178,7 +212,7 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
                     "buyer.e2e@example.test",
                     "+573000000000",
                     "Calle 100",
-                    "spt_test_",
+                    "vt_",
                 ):
                     assert private_value not in permalink.text
 
@@ -204,6 +238,8 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
             assert projected is not None
             assert projected["data"]["status"] == "processing"
         finally:
+            if payment_provider is not None:
+                payment_provider.close()
             server.shutdown()
             server.server_close()
             receiver.join(timeout=5)

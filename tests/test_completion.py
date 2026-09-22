@@ -10,16 +10,34 @@ from commerce_agent.acp.client import ACPClientError
 from commerce_agent.acp.models import (
     CheckoutSession,
     CheckoutSessionWithOrder,
+    PaymentCredential,
     SandboxPaymentData,
+    SandboxPaymentInstrument,
 )
 from commerce_agent.approval import ApprovalError, ApprovalService
 from commerce_agent.completion import CompletionService
-from commerce_agent.payment import SandboxPaymentProvider
+from commerce_agent.delegated_payment import DelegatedPaymentClient
 from commerce_agent.persistence import SqliteAgentStore
 
 NOW = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
 APPROVAL_SECRET = SecretStr("approval-secret-with-at-least-32-characters")
-PAYMENT_SECRET = SecretStr("payment-secret-with-at-least-32-characters")
+TEST_TOKEN = "vt_" + "a" * 64
+
+
+class FakePayments(DelegatedPaymentClient):
+    def __init__(self) -> None:
+        pass
+
+    def payment_data(
+        self, *, checkout: CheckoutSession, idempotency_key: str
+    ) -> SandboxPaymentData:
+        assert checkout.id == "cs_completion_1"
+        assert idempotency_key
+        return SandboxPaymentData(
+            instrument=SandboxPaymentInstrument(
+                credential=PaymentCredential(token=SecretStr(TEST_TOKEN))
+            )
+        )
 
 
 def checkout_payload(*, total: int = 74_000) -> dict[str, Any]:
@@ -111,7 +129,7 @@ def dependencies(
     service = CompletionService(
         gateway,
         approvals,
-        SandboxPaymentProvider(PAYMENT_SECRET),
+        FakePayments(),
         store,
     )
     return store, approvals, service
@@ -166,7 +184,7 @@ def test_success_persists_order_consumes_approval_and_replays_locally(tmp_path: 
     replay_service = CompletionService(
         replay_gateway,
         ApprovalService(replay_store, APPROVAL_SECRET, clock=lambda: NOW),
-        SandboxPaymentProvider(PAYMENT_SECRET),
+        FakePayments(),
         replay_store,
     )
     replay = replay_service.complete(run_id="run-1")
@@ -226,7 +244,7 @@ def test_sandbox_token_is_stable_without_being_persisted(tmp_path: Path) -> None
     second_service = CompletionService(
         second_gateway,
         ApprovalService(reopened, APPROVAL_SECRET, clock=lambda: NOW),
-        SandboxPaymentProvider(PAYMENT_SECRET),
+        FakePayments(),
         reopened,
     )
     with pytest.raises(ACPClientError):
@@ -254,7 +272,7 @@ def test_uncertain_completion_reconciles_from_authoritative_checkout(tmp_path: P
     reconciled = CompletionService(
         reconciled_gateway,
         ApprovalService(store, APPROVAL_SECRET, clock=lambda: NOW),
-        SandboxPaymentProvider(PAYMENT_SECRET),
+        FakePayments(),
         store,
     ).complete(run_id="run-1")
 
