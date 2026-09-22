@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError
@@ -98,7 +99,13 @@ CASES = (
     ),
 )
 
-SELECTION_CLAIMS = ("he seleccionado", "procederé con la compra", "continúo con")
+SELECTION_CLAIMS = (
+    r"(?<!no )he seleccionado",
+    r"(?<!no )seleccioné",
+    r"(?<!no )he escogido",
+    r"(?<!no )procederé con la compra",
+    r"(?<!no )continúo con",
+)
 
 
 def request_json(base_url: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -137,7 +144,9 @@ def evaluate(base_url: str, case: Case) -> dict[str, Any]:
         errors.append(f"expected variant {case.variant_id}, got {selected!r}")
     if action != "purchase" and turn.get("purchase") is not None:
         errors.append("non-purchase action returned purchase data")
-    if action == "clarify" and any(claim in message.casefold() for claim in SELECTION_CLAIMS):
+    if action == "clarify" and any(
+        re.search(claim, message.casefold()) for claim in SELECTION_CLAIMS
+    ):
         errors.append("clarification claims that a product was already selected")
     if turn.get("purchase") is not None:
         run_id = turn["purchase"]["run_id"]
