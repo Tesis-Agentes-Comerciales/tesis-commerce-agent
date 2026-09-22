@@ -47,7 +47,7 @@ class FakeCheckoutGateway:
         self, checkout_id: str, *, idempotency_key: str, reason_code: str | None = None
     ) -> CheckoutSession:
         self.calls.append(("cancel", idempotency_key))
-        assert reason_code in {"price_sensitivity", "user_canceled"}
+        assert reason_code in {"price_sensitivity", "other"}
         self.current = checkout(status="canceled", total=self.total, unit_amount=self.unit_amount)
         return self.current
 

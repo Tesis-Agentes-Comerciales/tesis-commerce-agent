@@ -172,7 +172,7 @@ class PurchaseService:
         canceled = self._checkout.cancel_checkout(
             checkout.id,
             idempotency_key=key,
-            reason_code="user_canceled",
+            reason_code="other",
         )
         if canceled.id != checkout.id or canceled.status != "canceled":
             raise PurchaseServiceError(

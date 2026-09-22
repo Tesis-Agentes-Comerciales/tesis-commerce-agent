@@ -352,7 +352,7 @@ def test_pending_purchase_can_be_canceled_through_api(tmp_path: Path) -> None:
         if request.method == "GET" and request.url.path == "/checkout_sessions/cs_api_1":
             return httpx.Response(200, json=ready)
         if request.url.path == "/checkout_sessions/cs_api_1/cancel":
-            assert json.loads(request.content)["intent_trace"]["reason_code"] == "user_canceled"
+            assert json.loads(request.content)["intent_trace"]["reason_code"] == "other"
             return httpx.Response(200, json=canceled)
         raise AssertionError(f"Unexpected request: {request.method} {request.url.path}")
 
