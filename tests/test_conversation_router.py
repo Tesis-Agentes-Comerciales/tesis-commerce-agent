@@ -147,7 +147,9 @@ def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) ->
         feed=FEED,
     )
     messages = (ConversationMessage(role="user", content="Quiero audífonos Sonora"),)
-    intent = PurchaseIntent(hard=HardConstraints(categories=("headphones",)))
+    intent = PurchaseIntent(
+        hard=HardConstraints(categories=("headphones",), required_terms=("sonora",))
+    )
     candidates = rank_candidates(FEED, intent).ranked
 
     result = router.choose_candidate(messages, intent, candidates)
@@ -159,6 +161,47 @@ def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) ->
     assert '"preference_score": 0' in call["input"]
     assert "authoritative total is unknown" in call["instructions"]
     assert "Human approval" in call["instructions"]
+
+
+def test_broad_category_requires_candidate_clarification(monkeypatch) -> None:
+    decision = CandidateDecision(
+        action="clarify",
+        assistant_message=(
+            "Tengo audífonos de distintos colores, condiciones y precios. "
+            "¿Tienes alguna preferencia o presupuesto?"
+        ),
+    )
+    fake = FakeOpenAI(decision)
+    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"),
+        model="test-model",
+        feed=FEED,
+    )
+    messages = (ConversationMessage(role="user", content="Quiero comprar unos audífonos"),)
+    intent = PurchaseIntent(hard=HardConstraints(categories=("headphones",)))
+    first = rank_candidates(FEED, intent).ranked[0]
+    alternative = first.model_copy(
+        update={
+            "candidate": first.candidate.model_copy(
+                update={
+                    "variant_id": "ALT-01",
+                    "variant_title": "Audifonos Alterna ALT-01",
+                    "observed_unit_amount_minor": 60_000,
+                    "options": (("Color", "blue"),),
+                }
+            )
+        }
+    )
+    candidates = (alternative, first)
+
+    result = router.choose_candidate(messages, intent, candidates)
+
+    assert result == decision
+    call = fake.responses.calls[0]
+    assert call["text_format"] is module.CandidateClarification
+    assert "ask one focused question" in call["instructions"]
+    assert "arbitrary color" in call["instructions"]
 
 
 def test_unmatched_preferences_allow_candidate_clarification(monkeypatch) -> None:
