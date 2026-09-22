@@ -5,71 +5,40 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import Route, sync_playwright
 
-ARTIFACTS = Path(__file__).parents[2] / ".local" / "ui-e2e"
+ROOT = Path(__file__).parents[2]
+ARTIFACTS = ROOT / ".local" / "ui-e2e"
+FIXTURES = ROOT / "ui" / "src" / "storybook" / "fixtures" / "assistant-transport"
 ORIGIN = os.environ.get("UI_TEST_ORIGIN", "http://127.0.0.1:5173")
 
-PREPARATION = {
-    "run_id": "run_browser_1",
-    "stage": "awaiting_confirmation",
-    "selected_candidate": {
-        "product_id": "prod-son-01",
-        "product_title": "Audífonos Sonora SON-01",
-        "variant_id": "SON-01",
-        "variant_title": "Sonora negro",
-        "observed_unit_amount_minor": 72000,
-        "currency": "USD",
-    },
-    "checkout": {
-        "id": "cs_browser_1",
-        "status": "ready_for_payment",
-        "currency": "usd",
-        "totals": [{"type": "total", "display_text": "Total", "amount": 74000}],
-        "expires_at": "2099-09-20T13:00:00Z",
-    },
-    "price_changed": False,
-}
-
-TERMS = {
-    "merchant_origin": "http://127.0.0.1:4120",
-    "checkout_id": "cs_browser_1",
-    "currency": "usd",
-    "total_minor": 74000,
-    "lines": [
-        {
-            "item_id": "SON-01",
-            "name": "Audífonos Sonora SON-01",
-            "quantity": 1,
-            "unit_amount_minor": 72000,
-        }
-    ],
-    "selected_fulfillment_options": [
-        {"type": "shipping", "option_id": "ship_1", "item_ids": ["li_1"]}
-    ],
-    "buyer": {"email": "ana@example.test"},
-    "fulfillment_details": {"address": {"city": "Bogotá", "country": "CO"}},
-    "payment_handler": "tesis_sandbox",
-    "action": "complete_purchase",
-    "expires_at": "2099-09-20T13:00:00Z",
-    "fingerprint_version": "v1",
-    "fingerprint": "a" * 64,
-}
+PURCHASE_REQUEST = "Quiero audífonos negros por menos de 800 USD"
+PURCHASE_RATIONALE = "Elegí los Sonora negros porque cumplen el presupuesto y están disponibles."
+COMPLETED_TEXT = "La compra quedó completada. El comercio registró la orden ord_storybook_1."
+RUN_ID = "run_52df74bfc304253c74087d9927446bb3"
 
 COMPLETED = {
-    **PREPARATION["checkout"],
+    "id": "cs_storybook_1",
     "status": "completed",
+    "currency": "usd",
+    "totals": [{"type": "total", "display_text": "Total", "amount": 74000}],
+    "expires_at": "2099-09-20T13:00:00Z",
     "order": {
-        "id": "ord_browser_1",
-        "checkout_session_id": "cs_browser_1",
-        "permalink_url": "http://127.0.0.1:4120/orders/ord_browser_1",
+        "id": "ord_storybook_1",
+        "checkout_session_id": "cs_storybook_1",
+        "permalink_url": "http://127.0.0.1:4120/orders/ord_storybook_1",
         "order_number": "BROWSER-001",
         "status": "confirmed",
     },
 }
 
 
+def fixture(name: str) -> str:
+    """Stream SSE real del backend; `scripts/export_assistant_fixtures.py` los regenera."""
+    return (FIXTURES / f"{name}.sse").read_text(encoding="utf-8")
+
+
 def main() -> None:
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
-    turn_bodies: list[dict[str, object]] = []
+    assistant_bodies: list[dict[str, object]] = []
 
     def api(route: Route) -> None:
         request = route.request
@@ -83,35 +52,24 @@ def main() -> None:
         if request.method == "OPTIONS":
             route.fulfill(status=204, headers=headers)
             return
+        if path == "/assistant" and request.method == "POST":
+            body = json.loads(request.post_data or "{}")
+            assistant_bodies.append(body)
+            command = (body.get("commands") or [{}])[-1]
+            # El segundo turno continúa el estado del primero, así que los fixtures encajan.
+            name = "purchase-completed" if command.get("type") == "purchase-updated" else "purchase"
+            route.fulfill(
+                status=200,
+                headers={**headers, "Content-Type": "text/event-stream"},
+                body=fixture(name),
+            )
+            return
         if path == "/health":
-            payload = {"status": "ok"}
-        elif path == "/conversation/turn" and request.method == "POST":
-            conversation = json.loads(request.post_data or "{}")
-            turn_bodies.append(conversation)
-            latest = conversation["messages"][-1]["content"]
-            if latest == "hola":
-                payload = {
-                    "action": "respond",
-                    "assistant_message": (
-                        "¡Hola! Dime qué producto buscas y, si quieres, tu presupuesto o "
-                        "preferencias."
-                    ),
-                    "purchase": None,
-                    "approval_terms": None,
-                }
-            else:
-                payload = {
-                    "action": "purchase",
-                    "assistant_message": (
-                        "Elegí los Sonora negros porque cumplen el presupuesto y están disponibles."
-                    ),
-                    "purchase": PREPARATION,
-                    "approval_terms": TERMS,
-                }
+            payload: dict[str, object] = {"status": "ok"}
         elif path.endswith("/approval") and request.method == "POST":
             payload = {
-                "run_id": "run_browser_1",
-                "checkout_id": "cs_browser_1",
+                "run_id": RUN_ID,
+                "checkout_id": "cs_storybook_1",
                 "principal_id": "local-human",
                 "approved_at": "2026-09-20T12:00:00Z",
                 "stage": "approved",
@@ -132,42 +90,48 @@ def main() -> None:
         assert page.title() == "Comprador ACP"
         page.get_by_text("Agente conectado").wait_for()
         page.get_by_text("¿Qué quieres comprar?").wait_for()
+        page.get_by_role("button", name=PURCHASE_REQUEST).wait_for()
         page.screenshot(path=ARTIFACTS / "desktop-home.png", full_page=True)
 
         composer = page.get_by_label("Mensaje de compra")
-        composer.fill("hola")
+        composer.fill(PURCHASE_REQUEST)
         composer.press("Enter")
-        page.get_by_text(
-            "¡Hola! Dime qué producto buscas y, si quieres, tu presupuesto o preferencias."
-        ).wait_for()
-        assert len(turn_bodies) == 1
 
-        composer.fill("Quiero audífonos negros, nuevos y disponibles por máximo 800 USD.")
-        composer.press("Enter")
-        page.get_by_text(
-            "Elegí los Sonora negros porque cumplen el presupuesto y están disponibles."
-        ).wait_for()
-        page.get_by_test_id("receipt-pending").wait_for()
-        page.get_by_text("CONFIRMAR COMPRA").wait_for()
-        page.wait_for_timeout(500)
+        card = page.get_by_test_id("purchase-approval-card")
+        card.wait_for()
+        page.get_by_test_id("product-card-hero").wait_for()
+        page.get_by_text(PURCHASE_RATIONALE).wait_for()
+        page.wait_for_function(
+            "document.querySelector('[data-testid=purchase-approval-card]')"
+            "?.dataset.status === 'awaiting_approval'"
+        )
         assert page.evaluate("window.scrollY") == 0
         page.screenshot(path=ARTIFACTS / "desktop-approval.png", full_page=True)
 
-        assert len(turn_bodies) == 2
-        body = turn_bodies[1]
-        assert body["messages"][-1]["content"] == (
-            "Quiero audífonos negros, nuevos y disponibles por máximo 800 USD."
-        )
-        assert "intent" not in body
+        assert len(assistant_bodies) == 1
+        body = assistant_bodies[0]
+        commands = body["commands"]
+        assert isinstance(commands, list)
+        assert commands[0]["type"] == "add-message"
+        assert commands[0]["message"]["parts"][0]["text"] == PURCHASE_REQUEST
+        assert isinstance(body["turn_id"], str) and body["turn_id"]
         details = body["details"]
         assert isinstance(details, dict)
         assert details["buyer"]["email"] == "ana@example.test"
         assert "phone_number" not in details["buyer"]
         assert details["fulfillment"]["address"]["city"] == "Bogota"
+        # Ningún comando transporta evidencia de aprobación ni totales autoritativos.
+        assert "fingerprint" not in json.dumps(commands)
 
         page.get_by_test_id("approve-purchase").click()
-        page.get_by_test_id("receipt-completed").wait_for()
         page.get_by_text("Compra completada").wait_for()
+        page.get_by_text(COMPLETED_TEXT).wait_for()
+        page.get_by_role("link", name="Ver orden").wait_for()
+
+        # El segundo turno es el comando propio purchase-updated, sin datos de aprobación.
+        assert len(assistant_bodies) == 2
+        follow_up = assistant_bodies[1]["commands"]
+        assert follow_up == [{"type": "purchase-updated", "runId": RUN_ID}]
         page.screenshot(path=ARTIFACTS / "desktop-completed.png", full_page=True)
 
         page.set_viewport_size({"width": 390, "height": 844})

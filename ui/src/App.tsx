@@ -1,3 +1,4 @@
+import { focusRing } from "@/components/agent"
 import { Thread } from "@/components/assistant-ui/elements/thread.aui"
 import { CommerceWelcome } from "@/components/commerce-welcome"
 import {
@@ -8,14 +9,8 @@ import {
 } from "@/components/ui/dialog"
 import { CommerceRuntime } from "@/features/commerce-runtime"
 import { AGENT_API_URL, health } from "@/lib/commerce-api"
-import {
-  DEMO_PROFILE,
-  EMPTY_FLOW,
-  type ApprovalTerms,
-  type PurchaseFlow,
-  type PurchasePreparation,
-} from "@/lib/commerce-types"
-import { Settings2Icon, ShoppingBagIcon } from "lucide-react"
+import { DEMO_PROFILE } from "@/lib/commerce-types"
+import { Settings2Icon } from "lucide-react"
 import { lazy, Suspense, useCallback, useEffect, useState } from "react"
 
 const BuyerProfileCard = lazy(() =>
@@ -23,21 +18,17 @@ const BuyerProfileCard = lazy(() =>
     default: module.BuyerProfileCard,
   })),
 )
-const PurchaseReceipt = lazy(() =>
-  import("@/components/purchase-receipt").then((module) => ({
-    default: module.PurchaseReceipt,
-  })),
-)
 
 type ConnectionStatus = "checking" | "online" | "offline"
 
+// Elemento estable: `CommerceRuntime` solo puede recibir props que no cambien entre renders.
+const THREAD = <Thread components={{ Welcome: CommerceWelcome }} autoFocus />
+
 function App() {
   const [profile, setProfile] = useState(DEMO_PROFILE)
-  const [flow, setFlow] = useState<PurchaseFlow>(EMPTY_FLOW)
   const [session, setSession] = useState(0)
   const [connection, setConnection] = useState<ConnectionStatus>("checking")
   const [profileOpen, setProfileOpen] = useState(false)
-  const [receiptOpen, setReceiptOpen] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -49,38 +40,15 @@ function App() {
     return () => controller.abort()
   }, [])
 
-  const handlePreparing = useCallback((request: string) => {
-    setReceiptOpen(false)
-    setFlow({ status: "preparing", request })
-  }, [])
+  // "Nueva compra" reinicia la conversación; la compra anterior ya quedó registrada en el backend.
+  const startNewPurchase = useCallback(() => setSession((current) => current + 1), [])
 
-  const handlePrepared = useCallback(
-    (request: string, preparation: PurchasePreparation, terms: ApprovalTerms) => {
-      setFlow({ status: "awaiting_approval", request, preparation, terms })
-      setReceiptOpen(true)
-    },
-    [],
-  )
-
-  const handleError = useCallback((request: string, error: string) => {
-    setFlow({ status: "error", request, error })
-  }, [])
-
-  const reset = () => {
-    setReceiptOpen(false)
-    setFlow(EMPTY_FLOW)
-    setSession((current) => current + 1)
-  }
-
-  const hasReceipt = flow.preparation !== undefined && flow.terms !== undefined
-  const hasActivePurchase = hasReceipt && flow.status !== "completed"
   const connectionLabel =
     connection === "online"
       ? "Agente conectado"
       : connection === "offline"
         ? "Agente sin conexión"
         : "Conectando"
-  const purchaseBusy = ["approving", "canceling", "completing"].includes(flow.status)
 
   return (
     <>
@@ -107,22 +75,10 @@ function App() {
           </div>
 
           <div className="flex items-center gap-1">
-            {hasReceipt && (
-              <button
-                type="button"
-                onClick={() => setReceiptOpen(true)}
-                className="flex h-9 items-center gap-2 rounded-full px-3 text-sm font-medium transition-colors hover:bg-[#f2f2f2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/20"
-              >
-                <ShoppingBagIcon className="size-4" aria-hidden />
-                <span className="hidden sm:inline">
-                  {flow.status === "completed" ? "Ver compra" : "Revisar compra"}
-                </span>
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setProfileOpen(true)}
-              className="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-[#f2f2f2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/20"
+              className={`flex size-9 items-center justify-center rounded-full transition-colors hover:bg-[#f2f2f2] ${focusRing}`}
               aria-label="Datos de entrega"
             >
               <Settings2Icon className="size-[18px]" aria-hidden />
@@ -131,15 +87,8 @@ function App() {
         </header>
 
         <section className="min-h-0 flex-1">
-          <CommerceRuntime
-            key={session}
-            profile={profile}
-            hasActivePurchase={hasActivePurchase}
-            onPreparing={handlePreparing}
-            onPrepared={handlePrepared}
-            onError={handleError}
-          >
-            <Thread components={{ Welcome: CommerceWelcome }} autoFocus />
+          <CommerceRuntime key={session} profile={profile} onNewPurchase={startNewPurchase}>
+            {THREAD}
           </CommerceRuntime>
         </section>
       </main>
@@ -156,21 +105,6 @@ function App() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={hasReceipt && receiptOpen} onOpenChange={setReceiptOpen}>
-        <DialogContent
-          className="max-h-[calc(100svh-2rem)] overflow-y-auto rounded-3xl p-0 sm:max-w-md"
-          showCloseButton={!purchaseBusy}
-          onOpenAutoFocus={(event) => event.preventDefault()}
-        >
-          <DialogTitle className="sr-only">Confirmación de compra</DialogTitle>
-          <DialogDescription className="sr-only">
-            Revisa los términos autoritativos antes de aprobar la compra.
-          </DialogDescription>
-          <Suspense fallback={<div className="p-6 text-sm">Cargando…</div>}>
-            <PurchaseReceipt flow={flow} onChange={setFlow} onReset={reset} />
-          </Suspense>
-        </DialogContent>
-      </Dialog>
     </>
   )
 }

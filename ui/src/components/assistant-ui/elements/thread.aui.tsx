@@ -1,14 +1,40 @@
 import {
+  ActionBarPrimitive,
   AuiIf,
   ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
+  SuggestionPrimitive,
   ThreadPrimitive,
-  type TextMessagePartComponent,
+  useAssistantTransportState,
   useAuiState,
+  type PartState,
+  type ReasoningMessagePartComponent,
+  type TextMessagePartComponent,
 } from "@assistant-ui/react"
-import { ArrowDownIcon, ArrowUpIcon, SquareIcon } from "lucide-react"
-import type { ComponentType, FC } from "react"
+import { ArrowDownIcon, ArrowUpIcon, CheckIcon, CopyIcon, SquareIcon } from "lucide-react"
+import { useEffect, useMemo, useState, type ComponentType, type FC } from "react"
+
+import { cn } from "cn"
+
+import {
+  AgentPlan,
+  derivePlanProgress,
+  ReasoningStep,
+  ThinkingGroup,
+  ThinkingIndicator,
+  focusRing,
+  toolStepLabel,
+  toolStepStatus,
+  useElapsedMs,
+} from "@/components/agent"
+import { PROMINENT_TOOLS } from "@/features/agent-toolkit"
+import {
+  AGENT_TOOL_NAMES,
+  MAX_MESSAGE_CHARS,
+  type AgentMessageStatus,
+  type AgentToolName,
+} from "@/lib/agent-contract"
 
 type ThreadComponents = {
   Welcome?: ComponentType
@@ -27,6 +53,194 @@ const TextPart: TextMessagePartComponent = ({ text }) => (
   <p className="whitespace-pre-wrap">{text}</p>
 )
 
+const ReasoningPart: ReasoningMessagePartComponent = ({ text, status }) => (
+  <ReasoningStep text={text} streaming={status.type === "running"} />
+)
+
+const PART_COMPONENTS = { Text: TextPart, Reasoning: ReasoningPart }
+
+const KNOWN_TOOLS = new Set<string>(AGENT_TOOL_NAMES)
+const SETTLED_STAGES = new Set<string>(["completed", "canceled", "failed"])
+const STOPPED_NOTICE = "El agente no terminó esta respuesta. Vuelve a enviar tu mensaje."
+
+type ToolCallPart = Extract<PartState, { type: "tool-call" }>
+
+function isAgentTool(part: PartState): part is ToolCallPart & { toolName: AgentToolName } {
+  return part.type === "tool-call" && KNOWN_TOOLS.has(part.toolName)
+}
+
+/**
+ * Reparte las partes del mensaje: razonamiento y pasos intermedios van al grupo "Pensando…"; el
+ * producto elegido y la aprobación, destacados; el texto, al final como respuesta.
+ */
+function partLayout(parts: readonly PartState[]) {
+  const trace: number[] = []
+  const prominent: number[] = []
+  const text: number[] = []
+  parts.forEach((part, index) => {
+    if (part.type === "reasoning") trace.push(index)
+    else if (part.type === "text") text.push(index)
+    else if (isAgentTool(part)) (PROMINENT_TOOLS.has(part.toolName) ? prominent : trace).push(index)
+  })
+  return { trace, prominent, text }
+}
+
+/** Qué hace el agente ahora, para la línea de estado bajo el mensaje en curso. */
+function currentActivity(parts: readonly PartState[]) {
+  const last = parts.at(-1)
+  if (!last) return "Pensando…"
+  if (last.type === "text") return null
+  if (last.type === "reasoning") return "Razonando…"
+  if (isAgentTool(last) && last.result === undefined) return toolStepLabel(last.toolName, "running")
+  return "Pensando…"
+}
+
+/** Tiempo que el mensaje estuvo en curso durante esta sesión; sin dato si ya llegó terminado. */
+function useActiveElapsed(active: boolean) {
+  const [span, setSpan] = useState<{ start?: number; end?: number }>({})
+  useEffect(() => {
+    // Se marca fuera del render; el desfase de un tick no cambia los segundos que se muestran.
+    const timer = setTimeout(() => {
+      const now = Date.now()
+      setSpan((current) => {
+        const open = current.start !== undefined && current.end === undefined
+        if (active) return open ? current : { start: now }
+        return open ? { ...current, end: now } : current
+      })
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [active])
+  return useElapsedMs(span.start, active, span.end)
+}
+
+function AgentProgress({
+  parts,
+  active,
+  isLast,
+}: {
+  parts: readonly PartState[]
+  active: boolean
+  isLast: boolean
+}) {
+  const purchase = useAssistantTransportState((state) => state.purchase)
+  const tools = parts.filter(isAgentTool)
+  const interpreted = tools.find((part) => part.toolName === "interpret_request")?.result
+  const purchaseTurn =
+    tools.some((part) => part.toolName !== "interpret_request") ||
+    (typeof interpreted === "object" &&
+      interpreted !== null &&
+      (interpreted as { action?: unknown }).action === "purchase")
+  if (!purchaseTurn) return null
+
+  // La etapa de SQLite solo aplica si es la compra de este mensaje, no una anterior.
+  const prepared = tools.find((part) => part.toolName === "prepare_checkout")?.result
+  const runId =
+    typeof prepared === "object" && prepared !== null
+      ? (prepared as { run_id?: unknown }).run_id
+      : undefined
+  const own = purchase && purchase.run_id === runId ? purchase : null
+  // El plan acompaña al turno en curso y, después, a la compra que sigue abierta: es el contexto
+  // de la decisión de aprobar, justo cuando hace falta.
+  const pending = own !== null && !SETTLED_STAGES.has(own.stage)
+  if (!active && !(isLast && pending)) return null
+  const progress = derivePlanProgress({ parts: tools, purchase: own, running: active })
+  return <AgentPlan {...progress} className="mb-4" />
+}
+
+function AssistantMessage() {
+  const parts = useAuiState((state) => state.message.parts)
+  const running = useAuiState((state) => state.message.status?.type === "running")
+  const isLast = useAuiState((state) => state.message.isLast)
+  const status = useAuiState((state) => state.message.status) as AgentMessageStatus | undefined
+  const failedStatus = status?.type === "incomplete" && status.reason === "error"
+  // Un turno interrumpido no trae error: sus pasos quedaron sin `result` y el mensaje, cerrado.
+  const stopped = status?.type === "incomplete" && status.reason === "cancelled"
+  const hasText = parts.some((part) => part.type === "text" && part.text.trim().length > 0)
+  // Solo el último mensaje en curso muestra actividad; uno viejo que quedó "running" no.
+  const active = running && isLast
+  const layout = useMemo(() => partLayout(parts), [parts])
+  const failedStep = layout.trace.some((index) => {
+    const part = parts[index]
+    return part?.type === "tool-call" && toolStepStatus(part, status) === "error"
+  })
+  const elapsedMs = useActiveElapsed(active)
+  const activity = active ? currentActivity(parts) : null
+
+  return (
+    <MessagePrimitive.Root className="group/message px-2 leading-7 wrap-break-word">
+      {/* Encabezado solo para lectores de pantalla: mantiene el orden h1 › h2 › h3 de las tarjetas. */}
+      <h2 className="sr-only">Respuesta del agente</h2>
+      <AgentProgress parts={parts} active={active} isLast={isLast} />
+
+      {layout.trace.length > 0 && (
+        <ThinkingGroup
+          active={active}
+          failed={failedStep || failedStatus}
+          stopped={stopped}
+          elapsedMs={elapsedMs}
+          stepCount={layout.trace.length}
+          className="mb-3"
+        >
+          {layout.trace.map((index) => (
+            <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />
+          ))}
+        </ThinkingGroup>
+      )}
+
+      {layout.prominent.length > 0 && (
+        <div className="mb-4 flex flex-col gap-4">
+          {layout.prominent.map((index) => (
+            <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />
+          ))}
+        </div>
+      )}
+
+      {layout.text.map((index) => (
+        <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />
+      ))}
+
+      {activity && <ThinkingIndicator label={activity} elapsedMs={elapsedMs} className="mt-2" />}
+
+      <MessagePrimitive.Error>
+        <ErrorPrimitive.Root className="mt-2 rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">
+          <ErrorPrimitive.Message />
+        </ErrorPrimitive.Root>
+      </MessagePrimitive.Error>
+
+      {/* Un turno interrumpido no tiene error que mostrar: sin este aviso la respuesta queda vacía. */}
+      {stopped && (
+        <p
+          role="status"
+          data-testid="stopped-notice"
+          className="mt-2 rounded-xl bg-[#f7f7f7] p-3 text-sm text-[#6b6b6b]"
+        >
+          {STOPPED_NOTICE}
+        </p>
+      )}
+
+      {hasText && !running && (
+        <ActionBarPrimitive.Root
+          hideWhenRunning
+          autohide="not-last"
+          autohideFloat="always"
+          className="mt-1 -ml-2 flex gap-1 data-floating:opacity-0 data-floating:transition-opacity group-hover/message:data-floating:opacity-100 group-focus-within/message:data-floating:opacity-100"
+        >
+          <ActionBarPrimitive.Copy
+            className={cn(
+              "group/copy flex size-9 items-center justify-center rounded-full text-[#6b6b6b] transition-colors hover:bg-[#f2f2f2] hover:text-[#0d0d0d]",
+              focusRing,
+            )}
+            aria-label="Copiar respuesta"
+          >
+            <CopyIcon className="size-4 group-data-copied/copy:hidden" aria-hidden />
+            <CheckIcon className="hidden size-4 group-data-copied/copy:block" aria-hidden />
+          </ActionBarPrimitive.Copy>
+        </ActionBarPrimitive.Root>
+      )}
+    </MessagePrimitive.Root>
+  )
+}
+
 function ThreadMessage() {
   const role = useAuiState((state) => state.message.role)
 
@@ -40,20 +254,22 @@ function ThreadMessage() {
     )
   }
 
+  return <AssistantMessage />
+}
+
+function StarterSuggestion() {
   return (
-    <MessagePrimitive.Root className="px-2 leading-7 wrap-break-word">
-      <MessagePrimitive.Parts components={{ Text: TextPart }} />
-      <AuiIf condition={(state) => state.thread.isRunning}>
-        <span className="animate-pulse" aria-label="El agente está respondiendo">
-          ●
-        </span>
-      </AuiIf>
-      <MessagePrimitive.Error>
-        <ErrorPrimitive.Root className="mt-2 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-          <ErrorPrimitive.Message />
-        </ErrorPrimitive.Root>
-      </MessagePrimitive.Error>
-    </MessagePrimitive.Root>
+    <SuggestionPrimitive.Trigger send asChild>
+      <button
+        type="button"
+        className={cn(
+          "min-h-11 rounded-[16px] border border-[#e5e5e5] bg-white px-4 py-3 text-left text-sm leading-5 transition-colors hover:bg-[#f7f7f7]",
+          focusRing,
+        )}
+      >
+        <SuggestionPrimitive.Title />
+      </button>
+    </SuggestionPrimitive.Trigger>
   )
 }
 
@@ -67,6 +283,7 @@ function Composer({ autoFocus }: { autoFocus: boolean }) {
         autoFocus={autoFocus}
         enterKeyHint="send"
         aria-label="Mensaje de compra"
+        maxLength={MAX_MESSAGE_CHARS}
       />
       <AuiIf condition={(state) => !state.thread.isRunning}>
         <ComposerPrimitive.Send asChild>
@@ -101,9 +318,16 @@ export function Thread({ components = {}, autoFocus = true }: ThreadProps) {
     <ThreadPrimitive.Root className="flex h-full flex-col bg-white text-[#0d0d0d]">
       <ThreadPrimitive.Viewport className="relative flex flex-1 flex-col overflow-y-auto scroll-smooth">
         <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 pt-4">
-          <AuiIf condition={(state) => state.thread.messages.length === 0}>
+          <AuiIf condition={(state) => state.thread.isEmpty}>
             <div className="flex flex-1 flex-col justify-center pb-[12vh]">
               <Welcome />
+              <div
+                className="mx-2 grid gap-2 sm:grid-cols-3"
+                role="group"
+                aria-label="Sugerencias para empezar"
+              >
+                <ThreadPrimitive.Suggestions>{() => <StarterSuggestion />}</ThreadPrimitive.Suggestions>
+              </div>
             </div>
           </AuiIf>
 

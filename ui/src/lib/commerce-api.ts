@@ -1,9 +1,4 @@
-import type {
-  BuyerProfile,
-  CompletedCheckout,
-  ConversationMessage,
-  ConversationTurn,
-} from "@/lib/commerce-types"
+import type { BuyerProfile, CompletedCheckout } from "@/lib/commerce-types"
 
 const configuredBaseUrl = import.meta.env.VITE_AGENT_API_URL ?? "http://127.0.0.1:43120"
 export const AGENT_API_URL = configuredBaseUrl.replace(/\/$/, "")
@@ -34,7 +29,8 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-function checkoutDetails(profile: BuyerProfile) {
+/** `CheckoutDetails` del backend; viaja en el cuerpo de `POST /assistant`, nunca al modelo. */
+export function checkoutDetails(profile: BuyerProfile) {
   const fullName = `${profile.firstName} ${profile.lastName}`.trim()
   return {
     buyer: {
@@ -60,20 +56,6 @@ function checkoutDetails(profile: BuyerProfile) {
 
 export function health(signal?: AbortSignal): Promise<{ status: string }> {
   return requestJson("/health", { signal })
-}
-
-export function conversationTurn(
-  messages: ConversationMessage[],
-  profile: BuyerProfile,
-  turnId: string,
-  signal: AbortSignal,
-): Promise<ConversationTurn> {
-  return requestJson("/conversation/turn", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ turn_id: turnId, messages, details: checkoutDetails(profile) }),
-    signal,
-  })
 }
 
 export function approvePurchase(runId: string, fingerprint: string): Promise<void> {

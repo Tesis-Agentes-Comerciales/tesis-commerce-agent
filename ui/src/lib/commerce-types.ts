@@ -10,11 +10,6 @@ export type BuyerProfile = {
   postalCode: string
 }
 
-export type ConversationMessage = {
-  role: "user" | "assistant"
-  content: string
-}
-
 export type ProductCandidate = {
   product_id: string
   product_title: string
@@ -63,13 +58,6 @@ export type ApprovalTerms = {
   fingerprint: string
 }
 
-export type ConversationTurn = {
-  action: "respond" | "clarify" | "purchase"
-  assistant_message: string
-  purchase: PurchasePreparation | null
-  approval_terms: ApprovalTerms | null
-}
-
 export type CompletedCheckout = CheckoutSession & {
   order: {
     id: string
@@ -79,28 +67,6 @@ export type CompletedCheckout = CheckoutSession & {
     status?: string | null
   }
 }
-
-export type PurchaseFlowStatus =
-  | "idle"
-  | "preparing"
-  | "awaiting_approval"
-  | "approving"
-  | "canceling"
-  | "completing"
-  | "completed"
-  | "error"
-
-export type PurchaseFlow = {
-  status: PurchaseFlowStatus
-  request?: string
-  preparation?: PurchasePreparation
-  terms?: ApprovalTerms
-  order?: CompletedCheckout
-  approvalRecorded?: boolean
-  error?: string
-}
-
-export const EMPTY_FLOW: PurchaseFlow = { status: "idle" }
 
 export const DEMO_PROFILE: BuyerProfile = {
   firstName: "Ana",

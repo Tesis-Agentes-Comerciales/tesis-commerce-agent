@@ -1,0 +1,6 @@
+/* index.css bloquea el scroll del documento para la app; Docs necesita desplazarse. */
+html,
+body {
+  height: auto;
+  overflow: auto;
+}
