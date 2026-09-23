@@ -165,6 +165,12 @@ function AssistantMessage() {
   })
   const elapsedMs = useActiveElapsed(active)
   const activity = active ? currentActivity(parts) : null
+  // El grupo se abre solo mientras el turno corre, hasta que la persona lo toque.
+  const [userTraceOpen, setUserTraceOpen] = useState<boolean | null>(null)
+  const hasTrace = layout.trace.length > 0
+  const traceOpen = hasTrace && (userTraceOpen ?? active)
+  // Abierto, las filas ya dicen en qué paso va y cuánto lleva: repetirlo abajo sobra.
+  const showActivity = activity !== null && !traceOpen
 
   return (
     <MessagePrimitive.Root className="group/message px-2 leading-7 wrap-break-word">
@@ -172,13 +178,15 @@ function AssistantMessage() {
       <h2 className="sr-only">Respuesta del agente</h2>
       <AgentProgress parts={parts} active={active} isLast={isLast} />
 
-      {layout.trace.length > 0 && (
+      {hasTrace && (
         <ThinkingGroup
           active={active}
           failed={failedStep || failedStatus}
           stopped={stopped}
           elapsedMs={elapsedMs}
           stepCount={layout.trace.length}
+          open={traceOpen}
+          onOpenChange={setUserTraceOpen}
           className="mb-3"
         >
           {layout.trace.map((index) => (
@@ -199,7 +207,15 @@ function AssistantMessage() {
         <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />
       ))}
 
-      {activity && <ThinkingIndicator label={activity} elapsedMs={elapsedMs} className="mt-2" />}
+      {/* Plegado, o antes del primer paso, esta línea es la única señal de actividad. Con el grupo
+          abierto el tiempo ya está en su encabezado, así que aquí solo va la etiqueta. */}
+      {showActivity && (
+        <ThinkingIndicator
+          label={activity}
+          elapsedMs={hasTrace ? undefined : elapsedMs}
+          className="mt-2"
+        />
+      )}
 
       <MessagePrimitive.Error>
         <ErrorPrimitive.Root className="mt-2 rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">
