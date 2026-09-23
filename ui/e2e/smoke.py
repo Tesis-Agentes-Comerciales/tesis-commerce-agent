@@ -88,7 +88,8 @@ def main() -> None:
         page.goto(ORIGIN, wait_until="networkidle")
 
         assert page.title() == "Comprador ACP"
-        page.get_by_text("Agente conectado").wait_for()
+        # Con el agente disponible la cabecera no anuncia nada; solo avisa cuando falla.
+        assert page.get_by_text("Agente sin conexión").count() == 0
         page.get_by_text("¿Qué quieres comprar?").wait_for()
         page.get_by_role("button", name=PURCHASE_REQUEST).wait_for()
         page.screenshot(path=ARTIFACTS / "desktop-home.png", full_page=True)

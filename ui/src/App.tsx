@@ -1,4 +1,4 @@
-import { focusRing } from "@/components/agent"
+import { chip, focusRing } from "@/components/agent"
 import { Thread } from "@/components/assistant-ui/elements/thread.aui"
 import { CommerceWelcome } from "@/components/commerce-welcome"
 import {
@@ -43,47 +43,25 @@ function App() {
   // "Nueva compra" reinicia la conversación; la compra anterior ya quedó registrada en el backend.
   const startNewPurchase = useCallback(() => setSession((current) => current + 1), [])
 
-  const connectionLabel =
-    connection === "online"
-      ? "Agente conectado"
-      : connection === "offline"
-        ? "Agente sin conexión"
-        : "Conectando"
-
   return (
     <>
       <main className="flex h-svh min-h-0 flex-col overflow-hidden bg-white text-[#0d0d0d]">
-        <header className="flex h-14 shrink-0 items-center justify-between px-3 sm:px-5">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <h1 className="truncate text-sm font-semibold">Comprador ACP</h1>
-            <span
-              className="flex items-center gap-1.5 text-xs text-[#6b6b6b]"
-              title={AGENT_API_URL}
-            >
-              <span
-                className={`size-1.5 rounded-full ${
-                  connection === "online"
-                    ? "bg-emerald-500"
-                    : connection === "offline"
-                      ? "bg-red-500"
-                      : "animate-pulse bg-amber-500"
-                }`}
-                aria-hidden
-              />
-              {connectionLabel}
+        {/* Solo se anuncia la conexión cuando falla: conectado es el caso normal y no necesita aviso. */}
+        <header className="flex h-14 shrink-0 items-center justify-end gap-2 px-3 sm:px-5">
+          {connection === "offline" && (
+            <span className={chip({ tone: "danger" })} title={AGENT_API_URL} role="status">
+              <span className="size-1.5 rounded-full bg-red-600" aria-hidden />
+              Agente sin conexión
             </span>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setProfileOpen(true)}
-              className={`flex size-9 items-center justify-center rounded-full transition-colors hover:bg-[#f2f2f2] ${focusRing}`}
-              aria-label="Datos de entrega"
-            >
-              <Settings2Icon className="size-[18px]" aria-hidden />
-            </button>
-          </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setProfileOpen(true)}
+            className={`flex size-9 items-center justify-center rounded-full transition-colors hover:bg-[#f2f2f2] ${focusRing}`}
+            aria-label="Datos de entrega"
+          >
+            <Settings2Icon className="size-[18px]" aria-hidden />
+          </button>
         </header>
 
         <section className="min-h-0 flex-1">
@@ -94,7 +72,7 @@ function App() {
       </main>
 
       <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto p-0 sm:max-w-md">
+        <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto rounded-[24px] border border-[#ececec] p-0 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_32px_-18px_rgba(0,0,0,0.18)] ring-0 sm:max-w-md">
           <DialogTitle className="sr-only">Datos de entrega</DialogTitle>
           <DialogDescription className="sr-only">
             Configura el perfil sintético utilizado para el checkout sandbox.

@@ -1,4 +1,4 @@
-import { CheckCircle2Icon, MapPinIcon } from "lucide-react"
+import { MapPinIcon } from "lucide-react"
 
 import {
   Card,
@@ -24,24 +24,23 @@ export function BuyerProfileCard({ profile, onChange }: BuyerProfileCardProps) {
   }
 
   return (
-    <Card className="rounded-xl border-0 bg-white shadow-none ring-0" data-testid="buyer-profile">
-      <CardHeader className="border-b border-border/80">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <span className="flex size-7 items-center justify-center rounded-full bg-muted">
-                <MapPinIcon className="size-3.5 text-foreground" aria-hidden />
-              </span>
-              Datos de entrega
-            </CardTitle>
-            <CardDescription className="mt-1 leading-5">
-              Perfil sintético para el checkout sandbox.
-            </CardDescription>
-          </div>
-          <CheckCircle2Icon className="size-4.5 text-emerald-600" aria-label="Perfil completo" />
-        </div>
+    <Card
+      className="rounded-none border-0 bg-white pt-5 shadow-none ring-0"
+      data-testid="buyer-profile"
+    >
+      {/* `pr-14` deja libre la esquina del diálogo, donde va el botón de cerrar. */}
+      <CardHeader className="border-b border-[#ececec] px-5 pr-14">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <span className="flex size-7 items-center justify-center rounded-full bg-muted">
+            <MapPinIcon className="size-3.5 text-foreground" aria-hidden />
+          </span>
+          Datos de entrega
+        </CardTitle>
+        <CardDescription className="mt-1 leading-5">
+          Perfil sintético para el checkout sandbox.
+        </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-5">
         <div className="grid grid-cols-2 gap-3">
           <ProfileInput
             id="firstName"
