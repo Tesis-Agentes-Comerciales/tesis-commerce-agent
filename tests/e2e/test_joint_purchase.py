@@ -198,7 +198,7 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
                     )
                     with pytest.raises(ACPClientError) as declined:
                         declined_completion.complete(run_id=declined_run_id)
-                    assert declined.value.code == "PAYMENT_DECLINED"
+                    assert declined.value.code == "payment_declined"
                     assert gateway.get_checkout(declined_checkout.checkout.id).status == (
                         "ready_for_payment"
                     )

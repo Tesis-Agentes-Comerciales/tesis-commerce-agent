@@ -112,7 +112,7 @@ def test_error_normalizes_nested_current_merchant_shape() -> None:
         return httpx.Response(
             409,
             headers={"Retry-After": "1"},
-            json={"detail": {"code": "IDEMPOTENCY_IN_FLIGHT", "message": "Try again."}},
+            json={"detail": {"code": "idempotency_in_flight", "message": "Try again."}},
         )
 
     with (
@@ -124,7 +124,7 @@ def test_error_normalizes_nested_current_merchant_shape() -> None:
         pytest.raises(ACPClientError) as captured,
     ):
         client.get_checkout("cs_test_001")
-    assert captured.value.code == "IDEMPOTENCY_IN_FLIGHT"
+    assert captured.value.code == "idempotency_in_flight"
     assert captured.value.status_code == 409
     assert captured.value.retry_after == "1"
     assert "Try again" not in str(captured.value)
