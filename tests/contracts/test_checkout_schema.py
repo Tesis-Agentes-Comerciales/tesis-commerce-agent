@@ -8,7 +8,7 @@ def test_schema_validator_rejects_internal_or_unknown_checkout_fields() -> None:
         "id": "cs_contract_001",
         "protocol": {"version": "2026-04-17"},
         "status": "not_ready_for_payment",
-        "currency": "usd",
+        "currency": "cop",
         "capabilities": {"payment": {"handlers": []}},
         "line_items": [],
         "totals": [{"type": "total", "display_text": "Total", "amount": 0}],

@@ -58,7 +58,7 @@ class CheckoutCapabilities(StrictModel):
 
 class CheckoutCreateRequest(StrictModel):
     line_items: Annotated[list[CheckoutItemRequest], Field(min_length=1)]
-    currency: Literal["usd"] = "usd"
+    currency: Literal["cop"] = "cop"
     capabilities: CheckoutCapabilities = Field(default_factory=CheckoutCapabilities)
 
 
@@ -124,7 +124,7 @@ class CheckoutSession(BaseModel):
         "canceled",
         "expired",
     ]
-    currency: Literal["usd"]
+    currency: Literal["cop"]
     capabilities: dict[str, Any]
     line_items: list[dict[str, Any]]
     totals: list[dict[str, Any]]

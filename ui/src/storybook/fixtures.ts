@@ -4,23 +4,23 @@ import { recordPurchaseOutcome, scriptedAssistant } from "@/storybook/assistant-
 
 // Datos sintéticos alineados con e2e/smoke.py; nunca deben contener datos reales.
 
-export const PURCHASE_REQUEST = "Quiero audífonos negros por menos de 800 USD"
+export const PURCHASE_REQUEST = "Quiero audífonos negros por menos de 2 millones"
 
 export const PREPARATION: PurchasePreparation = {
   run_id: "run_storybook_1",
   stage: "awaiting_confirmation",
   selected_candidate: {
-    product_id: "prod-son-01",
-    product_title: "Audífonos Sonora SON-01",
-    variant_id: "SON-01",
-    variant_title: "Sonora negro",
+    product_id: "prod-sony-wh-1000xm6",
+    product_title: "Sony WH-1000XM6",
+    variant_id: "SON-XM6-BLK",
+    variant_title: "Sony WH-1000XM6 negro",
     observed_unit_amount_minor: 72000,
-    currency: "USD",
+    currency: "COP",
   },
   checkout: {
     id: "cs_storybook_1",
     status: "ready_for_payment",
-    currency: "usd",
+    currency: "cop",
     totals: [{ type: "total", display_text: "Total", amount: 74000 }],
     expires_at: "2099-09-20T13:00:00Z",
   },
@@ -30,12 +30,12 @@ export const PREPARATION: PurchasePreparation = {
 export const TERMS: ApprovalTerms = {
   merchant_origin: "http://127.0.0.1:4120",
   checkout_id: "cs_storybook_1",
-  currency: "usd",
+  currency: "cop",
   total_minor: 74000,
   lines: [
     {
-      item_id: "SON-01",
-      name: "Audífonos Sonora SON-01",
+      item_id: "SON-XM6-BLK",
+      name: "Sony WH-1000XM6",
       quantity: 1,
       unit_amount_minor: 72000,
     },

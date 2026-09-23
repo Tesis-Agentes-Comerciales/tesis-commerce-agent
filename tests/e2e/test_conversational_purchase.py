@@ -78,13 +78,13 @@ def test_natural_request_crosses_the_model_boundary_and_completes() -> None:
     )
     simulated_llm_intent = {
         "hard": {
-            "currency": "USD",
-            "max_total_amount_minor": 80_000,
+            "currency": "COP",
+            "max_total_amount_minor": 1_500_000_00,
             "categories": ["headphones"],
             "conditions": ["new"],
-            "required_options": [{"name": "color", "value": "black"}],
+            "required_options": [{"name": "color", "value": "negro"}],
         },
-        "preferences": {"terms": ["sonora"]},
+        "preferences": {"terms": ["sennheiser"]},
     }
     settings = Settings(
         merchant_base_url=_required("MERCHANT_BASE_URL"),
@@ -142,16 +142,16 @@ def test_natural_request_crosses_the_model_boundary_and_completes() -> None:
         turn = prepared.json()
         assert turn["action"] == "purchase"
         preparation = turn["purchase"]
-        assert preparation["selected_candidate"]["variant_id"] == "SON-01"
+        assert preparation["selected_candidate"]["variant_id"] == "SEN-MOM4-BLK"
         assert preparation["checkout"]["status"] == "ready_for_payment"
-        assert preparation["checkout"]["totals"][-1]["amount"] <= 80_000
+        assert preparation["checkout"]["totals"][-1]["amount"] <= 1_500_000_00
         run_id = preparation["run_id"]
 
         blocked = client.post(f"/purchases/{run_id}/complete")
         assert blocked.status_code == 409
 
         terms = turn["approval_terms"]
-        assert terms["total_minor"] <= 80_000
+        assert terms["total_minor"] <= 1_500_000_00
         approved = client.post(
             f"/purchases/{run_id}/approval",
             json={"expected_fingerprint": terms["fingerprint"]},

@@ -41,23 +41,25 @@ CLARIFY_REQUEST = "Busco algo para escuchar música"
 CLARIFY_REPLY = (
     "Puedo ayudarte con audífonos del catálogo. ¿Tienes un presupuesto o un color preferido?"
 )
-PURCHASE_REQUEST = "Quiero audífonos negros por menos de 800 USD"
-PURCHASE_REPLY = "Elegí los Sonora negros porque cumplen el presupuesto y están disponibles."
-NO_CANDIDATE_REQUEST = "Quiero audífonos por menos de 10 USD"
+PURCHASE_REQUEST = "Quiero audífonos negros por menos de 2 millones"
+PURCHASE_REPLY = (
+    "Elegí los Sony WH-1000XM6 negros porque cumplen el presupuesto y están disponibles."
+)
+NO_CANDIDATE_REQUEST = "Quiero audífonos por menos de 50 mil"
 NO_CANDIDATE_REPLY = (
-    "No encontré audífonos por menos de 10 USD. La opción disponible más económica son los "
-    "Alterna ALT-01 por 600 USD. ¿Quieres que los considere?"
+    "No encontré audífonos por menos de $50.000. La opción disponible más económica son los "
+    "Apple AirPods Pro 3 por $1.099.000. ¿Quieres que los considere?"
 )
 MODEL_ERROR_REQUEST = "Necesito ayuda con mi pedido"
 PENDING_REQUEST = "También quiero unos audífonos blancos"
 
 ROUTE_REASONING = (
-    "La persona pide audífonos negros con un presupuesto de 800 USD. ",
+    "La persona pide audífonos negros con un presupuesto de 2 millones de pesos. ",
     "Filtraré el catálogo por categoría, color y precio unitario.",
 )
 SELECTION_REASONING = (
-    "Tres audífonos negros cumplen el presupuesto. ",
-    "Sonora SON-01 ofrece cancelación de ruido y sigue dentro del límite.",
+    "Dos audífonos negros cumplen el presupuesto. ",
+    "Sony WH-1000XM6 ofrece cancelación de ruido y sigue dentro del límite.",
 )
 
 
@@ -86,7 +88,7 @@ def purchase_intent(max_unit_amount_minor: int, *, black: bool) -> PurchaseInten
         "max_unit_amount_minor": max_unit_amount_minor,
     }
     if black:
-        hard["required_options"] = [{"name": "color", "value": "black"}]
+        hard["required_options"] = [{"name": "color", "value": "negro"}]
     return PurchaseIntent.model_validate({"hard": hard})
 
 
@@ -109,7 +111,7 @@ class ScriptedRouter:
             return CommerceDecision(
                 action="purchase",
                 assistant_message="Buscaré audífonos en ese presupuesto.",
-                intent=purchase_intent(1_000, black=False),
+                intent=purchase_intent(50_000_00, black=False),
             )
         for delta in ROUTE_REASONING:
             emit_reasoning(delta)
@@ -117,7 +119,7 @@ class ScriptedRouter:
             action="purchase",
             assistant_message="Buscaré audífonos negros dentro de tu presupuesto.",
             purchase_request=PURCHASE_REQUEST,
-            intent=purchase_intent(80_000, black=True),
+            intent=purchase_intent(2_000_000_00, black=True),
         )
 
     def choose_candidate(
@@ -128,13 +130,13 @@ class ScriptedRouter:
     ) -> CandidateDecision:
         self.calls.append(("choose_candidate", messages))
         assert intent.hard.categories == ("headphones",)
-        assert any(item.candidate.variant_id == "SON-01" for item in candidates)
+        assert any(item.candidate.variant_id == "SON-XM6-BLK" for item in candidates)
         for delta in SELECTION_REASONING:
             emit_reasoning(delta)
         return CandidateDecision(
             action="purchase",
             assistant_message=PURCHASE_REPLY,
-            selected_variant_id="SON-01",
+            selected_variant_id="SON-XM6-BLK",
         )
 
     def recover_no_candidate(
@@ -154,17 +156,21 @@ def _checkout(status: str, *, with_details: bool) -> dict[str, Any]:
         "id": CHECKOUT_ID,
         "protocol": {"version": "2026-04-17"},
         "status": status,
-        "currency": "usd",
+        "currency": "cop",
         "capabilities": {"payment": {"handlers": []}},
         "line_items": [
             {
                 "id": "li_1",
-                "item": {"id": "SON-01", "name": "Audífonos Sonora SON-01", "unit_amount": 72_000},
+                "item": {
+                    "id": "SON-XM6-BLK",
+                    "name": "Sony WH-1000XM6 negro",
+                    "unit_amount": 1_899_000_00,
+                },
                 "quantity": 1,
-                "totals": [{"type": "total", "display_text": "Artículo", "amount": 72_000}],
+                "totals": [{"type": "total", "display_text": "Artículo", "amount": 1_899_000_00}],
             }
         ],
-        "totals": [{"type": "total", "display_text": "Total", "amount": 74_000}],
+        "totals": [{"type": "total", "display_text": "Total", "amount": 1_924_000_00}],
         "fulfillment_options": [
             {
                 "type": "shipping",
@@ -172,7 +178,7 @@ def _checkout(status: str, *, with_details: bool) -> dict[str, Any]:
                 "title": "Envío simulado a Bogotá",
                 "earliest_delivery_time": "2099-09-22T13:00:00Z",
                 "latest_delivery_time": "2099-09-22T13:00:00Z",
-                "totals": [{"type": "total", "display_text": "Envío", "amount": 2_000}],
+                "totals": [{"type": "total", "display_text": "Envío", "amount": 25_000_00}],
             }
         ],
         "selected_fulfillment_options": [],
@@ -219,7 +225,7 @@ class Merchant:
                     "transports": ["rest"],
                     "capabilities": {
                         "services": ["checkout"],
-                        "supported_currencies": ["usd"],
+                        "supported_currencies": ["cop"],
                         "supported_locales": ["es-CO"],
                     },
                 },

@@ -20,7 +20,7 @@ def test_loads_schema_valid_feed_and_projects_candidates() -> None:
     assert candidate is not None
     assert candidate.product_id == "prod-son-01"
     assert candidate.observed_unit_amount_minor == 72_000
-    assert candidate.currency == "USD"
+    assert candidate.currency == "COP"
     assert candidate.categories == ("headphones",)
     assert candidate.conditions == ("new",)
     assert candidate.options == (("Color", "black"),)

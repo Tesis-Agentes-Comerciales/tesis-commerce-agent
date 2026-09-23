@@ -86,7 +86,7 @@ export const InterpretBudgetOnly: Story = {
       result={{
         action: "purchase",
         constraints: {
-          currency: "USD",
+          currency: "COP",
           max_unit_amount_minor: null,
           max_total_amount_minor: 150000,
           categories: [],

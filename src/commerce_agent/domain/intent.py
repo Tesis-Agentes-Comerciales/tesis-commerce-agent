@@ -28,7 +28,7 @@ class OptionConstraint(IntentModel):
 
 
 class HardConstraints(IntentModel):
-    currency: CurrencyCode = "USD"
+    currency: CurrencyCode = "COP"
     max_unit_amount_minor: int | None = Field(default=None, ge=0)
     max_total_amount_minor: int | None = Field(default=None, ge=0)
     categories: tuple[NormalizedText, ...] = ()

@@ -58,7 +58,7 @@ def checkout(*, status: str, total: int, unit_amount: int) -> CheckoutSession:
             "id": "cs_1",
             "protocol": {"version": "2026-04-17"},
             "status": status,
-            "currency": "usd",
+            "currency": "cop",
             "capabilities": {"payment": {"handlers": []}},
             "line_items": [
                 {

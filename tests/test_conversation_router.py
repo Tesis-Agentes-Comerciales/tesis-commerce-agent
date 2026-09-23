@@ -21,6 +21,10 @@ from commerce_agent.llm import (
     OpenAIConversationRouter,
 )
 from commerce_agent.llm import conversation_router as module
+from commerce_agent.llm.conversation_router import (
+    _candidate_payload,
+    format_minor_amount,
+)
 
 FEED = load_product_feed(Path(__file__).parent / "fixtures" / "feed")
 
@@ -340,3 +344,29 @@ def test_router_explains_real_alternatives_when_no_candidate_matches(monkeypatch
     assert call["text_format"] is CatalogRecovery
     assert '"budget": 1' in call["input"]
     assert "SON-01" in call["input"]
+
+
+@pytest.mark.parametrize(
+    ("amount_minor", "currency", "expected"),
+    [
+        (1_129_900_000, "cop", "COP 11.299.000"),
+        (899_900_000, "COP", "COP 8.999.000"),
+        (54_900_000, "cop", "COP 549.000"),
+        (0, "cop", "COP 0"),
+        (1_129_900_050, "cop", "COP 11.299.000,50"),
+    ],
+)
+def test_display_amount_never_asks_the_model_to_divide_by_one_hundred(
+    amount_minor: int, currency: str, expected: str
+) -> None:
+    """Con COP los montos tienen nueve dígitos: un error de factor cien parece un precio real."""
+    assert format_minor_amount(amount_minor, currency) == expected
+
+
+def test_candidate_payload_carries_a_quotable_amount_next_to_the_filterable_one() -> None:
+    feed = load_product_feed(Path(__file__).parent / "fixtures" / "assistant_feed")
+    candidate = feed.candidate("SON-XM6-BLK")
+    assert candidate is not None
+    payload = _candidate_payload(candidate)
+    assert payload["observed_unit_amount_minor"] == 1_899_000_00
+    assert payload["display_amount"] == "COP 1.899.000"

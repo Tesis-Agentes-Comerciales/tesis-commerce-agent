@@ -133,7 +133,7 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
                     run_id=run_id,
                     request="Buy one available product",
                     intent=PurchaseIntent(),
-                    selected_variant_id="SON-01",
+                    selected_variant_id="SEN-MOM4-BLK",
                     details=_details(),
                 )
                 assert prepared.stage == "awaiting_confirmation"
@@ -178,7 +178,7 @@ def test_complete_purchase_and_receive_order_webhooks() -> None:
                     run_id=declined_run_id,
                     request="Buy another available product",
                     intent=PurchaseIntent(),
-                    selected_variant_id="ALT-01",
+                    selected_variant_id="SON-XM6-BLK",
                     details=_details(),
                 )
                 declined_terms = purchase.approval_terms(declined_run_id)

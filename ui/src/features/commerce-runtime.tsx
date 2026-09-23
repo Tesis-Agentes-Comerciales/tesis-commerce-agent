@@ -26,8 +26,8 @@ import { AGENT_API_URL, checkoutDetails } from "@/lib/commerce-api"
 import type { BuyerProfile } from "@/lib/commerce-types"
 
 const STARTER_PROMPTS = [
-  "Audífonos negros por menos de 800 USD",
-  "Busco audífonos con cancelación de ruido",
+  "Un portátil con 32GB de RAM y RTX 5070 Ti",
+  "Audífonos con cancelación de ruido por menos de 2 millones",
   "¿Qué productos tienen en el catálogo?",
 ] as const
 

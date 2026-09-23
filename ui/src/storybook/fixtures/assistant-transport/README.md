@@ -81,7 +81,7 @@ Compra preparada: razonamiento, los cinco pasos, tres productos con imagen y des
       "parts": [
         {
           "type": "text",
-          "text": "Quiero audífonos negros por menos de 800 USD"
+          "text": "Quiero audífonos negros por menos de 2 millones"
         }
       ]
     },
@@ -165,7 +165,7 @@ Sin candidatos: `search_catalog` devuelve `products: []` y el texto final es la 
       "parts": [
         {
           "type": "text",
-          "text": "Quiero audífonos por menos de 10 USD"
+          "text": "Quiero audífonos por menos de 50 mil"
         }
       ]
     },
@@ -191,7 +191,7 @@ Error saneado: el comercio no responde durante `prepare_checkout`; el paso queda
       "parts": [
         {
           "type": "text",
-          "text": "Quiero audífonos negros por menos de 800 USD"
+          "text": "Quiero audífonos negros por menos de 2 millones"
         }
       ]
     },

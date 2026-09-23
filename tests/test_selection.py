@@ -25,7 +25,7 @@ def variant(
     variant_id: str,
     *,
     amount: int = 10_000,
-    currency: str = "USD",
+    currency: str = "COP",
     available: bool = True,
     condition: str = "new",
     color: str = "black",
@@ -74,7 +74,7 @@ def test_purchase_intent_normalizes_interpreter_output() -> None:
     intent = PurchaseIntent.model_validate(
         {
             "hard": {
-                "currency": "usd",
+                "currency": "cop",
                 "categories": ["  HeadPhones "],
                 "conditions": [" NEW"],
                 "required_options": [{"name": " COLOR ", "value": " Black "}],
@@ -88,7 +88,7 @@ def test_purchase_intent_normalizes_interpreter_output() -> None:
         }
     )
 
-    assert intent.hard.currency == "USD"
+    assert intent.hard.currency == "COP"
     assert intent.hard.categories == ("headphones",)
     assert intent.hard.conditions == ("new",)
     assert intent.hard.required_options == (OptionConstraint(name="color", value="black"),)
@@ -120,11 +120,11 @@ def test_unavailable_candidates_are_always_rejected() -> None:
 
 def test_currency_is_a_hard_constraint() -> None:
     result = rank_candidates(
-        feed_with(variant("usd"), variant("eur", currency="EUR", amount=1)),
-        PurchaseIntent(hard=HardConstraints(currency="USD")),
+        feed_with(variant("cop"), variant("eur", currency="EUR", amount=1)),
+        PurchaseIntent(hard=HardConstraints(currency="COP")),
     )
 
-    assert ranked_ids(result.ranked) == ["usd"]
+    assert ranked_ids(result.ranked) == ["cop"]
     assert result.rejection_counts == {"currency": 1}
 
 

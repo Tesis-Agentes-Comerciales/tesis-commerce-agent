@@ -127,7 +127,7 @@ def checkout(status: str, *, with_details: bool) -> dict[str, Any]:
         "id": "cs_api_1",
         "protocol": {"version": "2026-04-17"},
         "status": status,
-        "currency": "usd",
+        "currency": "cop",
         "capabilities": {"payment": {"handlers": []}},
         "line_items": [
             {
@@ -220,7 +220,7 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
                     "transports": ["rest"],
                     "capabilities": {
                         "services": ["checkout"],
-                        "supported_currencies": ["usd"],
+                        "supported_currencies": ["cop"],
                         "supported_locales": ["es-CO"],
                     },
                 },
@@ -401,7 +401,7 @@ def test_pending_purchase_can_be_canceled_through_api(tmp_path: Path) -> None:
                     "transports": ["rest"],
                     "capabilities": {
                         "services": ["checkout"],
-                        "supported_currencies": ["usd"],
+                        "supported_currencies": ["cop"],
                         "supported_locales": ["es-CO"],
                     },
                 },

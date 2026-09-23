@@ -140,9 +140,9 @@ def test_purchase_stream_rebuilds_every_step_with_results(tmp_path: Path) -> Non
     interpret = calls["interpret_request"]
     assert interpret["args"] == {}
     assert interpret["result"]["action"] == "purchase"
-    assert interpret["result"]["constraints"]["max_unit_amount_minor"] == 80_000
+    assert interpret["result"]["constraints"]["max_unit_amount_minor"] == 2_000_000_00
     assert interpret["result"]["constraints"]["required_options"] == [
-        {"name": "color", "value": "black"}
+        {"name": "color", "value": "negro"}
     ]
     assert interpret["result"]["preferences"]["selection_strategy"] is None
 
@@ -154,9 +154,14 @@ def test_purchase_stream_rebuilds_every_step_with_results(tmp_path: Path) -> Non
     assert search["result"]["matches"] == 3
     assert search["result"]["rejections"] == {"option": 1, "unavailable": 1}
     products = search["result"]["products"]
-    assert [product["variant_id"] for product in products] == ["ALT-01", "SON-01", "BRI-03"]
+    # El ranking determinista ordena por precio observado ascendente.
+    assert [product["variant_id"] for product in products] == [
+        "SEN-MOM4-BLK",
+        "BOS-QCU-BLK",
+        "SON-XM6-BLK",
+    ]
     assert all(product["image"] and product["description"] for product in products)
-    assert set(products[1]) == {
+    assert set(products[2]) == {
         "product_id",
         "variant_id",
         "title",
@@ -169,26 +174,31 @@ def test_purchase_stream_rebuilds_every_step_with_results(tmp_path: Path) -> Non
         "options",
         "product_url",
     }
-    assert products[1]["title"] == "Audífonos Sonora SON-01"
-    assert products[1]["options"] == [{"name": "Color", "value": "black"}]
+    assert products[2]["title"] == "Sony WH-1000XM6"
+    assert products[2]["options"] == [
+        {"name": "Color", "value": "negro"},
+        {"name": "Conectividad", "value": "Bluetooth 5.3"},
+    ]
 
     select = calls["select_product"]
-    assert select["args"] == {"candidate_variant_ids": ["ALT-01", "SON-01", "BRI-03"]}
+    assert select["args"] == {
+        "candidate_variant_ids": ["SEN-MOM4-BLK", "BOS-QCU-BLK", "SON-XM6-BLK"]
+    }
     assert select["result"] == {
         "decision": "select",
-        "product": products[1],
+        "product": products[2],
         "rationale": PURCHASE_REPLY,
     }
 
     prepare = calls["prepare_checkout"]
-    assert prepare["args"] == {"variant_id": "SON-01"}
+    assert prepare["args"] == {"variant_id": "SON-XM6-BLK"}
     assert prepare["result"] == {
         "run_id": run_id,
         "checkout_id": "cs_storybook_1",
         "checkout_status": "ready_for_payment",
         "price_changed": False,
-        "total_minor": 74_000,
-        "currency": "usd",
+        "total_minor": 1_924_000_00,
+        "currency": "cop",
     }
 
     approval = calls["request_approval"]
@@ -506,8 +516,8 @@ def test_echoed_approval_terms_are_read_again_from_sqlite(tmp_path: Path) -> Non
     root = parse_sse(body)[0]["operations"][0]["value"]
     echoed = tool_calls(assistant_message(root, 1))["request_approval"]
     assert echoed["result"]["stage"] == "awaiting_confirmation"
-    assert echoed["result"]["terms"]["total_minor"] == 74_000
-    assert echoed["result"]["terms"]["lines"][0]["name"] == "Audífonos Sonora SON-01"
+    assert echoed["result"]["terms"]["total_minor"] == 1_924_000_00
+    assert echoed["result"]["terms"]["lines"][0]["name"] == "Sony WH-1000XM6 negro"
 
 
 def test_echoed_approval_of_an_unknown_run_becomes_an_error_step(tmp_path: Path) -> None:
@@ -685,7 +695,7 @@ def test_conversation_turn_endpoint_is_unchanged(tmp_path: Path) -> None:
     assert set(payload) == {"action", "assistant_message", "purchase", "approval_terms"}
     assert payload["action"] == "purchase"
     assert payload["assistant_message"] == PURCHASE_REPLY
-    assert payload["purchase"]["selected_candidate"]["variant_id"] == "SON-01"
+    assert payload["purchase"]["selected_candidate"]["variant_id"] == "SON-XM6-BLK"
     assert "description" not in payload["purchase"]["selected_candidate"]
 
 
@@ -701,7 +711,7 @@ def feed_with(product: dict[str, Any]) -> ProductFeed:
         "id": "X-01",
         "title": "X negro",
         "url": "https://merchant.example.test/products/prod-x?variant=X-01",
-        "price": {"amount": 1000, "currency": "USD"},
+        "price": {"amount": 1000, "currency": "COP"},
         "availability": {"available": True, "status": "in_stock"},
     }
     return ProductFeed.model_validate_json(
@@ -773,7 +783,7 @@ def test_display_helpers_are_strict() -> None:
 
 def test_display_fields_never_reach_model_payloads() -> None:
     feed = load_product_feed(Path(__file__).parent / "fixtures" / "assistant_feed")
-    candidate = feed.candidate("SON-01")
+    candidate = feed.candidate("SON-XM6-BLK")
     assert candidate is not None
     payload = router_module._candidate_payload(candidate)
     serialized = json.dumps(payload, ensure_ascii=False)
