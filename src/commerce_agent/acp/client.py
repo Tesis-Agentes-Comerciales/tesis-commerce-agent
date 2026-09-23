@@ -30,11 +30,13 @@ class ACPClientError(RuntimeError):
         status_code: int | None = None,
         code: str = "acp_client_error",
         retry_after: str | None = None,
+        request_id: str | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.retry_after = retry_after
+        self.request_id = request_id
 
 
 class ACPClient:
@@ -267,7 +269,16 @@ class ACPClient:
             status_code=response.status_code,
             code=code,
             retry_after=response.headers.get("Retry-After"),
+            request_id=ACPClient._merchant_request_id(response),
         )
+
+    @staticmethod
+    def _merchant_request_id(response: httpx.Response) -> str | None:
+        request_id = response.headers.get("Request-Id")
+        if request_id is not None and ACPClient._REQUEST_ID.fullmatch(request_id):
+            return request_id
+        return None
 
     _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
     _ERROR_CODE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+    _REQUEST_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")

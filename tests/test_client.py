@@ -111,7 +111,7 @@ def test_error_normalizes_nested_current_merchant_shape() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(
             409,
-            headers={"Retry-After": "1"},
+            headers={"Retry-After": "1", "Request-Id": "merchant-req-123"},
             json={"detail": {"code": "idempotency_in_flight", "message": "Try again."}},
         )
 
@@ -127,7 +127,28 @@ def test_error_normalizes_nested_current_merchant_shape() -> None:
     assert captured.value.code == "idempotency_in_flight"
     assert captured.value.status_code == 409
     assert captured.value.retry_after == "1"
+    assert captured.value.request_id == "merchant-req-123"
     assert "Try again" not in str(captured.value)
+
+
+def test_error_does_not_reflect_unsafe_merchant_request_id() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            503,
+            headers={"Request-Id": "unsafe id with spaces"},
+            json={"detail": {"code": "PROVIDER_UNAVAILABLE"}},
+        )
+
+    with (
+        ACPClient(
+            "http://127.0.0.1:4120",
+            SecretStr("test-token"),
+            transport=httpx.MockTransport(handler),
+        ) as client,
+        pytest.raises(ACPClientError) as captured,
+    ):
+        client.get_checkout("cs_test_001")
+    assert captured.value.request_id is None
 
 
 def test_oversized_response_is_rejected_before_json_parsing() -> None:

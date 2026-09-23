@@ -60,6 +60,24 @@ class ApprovalReceipt(BaseModel):
     stage: str = "approved"
 
 
+def error_response(error: Exception) -> JSONResponse:
+    code = getattr(error, "code", "agent_error")
+    if code == "intent_model_error":
+        status = 502
+    elif code == "provider_unavailable":
+        status = 503
+    elif code == "invalid_provider_response":
+        status = 502
+    elif code == "delegation_rejected":
+        status = 422
+    else:
+        status = 409 if code not in {"purchase_not_found", "checkout_missing"} else 404
+    body = {"code": code, "message": str(error)}
+    if isinstance(error, ACPClientError) and error.request_id is not None:
+        body["merchant_request_id"] = error.request_id
+    return JSONResponse(body, status_code=status)
+
+
 def create_app(
     *,
     settings: Settings | None = None,
@@ -170,18 +188,7 @@ def create_app(
     @app.exception_handler(ACPClientError)
     @app.exception_handler(IntentInterpretationError)
     async def handled_error(_, error: Exception) -> JSONResponse:
-        code = getattr(error, "code", "agent_error")
-        if code == "intent_model_error":
-            status = 502
-        elif code == "provider_unavailable":
-            status = 503
-        elif code == "invalid_provider_response":
-            status = 502
-        elif code == "delegation_rejected":
-            status = 422
-        else:
-            status = 409 if code not in {"purchase_not_found", "checkout_missing"} else 404
-        return JSONResponse({"code": code, "message": str(error)}, status_code=status)
+        return error_response(error)
 
     @app.get("/health")
     def health() -> dict[str, str]:

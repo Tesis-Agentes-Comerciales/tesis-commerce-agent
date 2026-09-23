@@ -7,8 +7,9 @@ import httpx
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from commerce_agent.acp import ACPClientError
 from commerce_agent.acp.feed import ProductCandidate
-from commerce_agent.api import create_app
+from commerce_agent.api import create_app, error_response
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
 from commerce_agent.llm import (
@@ -19,6 +20,22 @@ from commerce_agent.llm import (
 )
 
 FEED = Path(__file__).parent / "fixtures" / "feed"
+
+
+def test_merchant_request_id_is_exposed_without_merchant_error_text() -> None:
+    response = error_response(
+        ACPClientError(
+            "Merchant request failed with HTTP 409",
+            status_code=409,
+            code="idempotency_in_flight",
+            request_id="merchant-req-123",
+        )
+    )
+    assert json.loads(bytes(response.body)) == {
+        "code": "idempotency_in_flight",
+        "message": "Merchant request failed with HTTP 409",
+        "merchant_request_id": "merchant-req-123",
+    }
 
 
 class StubConversationRouter:
