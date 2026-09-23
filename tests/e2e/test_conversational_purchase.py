@@ -73,18 +73,18 @@ class _StaticConversationRouter:
 
 def test_natural_request_crosses_the_model_boundary_and_completes() -> None:
     natural_request = (
-        "Quiero comprar unos audifonos nuevos, negros, que cuesten maximo 800 dolares "
-        "incluyendo el envio. Prefiero la marca Sonora."
+        "Quiero comprar un telefono nuevo de 256 GB que cueste maximo dos millones "
+        "incluyendo el envio. Prefiero la marca Sony."
     )
     simulated_llm_intent = {
         "hard": {
             "currency": "COP",
-            "max_total_amount_minor": 1_500_000_00,
-            "categories": ["headphones"],
+            "max_total_amount_minor": 2_000_000_00,
+            "categories": ["smartphones"],
             "conditions": ["new"],
-            "required_options": [{"name": "color", "value": "negro"}],
+            "required_options": [{"name": "almacenamiento", "value": "256 gb"}],
         },
-        "preferences": {"terms": ["sennheiser"]},
+        "preferences": {"terms": ["sony"]},
     }
     settings = Settings(
         merchant_base_url=_required("MERCHANT_BASE_URL"),
@@ -142,16 +142,16 @@ def test_natural_request_crosses_the_model_boundary_and_completes() -> None:
         turn = prepared.json()
         assert turn["action"] == "purchase"
         preparation = turn["purchase"]
-        assert preparation["selected_candidate"]["variant_id"] == "SEN-MOM4-BLK"
+        assert preparation["selected_candidate"]["variant_id"] == "Q100286751-256GB"
         assert preparation["checkout"]["status"] == "ready_for_payment"
-        assert preparation["checkout"]["totals"][-1]["amount"] <= 1_500_000_00
+        assert preparation["checkout"]["totals"][-1]["amount"] <= 2_000_000_00
         run_id = preparation["run_id"]
 
         blocked = client.post(f"/purchases/{run_id}/complete")
         assert blocked.status_code == 409
 
         terms = turn["approval_terms"]
-        assert terms["total_minor"] <= 1_500_000_00
+        assert terms["total_minor"] <= 2_000_000_00
         approved = client.post(
             f"/purchases/{run_id}/approval",
             json={"expected_fingerprint": terms["fingerprint"]},
