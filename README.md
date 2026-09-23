@@ -194,3 +194,5 @@ real y operación multi-instancia quedan fuera de este incremento.
 
 La matriz de contrato, amenazas e hipótesis está en
 [`docs/compatibility.md`](docs/compatibility.md).
+La configuración de la demo remota está en
+[`docs/deployment-railway.md`](docs/deployment-railway.md).
