@@ -29,7 +29,8 @@ que contienen las bases SQLite: Railway no conserva archivos del contenedor entr
   `AGENT_FEED_PATH=/app/deploy/feed/p0` y `AGENT_DATABASE_PATH=/app/.local/agent.db`.
 - Merchant: `ACP_API_BASE_URL` coincide con `MERCHANT_BASE_URL` del agente;
   `PAYMENT_PROVIDER_URL` coincide con el del agente; `WEBHOOK_RECEIVER_URL` es **solo el origen**
-  HTTPS público del agente (el dispatcher agrega la ruta del webhook).
+  HTTPS público del agente (el dispatcher agrega la ruta del webhook);
+  `MERCHANT_ALLOW_REMOTE_DB=true` habilita únicamente PostgreSQL en `*.railway.internal`.
 - Proveedor: `PAYMENT_DATABASE_PATH=/app/.local/payments.db`.
 - El Bearer configurado como `MERCHANT_AGENT_BEARER_TOKEN` en el merchant es
   `MERCHANT_BEARER_TOKEN` en el agente. `MERCHANT_WEBHOOK_SECRET` es idéntico en ambos.
@@ -38,11 +39,12 @@ que contienen las bases SQLite: Railway no conserva archivos del contenedor entr
   en el proveedor. `PAYMENT_MERCHANT_ID` debe ser igual en los tres servicios.
 - `OPENAI_API_KEY`, `OPENAI_MODEL` y `AGENT_APPROVAL_SECRET` viven únicamente en el agente.
 
-Use una instancia PostgreSQL dedicada y privada. El merchant debe recibir su URL de base como
-referencia de servicio, no un valor escrito en Git. Su bootstrap necesita acceso administrativo
-para crear la base `tesis_lab` si la instancia gestionada arranca con otro nombre. No publique
-PostgreSQL por TCP público. Railway describe las [referencias de
-variables](https://docs.railway.com/variables/reference) y la [red privada entre
+Use una instancia PostgreSQL dedicada y privada. `DATABASE_URL` del merchant debe apuntar a
+`/tesis_lab` en el host privado `*.railway.internal`; configúrela mediante una referencia de
+servicio, no con un valor escrito en Git. Si esa base no existe, configure además
+`BOOTSTRAP_ADMIN_DATABASE_URL` con una URL de la base administrativa de la misma instancia,
+con permiso para crear `tesis_lab`. No publique PostgreSQL por TCP público. Railway describe las
+[referencias de variables](https://docs.railway.com/variables/reference) y la [red privada entre
 servicios](https://docs.railway.com/networking/private-networking).
 
 Las URLs HTTP internas `*.railway.internal` no pasan los validadores actuales del agente y del
