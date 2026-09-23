@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,8 +236,9 @@ class SqliteAgentStore:
             )
         return cursor.rowcount == 1
 
-    def release_completion(self, run_id: str, *, uncertain: bool) -> None:
-        stage = "uncertain" if uncertain else "approved"
+    def release_completion(
+        self, run_id: str, *, stage: Literal["approved", "uncertain", "failed"]
+    ) -> None:
         with self._connect() as connection:
             cursor = connection.execute(
                 """

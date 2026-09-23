@@ -72,7 +72,7 @@ class CompletionService:
             try:
                 self._store.record_completion(run_id, reconciled.model_dump(mode="json"))
             except Exception:
-                self._store.release_completion(run_id, uncertain=True)
+                self._store.release_completion(run_id, stage="uncertain")
                 raise
             return reconciled
         self._approvals.authorize(run_id=run_id, checkout=checkout)
@@ -104,14 +104,22 @@ class CompletionService:
                 )
             self._store.record_completion(run_id, completed.model_dump(mode="json"))
         except ACPClientError as error:
-            definite = (
+            if (error.code, error.status_code) in {
+                ("payment_declined", 422),
+                ("out_of_stock", 409),
+            }:
+                stage = "failed"
+            elif (
                 error.code != "idempotency_in_flight"
                 and error.status_code is not None
                 and 400 <= error.status_code < 500
-            )
-            self._store.release_completion(run_id, uncertain=not definite)
+            ):
+                stage = "approved"
+            else:
+                stage = "uncertain"
+            self._store.release_completion(run_id, stage=stage)
             raise
         except Exception:
-            self._store.release_completion(run_id, uncertain=True)
+            self._store.release_completion(run_id, stage="uncertain")
             raise
         return completed

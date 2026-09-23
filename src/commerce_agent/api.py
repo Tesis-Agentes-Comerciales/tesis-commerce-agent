@@ -60,8 +60,46 @@ class ApprovalReceipt(BaseModel):
     stage: str = "approved"
 
 
+_ACP_ERROR_RESPONSES: dict[str, tuple[int, str]] = {
+    "payment_declined": (
+        422,
+        "El pago sandbox fue rechazado. Esta compra no se completó; inicia una nueva compra.",
+    ),
+    "out_of_stock": (409, "El producto se agotó antes de completar la compra. Elige otro."),
+    "invalid_item": (404, "El producto ya no está disponible en el comercio."),
+    "PROVIDER_UNAVAILABLE": (
+        503,
+        "El proveedor de pagos del comercio no está disponible. Puedes reintentar más tarde.",
+    ),
+    "idempotency_in_flight": (
+        409,
+        "El comercio sigue procesando esta compra. Espera un momento y consulta de nuevo.",
+    ),
+    "idempotency_conflict": (422, "El comercio rechazó un reintento inconsistente."),
+    "timeout": (504, "No se pudo confirmar el resultado con el comercio. Consulta de nuevo."),
+    "transport_error": (
+        502,
+        "No se pudo confirmar el resultado con el comercio. Consulta de nuevo.",
+    ),
+    "INVALID_INPUT": (400, "El comercio rechazó los datos de la compra."),
+}
+
+
 def error_response(error: Exception) -> JSONResponse:
     code = getattr(error, "code", "agent_error")
+    if isinstance(error, ACPClientError):
+        if code in {"payment_declined", "out_of_stock"} and (
+            code,
+            error.status_code,
+        ) not in {("payment_declined", 422), ("out_of_stock", 409)}:
+            code = "http_error"
+        status, message = _ACP_ERROR_RESPONSES.get(
+            code, (502, "El ecommerce no pudo procesar la solicitud.")
+        )
+        body = {"code": code, "message": message}
+        if error.request_id is not None:
+            body["merchant_request_id"] = error.request_id
+        return JSONResponse(body, status_code=status)
     if code == "intent_model_error":
         status = 502
     elif code == "provider_unavailable":
@@ -72,10 +110,7 @@ def error_response(error: Exception) -> JSONResponse:
         status = 422
     else:
         status = 409 if code not in {"purchase_not_found", "checkout_missing"} else 404
-    body = {"code": code, "message": str(error)}
-    if isinstance(error, ACPClientError) and error.request_id is not None:
-        body["merchant_request_id"] = error.request_id
-    return JSONResponse(body, status_code=status)
+    return JSONResponse({"code": code, "message": str(error)}, status_code=status)
 
 
 def create_app(

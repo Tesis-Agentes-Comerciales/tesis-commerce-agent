@@ -49,6 +49,7 @@ from commerce_agent.assistant_transport import (
     AssistantMessageRecorder,
     AssistantRequest,
     TurnCancelled,
+    error_message,
 )
 from commerce_agent.llm import (
     CommerceDecision,
@@ -65,6 +66,13 @@ STEPS = (
     "prepare_checkout",
     "request_approval",
 )
+
+
+@pytest.mark.parametrize("code", ["out_of_stock", "invalid_item", "PROVIDER_UNAVAILABLE"])
+def test_merchant_error_codes_have_safe_conversation_copy(code: str) -> None:
+    message = error_message(code)
+    assert "comercio" in message
+    assert message != "Ocurrió un error inesperado."
 
 
 def assistant_message(state: dict[str, Any], index: int = -1) -> dict[str, Any]:

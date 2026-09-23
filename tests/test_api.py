@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
@@ -33,9 +34,49 @@ def test_merchant_request_id_is_exposed_without_merchant_error_text() -> None:
     )
     assert json.loads(bytes(response.body)) == {
         "code": "idempotency_in_flight",
-        "message": "Merchant request failed with HTTP 409",
+        "message": " ".join(
+            (
+                "El comercio sigue procesando esta compra.",
+                "Espera un momento y consulta de nuevo.",
+            )
+        ),
         "merchant_request_id": "merchant-req-123",
     }
+
+
+@pytest.mark.parametrize(
+    ("code", "merchant_status", "agent_status", "message_fragment"),
+    [
+        ("payment_declined", 422, 422, "rechazado"),
+        ("out_of_stock", 409, 409, "agotó"),
+        ("PROVIDER_UNAVAILABLE", 503, 503, "proveedor de pagos"),
+        ("idempotency_in_flight", 409, 409, "procesando"),
+        ("timeout", None, 504, "confirmar"),
+    ],
+)
+def test_merchant_failures_have_safe_actionable_api_responses(
+    code: str, merchant_status: int | None, agent_status: int, message_fragment: str
+) -> None:
+    response = error_response(
+        ACPClientError(
+            "Merchant request failed with HTTP 999: private merchant detail",
+            status_code=merchant_status,
+            code=code,
+        )
+    )
+    body = json.loads(bytes(response.body))
+    assert response.status_code == agent_status
+    assert body["code"] == code
+    assert message_fragment in body["message"]
+    assert "private merchant detail" not in body["message"]
+
+
+def test_terminal_error_code_with_unexpected_status_stays_nonterminal() -> None:
+    response = error_response(
+        ACPClientError("Ambiguous merchant error", status_code=503, code="payment_declined")
+    )
+    assert response.status_code == 502
+    assert json.loads(bytes(response.body))["code"] == "http_error"
 
 
 class StubConversationRouter:

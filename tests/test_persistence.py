@@ -63,7 +63,7 @@ def test_completion_reservation_is_compare_and_swap(tmp_path: Path) -> None:
     assert not second.claim_completion("run-1")
     assert first.purchase("run-1")["stage"] == "completing"  # type: ignore[index]
 
-    first.release_completion("run-1", uncertain=True)
+    first.release_completion("run-1", stage="uncertain")
     assert second.claim_completion("run-1")
 
 

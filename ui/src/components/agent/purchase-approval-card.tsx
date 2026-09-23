@@ -50,6 +50,7 @@ export type PurchaseApprovalCardProps = {
    * completa la compra (reintento).
    */
   approvalRecorded?: boolean
+  terminal?: boolean
   /** Mensaje saneado del backend. */
   error?: string | null
   /** `prepare_checkout.price_changed`: el precio difiere del observado en el catálogo. */
@@ -110,7 +111,7 @@ function deliveryText(terms: ApprovalTerms) {
 const APPROVE_FOOTER = "Aprobar autoriza únicamente estos términos. No mueve dinero real."
 
 /** Encabezado, rótulo del total y pie: las tres líneas cambian juntas para no contradecirse. */
-function statusCopy(status: ApprovalCardStatus, approvalRecorded: boolean) {
+function statusCopy(status: ApprovalCardStatus, approvalRecorded: boolean, terminal: boolean) {
   if (status === "completed") {
     return {
       title: "Compra completada",
@@ -133,6 +134,14 @@ function statusCopy(status: ApprovalCardStatus, approvalRecorded: boolean) {
       subtitle: "Liberando el checkout en el comercio.",
       total: "Total a aprobar",
       footer: APPROVE_FOOTER,
+    }
+  }
+  if (status === "error" && terminal) {
+    return {
+      title: "Compra no completada",
+      subtitle: "El comercio no registró ninguna orden.",
+      total: "Total del checkout no cobrado",
+      footer: null,
     }
   }
   if (approvalRecorded || status === "completing") {
@@ -237,6 +246,7 @@ export function PurchaseApprovalCard({
   status,
   product,
   approvalRecorded = false,
+  terminal = false,
   error,
   priceChanged = false,
   order,
@@ -249,7 +259,7 @@ export function PurchaseApprovalCard({
   const recorded = approvalRecorded || status === "completing"
   const busy = status === "approving" || status === "completing" || status === "canceling"
   const settled = status === "completed" || status === "canceled"
-  const copy = statusCopy(status, recorded)
+  const copy = statusCopy(status, recorded, terminal)
   const total = formatMoneyParts(terms.total_minor, terms.currency)
   const productTitle = product?.title ?? terms.lines[0]?.name ?? "Compra"
   const lineSum = terms.lines.reduce((sum, line) => sum + line.quantity * line.unit_amount_minor, 0)
@@ -494,8 +504,15 @@ function Actions({
     )
   }
 
-  // Sin `onApprove` la tarjeta es de solo lectura (compra reemplazada o fallida): no hay acciones.
-  if (!onApprove) return null
+  if (!onApprove) {
+    return (
+      <NewPurchaseButton
+        onNewPurchase={onNewPurchase}
+        detail="Empezar otra compra borra esta conversación y sus mensajes."
+        className="w-full"
+      />
+    )
+  }
 
   const primaryLabel =
     status === "approving"

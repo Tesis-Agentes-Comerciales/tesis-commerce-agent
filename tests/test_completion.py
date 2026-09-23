@@ -201,7 +201,9 @@ def test_success_persists_order_consumes_approval_and_replays_locally(tmp_path: 
 @pytest.mark.parametrize(
     ("error", "expected_stage"),
     [
-        (ACPClientError("Declined", status_code=422, code="payment_declined"), "approved"),
+        (ACPClientError("Declined", status_code=422, code="payment_declined"), "failed"),
+        (ACPClientError("Out of stock", status_code=409, code="out_of_stock"), "failed"),
+        (ACPClientError("Ambiguous", status_code=503, code="payment_declined"), "uncertain"),
         (ACPClientError("Timed out", code="timeout"), "uncertain"),
         (
             ACPClientError(

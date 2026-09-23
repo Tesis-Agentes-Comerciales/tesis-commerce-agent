@@ -6,12 +6,14 @@ export const AGENT_API_URL = configuredBaseUrl.replace(/\/$/, "")
 export class AgentApiError extends Error {
   readonly code: string
   readonly status: number
+  readonly merchantRequestId: string | null
 
-  constructor(message: string, code: string, status: number) {
+  constructor(message: string, code: string, status: number, merchantRequestId: string | null) {
     super(message)
     this.name = "AgentApiError"
     this.code = code
     this.status = status
+    this.merchantRequestId = merchantRequestId
   }
 }
 
@@ -24,7 +26,12 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       typeof body?.message === "string"
         ? body.message
         : `El agente respondió con HTTP ${response.status}`
-    throw new AgentApiError(message, code, response.status)
+    const rawRequestId = body?.merchant_request_id
+    const merchantRequestId =
+      typeof rawRequestId === "string" && /^[A-Za-z0-9_.:-]{1,128}$/.test(rawRequestId)
+        ? rawRequestId
+        : null
+    throw new AgentApiError(message, code, response.status, merchantRequestId)
   }
   return response.json() as Promise<T>
 }

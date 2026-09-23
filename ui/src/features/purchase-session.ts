@@ -20,6 +20,7 @@ export type LocalPurchase = {
   approvalRecorded: boolean
   order?: CompletedCheckout["order"]
   error?: string
+  errorCode?: string
 }
 
 type PurchaseSession = {

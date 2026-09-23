@@ -106,6 +106,31 @@ export const CompletionFails: Story = {
   },
 }
 
+export const PaymentDeclined: Story = {
+  parameters: {
+    agentApi: {
+      ...FAST_STREAM.agentApi,
+      "POST /purchases/:runId/complete": {
+        status: 422,
+        body: {
+          code: "payment_declined",
+          message: "El pago sandbox fue rechazado.",
+          merchant_request_id: "merchant-req-123",
+        },
+      },
+    },
+  },
+  play: async (context) => {
+    const card = await approvalCard(context)
+    await context.userEvent.click(within(card).getByTestId("approve-purchase"))
+    await expect(
+      await within(card).findByRole("alert", {}, STREAM_TIMEOUT),
+    ).toHaveTextContent(/pago sandbox fue rechazado.*merchant-req-123/)
+    await expect(within(card).getByRole("button", { name: "Nueva compra" })).toBeVisible()
+    await expect(within(card).queryByRole("button", { name: "Reintentar compra" })).toBeNull()
+  },
+}
+
 export const NoCandidate: Story = {
   parameters: FAST_STREAM,
   play: async (context) => {
