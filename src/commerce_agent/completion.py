@@ -104,7 +104,11 @@ class CompletionService:
                 )
             self._store.record_completion(run_id, completed.model_dump(mode="json"))
         except ACPClientError as error:
-            definite = error.status_code is not None and 400 <= error.status_code < 500
+            definite = (
+                error.code != "idempotency_in_flight"
+                and error.status_code is not None
+                and 400 <= error.status_code < 500
+            )
             self._store.release_completion(run_id, uncertain=not definite)
             raise
         except Exception:

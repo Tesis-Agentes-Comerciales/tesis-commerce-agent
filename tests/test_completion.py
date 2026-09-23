@@ -203,6 +203,15 @@ def test_success_persists_order_consumes_approval_and_replays_locally(tmp_path: 
     [
         (ACPClientError("Declined", status_code=422, code="payment_declined"), "approved"),
         (ACPClientError("Timed out", code="timeout"), "uncertain"),
+        (
+            ACPClientError(
+                "Still processing",
+                status_code=409,
+                code="idempotency_in_flight",
+                retry_after="1",
+            ),
+            "uncertain",
+        ),
     ],
 )
 def test_failure_keeps_key_and_approval_without_inventing_order(
@@ -257,9 +266,18 @@ def test_sandbox_token_is_stable_without_being_persisted(tmp_path: Path) -> None
     assert first_token.encode() not in (tmp_path / "agent.db").read_bytes()
 
 
-def test_uncertain_completion_reconciles_from_authoritative_checkout(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "error",
+    [
+        ACPClientError("Timed out", code="timeout"),
+        ACPClientError("Still processing", status_code=409, code="idempotency_in_flight"),
+    ],
+)
+def test_uncertain_completion_reconciles_from_authoritative_checkout(
+    tmp_path: Path, error: ACPClientError
+) -> None:
     current = checkout()
-    gateway = FakeGateway(current, error=ACPClientError("Timed out", code="timeout"))
+    gateway = FakeGateway(current, error=error)
     store, approvals, service = dependencies(tmp_path, gateway)
     approve(approvals, current)
 
