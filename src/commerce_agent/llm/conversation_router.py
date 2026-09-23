@@ -138,12 +138,26 @@ def _candidate_payload(candidate: ProductCandidate) -> dict[str, object]:
     return payload
 
 
+# El vocabulario viaja en cada turno del router, así que tiene que ser acotado. Un catálogo
+# de miles de productos no cabe por título: las marcas son la dimensión útil y limitada.
+MAX_VOCABULARY_BRANDS = 200
+# Tope duro de candidatos que pueden llegar al modelo en una selección.
+MAX_MODEL_CANDIDATES = 10
+
+
+def _brand_of(product_title: str) -> str:
+    """La primera palabra del título es la marca en la práctica; el feed no la publica aparte."""
+    head = product_title.strip().split(" ", 1)[0]
+    return head.casefold()
+
+
 def _catalog_vocabulary(feed: ProductFeed) -> str:
     candidates = feed.available_candidates
     options: dict[str, set[str]] = {}
     for candidate in candidates:
         for name, value in candidate.options:
             options.setdefault(name.casefold(), set()).add(value.casefold())
+    brands = sorted({_brand_of(item.product_title) for item in candidates})
     vocabulary = {
         "categories": sorted(
             {value.casefold() for item in candidates for value in item.categories}
@@ -153,7 +167,11 @@ def _catalog_vocabulary(feed: ProductFeed) -> str:
         ),
         "currencies": sorted({item.currency.upper() for item in candidates}),
         "options": {name: sorted(values) for name, values in sorted(options.items())},
-        "product_titles": sorted({item.product_title for item in candidates}),
+        # Los títulos completos no se publican: con miles de productos ocupaban el 96% del
+        # vocabulario. `_aligned_intent` igual valida required_terms contra el catálogo real,
+        # así que un término inventado se degrada a preferencia en vez de vaciar la búsqueda.
+        "brands": brands[:MAX_VOCABULARY_BRANDS],
+        "product_count": len(candidates),
     }
     return json.dumps(vocabulary, ensure_ascii=False, sort_keys=True)
 
@@ -369,6 +387,9 @@ class OpenAIConversationRouter:
     ) -> CandidateDecision:
         if not candidates:
             raise ValueError("Candidate selection requires at least one candidate")
+        # La capa de aplicación ya acota la lista corta; este tope evita que un llamador
+        # nuevo mande un catálogo entero al modelo.
+        candidates = candidates[:MAX_MODEL_CANDIDATES]
         preference_labels = {
             *(f"term:{value}" for value in intent.preferences.terms),
             *(f"category:{value}" for value in intent.preferences.categories),

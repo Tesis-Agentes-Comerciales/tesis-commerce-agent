@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -22,7 +23,9 @@ from commerce_agent.llm import (
 )
 from commerce_agent.llm import conversation_router as module
 from commerce_agent.llm.conversation_router import (
+    MAX_VOCABULARY_BRANDS,
     _candidate_payload,
+    _catalog_vocabulary,
     format_minor_amount,
 )
 
@@ -83,7 +86,10 @@ def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> N
     assert call["store"] is False
     assert "clarify" in call["instructions"]
     assert "headphones" in call["instructions"]
-    assert "Audifonos Sonora SON-01" in call["instructions"]
+    # El vocabulario publica marcas, no títulos: con miles de productos la lista completa
+    # de títulos ocupaba casi todo el prompt y viajaba en cada turno.
+    assert '"brands"' in call["instructions"]
+    assert "Audifonos Sonora SON-01" not in call["instructions"]
     assert "never authorizes" in call["instructions"].casefold()
     assert fake.closed
 
@@ -370,3 +376,20 @@ def test_candidate_payload_carries_a_quotable_amount_next_to_the_filterable_one(
     payload = _candidate_payload(candidate)
     assert payload["observed_unit_amount_minor"] == 1_899_000_00
     assert payload["display_amount"] == "COP 1.899.000"
+
+
+def test_catalog_vocabulary_stays_bounded_as_the_catalog_grows() -> None:
+    """Viaja en cada turno del router: no puede crecer con el número de productos."""
+    feed = load_product_feed(Path(__file__).parent / "fixtures" / "assistant_feed")
+    vocabulary = json.loads(_catalog_vocabulary(feed))
+
+    assert set(vocabulary) == {
+        "brands",
+        "categories",
+        "conditions",
+        "currencies",
+        "options",
+        "product_count",
+    }
+    assert len(vocabulary["brands"]) <= MAX_VOCABULARY_BRANDS
+    assert vocabulary["product_count"] == len(feed.available_candidates)
