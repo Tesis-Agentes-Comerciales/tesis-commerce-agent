@@ -145,10 +145,11 @@ MAX_VOCABULARY_BRANDS = 200
 MAX_MODEL_CANDIDATES = 10
 
 
-def _brand_of(product_title: str) -> str:
-    """La primera palabra del título es la marca en la práctica; el feed no la publica aparte."""
-    head = product_title.strip().split(" ", 1)[0]
-    return head.casefold()
+def _brand_of(candidate: ProductCandidate) -> str:
+    """Marca declarada por el feed; si falta, la primera palabra del título la aproxima."""
+    if candidate.brands:
+        return candidate.brands[0].casefold()
+    return candidate.product_title.strip().split(" ", 1)[0].casefold()
 
 
 def _catalog_vocabulary(feed: ProductFeed) -> str:
@@ -157,7 +158,7 @@ def _catalog_vocabulary(feed: ProductFeed) -> str:
     for candidate in candidates:
         for name, value in candidate.options:
             options.setdefault(name.casefold(), set()).add(value.casefold())
-    brands = sorted({_brand_of(item.product_title) for item in candidates})
+    brands = sorted({_brand_of(item) for item in candidates})
     vocabulary = {
         "categories": sorted(
             {value.casefold() for item in candidates for value in item.categories}

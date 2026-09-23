@@ -80,6 +80,7 @@ class ProductCandidate(BaseModel):
     available: bool
     availability_status: str
     categories: tuple[str, ...]
+    brands: tuple[str, ...] = ()
     conditions: tuple[str, ...]
     options: tuple[tuple[str, str], ...]
 
@@ -96,9 +97,18 @@ class ProductFeed(BaseModel):
         for product in self.products:
             for variant in product.variants:
                 category_values: list[str] = []
+                brand_values: list[str] = []
                 for row in variant.categories:
                     value = row.get("value")
-                    if isinstance(value, str):
+                    if not isinstance(value, str):
+                        continue
+                    # El feed publica varias taxonomías. Solo la del comercio describe la
+                    # categoría del producto; la marca viaja aparte y no debe colarse en el
+                    # filtro duro de categoría.
+                    taxonomy = row.get("taxonomy")
+                    if taxonomy == "brand":
+                        brand_values.append(value)
+                    elif taxonomy in (None, "merchant"):
                         category_values.append(value)
                 option_values: list[tuple[str, str]] = []
                 for row in variant.variant_options:
@@ -119,6 +129,7 @@ class ProductFeed(BaseModel):
                         available=variant.availability.available,
                         availability_status=variant.availability.status,
                         categories=tuple(category_values),
+                        brands=tuple(brand_values),
                         conditions=tuple(variant.condition),
                         options=tuple(option_values),
                     )
