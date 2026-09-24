@@ -35,7 +35,7 @@ export function formatMoneyParts(amountMinor: number, currency: string) {
   }
 }
 
-/** Montos en unidades menores (centavos), en una línea: "$ 740,00 USD". */
+/** Montos en unidades menores (centavos), en una línea: "$ 1.924.000,00 COP". */
 export function formatMoney(amountMinor: number, currency: string) {
   const { amount, code } = formatMoneyParts(amountMinor, currency)
   return `${amount} ${code}`

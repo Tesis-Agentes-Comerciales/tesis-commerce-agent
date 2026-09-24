@@ -14,7 +14,7 @@ def checkout(status: str = "not_ready_for_payment") -> dict[str, Any]:
         "id": "cs_test_001",
         "protocol": {"version": "2026-04-17"},
         "status": status,
-        "currency": "usd",
+        "currency": "cop",
         "capabilities": {"payment": {"handlers": []}},
         "line_items": [
             {
@@ -57,7 +57,7 @@ def test_discovery_is_public_and_validated() -> None:
                 "transports": ["rest"],
                 "capabilities": {
                     "services": ["checkout"],
-                    "supported_currencies": ["usd"],
+                    "supported_currencies": ["cop"],
                     "supported_locales": ["es-CO"],
                 },
             },

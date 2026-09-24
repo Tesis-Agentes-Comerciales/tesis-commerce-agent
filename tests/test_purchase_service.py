@@ -66,7 +66,7 @@ def checkout(*, status: str, total: int, unit_amount: int) -> CheckoutSession:
             "id": "cs_1",
             "protocol": {"version": "2026-04-17"},
             "status": status,
-            "currency": "usd",
+            "currency": "cop",
             "capabilities": {"payment": {"handlers": []}},
             "line_items": [
                 {
@@ -151,7 +151,7 @@ def test_purchase_reaches_human_confirmation_with_backend_only_details(tmp_path:
 
 def test_checkout_currency_must_match_feed_candidate(tmp_path: Path) -> None:
     gateway = FakeCheckoutGateway()
-    gateway.current = gateway.current.model_copy(update={"currency": "cop"})
+    gateway.current = gateway.current.model_copy(update={"currency": "usd"})
     service, store = make_service(tmp_path, gateway)
 
     with pytest.raises(PurchaseServiceError) as captured:

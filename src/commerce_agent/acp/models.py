@@ -58,7 +58,7 @@ class CheckoutCapabilities(StrictModel):
 
 class CheckoutCreateRequest(StrictModel):
     line_items: Annotated[list[CheckoutItemRequest], Field(min_length=1)]
-    currency: Literal["usd", "cop"] = "usd"
+    currency: Literal["usd", "cop"] = "cop"
     capabilities: CheckoutCapabilities = Field(default_factory=CheckoutCapabilities)
 
 

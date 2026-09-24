@@ -20,7 +20,7 @@ import purchaseRaw from "@/storybook/fixtures/assistant-transport/purchase.sse?r
 // historia pida recursos externos. Brisa apunta a una ruta inexistente y muestra el placeholder.
 
 const FEED_IMAGES: Record<string, string> = {
-  "https://merchant.example.test/assets/products/prod-son-01.jpg": headphonesBlackImage,
+  "https://merchant.example.test/assets/products/prod-sony-wh-1000xm6.jpg": headphonesBlackImage,
   "https://merchant.example.test/assets/products/prod-alt-01.jpg": earbudsImage,
   "https://merchant.example.test/assets/products/prod-bri-03.jpg":
     "/storybook-missing/prod-bri-03.jpg",
@@ -50,9 +50,9 @@ export type AssistantFixture = keyof typeof ASSISTANT_SSE
 export const FIXTURE_REQUESTS = {
   greeting: "hola",
   clarify: "Busco algo para escuchar música",
-  purchase: "Quiero audífonos negros por menos de 800 USD",
+  purchase: "Quiero audífonos negros por menos de 2 millones",
   pendingPurchase: "También quiero unos audífonos blancos",
-  noCandidate: "Quiero audífonos por menos de 10 USD",
+  noCandidate: "Quiero audífonos por menos de 50 mil",
 } as const
 
 type Operation = { type: "set" | "append-text"; path: string[]; value: unknown }
@@ -211,7 +211,7 @@ export function scriptedFixture(body: AssistantRequestBody): AssistantFixture {
     .toLowerCase()
   if (body.state?.purchase?.stage === "awaiting_confirmation") return "pendingPurchase"
   if (/^\s*(hola|buenas|hey)\b/.test(text)) return "greeting"
-  if (/\b10 usd\b/.test(text)) return "noCandidate"
+  if (/\b50 mil\b/.test(text)) return "noCandidate"
   if (/aud[ií]fono|headphone/.test(text)) return "purchase"
   return "clarify"
 }

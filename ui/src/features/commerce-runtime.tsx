@@ -29,6 +29,8 @@ import type { BuyerProfile } from "@/lib/commerce-types"
 const STARTER_PROMPTS = [
   "Quiero un celular de máximo 3 millones de pesos",
   "Busco un iPhone; ayúdame a elegir",
+  "Un portátil con 32GB de RAM y RTX 5070 Ti",
+  "Audífonos con cancelación de ruido por menos de 2 millones",
   "¿Qué productos tienen en el catálogo?",
 ] as const
 

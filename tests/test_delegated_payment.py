@@ -14,7 +14,7 @@ def checkout() -> CheckoutSession:
         "id": "cs_test_1",
         "protocol": {"version": "2026-04-17"},
         "status": "ready_for_payment",
-        "currency": "usd",
+        "currency": "cop",
         "capabilities": {"payment": {"handlers": []}},
         "line_items": [],
         "totals": [{"type": "total", "display_text": "Total", "amount": 62000}],
@@ -38,7 +38,7 @@ def test_delegation_uses_checkout_scope_and_returns_opaque_token() -> None:
         assert body["allowance"] == {
             "reason": "one_time",
             "max_amount": 62000,
-            "currency": "usd",
+            "currency": "cop",
             "checkout_session_id": "cs_test_1",
             "merchant_id": "tesis_merchant",
             "expires_at": "2026-09-10T14:15:00+00:00",

@@ -55,7 +55,7 @@ def checkout_payload(*, total: int = 74_000) -> dict[str, Any]:
         "id": "cs_completion_1",
         "protocol": {"version": "2026-04-17"},
         "status": "ready_for_payment",
-        "currency": "usd",
+        "currency": "cop",
         "capabilities": {"payment": {"handlers": []}},
         "line_items": [
             {

@@ -14,7 +14,7 @@ def test_create_request_contains_no_authority_fields() -> None:
     request = CheckoutCreateRequest(line_items=[CheckoutItemRequest(id="SON-01")])
     assert request.model_dump(mode="json") == {
         "line_items": [{"id": "SON-01"}],
-        "currency": "usd",
+        "currency": "cop",
         "capabilities": {"payment": {"handlers": []}},
     }
 
@@ -24,7 +24,7 @@ def test_model_cannot_inject_approval_or_idempotency() -> None:
         CheckoutCreateRequest.model_validate(
             {
                 "line_items": [{"id": "SON-01"}],
-                "currency": "usd",
+                "currency": "cop",
                 "approved": True,
                 "idempotency_key": "model-key",
             }

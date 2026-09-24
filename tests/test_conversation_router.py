@@ -24,6 +24,12 @@ from commerce_agent.llm import (
 )
 from commerce_agent.llm import conversation_router as module
 from commerce_agent.llm.catalog_tool import make_catalog_lookup
+from commerce_agent.llm.conversation_router import (
+    MAX_VOCABULARY_BRANDS,
+    _candidate_payload,
+    _catalog_vocabulary,
+    format_minor_amount,
+)
 from commerce_agent.llm.reasoning import reasoning_listener
 
 FEED = load_product_feed(Path(__file__).parent / "fixtures" / "feed")
@@ -55,6 +61,7 @@ def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> N
         purchase_request="audífonos negros por máximo 800 USD",
         intent=PurchaseIntent(
             hard=HardConstraints(
+                currency="USD",
                 categories=("headphones",),
                 max_total_amount_minor=80_000,
             )
@@ -85,7 +92,10 @@ def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> N
     assert call["store"] is False
     assert "clarify" in call["instructions"]
     assert "headphones" in call["instructions"]
-    assert "Audifonos Sonora SON-01" in call["instructions"]
+    # El vocabulario publica marcas, no títulos: con miles de productos la lista completa
+    # de títulos ocupaba casi todo el prompt y viajaba en cada turno.
+    assert '"brands"' in call["instructions"]
+    assert "Audifonos Sonora SON-01" not in call["instructions"]
     assert "never authorizes" in call["instructions"].casefold()
     assert call["tools"][0]["name"] == "lookup_catalog"
     assert call["parallel_tool_calls"] is False
@@ -133,7 +143,8 @@ def test_catalog_summary_stays_bounded_for_large_feeds() -> None:
     summary = json.loads(module._catalog_vocabulary(feed))
 
     assert summary["sampled"] is True
-    assert len(summary["product_titles"]) == 12
+    assert summary["product_count"] == 2_000
+    assert "product_titles" not in summary
     assert len(json.dumps(summary)) < 10_000
 
 
@@ -504,3 +515,47 @@ def test_router_explains_real_alternatives_when_no_candidate_matches(monkeypatch
     assert call["text_format"] is CatalogRecovery
     assert '"budget": 1' in call["input"]
     assert "SON-01" in call["input"]
+
+
+@pytest.mark.parametrize(
+    ("amount_minor", "currency", "expected"),
+    [
+        (1_129_900_000, "cop", "COP 11.299.000"),
+        (899_900_000, "COP", "COP 8.999.000"),
+        (54_900_000, "cop", "COP 549.000"),
+        (0, "cop", "COP 0"),
+        (1_129_900_050, "cop", "COP 11.299.000,50"),
+    ],
+)
+def test_display_amount_never_asks_the_model_to_divide_by_one_hundred(
+    amount_minor: int, currency: str, expected: str
+) -> None:
+    """Con COP los montos tienen nueve dígitos: un error de factor cien parece un precio real."""
+    assert format_minor_amount(amount_minor, currency) == expected
+
+
+def test_candidate_payload_carries_a_quotable_amount_next_to_the_filterable_one() -> None:
+    feed = load_product_feed(Path(__file__).parent / "fixtures" / "assistant_feed")
+    candidate = feed.candidate("SON-XM6-BLK")
+    assert candidate is not None
+    payload = _candidate_payload(candidate)
+    assert payload["observed_unit_amount_minor"] == 1_899_000_00
+    assert payload["display_amount"] == "COP 1.899.000"
+
+
+def test_catalog_vocabulary_stays_bounded_as_the_catalog_grows() -> None:
+    """Viaja en cada turno del router: no puede crecer con el número de productos."""
+    feed = load_product_feed(Path(__file__).parent / "fixtures" / "assistant_feed")
+    vocabulary = json.loads(_catalog_vocabulary(feed))
+
+    assert set(vocabulary) == {
+        "brands",
+        "categories",
+        "conditions",
+        "currencies",
+        "options",
+        "product_count",
+        "sampled",
+    }
+    assert len(vocabulary["brands"]) <= MAX_VOCABULARY_BRANDS
+    assert vocabulary["product_count"] == len(feed.available_candidates)

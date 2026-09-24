@@ -37,7 +37,7 @@ export const SONORA: ProductCard = {
     { name: "Color", value: "negro" },
     { name: "Conexión", value: "inalámbrica" },
   ],
-  product_url: `${PRODUCT_BASE}/prod-son-01`,
+  product_url: `${PRODUCT_BASE}/prod-sony-wh-1000xm6`,
 }
 
 export const SONORA_WHITE: ProductCard = {
@@ -59,7 +59,7 @@ export const AURORA: ProductCard = {
   description: "Audífonos inalámbricos sintéticos con estuche de carga. Producto nuevo.",
   image: { url: earbudsImage, alt: "Audífonos Aurora inalámbricos con su estuche" },
   observed_unit_amount_minor: 45000,
-  currency: "USD",
+  currency: "COP",
   available: true,
   options: [{ name: "Color", value: "blanco" }],
   product_url: `${PRODUCT_BASE}/prod-aur-02`,
@@ -74,7 +74,7 @@ export const ESTUDIO: ProductCard = {
   description: null,
   image: null,
   observed_unit_amount_minor: 79900,
-  currency: "USD",
+  currency: "COP",
   available: true,
   options: [{ name: "Color", value: "grafito" }],
   product_url: `${PRODUCT_BASE}/prod-est-04`,
@@ -89,7 +89,7 @@ export const PULSO: ProductCard = {
   description: "Audífonos deportivos sintéticos resistentes al sudor.",
   image: { url: "/storybook-missing/prod-pul-06.jpg", alt: "Audífonos Pulso Sport" },
   observed_unit_amount_minor: 38000,
-  currency: "USD",
+  currency: "COP",
   available: true,
   options: [{ name: "Color", value: "negro" }],
   product_url: `${PRODUCT_BASE}/prod-pul-06`,
@@ -103,7 +103,7 @@ export const BRISA: ProductCard = {
   description: "Parlante sintético resistente al agua.",
   image: { url: speakerImage, alt: "Parlante Brisa azul" },
   observed_unit_amount_minor: 52000,
-  currency: "USD",
+  currency: "COP",
   available: false,
   options: [{ name: "Color", value: "azul" }],
   product_url: `${PRODUCT_BASE}/prod-bri-03`,
@@ -117,7 +117,7 @@ export const NIMBUS: ProductCard = {
   description: "Audífonos sintéticos plegables.",
   image: null,
   observed_unit_amount_minor: 64000,
-  currency: "USD",
+  currency: "COP",
   available: true,
   options: [{ name: "Color", value: "arena" }],
   product_url: `${PRODUCT_BASE}/prod-nim-05`,
@@ -126,7 +126,7 @@ export const NIMBUS: ProductCard = {
 /** Como lo enviaría el feed de pruebas; la URL no es https y la UI no la carga. */
 export const SONORA_INSECURE_IMAGE: ProductCard = {
   ...SONORA,
-  image: { url: "http://merchant.example.test/assets/products/prod-son-01.jpg", alt: "Sonora" },
+  image: { url: "http://merchant.example.test/assets/products/prod-sony-wh-1000xm6.jpg", alt: "Sonora" },
 }
 
 export const SONORA_LONG: ProductCard = {
@@ -147,10 +147,10 @@ export const SONORA_LONG: ProductCard = {
 }
 
 export const SELECT_RATIONALE =
-  "Cumple tu presupuesto de 800 USD, es negro y está disponible. Entre las cuatro opciones es la que mejor coincide con tu preferencia por audífonos inalámbricos."
+  "Cumple tu presupuesto de 2 millones, es negro y está disponible. Entre las cuatro opciones es la que mejor coincide con tu preferencia por audífonos inalámbricos."
 
 export const HARD_CONSTRAINTS: HardConstraints = {
-  currency: "USD",
+  currency: "COP",
   max_unit_amount_minor: 80000,
   max_total_amount_minor: null,
   categories: ["audífonos"],
@@ -221,7 +221,7 @@ export const PREPARE_RESULT: PrepareCheckoutResult = {
   checkout_status: "ready_for_payment",
   price_changed: false,
   total_minor: TERMS.total_minor,
-  currency: "USD",
+  currency: "COP",
 }
 
 export const PREPARE_PRICE_CHANGED: PrepareCheckoutResult = {
@@ -291,7 +291,7 @@ export const PURCHASE_FAILED: PurchaseUpdateResult = {
 
 export const REASONING_TEXT = `**Entendiendo el pedido**
 
-La persona quiere audífonos negros y fija un tope de 800 USD por unidad. Menciona que prefiere que sean inalámbricos, pero no lo pone como condición.
+La persona quiere audífonos negros y fija un tope de $2.000.000 por unidad. Menciona que prefiere que sean inalámbricos, pero no lo pone como condición.
 
 **Revisando el catálogo**
 

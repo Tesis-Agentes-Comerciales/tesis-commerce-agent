@@ -34,7 +34,7 @@ async function approvalCard(context: PlayContext) {
 }
 
 /**
- * Interactivo: "hola" saluda, un pedido de audífonos prepara la compra, "10 USD" no encuentra
+ * Interactivo: "hola" saluda, un pedido de audífonos prepara la compra, "50 mil" no encuentra
  * candidatos y cualquier otro texto pide detalles. Cada respuesta reproduce un fixture real.
  */
 export const Online: Story = {}
@@ -136,7 +136,7 @@ export const NoCandidate: Story = {
   play: async (context) => {
     await sendComposerMessage(context, FIXTURE_REQUESTS.noCandidate)
     await expect(
-      await context.canvas.findByText(/No encontré audífonos por menos de 10 USD/, {}, STREAM_TIMEOUT),
+      await context.canvas.findByText(/No encontré audífonos por menos de \$50\.000/, {}, STREAM_TIMEOUT),
     ).toBeVisible()
     await expect(context.canvas.queryByTestId("purchase-approval-card")).toBeNull()
   },

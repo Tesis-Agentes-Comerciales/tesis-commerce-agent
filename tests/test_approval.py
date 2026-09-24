@@ -25,7 +25,7 @@ def checkout(*, total: int = 74_000, status: str = "ready_for_payment") -> Check
             "id": "cs_approval_1",
             "protocol": {"version": "2026-04-17"},
             "status": status,
-            "currency": "usd",
+            "currency": "cop",
             "capabilities": {"payment": {"handlers": []}},
             "line_items": [
                 {

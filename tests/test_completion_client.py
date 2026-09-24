@@ -18,7 +18,7 @@ def completed_checkout() -> dict[str, Any]:
         "id": "cs_test_001",
         "protocol": {"version": "2026-04-17"},
         "status": "completed",
-        "currency": "usd",
+        "currency": "cop",
         "capabilities": {"payment": {"handlers": []}},
         "line_items": [],
         "totals": [{"type": "total", "display_text": "Total", "amount": 74_000}],
