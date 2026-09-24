@@ -111,6 +111,19 @@ def test_catalog_tool_is_read_only_and_reports_observed_prices() -> None:
     assert "checkout_id" not in str(output)
 
 
+def test_catalog_tool_never_exposes_minor_unit_prices_to_the_model() -> None:
+    candidate = FEED.available_candidates[0].model_copy(
+        update={"observed_unit_amount_minor": 46_000_000, "currency": "COP"}
+    )
+    feed = cast(ProductFeed, SimpleNamespace(available_candidates=(candidate,)))
+
+    output = json.loads(make_catalog_lookup(feed).invoke({"query": candidate.product_title}))
+
+    assert output["products"][0]["display_amount"] == "COP 460.000"
+    assert "observed_unit_amount_minor" not in output["products"][0]
+    assert "46000000" not in json.dumps(output)
+
+
 def test_catalog_tool_ranks_natural_spanish_query_without_claiming_exact_match() -> None:
     output = json.loads(
         make_catalog_lookup(FEED).invoke({"query": "¿Qué audífonos Sonora tienes?"})
@@ -534,13 +547,13 @@ def test_display_amount_never_asks_the_model_to_divide_by_one_hundred(
     assert format_minor_amount(amount_minor, currency) == expected
 
 
-def test_candidate_payload_carries_a_quotable_amount_next_to_the_filterable_one() -> None:
+def test_candidate_payload_exposes_only_the_quotable_amount() -> None:
     feed = load_product_feed(Path(__file__).parent / "fixtures" / "assistant_feed")
     candidate = feed.candidate("SON-XM6-BLK")
     assert candidate is not None
     payload = _candidate_payload(candidate)
-    assert payload["observed_unit_amount_minor"] == 1_899_000_00
     assert payload["display_amount"] == "COP 1.899.000"
+    assert "observed_unit_amount_minor" not in payload
 
 
 def test_catalog_vocabulary_stays_bounded_as_the_catalog_grows() -> None:

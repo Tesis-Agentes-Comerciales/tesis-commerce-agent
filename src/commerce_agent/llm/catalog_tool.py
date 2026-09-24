@@ -6,6 +6,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, ConfigDict, Field
 
 from commerce_agent.acp.feed import ProductFeed
+from commerce_agent.llm.prices import format_minor_amount
 
 MAX_TOOL_CANDIDATES = 10
 
@@ -25,7 +26,7 @@ def _search_terms(value: str) -> set[str]:
 def make_catalog_lookup(feed: ProductFeed) -> BaseTool:
     @tool("lookup_catalog", args_schema=CatalogLookupArgs)
     def lookup_catalog(query: str) -> str:
-        """Find products in the validated feed. Prices are observations, not checkout totals."""
+        """Find products in the validated feed. Display prices are not checkout totals."""
         terms = _search_terms(query)
         available = feed.available_candidates
         ranked = []
@@ -56,8 +57,9 @@ def make_catalog_lookup(feed: ProductFeed) -> BaseTool:
                     "variant_id": candidate.variant_id,
                     "title": candidate.product_title,
                     "variant": candidate.variant_title,
-                    "observed_unit_amount_minor": candidate.observed_unit_amount_minor,
-                    "currency": candidate.currency,
+                    "display_amount": format_minor_amount(
+                        candidate.observed_unit_amount_minor, candidate.currency
+                    ),
                     "categories": candidate.categories,
                     "conditions": candidate.conditions,
                     "options": candidate.options,
