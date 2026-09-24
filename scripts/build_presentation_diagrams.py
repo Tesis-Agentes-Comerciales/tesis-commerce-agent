@@ -1,4 +1,4 @@
-"""Build the editable, monochrome architecture and purchase diagrams."""
+"""Build the editable architecture and purchase diagrams."""
 
 from __future__ import annotations
 
@@ -10,6 +10,12 @@ INK = "#333333"
 MUTED = "#686868"
 LINE = "#767676"
 PALE = "#F7F7F7"
+AGENT_BLUE = "#336C96"
+MERCHANT_AMBER = "#A96628"
+BUYER_GREEN = "#3C7549"
+EXTERNAL_WINE = "#A14E5C"
+FAILURE_RED = "#A84E4E"
+UNCERTAIN_PURPLE = "#756392"
 
 
 class Page:
@@ -175,8 +181,8 @@ class Page:
             for x, y in points:
                 ET.SubElement(array, "mxPoint", {"x": str(x), "y": str(y)})
 
-    def component(self, x: int, y: int, width: int, name: str, role: str) -> None:
-        self.box(x, y, width, 130, fill=PALE)
+    def component(self, x: int, y: int, width: int, name: str, role: str, *, border: str) -> None:
+        self.box(x, y, width, 130, border=border, stroke=2.5)
         self.text(name, x + 12, y + 23, width - 24, 40, size=25, bold=True)
         self.text(role, x + 12, y + 73, width - 24, 28, size=19, color=MUTED)
 
@@ -194,21 +200,21 @@ def write(name: str, pages: list[Page]) -> None:
 
 def architecture() -> Page:
     p = Page("C4 · Contenedores", 2460, 1510)
-    p.box(350, 240, 900, 880, border="#555555", stroke=2.5)
+    p.box(350, 240, 900, 880, border=AGENT_BLUE, stroke=2.5)
     p.text("AGENTE COMPRADOR", 390, 1070, 400, 36, size=22, bold=True, align="left")
-    p.box(1400, 240, 680, 880, border="#555555", stroke=2.5)
+    p.box(1400, 240, 680, 880, border=MERCHANT_AMBER, stroke=2.5)
     p.text("COMERCIO", 1440, 1070, 300, 36, size=22, bold=True, align="left")
 
-    p.component(40, 580, 245, "Comprador", "Pide y aprueba")
-    p.component(440, 545, 275, "Interfaz del agente", "Chat y aprobación")
-    p.component(860, 545, 275, "Agente", "Decide y coordina")
-    p.component(440, 850, 275, "Identidad", "Autentica compradores")
-    p.component(860, 850, 275, "Estado del agente", "Guarda compras")
-    p.component(1470, 545, 280, "API del comercio", "Catálogo y checkout")
-    p.component(1760, 300, 260, "Tienda web", "Muestra productos")
-    p.component(1760, 850, 260, "Datos del comercio", "Catálogo y pedidos")
-    p.component(860, 55, 275, "Modelo de lenguaje", "Interpreta solicitudes")
-    p.component(1470, 1270, 280, "Proveedor de pago", "Token de prueba")
+    p.component(40, 580, 245, "Comprador", "Pide y aprueba", border=BUYER_GREEN)
+    p.component(440, 545, 275, "Interfaz del agente", "Chat y aprobación", border=AGENT_BLUE)
+    p.component(860, 545, 275, "Agente", "Decide y coordina", border=AGENT_BLUE)
+    p.component(440, 850, 275, "Identidad", "Autentica compradores", border=AGENT_BLUE)
+    p.component(860, 850, 275, "Estado del agente", "Guarda compras", border=AGENT_BLUE)
+    p.component(1470, 545, 280, "API del comercio", "Catálogo y checkout", border=MERCHANT_AMBER)
+    p.component(1760, 300, 260, "Tienda web", "Muestra productos", border=MERCHANT_AMBER)
+    p.component(1760, 850, 260, "Datos del comercio", "Catálogo y pedidos", border=MERCHANT_AMBER)
+    p.component(860, 55, 275, "Modelo de lenguaje", "Interpreta solicitudes", border=EXTERNAL_WINE)
+    p.component(1470, 1270, 280, "Proveedor de pago", "Token de prueba", border=EXTERNAL_WINE)
 
     p.edge((285, 645), (440, 645))
     p.text("HTTPS", 295, 597, 130, 34, size=20)
@@ -385,25 +391,25 @@ def detailed_payment() -> Page:
 
 def state_machine() -> Page:
     p = Page("Estados de compra", 2460, 1050)
-    p.box(45, 360, 205, 110, fill=PALE)
+    p.box(45, 360, 205, 110, border=AGENT_BLUE, stroke=2.5)
     p.text("received", 55, 390, 185, 42, size=25, bold=True)
-    p.box(345, 360, 205, 110, fill=PALE)
+    p.box(345, 360, 205, 110, border=AGENT_BLUE, stroke=2.5)
     p.text("selected", 355, 390, 185, 42, size=25, bold=True)
-    p.box(645, 360, 270, 110, fill=PALE)
+    p.box(645, 360, 270, 110, border=AGENT_BLUE, stroke=2.5)
     p.text("checkout_prepared", 655, 390, 250, 42, size=23, bold=True)
-    p.box(1010, 360, 290, 110, fill=PALE)
+    p.box(1010, 360, 290, 110, border=MERCHANT_AMBER, stroke=2.5)
     p.text("awaiting_confirmation", 1020, 390, 270, 42, size=22, bold=True)
-    p.box(1395, 360, 205, 110, fill=PALE)
+    p.box(1395, 360, 205, 110, border=MERCHANT_AMBER, stroke=2.5)
     p.text("approved", 1405, 390, 185, 42, size=25, bold=True)
-    p.box(1695, 360, 225, 110, fill=PALE)
+    p.box(1695, 360, 225, 110, border=AGENT_BLUE, stroke=2.5)
     p.text("completing", 1705, 390, 205, 42, size=25, bold=True)
-    p.box(2210, 360, 205, 110, fill=PALE, double=True)
+    p.box(2210, 360, 205, 110, border=BUYER_GREEN, stroke=2.5, double=True)
     p.text("completed", 2220, 390, 185, 42, size=25, bold=True)
-    p.box(345, 710, 205, 110, fill="#FFFFFF", double=True)
+    p.box(345, 710, 205, 110, border=FAILURE_RED, stroke=2.5, double=True)
     p.text("failed", 355, 740, 185, 42, size=25, bold=True)
-    p.box(1050, 710, 205, 110, fill="#FFFFFF", double=True)
+    p.box(1050, 710, 205, 110, border=FAILURE_RED, stroke=2.5, double=True)
     p.text("canceled", 1060, 740, 185, 42, size=25, bold=True)
-    p.box(1695, 710, 225, 110, fill=PALE)
+    p.box(1695, 710, 225, 110, border=UNCERTAIN_PURPLE, stroke=2.5)
     p.text("uncertain", 1705, 740, 205, 42, size=25, bold=True)
     p.initial(10, 399)
 

@@ -5,19 +5,19 @@
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="2" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#555555;strokeWidth=2.5;" vertex="1" parent="1">
+        <mxCell id="2" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="350" y="240" width="900" height="880" as="geometry" />
         </mxCell>
         <mxCell id="3" value="AGENTE COMPRADOR" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=22;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="390" y="1070" width="400" height="36" as="geometry" />
         </mxCell>
-        <mxCell id="4" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#555555;strokeWidth=2.5;" vertex="1" parent="1">
+        <mxCell id="4" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A96628;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="1400" y="240" width="680" height="880" as="geometry" />
         </mxCell>
         <mxCell id="5" value="COMERCIO" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=22;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="1440" y="1070" width="300" height="36" as="geometry" />
         </mxCell>
-        <mxCell id="6" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#333333;strokeWidth=2;" vertex="1" parent="1">
+        <mxCell id="6" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#3C7549;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="40" y="580" width="245" height="130" as="geometry" />
         </mxCell>
         <mxCell id="7" value="Comprador" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=25;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
@@ -26,7 +26,7 @@
         <mxCell id="8" value="Pide y aprueba" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="52" y="653" width="221" height="28" as="geometry" />
         </mxCell>
-        <mxCell id="9" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#333333;strokeWidth=2;" vertex="1" parent="1">
+        <mxCell id="9" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="440" y="545" width="275" height="130" as="geometry" />
         </mxCell>
         <mxCell id="10" value="Interfaz del agente" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=25;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
@@ -35,7 +35,7 @@
         <mxCell id="11" value="Chat y aprobación" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="452" y="618" width="251" height="28" as="geometry" />
         </mxCell>
-        <mxCell id="12" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#333333;strokeWidth=2;" vertex="1" parent="1">
+        <mxCell id="12" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="860" y="545" width="275" height="130" as="geometry" />
         </mxCell>
         <mxCell id="13" value="Agente" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=25;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
@@ -44,7 +44,7 @@
         <mxCell id="14" value="Decide y coordina" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="872" y="618" width="251" height="28" as="geometry" />
         </mxCell>
-        <mxCell id="15" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#333333;strokeWidth=2;" vertex="1" parent="1">
+        <mxCell id="15" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="440" y="850" width="275" height="130" as="geometry" />
         </mxCell>
         <mxCell id="16" value="Identidad" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=25;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
@@ -53,7 +53,7 @@
         <mxCell id="17" value="Autentica compradores" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="452" y="923" width="251" height="28" as="geometry" />
         </mxCell>
-        <mxCell id="18" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#333333;strokeWidth=2;" vertex="1" parent="1">
+        <mxCell id="18" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="860" y="850" width="275" height="130" as="geometry" />
         </mxCell>
         <mxCell id="19" value="Estado del agente" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=25;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
@@ -62,7 +62,7 @@
         <mxCell id="20" value="Guarda compras" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="872" y="923" width="251" height="28" as="geometry" />
         </mxCell>
-        <mxCell id="21" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#333333;strokeWidth=2;" vertex="1" parent="1">
+        <mxCell id="21" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A96628;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="1470" y="545" width="280" height="130" as="geometry" />
         </mxCell>
         <mxCell id="22" value="API del comercio" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=25;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
@@ -71,7 +71,7 @@
         <mxCell id="23" value="Catálogo y checkout" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="1482" y="618" width="256" height="28" as="geometry" />
         </mxCell>
-        <mxCell id="24" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#333333;strokeWidth=2;" vertex="1" parent="1">
+        <mxCell id="24" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A96628;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="1760" y="300" width="260" height="130" as="geometry" />
         </mxCell>
         <mxCell id="25" value="Tienda web" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=25;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
@@ -80,7 +80,7 @@
         <mxCell id="26" value="Muestra productos" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="1772" y="373" width="236" height="28" as="geometry" />
         </mxCell>
-        <mxCell id="27" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#333333;strokeWidth=2;" vertex="1" parent="1">
+        <mxCell id="27" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A96628;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="1760" y="850" width="260" height="130" as="geometry" />
         </mxCell>
         <mxCell id="28" value="Datos del comercio" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=25;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
@@ -89,7 +89,7 @@
         <mxCell id="29" value="Catálogo y pedidos" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="1772" y="923" width="236" height="28" as="geometry" />
         </mxCell>
-        <mxCell id="30" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#333333;strokeWidth=2;" vertex="1" parent="1">
+        <mxCell id="30" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A14E5C;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="860" y="55" width="275" height="130" as="geometry" />
         </mxCell>
         <mxCell id="31" value="Modelo de lenguaje" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=25;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
@@ -98,7 +98,7 @@
         <mxCell id="32" value="Interpreta solicitudes" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="872" y="128" width="251" height="28" as="geometry" />
         </mxCell>
-        <mxCell id="33" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#333333;strokeWidth=2;" vertex="1" parent="1">
+        <mxCell id="33" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A14E5C;strokeWidth=2.5;" vertex="1" parent="1">
           <mxGeometry x="1470" y="1270" width="280" height="130" as="geometry" />
         </mxCell>
         <mxCell id="34" value="Proveedor de pago" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=25;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
