@@ -181,10 +181,133 @@ class Page:
             for x, y in points:
                 ET.SubElement(array, "mxPoint", {"x": str(x), "y": str(y)})
 
-    def component(self, x: int, y: int, width: int, name: str, role: str, *, border: str) -> None:
-        self.box(x, y, width, 130, border=border, stroke=2.5)
-        self.text(name, x + 12, y + 23, width - 24, 40, size=25, bold=True)
-        self.text(role, x + 12, y + 73, width - 24, 28, size=19, color=MUTED)
+
+class C4Page(Page):
+    """Use the element styles and metadata from draw.io's C4 shape palette."""
+
+    def element(
+        self,
+        kind: str,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        name: str,
+        description: str,
+        border: str,
+        *,
+        technology: str | None = None,
+    ) -> None:
+        shapes = {
+            "person": "shape=mxgraph.c4.person2;align=center;",
+            "system": "rounded=1;arcSize=10;align=center;",
+            "container": "rounded=1;arcSize=10;align=center;",
+            "browser": "shape=mxgraph.c4.webBrowserContainer2;boundedLbl=1;align=center;",
+            "data": "shape=cylinder3;size=15;boundedLbl=1;align=center;",
+        }
+        type_name = {
+            "person": "Persona",
+            "system": "Sistema de software",
+            "container": "Contenedor",
+            "browser": "Contenedor",
+            "data": "Contenedor",
+        }[kind]
+        type_line = "[%c4Type%: %c4Technology%]" if technology else "[%c4Type%]"
+        label = (
+            '<div style="font-family:Arial;color:#333333">'
+            '<div style="font-size:22px"><b>%c4Name%</b></div>'
+            f'<div style="font-size:15px;color:#686868">{type_line}</div>'
+            '<div style="font-size:17px;color:#555555;margin-top:7px">%c4Description%</div>'
+            "</div>"
+        )
+        attributes = {
+            "id": self._id(),
+            "placeholders": "1",
+            "c4Name": name,
+            "c4Type": type_name,
+            "c4Description": description,
+            "label": label,
+        }
+        if technology:
+            attributes["c4Technology"] = technology
+        node = ET.SubElement(self.root, "object", attributes)
+        style = (
+            f"{shapes[kind]}whiteSpace=wrap;html=1;labelBackgroundColor=none;"
+            f"fillColor=#FFFFFF;strokeColor={border};strokeColor2={border};"
+            "strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;"
+        )
+        cell = ET.SubElement(node, "mxCell", {"style": style, "vertex": "1", "parent": "1"})
+        ET.SubElement(
+            cell,
+            "mxGeometry",
+            {
+                "x": str(x),
+                "y": str(y),
+                "width": str(width),
+                "height": str(height),
+                "as": "geometry",
+            },
+        )
+
+    def boundary(self, x: int, y: int, width: int, height: int, name: str, border: str) -> None:
+        node = ET.SubElement(
+            self.root,
+            "object",
+            {
+                "id": self._id(),
+                "placeholders": "1",
+                "c4Name": name,
+                "c4Type": "SystemScopeBoundary",
+                "c4Application": "Sistema de software",
+                "label": (
+                    '<div style="text-align:left;font-size:21px;font-family:Arial">'
+                    "<b>%c4Name%</b><br/>[%c4Application%]</div>"
+                ),
+            },
+        )
+        style = (
+            "rounded=1;arcSize=20;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 4;"
+            f"fillColor=none;strokeColor={border};strokeWidth=2.5;fontColor={INK};"
+            "align=left;verticalAlign=bottom;spacing=20;metaEdit=1;rotatable=0;"
+            "perimeter=rectanglePerimeter;connectable=0;pointerEvents=0;"
+        )
+        cell = ET.SubElement(node, "mxCell", {"style": style, "vertex": "1", "parent": "1"})
+        ET.SubElement(
+            cell,
+            "mxGeometry",
+            {
+                "x": str(x),
+                "y": str(y),
+                "width": str(width),
+                "height": str(height),
+                "as": "geometry",
+            },
+        )
+
+    def relationship(
+        self,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        description: str,
+        label_x: int,
+        label_y: int,
+        label_width: int,
+        *,
+        technology: str | None = None,
+        points: tuple[tuple[int, int], ...] = (),
+    ) -> None:
+        self.edge(start, end, points=points, dashed=True, width=2.1)
+        self.text(description, label_x, label_y, label_width, 38, size=18, bold=True)
+        if technology:
+            self.text(
+                f"[{technology}]",
+                label_x,
+                label_y + 34,
+                label_width,
+                30,
+                size=16,
+                color=MUTED,
+            )
 
 
 def write(name: str, pages: list[Page]) -> None:
@@ -198,48 +321,217 @@ def write(name: str, pages: list[Page]) -> None:
     ET.ElementTree(root).write(OUT / name, encoding="utf-8", xml_declaration=True)
 
 
-def architecture() -> Page:
-    p = Page("C4 · Contenedores", 2460, 1510)
-    p.box(350, 240, 900, 880, border=AGENT_BLUE, stroke=2.5)
-    p.text("AGENTE COMPRADOR", 390, 1070, 400, 36, size=22, bold=True, align="left")
-    p.box(1400, 240, 680, 880, border=MERCHANT_AMBER, stroke=2.5)
-    p.text("COMERCIO", 1440, 1070, 300, 36, size=22, bold=True, align="left")
+def system_context() -> C4Page:
+    p = C4Page("C4 · Contexto del agente", 2280, 1250)
+    p.element("person", 80, 510, 300, 230, "Comprador", "Solicita y aprueba", BUYER_GREEN)
+    p.element(
+        "system", 750, 505, 420, 190, "Agente comprador", "Coordina compras asistidas", AGENT_BLUE
+    )
+    p.element(
+        "system", 1600, 330, 390, 190, "Comercio", "Publica productos y vende", MERCHANT_AMBER
+    )
+    p.element(
+        "system",
+        1600,
+        800,
+        390,
+        190,
+        "Proveedor sandbox",
+        "Procesa pagos sintéticos",
+        EXTERNAL_WINE,
+    )
+    p.element(
+        "system", 775, 85, 370, 175, "Modelo de lenguaje", "Interpreta solicitudes", EXTERNAL_WINE
+    )
 
-    p.component(40, 580, 245, "Comprador", "Pide y aprueba", border=BUYER_GREEN)
-    p.component(440, 545, 275, "Interfaz del agente", "Chat y aprobación", border=AGENT_BLUE)
-    p.component(860, 545, 275, "Agente", "Decide y coordina", border=AGENT_BLUE)
-    p.component(440, 850, 275, "Identidad", "Autentica compradores", border=AGENT_BLUE)
-    p.component(860, 850, 275, "Estado del agente", "Guarda compras", border=AGENT_BLUE)
-    p.component(1470, 545, 280, "API del comercio", "Catálogo y checkout", border=MERCHANT_AMBER)
-    p.component(1760, 300, 260, "Tienda web", "Muestra productos", border=MERCHANT_AMBER)
-    p.component(1760, 850, 260, "Datos del comercio", "Catálogo y pedidos", border=MERCHANT_AMBER)
-    p.component(860, 55, 275, "Modelo de lenguaje", "Interpreta solicitudes", border=EXTERNAL_WINE)
-    p.component(1470, 1270, 280, "Proveedor de pago", "Token de prueba", border=EXTERNAL_WINE)
+    p.relationship((380, 620), (750, 620), "Conversa y aprueba", 420, 555, 290)
+    p.relationship((960, 505), (960, 260), "Solicita interpretación a", 665, 335, 280)
+    p.relationship(
+        (1170, 565),
+        (1600, 430),
+        "Consulta catálogo y compra en",
+        1230,
+        315,
+        335,
+        points=((1350, 565), (1350, 430)),
+    )
+    p.relationship(
+        (1170, 640),
+        (1600, 895),
+        "Delega pago de prueba a",
+        1255,
+        775,
+        315,
+        points=((1350, 640), (1350, 895)),
+    )
+    p.relationship((1795, 520), (1795, 800), "Confirma el pago en", 1810, 635, 280)
+    p.text(
+        "Verde: persona  |  Azul: sistema en foco  |  Ocre y vino: sistemas externos",
+        420,
+        1125,
+        1500,
+        45,
+        size=17,
+        color=MUTED,
+    )
+    return p
 
-    p.edge((285, 645), (440, 645))
-    p.text("HTTPS", 295, 597, 130, 34, size=20)
-    p.edge((715, 610), (860, 610))
-    p.text("HTTPS · SSE", 712, 562, 150, 34, size=19)
-    p.edge((575, 675), (575, 850))
-    p.text("HTTPS", 585, 741, 120, 34, size=19, align="left")
-    p.edge((860, 660), (715, 915), points=((785, 660), (785, 915)))
-    p.text("JWT · JWKS", 718, 750, 145, 34, size=18)
-    p.edge((997, 675), (997, 850))
-    p.text("SQLite", 1005, 749, 125, 34, size=19)
-    p.edge((997, 545), (997, 185))
-    p.text("HTTPS · inferencia", 1007, 349, 250, 34, size=19, align="left")
-    p.edge((1135, 610), (1470, 610))
-    p.text("HTTPS · ACP REST + Product Feed", 1145, 552, 320, 50, size=19)
-    p.edge((1890, 430), (1610, 545), points=((1610, 430),))
-    p.text("HTTPS · JSON", 1630, 438, 195, 34, size=19)
-    p.edge((1610, 675), (1890, 850), points=((1610, 780), (1890, 780)))
-    p.text("SQL", 1675, 738, 150, 34, size=19)
-    p.edge((1135, 675), (1470, 1335), points=((1290, 675), (1290, 1335)))
-    p.text("HTTPS · AP2 / delegación", 1270, 1170, 270, 34, size=19)
-    p.edge((1610, 675), (1610, 1270))
-    p.text("HTTPS · confirmación", 1624, 1170, 280, 34, size=19, align="left")
-    p.edge((160, 580), (1890, 300), points=((160, 205), (1890, 205)))
-    p.text("HTTPS · navegación", 1550, 157, 260, 34, size=19)
+
+def architecture() -> C4Page:
+    p = C4Page("C4 · Contenedores del agente", 2650, 1530)
+    p.boundary(410, 260, 1250, 1010, "Agente comprador", AGENT_BLUE)
+    p.element("person", 65, 565, 300, 230, "Comprador", "Chatea y aprueba", BUYER_GREEN)
+    p.element(
+        "browser",
+        495,
+        575,
+        350,
+        210,
+        "Interfaz del agente",
+        "Chat y aprobación",
+        AGENT_BLUE,
+        technology="React · assistant-ui",
+    )
+    p.element(
+        "container",
+        1060,
+        585,
+        350,
+        190,
+        "API del agente",
+        "Conversa y coordina",
+        AGENT_BLUE,
+        technology="FastAPI · LangGraph",
+    )
+    p.element(
+        "container",
+        495,
+        910,
+        350,
+        190,
+        "Identidad",
+        "Autentica compradores",
+        AGENT_BLUE,
+        technology="Better Auth",
+    )
+    p.element(
+        "data",
+        1060,
+        910,
+        350,
+        190,
+        "Estado persistente",
+        "Compras y conversaciones",
+        AGENT_BLUE,
+        technology="SQLite",
+    )
+    p.element(
+        "system",
+        1060,
+        50,
+        350,
+        180,
+        "Modelo de lenguaje",
+        "Interpreta solicitudes",
+        EXTERNAL_WINE,
+    )
+    p.element(
+        "system",
+        1960,
+        575,
+        390,
+        190,
+        "Comercio",
+        "Catálogo y checkout",
+        MERCHANT_AMBER,
+    )
+    p.element(
+        "system",
+        1960,
+        1030,
+        390,
+        190,
+        "Proveedor sandbox",
+        "Token de pago sintético",
+        EXTERNAL_WINE,
+    )
+
+    p.relationship((365, 685), (495, 685), "Usa el chat", 425, 495, 180, technology="HTTPS")
+    p.relationship(
+        (845, 680),
+        (1060, 680),
+        "Envía turnos",
+        845,
+        495,
+        215,
+        technology="HTTPS · SSE",
+    )
+    p.relationship((670, 785), (670, 910), "Inicia sesión", 690, 805, 220, technology="HTTPS")
+    p.relationship(
+        (1060, 745),
+        (845, 1010),
+        "Verifica identidad",
+        970,
+        810,
+        190,
+        technology="JWT · JWKS",
+        points=((965, 745), (965, 1010)),
+    )
+    p.relationship(
+        (1235, 775),
+        (1235, 910),
+        "Guarda estado",
+        1240,
+        790,
+        190,
+        technology="SQLite",
+    )
+    p.relationship(
+        (1235, 585),
+        (1235, 230),
+        "Solicita inferencia",
+        1250,
+        365,
+        240,
+        technology="HTTPS API",
+    )
+    p.relationship(
+        (1410, 680),
+        (1960, 680),
+        "Catálogo y checkout",
+        1365,
+        495,
+        285,
+        technology="HTTPS · Feed / ACP REST / AP2",
+    )
+    p.relationship(
+        (1410, 745),
+        (1960, 1125),
+        "Delega pago",
+        1790,
+        865,
+        170,
+        technology="HTTPS · AP2",
+        points=((1775, 745), (1775, 1125)),
+    )
+    p.relationship(
+        (2155, 765),
+        (2155, 1030),
+        "Confirma pago",
+        2170,
+        865,
+        220,
+        technology="HTTPS",
+    )
+    p.text(
+        "Verde: persona  |  Azul: contenedores del agente  |  Ocre y vino: sistemas externos",
+        510,
+        1390,
+        1700,
+        45,
+        size=17,
+        color=MUTED,
+    )
     return p
 
 
@@ -457,6 +749,7 @@ def state_machine() -> Page:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
+    write("agent-system-context-c4.drawio", [system_context()])
     write("agent-architecture-c4.drawio", [architecture()])
     write("purchase-sequence-compact.drawio", [compact_sequence()])
     write("purchase-sequence.drawio", [detailed_discovery(), detailed_payment()])
