@@ -14,6 +14,13 @@
 	header X-Content-Type-Options "nosniff"
 	header Referrer-Policy "no-referrer"
 
-	try_files {path} /index.html
-	file_server
+	handle /api/auth/* {
+		reverse_proxy {$AUTH_UPSTREAM:127.0.0.1:4210} {
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
 }

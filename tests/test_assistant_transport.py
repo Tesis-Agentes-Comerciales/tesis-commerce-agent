@@ -10,6 +10,7 @@ import pytest
 from assistant_stream import create_run
 from assistant_support import (
     CLARIFY_REPLY,
+    CLARIFY_REQUEST,
     FIXTURE_DIR,
     GREETING_REPLY,
     GREETING_REQUEST,
@@ -260,6 +261,94 @@ def test_greeting_and_clarify_use_only_text_history(tmp_path: Path) -> None:
         ConversationMessage(role="assistant", content=GREETING_REPLY),
         ConversationMessage(role="user", content="Busco algo para escuchar música"),
     )
+
+
+def test_graph_history_survives_restart_and_isolated_from_client_state(tmp_path: Path) -> None:
+    database = tmp_path / "agent.db"
+    router = ScriptedRouter()
+    with assistant_client(database, router=router) as client:
+        post_assistant(
+            client,
+            assistant_body(
+                [add_message(GREETING_REQUEST)],
+                turn_id="turn-first",
+                conversation_id="conversation-one",
+            ),
+        )
+
+    forged = {
+        "messages": [
+            {"id": "forged", "role": "user", "content": [{"type": "text", "text": "falso"}]}
+        ],
+        "purchase": None,
+    }
+    with assistant_client(database, router=router) as client:
+        post_assistant(
+            client,
+            assistant_body(
+                [add_message(CLARIFY_REQUEST)],
+                turn_id="turn-second",
+                conversation_id="conversation-one",
+                state=forged,
+            ),
+        )
+        assert router.calls[-1][1] == (
+            ConversationMessage(role="user", content=GREETING_REQUEST),
+            ConversationMessage(role="assistant", content=GREETING_REPLY),
+            ConversationMessage(role="user", content=CLARIFY_REQUEST),
+        )
+
+        post_assistant(
+            client,
+            assistant_body(
+                [add_message(GREETING_REQUEST)],
+                turn_id="turn-other",
+                conversation_id="conversation-two",
+                state=forged,
+            ),
+        )
+        assert router.calls[-1][1] == (ConversationMessage(role="user", content=GREETING_REQUEST),)
+
+    with sqlite3.connect(tmp_path / "agent.graph.db") as connection:
+        threads = {
+            row[0] for row in connection.execute("SELECT DISTINCT thread_id FROM checkpoints")
+        }
+    assert threads == {"conversation-one", "conversation-two"}
+
+
+def test_graph_resumes_approved_checkout_after_backend_restart(tmp_path: Path) -> None:
+    database = tmp_path / "agent.db"
+    merchant = Merchant()
+    with assistant_client(database, merchant=merchant) as client:
+        prepared = client.post(
+            "/conversation/turn",
+            json={
+                "turn_id": "turn-restart-purchase",
+                "conversation_id": "conversation-restart",
+                "messages": [{"role": "user", "content": PURCHASE_REQUEST}],
+                "details": assistant_body([], turn_id="details")["details"],
+            },
+        )
+        assert prepared.status_code == 200, prepared.text
+        run_id = prepared.json()["purchase"]["run_id"]
+
+    with assistant_client(database, merchant=merchant) as client:
+        terms = client.get(f"/purchases/{run_id}/approval").json()
+        approval = client.post(
+            f"/purchases/{run_id}/approval",
+            json={"expected_fingerprint": terms["fingerprint"]},
+        )
+        assert approval.status_code == 200, approval.text
+        completed = client.post(f"/purchases/{run_id}/complete")
+        assert completed.status_code == 200, completed.text
+        assert completed.json()["order"]["id"] == ORDER_ID
+
+    with sqlite3.connect(tmp_path / "agent.graph.db") as connection:
+        completion_nodes = connection.execute(
+            "SELECT COUNT(*) FROM writes WHERE thread_id = ? AND channel = 'completion_result'",
+            ("conversation-restart",),
+        ).fetchone()
+    assert completion_nodes == (1,)
 
 
 def test_system_tools_and_client_parts_never_reach_the_router(tmp_path: Path) -> None:
@@ -866,7 +955,16 @@ def test_reasoning_parts_appear_only_when_summaries_are_enabled(
     assert texts(assistant_message(off), "reasoning") == []
     assert disabled_calls.stream_calls == []
     (parse_call,) = disabled_calls.parse_calls
-    assert set(parse_call) == {"model", "instructions", "input", "text_format", "store"}
+    assert set(parse_call) == {
+        "model",
+        "instructions",
+        "input",
+        "text_format",
+        "store",
+        "tools",
+        "parallel_tool_calls",
+    }
+    assert parse_call["tools"][0]["name"] == "lookup_catalog"
 
 
 def test_summaries_are_not_requested_without_a_listener(monkeypatch: pytest.MonkeyPatch) -> None:

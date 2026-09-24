@@ -1,3 +1,5 @@
+import { buyerHeaders } from "@/lib/auth-client"
+import type { AgentPurchase, ApprovalTerms } from "@/lib/agent-contract"
 import type { BuyerProfile, CompletedCheckout } from "@/lib/commerce-types"
 
 const configuredBaseUrl = import.meta.env.VITE_AGENT_API_URL ?? "http://127.0.0.1:43120"
@@ -17,8 +19,12 @@ export class AgentApiError extends Error {
   }
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${AGENT_API_URL}${path}`, init)
+async function requestJson<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
+  const headers = new Headers(init?.headers)
+  if (authenticated) {
+    for (const [name, value] of Object.entries(await buyerHeaders())) headers.set(name, value)
+  }
+  const response = await fetch(`${AGENT_API_URL}${path}`, { ...init, headers })
   if (!response.ok) {
     const body = await response.json().catch(() => null)
     const code = typeof body?.code === "string" ? body.code : "http_error"
@@ -62,14 +68,27 @@ export function checkoutDetails(profile: BuyerProfile) {
 }
 
 export function health(signal?: AbortSignal): Promise<{ status: string }> {
-  return requestJson("/health", { signal })
+  return requestJson("/health", { signal }, false)
 }
 
-export function approvePurchase(runId: string, fingerprint: string): Promise<void> {
+export type PendingPurchase = {
+  purchase: AgentPurchase & { checkout_id: string | null }
+  approval_terms: ApprovalTerms | null
+}
+
+export function pendingPurchase(): Promise<PendingPurchase | null> {
+  return requestJson("/me/pending-purchase")
+}
+
+export function getApprovalTerms(runId: string): Promise<ApprovalTerms> {
+  return requestJson(`/purchases/${encodeURIComponent(runId)}/approval`)
+}
+
+export function approvePurchase(runId: string, fingerprint: string, checkoutJwt?: string | null): Promise<void> {
   return requestJson(`/purchases/${encodeURIComponent(runId)}/approval`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ expected_fingerprint: fingerprint }),
+    body: JSON.stringify({ expected_fingerprint: fingerprint, checkout_jwt: checkoutJwt ?? null }),
   })
 }
 

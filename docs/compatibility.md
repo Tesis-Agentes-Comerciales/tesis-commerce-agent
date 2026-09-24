@@ -6,8 +6,8 @@
 | --- | --- |
 | ACP | `2026-04-17` |
 | Transporte | REST |
-| Catálogo | reemplazo completo `metadata.json` + `products.jsonl` |
-| Moneda | `USD` en feed, `usd` en checkout |
+| Catálogo | snapshot completo ACP leído desde `/feeds/current` del merchant antes de cada turno; archivos locales solo en pruebas |
+| Moneda | `COP` en el feed actual, `cop` en checkout; los fixtures de prueba conservan `USD`/`usd` |
 | Cantidad | una unidad |
 | Pago | `tesis_sandbox`, credencial opaca `vt_*` emitida por el proveedor propio |
 | E2E | agente, merchant y proveedor en procesos separados |
@@ -15,6 +15,9 @@
 
 Todos los requests y responses ACP usados por el agente se validan contra el bundle vendorado. Los
 mensajes del merchant se consideran datos no confiables y no se convierten en instrucciones.
+`/feeds/current` es transporte de publicación propio del merchant, no la Feed API incremental
+estándar. El agente valida cada producto contra el esquema ACP antes de usarlo. Si el feed falla,
+el turno se detiene; el checkout vuelve a consultar precio, stock y total al merchant.
 
 ## Fronteras de autoridad
 
@@ -44,8 +47,9 @@ mensajes del merchant se consideran datos no confiables y no se convierten en in
 - Webhook autenticado antes de parsear, máximo 1 MiB, tolerancia simétrica de 300 segundos,
   comparación constante y dedupe por SHA-256 del body firmado.
 - Los eventos fuera de orden se guardan, pero la proyección no regresa un estado conocido.
-- `POST /assistant` trata el estado del cliente como no confiable: limita el body a 1 MiB, solo usa
-  el texto de mensajes `user`/`assistant` como historial (máximo 20), relee compra y etapa de
+- `POST /assistant` trata el estado del cliente como no confiable: limita el body a 1 MiB, usa
+  checkpoints de LangGraph por `conversation_id` como historial del modelo (máximo 20 mensajes;
+  solo incorpora el último mensaje nuevo del usuario), relee compra y etapa de
   SQLite por `run_id` y nunca envía `system`, `tools`, tool calls ni razonamiento del cliente al
   modelo. Imagen y descripción del feed solo se proyectan para la UI (HTTPS, mismo host, sin
   credenciales, texto plano truncado) y no entran a los prompts. Los errores se traducen a
@@ -72,6 +76,10 @@ mensajes del merchant se consideran datos no confiables y no se convierten en in
    Solo acepta tarjetas de prueba, no almacena PAN ni CVC y no mueve dinero. Este P0 no modela 3DS,
    devolución ni disputa. El checkout del merchant confirma contra el proveedor antes de crear la
    orden; un fallo tras la confirmación se recupera con la misma clave idempotente al reintentar.
+7. **Hilos e identidad.** `conversation_id` no autentica por sí mismo. En modo público, Better Auth
+   emite JWT cortos validados por la API; los identificadores de hilo/turno se derivan junto con el
+   `sub` autenticado y cada compra se consulta por propietario. El historial completo de hilos no
+   tiene todavía una vista de recuperación; solo se repinta la compra pendiente.
 
 ## Criterio de fallo seguro
 

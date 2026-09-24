@@ -1,37 +1,40 @@
+import json
+import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Annotated
+from urllib.parse import urlparse
 
 import httpx
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from commerce_agent.acp import ACPClient, ACPClientError, load_product_feed
+from commerce_agent.acp import ACPClientError, ProductFeedError
 from commerce_agent.acp.models import CheckoutSessionWithOrder
-from commerce_agent.application import PurchaseService
 from commerce_agent.application.conversation import (
-    ConversationService,
     ConversationTurnRequest,
     ConversationTurnResponse,
 )
 from commerce_agent.application.purchase import PurchaseServiceError
-from commerce_agent.approval import ApprovalError, ApprovalService, ApprovalTerms
+from commerce_agent.approval import ApprovalError, ApprovalTerms
 from commerce_agent.assistant_transport import (
     IdFactory,
     default_id_factory,
     register_assistant_transport,
 )
-from commerce_agent.completion import CompletionError, CompletionService
-from commerce_agent.config import Settings, get_settings
-from commerce_agent.delegated_payment import DelegatedPaymentClient
-from commerce_agent.llm import (
-    ConversationRouter,
-    IntentInterpretationError,
-    OpenAIConversationRouter,
+from commerce_agent.buyer_auth import (
+    BuyerAuthenticator,
+    BuyerPrincipal,
+    JwtBuyerAuthenticator,
+    LocalBuyerAuthenticator,
 )
-from commerce_agent.persistence import SqliteAgentStore
+from commerce_agent.completion import CompletionError
+from commerce_agent.config import Settings, get_settings
+from commerce_agent.llm import ConversationRouter, IntentInterpretationError
+from commerce_agent.runtime import build_runtime
 from commerce_agent.webhooks import register_webhook_receiver
 
 
@@ -39,6 +42,7 @@ class ApprovalRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     expected_fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    checkout_jwt: str | None = Field(default=None, max_length=32_768)
 
 
 class PurchaseStatus(BaseModel):
@@ -58,6 +62,13 @@ class ApprovalReceipt(BaseModel):
     principal_id: str
     approved_at: str
     stage: str = "approved"
+
+
+class PendingPurchase(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    purchase: PurchaseStatus
+    approval_terms: ApprovalTerms | None
 
 
 _ACP_ERROR_RESPONSES: dict[str, tuple[int, str]] = {
@@ -86,6 +97,14 @@ _ACP_ERROR_RESPONSES: dict[str, tuple[int, str]] = {
 
 
 def error_response(error: Exception) -> JSONResponse:
+    if isinstance(error, ProductFeedError):
+        return JSONResponse(
+            {
+                "code": "catalog_unavailable",
+                "message": "El catálogo del comercio no está disponible en este momento.",
+            },
+            status_code=503,
+        )
     code = getattr(error, "code", "agent_error")
     if isinstance(error, ACPClientError):
         if code in {"payment_declined", "out_of_stock"} and (
@@ -121,87 +140,34 @@ def create_app(
     clock: Callable[[], datetime] | None = None,
     conversation_router: ConversationRouter | None = None,
     id_factory: IdFactory = default_id_factory,
+    buyer_authenticator: BuyerAuthenticator | None = None,
 ) -> FastAPI:
     configuration = settings or get_settings()
-    if configuration.merchant_bearer_token is None:
-        raise RuntimeError("MERCHANT_BEARER_TOKEN is required")
-    if configuration.merchant_webhook_secret is None:
-        raise RuntimeError("MERCHANT_WEBHOOK_SECRET is required")
-    if configuration.agent_approval_secret is None:
-        raise RuntimeError("AGENT_APPROVAL_SECRET is required")
-    if configuration.payment_agent_bearer_token is None:
-        raise RuntimeError("PAYMENT_AGENT_BEARER_TOKEN is required")
-
-    store = SqliteAgentStore(configuration.agent_database_path)
-    store.initialize()
-    feed = load_product_feed(configuration.agent_feed_path)
-    client = ACPClient(
-        configuration.merchant_base_url,
-        configuration.merchant_bearer_token,
-        timeout_seconds=configuration.merchant_timeout_seconds,
-        transport=transport,
-    )
-    approval_clock = clock
-    if approval_clock is None and configuration.agent_sandbox_clock_at is not None:
-        sandbox_now = configuration.agent_sandbox_clock_at
-
-        def fixed_sandbox_clock() -> datetime:
-            return sandbox_now
-
-        approval_clock = fixed_sandbox_clock
-    approvals = ApprovalService(
-        store,
-        configuration.agent_approval_secret,
-        merchant_origin=configuration.merchant_base_url,
-        clock=approval_clock,
-    )
-    payments = DelegatedPaymentClient(
-        configuration.payment_provider_url,
-        configuration.payment_agent_bearer_token,
-        transport=payment_transport,
-    )
-    completion = CompletionService(
-        client,
-        approvals,
-        payments,
-        store,
-    )
-    purchase_service = PurchaseService(
-        feed=feed,
-        checkout=client,
-        store=store,
-        approvals=approvals,
-    )
-    owned_conversation_router = None
-    if (
-        configuration.openai_api_key is not None
-        and configuration.openai_model is not None
-        and conversation_router is None
+    if configuration.agent_auth_mode == "local" and (
+        os.getenv("RAILWAY_ENVIRONMENT_ID")
+        or urlparse(configuration.agent_ui_origin).scheme == "https"
     ):
-        owned_conversation_router = OpenAIConversationRouter(
-            api_key=configuration.openai_api_key,
-            model=configuration.openai_model,
-            feed=feed,
-            timeout_seconds=configuration.openai_timeout_seconds,
-            reasoning_summary=configuration.openai_reasoning_summary,
-            reasoning_effort=configuration.openai_reasoning_effort,
-        )
-        conversation_router = owned_conversation_router
-    conversation = ConversationService(
-        feed=feed,
-        store=store,
-        purchases=purchase_service,
-        discover=client.discover,
-        router=conversation_router,
+        raise RuntimeError("Public deployment requires AGENT_AUTH_MODE=jwt")
+    authenticator = buyer_authenticator or (
+        JwtBuyerAuthenticator(configuration.agent_auth_issuer or "")
+        if configuration.agent_auth_mode == "jwt"
+        else LocalBuyerAuthenticator(configuration.agent_principal_id)
     )
+    runtime = build_runtime(
+        configuration,
+        transport=transport,
+        payment_transport=payment_transport,
+        clock=clock,
+        conversation_router=conversation_router,
+    )
+    store = runtime.store
+    purchase_service = runtime.purchases
+    conversation = runtime.conversation
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
-        client.close()
-        payments.close()
-        if owned_conversation_router is not None:
-            owned_conversation_router.close()
+        runtime.close()
 
     app = FastAPI(title="Tesis Commerce Agent", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -209,18 +175,21 @@ def create_app(
         allow_origins=[configuration.agent_ui_origin],
         allow_credentials=False,
         allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Content-Type", "Authorization"],
     )
+    webhook_secret = configuration.merchant_webhook_secret
+    assert webhook_secret is not None
     register_webhook_receiver(
         app,
         store=store,
-        secret=configuration.merchant_webhook_secret.get_secret_value(),
+        secret=webhook_secret.get_secret_value(),
     )
 
     @app.exception_handler(PurchaseServiceError)
     @app.exception_handler(ApprovalError)
     @app.exception_handler(CompletionError)
     @app.exception_handler(ACPClientError)
+    @app.exception_handler(ProductFeedError)
     @app.exception_handler(IntentInterpretationError)
     async def handled_error(_, error: Exception) -> JSONResponse:
         return error_response(error)
@@ -229,19 +198,72 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/.well-known/ap2/jwks.json")
+    def ap2_jwks() -> dict[str, object]:
+        if runtime.mandate_signer is None:
+            raise HTTPException(status_code=503, detail="AP2 signer is unavailable")
+        return {"keys": [runtime.mandate_signer.public_jwk]}
+
+    def current_buyer(
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> BuyerPrincipal:
+        principal = authenticator.authenticate(authorization)
+        if principal is None:
+            raise HTTPException(status_code=401, detail="Buyer authentication required")
+        return principal
+
+    def owned_purchase(run_id: str, buyer: BuyerPrincipal) -> dict[str, str | None]:
+        purchase = store.purchase_for_owner(run_id, buyer.id)
+        if purchase is None:
+            raise PurchaseServiceError("Purchase run does not exist", code="purchase_not_found")
+        return purchase
+
     app.state.assistant_transport = register_assistant_transport(
-        app, service=conversation, new_id=id_factory
+        app, service=conversation, new_id=id_factory, current_buyer=current_buyer
     )
 
     @app.post("/conversation/turn", response_model=ConversationTurnResponse)
-    def conversation_turn(body: ConversationTurnRequest) -> ConversationTurnResponse:
-        return conversation.respond(body)
+    def conversation_turn(
+        body: ConversationTurnRequest,
+        buyer: Annotated[BuyerPrincipal, Depends(current_buyer)],
+    ) -> ConversationTurnResponse:
+        return conversation.respond(body, owner_id=buyer.id)
+
+    @app.get("/me/pending-purchase", response_model=PendingPurchase | None)
+    def pending_purchase(
+        buyer: Annotated[BuyerPrincipal, Depends(current_buyer)],
+    ) -> PendingPurchase | None:
+        view = conversation.pending_purchase_view(buyer.id)
+        if view is None:
+            return None
+        run_id = view["run_id"]
+        purchase = owned_purchase(run_id, buyer)
+        snapshots = conversation.approval_terms_snapshots([run_id], buyer.id)
+        terms = snapshots.get(run_id)
+        if purchase["stage"] == "awaiting_confirmation" and (
+            terms is None or runtime.mandate_signer is not None
+        ):
+            terms = purchase_service.approval_terms(run_id).model_dump(mode="json")
+            store.save_approval_terms(run_id, terms)
+        return PendingPurchase(
+            purchase=PurchaseStatus(
+                run_id=run_id,
+                stage=str(purchase["stage"]),
+                checkout_id=purchase["checkout_id"],
+                order_id=purchase["order_id"],
+            ),
+            approval_terms=(
+                ApprovalTerms.model_validate_json(json.dumps(terms))
+                if terms is not None and purchase["stage"] == "awaiting_confirmation"
+                else None
+            ),
+        )
 
     @app.get("/purchases/{run_id}", response_model=PurchaseStatus)
-    def purchase_status(run_id: str) -> PurchaseStatus:
-        purchase = store.purchase(run_id)
-        if purchase is None:
-            raise PurchaseServiceError("Purchase run does not exist", code="purchase_not_found")
+    def purchase_status(
+        run_id: str, buyer: Annotated[BuyerPrincipal, Depends(current_buyer)]
+    ) -> PurchaseStatus:
+        purchase = owned_purchase(run_id, buyer)
         return PurchaseStatus(
             run_id=run_id,
             stage=str(purchase["stage"]),
@@ -250,15 +272,24 @@ def create_app(
         )
 
     @app.get("/purchases/{run_id}/approval", response_model=ApprovalTerms)
-    def approval_terms(run_id: str) -> ApprovalTerms:
+    def approval_terms(
+        run_id: str, buyer: Annotated[BuyerPrincipal, Depends(current_buyer)]
+    ) -> ApprovalTerms:
+        owned_purchase(run_id, buyer)
         return purchase_service.approval_terms(run_id)
 
     @app.post("/purchases/{run_id}/approval", response_model=ApprovalReceipt)
-    def approve_purchase(run_id: str, body: ApprovalRequest) -> ApprovalReceipt:
+    def approve_purchase(
+        run_id: str,
+        body: ApprovalRequest,
+        buyer: Annotated[BuyerPrincipal, Depends(current_buyer)],
+    ) -> ApprovalReceipt:
+        owned_purchase(run_id, buyer)
         record = purchase_service.approve(
             run_id=run_id,
-            actor_id=configuration.agent_principal_id,
+            actor_id=buyer.id,
             expected_fingerprint=body.expected_fingerprint,
+            checkout_jwt=body.checkout_jwt,
         )
         return ApprovalReceipt(
             run_id=record.run_id,
@@ -268,11 +299,13 @@ def create_app(
         )
 
     @app.post("/purchases/{run_id}/cancel", response_model=PurchaseStatus)
-    def cancel_purchase(run_id: str) -> PurchaseStatus:
+    def cancel_purchase(
+        run_id: str, buyer: Annotated[BuyerPrincipal, Depends(current_buyer)]
+    ) -> PurchaseStatus:
+        owned_purchase(run_id, buyer)
         purchase_service.cancel(run_id=run_id)
-        purchase = store.purchase(run_id)
-        if purchase is None:
-            raise PurchaseServiceError("Purchase run does not exist", code="purchase_not_found")
+        conversation.close_canceled_graph(run_id, buyer.id)
+        purchase = owned_purchase(run_id, buyer)
         return PurchaseStatus(
             run_id=run_id,
             stage=str(purchase["stage"]),
@@ -281,8 +314,11 @@ def create_app(
         )
 
     @app.post("/purchases/{run_id}/complete", response_model=CheckoutSessionWithOrder)
-    def complete_purchase(run_id: str) -> CheckoutSessionWithOrder:
-        return completion.complete(run_id=run_id)
+    def complete_purchase(
+        run_id: str, buyer: Annotated[BuyerPrincipal, Depends(current_buyer)]
+    ) -> CheckoutSessionWithOrder:
+        owned_purchase(run_id, buyer)
+        return conversation.complete_purchase(run_id, buyer.id)
 
     return app
 

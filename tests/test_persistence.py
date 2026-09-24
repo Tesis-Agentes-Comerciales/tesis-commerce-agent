@@ -27,6 +27,7 @@ def test_purchase_and_idempotency_keys_are_durable(tmp_path: Path) -> None:
     )
     assert second.purchase("run-1") == {
         "run_id": "run-1",
+        "owner_id": "local-human",
         "request_text": "buy headphones",
         "stage": "checkout_prepared",
         "selected_variant_id": "SON-01",

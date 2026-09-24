@@ -6,7 +6,8 @@ respuesta es un stream SSE de operaciones `update-state` que reconstruyen el obj
 El runtime del frontend solo lee ese estado; ignora partes de mensaje sueltas (`append_text`,
 `add_tool_call`), así que el backend escribe los mensajes dentro de `controller.state`.
 
-`/conversation/turn` y los endpoints REST de compra se mantienen sin cambios.
+`/conversation/turn` conserva su respuesta y acepta un `conversation_id` opcional. Los endpoints
+REST de compra conservan su contrato; completar o cancelar reanuda el grafo suspendido.
 
 ## Endpoint
 
@@ -19,9 +20,10 @@ esparce `callSettings` y `config` ahí):
 | Campo | Uso en el backend |
 | --- | --- |
 | `commands` | Validado estrictamente; ver comandos. |
-| `state` | No confiable. Solo aporta historial conversacional en texto y el `run_id` a verificar. |
+| `state` | No confiable. Aporta mensajes para mostrar y el `run_id` a verificar; con `conversation_id`, el historial del modelo se lee del checkpoint. |
 | `details` | Datos de entrega, mismo esquema `CheckoutDetails` de `/conversation/turn`. |
 | `turn_id` | UUID por envío generado en el frontend; alimenta la idempotencia existente. |
+| `conversation_id` | UUID estable durante esta conversación; selecciona el thread de LangGraph. Una nueva compra crea otro ID. |
 | `system`, `tools`, `callSettings`, `config`, `threadId`, `parentId` | Se ignoran. Nunca llegan al modelo. |
 
 Reglas de confianza:
@@ -31,9 +33,11 @@ Reglas de confianza:
 - En particular, la etapa (`purchase`) y el `result` de cada `request_approval` que el cliente
   devuelve se reescriben con lo que hay en SQLite antes de reenviarlos: el total que muestra la
   tarjeta es el que el servidor presentó, no el que llegó en el cuerpo.
-- El historial para el modelo se arma solo con el texto de partes `text` de mensajes `user` y
-  `assistant` (máximo 20 mensajes, igual que hoy). Tool calls, razonamiento y resultados del cliente
-  no se envían al modelo.
+- Con `conversation_id`, LangGraph guarda el historial para el modelo (máximo 20 mensajes) en
+  checkpoints SQLite. En turnos posteriores solo se toma el último mensaje del usuario; el
+  historial que el cliente devuelve no reemplaza el checkpoint. Sin `conversation_id`, se mantiene
+  el historial textual anterior por compatibilidad. Tool calls, razonamiento y resultados del
+  cliente no se envían al modelo.
 - Límite de tamaño del cuerpo y de mensajes; si se excede, error saneado.
 - Ninguna excepción cruda llega a `create_run` (que emitiría `str(error)` al cliente): se capturan y
   se traducen a mensajes en español sin secretos.
@@ -50,7 +54,9 @@ Reglas de confianza:
 - `add-tool-result`: no se usa en esta versión; se ignora.
 
 La aprobación sigue exclusivamente en `POST /purchases/{run_id}/approval` con el fingerprint y
-`POST /purchases/{run_id}/complete`. Ningún comando transporta evidencia de aprobación.
+`POST /purchases/{run_id}/complete`. El grafo se pausa después de presentar los términos; completar
+reanuda el nodo de aprobación, verifica la etapa autoritativa en SQLite y entonces llama al gateway
+determinista. Cancelar también cierra esa pausa. Ningún comando transporta evidencia de aprobación.
 
 Si hay una compra pendiente, un `add-message` responde con un texto que pide revisarla o cancelarla,
 sin llamar al modelo. La compra pendiente se busca en SQLite (`SELECT … WHERE stage IN …`), no por el
@@ -58,6 +64,9 @@ sin llamar al modelo. La compra pendiente se busca en SQLite (`SELECT … WHERE 
 no abre un segundo checkout. Cuentan como pendientes `selected`, `checkout_prepared`,
 `awaiting_confirmation`, `approved`, `completing` y `uncertain`; un turno que falla a mitad de camino
 deja la compra en `failed`, así que no bloquea la siguiente.
+`/conversation/turn` aplica la misma guarda antes de ejecutar el grafo, incluso si el cliente usa
+otro `conversation_id`. Una respuesta bloqueada no se guarda como resultado del turno: después de
+cancelar o completar la compra, ese envío puede reintentarse.
 
 ## Estado
 
@@ -99,7 +108,9 @@ deja la compra en `failed`, así que no bloquea la siguiente.
 
 ## Pasos como tool calls
 
-Son pasos que orquesta el backend. El modelo no invoca herramientas nuevas.
+Son nodos que orquesta LangGraph y que el backend representa como tool calls en la UI. Son distintos
+de `lookup_catalog`, la única herramienta que puede invocar el modelo: consulta la instantánea
+validada del feed de solo lectura y no puede preparar checkout ni ejecutar pagos.
 
 | `toolName` | Cuándo | `args` | `result` |
 | --- | --- | --- | --- |

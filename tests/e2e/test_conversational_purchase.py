@@ -93,6 +93,7 @@ def test_natural_request_crosses_the_model_boundary_and_completes() -> None:
         agent_approval_secret=SecretStr(_required("AGENT_APPROVAL_SECRET")),
         payment_agent_bearer_token=SecretStr(_required("PAYMENT_AGENT_BEARER_TOKEN")),
         agent_database_path=Path(_required("AGENT_DATABASE_PATH")),
+        agent_feed_source="file",
         agent_feed_path=Path(_required("PRODUCT_FEED_PATH")),
         agent_principal_id="human-conversational-e2e",
     )

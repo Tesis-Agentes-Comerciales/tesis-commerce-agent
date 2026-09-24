@@ -2,7 +2,9 @@
 .env.*
 !.env.example
 .local/
+.langgraph_api/
 .venv/
+node_modules/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -14,3 +16,5 @@ dist/
 artifacts/
 *.egg-info/
 .DS_Store
+docs/diagrams/.$*
+docs/diagrams/*.dtmp

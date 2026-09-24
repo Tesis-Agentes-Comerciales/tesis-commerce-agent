@@ -56,6 +56,7 @@ export type ApprovalTerms = {
   expires_at: string
   fingerprint_version: string
   fingerprint: string
+  checkout_jwt?: string | null
 }
 
 export type CompletedCheckout = CheckoutSession & {

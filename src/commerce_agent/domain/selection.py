@@ -55,7 +55,7 @@ def _rejection_reason(candidate: ProductCandidate, intent: PurchaseIntent) -> st
     hard = intent.hard
     if not candidate.available:
         return "unavailable"
-    if candidate.currency.upper() != hard.currency:
+    if hard.currency is not None and candidate.currency.upper() != hard.currency:
         return "currency"
     if (
         hard.max_unit_amount_minor is not None
@@ -98,6 +98,17 @@ def _score(candidate: ProductCandidate, intent: PurchaseIntent) -> tuple[int, tu
 
 
 def rank_candidates(feed: ProductFeed, intent: PurchaseIntent) -> SelectionResult:
+    if (
+        intent.hard.currency is None
+        and (
+            intent.hard.max_unit_amount_minor is not None
+            or intent.hard.max_total_amount_minor is not None
+        )
+        and len({candidate.currency.upper() for candidate in feed.candidates}) > 1
+    ):
+        return SelectionResult(
+            ranked=(), selected=None, rejection_counts={"currency": len(feed.candidates)}
+        )
     ranked: list[RankedCandidate] = []
     rejection_counts: Counter[str] = Counter()
     for candidate in feed.candidates:

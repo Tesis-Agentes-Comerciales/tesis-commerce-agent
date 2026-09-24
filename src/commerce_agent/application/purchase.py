@@ -13,7 +13,7 @@ from commerce_agent.acp.models import (
     FulfillmentDetails,
     SelectedFulfillmentOption,
 )
-from commerce_agent.approval import ApprovalService, ApprovalTerms
+from commerce_agent.approval import ApprovalError, ApprovalService, ApprovalTerms
 from commerce_agent.domain import PurchaseIntent, rank_candidates
 from commerce_agent.persistence import ApprovalRecord, SqliteAgentStore
 
@@ -32,9 +32,15 @@ class PurchaseStage(StrEnum):
 
 
 class CheckoutGateway(Protocol):
-    def create_checkout(self, variant_id: str, *, idempotency_key: str) -> CheckoutSession: ...
+    def create_checkout(
+        self, variant_id: str, *, currency: str, idempotency_key: str
+    ) -> CheckoutSession: ...
 
     def get_checkout(self, checkout_id: str) -> CheckoutSession: ...
+
+    def signed_checkout(self, checkout: CheckoutSession) -> str: ...
+
+    def verify_signed_checkout(self, token: str, checkout: CheckoutSession) -> None: ...
 
     def update_checkout(
         self,
@@ -98,9 +104,14 @@ class PurchaseService:
         intent: PurchaseIntent,
         selected_variant_id: str,
         details: CheckoutDetails,
+        graph_thread_id: str | None = None,
+        owner_id: str = "local-human",
+        feed: ProductFeed | None = None,
     ) -> PurchasePreparation:
-        self._store.create_purchase(run_id, request)
-        selection = rank_candidates(self._feed, intent)
+        self._store.create_purchase(run_id, request, owner_id)
+        if graph_thread_id is not None:
+            self._store.save_graph_thread(run_id, graph_thread_id)
+        selection = rank_candidates(feed or self._feed, intent)
         if selection.selected is None:
             self._store.update_purchase(run_id, stage=PurchaseStage.FAILED)
             raise PurchaseServiceError("No candidate satisfies the request", code="no_candidate")
@@ -127,7 +138,9 @@ class PurchaseService:
         # `failed` para que no quede bloqueando la siguiente compra sin poder cancelarse.
         with self._abandon_on_error(run_id):
             checkout = self._checkout.create_checkout(
-                candidate.variant_id, idempotency_key=idempotency_key
+                candidate.variant_id,
+                currency=candidate.currency,
+                idempotency_key=idempotency_key,
             )
             self._validate_created_checkout(checkout, candidate)
             self._store.update_purchase(
@@ -135,11 +148,14 @@ class PurchaseService:
                 stage=PurchaseStage.CHECKOUT_PREPARED,
                 checkout_id=checkout.id,
             )
-            price_changed = _checkout_unit_amount(checkout, candidate.variant_id) != (
-                candidate.observed_unit_amount_minor
-            )
             self._enforce_authoritative_budget(run_id, checkout, intent)
             ready = self._apply_details(run_id, checkout, details)
+            self._validate_created_checkout(ready, candidate)
+            self._enforce_authoritative_budget(run_id, ready, intent)
+            self._store.update_purchase(run_id, stage=PurchaseStage.AWAITING_CONFIRMATION)
+            price_changed = _checkout_unit_amount(ready, candidate.variant_id) != (
+                candidate.observed_unit_amount_minor
+            )
         return PurchasePreparation(
             run_id=run_id,
             stage=PurchaseStage.AWAITING_CONFIRMATION,
@@ -150,18 +166,31 @@ class PurchaseService:
 
     def approval_terms(self, run_id: str) -> ApprovalTerms:
         checkout = self._current_checkout(run_id)
-        return self._approvals.present(checkout)
+        signed = self._checkout.signed_checkout(checkout) if self._approvals.requires_ap2 else None
+        return self._approvals.present(checkout, checkout_jwt=signed)
 
-    def approve(self, *, run_id: str, actor_id: str, expected_fingerprint: str) -> ApprovalRecord:
+    def approve(
+        self,
+        *,
+        run_id: str,
+        actor_id: str,
+        expected_fingerprint: str,
+        checkout_jwt: str | None = None,
+    ) -> ApprovalRecord:
         purchase = self._require_purchase(run_id)
         if purchase.get("stage") != PurchaseStage.AWAITING_CONFIRMATION:
             raise PurchaseServiceError("Purchase is not awaiting approval", code="invalid_stage")
         checkout = self._current_checkout(run_id)
+        if self._approvals.requires_ap2:
+            if checkout_jwt is None:
+                raise ApprovalError("Signed checkout is required", code="ap2_checkout_required")
+            self._checkout.verify_signed_checkout(checkout_jwt, checkout)
         record = self._approvals.approve(
             run_id=run_id,
             actor_id=actor_id,
             expected_fingerprint=expected_fingerprint,
             checkout=checkout,
+            checkout_jwt=checkout_jwt,
         )
         self._store.update_purchase(run_id, stage=PurchaseStage.APPROVED)
         return record
@@ -207,12 +236,19 @@ class PurchaseService:
         )
         key = self._store.idempotency_key(run_id, "checkout.update.details")
         updated = self._checkout.update_checkout(checkout.id, update, idempotency_key=key)
-        current = self._checkout.get_checkout(updated.id)
+        if updated.id != checkout.id:
+            raise PurchaseServiceError(
+                "Merchant changed checkout identity", code="checkout_mismatch"
+            )
+        current = self._checkout.get_checkout(checkout.id)
+        if current.id != checkout.id:
+            raise PurchaseServiceError(
+                "Merchant changed checkout identity", code="checkout_mismatch"
+            )
         if current.status != "ready_for_payment":
             raise PurchaseServiceError(
                 "Checkout did not become ready for payment", code="checkout_not_ready"
             )
-        self._store.update_purchase(run_id, stage=PurchaseStage.AWAITING_CONFIRMATION)
         return current
 
     def _enforce_authoritative_budget(
@@ -235,6 +271,15 @@ class PurchaseService:
 
     @staticmethod
     def _validate_created_checkout(checkout: CheckoutSession, candidate: ProductCandidate) -> None:
+        if checkout.currency.upper() != candidate.currency.upper():
+            raise PurchaseServiceError(
+                "Merchant checkout currency differs from the selected variant",
+                code="checkout_mismatch",
+            )
+        if len(checkout.line_items) != 1:
+            raise PurchaseServiceError(
+                "Merchant checkout contains unexpected items", code="checkout_mismatch"
+            )
         matching = [
             line
             for line in checkout.line_items

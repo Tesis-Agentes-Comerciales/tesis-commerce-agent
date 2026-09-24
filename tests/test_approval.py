@@ -1,10 +1,18 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from ap2.sdk.generated.checkout_mandate import CheckoutMandate
+from ap2.sdk.generated.payment_mandate import PaymentMandate
+from ap2.sdk.sdjwt import sd_jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from jwcrypto.jwk import JWK
 from pydantic import SecretStr
 
 from commerce_agent.acp.models import CheckoutSession
+from commerce_agent.ap2 import AgentMandateSigner, checkout_hash
 from commerce_agent.approval import ApprovalError, ApprovalService
 from commerce_agent.persistence import ApprovalRecord, SqliteAgentStore
 
@@ -153,3 +161,62 @@ def test_checkout_must_be_ready_and_unexpired(tmp_path: Path) -> None:
     with pytest.raises(ApprovalError) as expiration:
         approval.present(expired)
     assert expiration.value.code == "checkout_expired"
+
+
+def test_ap2_approval_signs_both_mandates_and_detects_tampering(tmp_path: Path) -> None:
+    cryptographic_now = datetime.now(UTC)
+    key = ec.generate_private_key(ec.SECP256R1())
+    pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    signer = AgentMandateSigner(
+        pem,
+        merchant_id="tesis_merchant",
+        merchant_name="Tesis Merchant",
+        clock=lambda: cryptographic_now,
+    )
+    store = SqliteAgentStore(tmp_path / "ap2.db")
+    store.initialize()
+    store.create_purchase("run-ap2", "headphones")
+    approval = ApprovalService(
+        store,
+        SecretStr("approval-secret-with-at-least-32-characters"),
+        clock=lambda: NOW,
+        mandate_signer=signer,
+    )
+    current = checkout()
+    displayed = approval.present(current, checkout_jwt="signed-merchant-checkout")
+    assert displayed.checkout_jwt == "signed-merchant-checkout"
+    with pytest.raises(ApprovalError, match="Signed checkout"):
+        approval.approve(
+            run_id="run-ap2",
+            actor_id="buyer-1",
+            expected_fingerprint=displayed.fingerprint,
+            checkout=current,
+        )
+    record = approval.approve(
+        run_id="run-ap2",
+        actor_id="buyer-1",
+        expected_fingerprint=displayed.fingerprint,
+        checkout=current,
+        checkout_jwt=displayed.checkout_jwt,
+    )
+    assert record.checkout_mandate is not None
+    assert record.payment_mandate is not None
+    public = JWK.from_json(JWK.from_pem(pem.encode()).export_public())
+    checkout_contents = sd_jwt.verify(record.checkout_mandate, public)["delegate_payload"]
+    payment_contents = sd_jwt.verify(record.payment_mandate, public)["delegate_payload"]
+    checkout_mandate = CheckoutMandate.model_validate(checkout_contents[0])
+    payment_mandate = PaymentMandate.model_validate(payment_contents[0])
+    assert checkout_mandate.checkout_hash == checkout_hash("signed-merchant-checkout")
+    assert payment_mandate.transaction_id == checkout_mandate.checkout_hash
+    assert payment_mandate.payment_amount.amount == 74_000
+    assert payment_mandate.exp == int(cryptographic_now.timestamp()) + 300
+    assert approval.authorize(run_id="run-ap2", checkout=current) == record
+
+    store.save_approval(replace(record, payment_mandate="tampered"))
+    with pytest.raises(ApprovalError) as tampered:
+        approval.authorize(run_id="run-ap2", checkout=current)
+    assert tampered.value.code == "invalid_approval"

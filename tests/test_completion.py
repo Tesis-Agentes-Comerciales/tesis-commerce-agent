@@ -1,9 +1,12 @@
+import sqlite3
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from pydantic import SecretStr
 
 from commerce_agent.acp.client import ACPClientError
@@ -14,6 +17,7 @@ from commerce_agent.acp.models import (
     SandboxPaymentData,
     SandboxPaymentInstrument,
 )
+from commerce_agent.ap2 import AgentMandateSigner
 from commerce_agent.approval import ApprovalError, ApprovalService
 from commerce_agent.completion import CompletionService
 from commerce_agent.delegated_payment import DelegatedPaymentClient
@@ -29,8 +33,14 @@ class FakePayments(DelegatedPaymentClient):
         pass
 
     def payment_data(
-        self, *, checkout: CheckoutSession, idempotency_key: str
+        self,
+        *,
+        checkout: CheckoutSession,
+        idempotency_key: str,
+        checkout_jwt: str | None = None,
+        payment_mandate: str | None = None,
     ) -> SandboxPaymentData:
+        assert checkout_jwt is None and payment_mandate is None
         assert checkout.id == "cs_completion_1"
         assert idempotency_key
         return SandboxPaymentData(
@@ -116,6 +126,16 @@ class FakeGateway:
             raise self.error
         return completed(self.current)
 
+    def complete_checkout_ap2(
+        self,
+        checkout_id: str,
+        payment_data: SandboxPaymentData,
+        checkout_mandate: str,
+        *,
+        idempotency_key: str,
+    ) -> tuple[CheckoutSessionWithOrder, str]:
+        raise AssertionError("Legacy tests must not use AP2 completion")
+
 
 def dependencies(
     tmp_path: Path,
@@ -154,6 +174,96 @@ def test_completion_without_approval_never_calls_complete(tmp_path: Path) -> Non
 
     assert captured.value.code == "approval_required"
     assert gateway.complete_calls == []
+
+
+def test_ap2_completion_uses_approved_mandates_and_persists_both_receipts(
+    tmp_path: Path,
+) -> None:
+    current = checkout()
+    store = SqliteAgentStore(tmp_path / "ap2.db")
+    store.initialize()
+    store.create_purchase("run-ap2", "headphones")
+    store.update_purchase("run-ap2", stage="approved", checkout_id=current.id)
+    key = ec.generate_private_key(ec.SECP256R1())
+    pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    approvals = ApprovalService(
+        store,
+        APPROVAL_SECRET,
+        clock=lambda: NOW,
+        mandate_signer=AgentMandateSigner(
+            pem,
+            merchant_id="tesis_merchant",
+            merchant_name="Merchant",
+            clock=lambda: NOW,
+        ),
+    )
+    approved = approvals.approve(
+        run_id="run-ap2",
+        actor_id="buyer-1",
+        expected_fingerprint=approvals.present(current).fingerprint,
+        checkout=current,
+        checkout_jwt="signed-checkout",
+    )
+
+    class Ap2Payments(FakePayments):
+        def payment_data(
+            self,
+            *,
+            checkout: CheckoutSession,
+            idempotency_key: str,
+            checkout_jwt: str | None = None,
+            payment_mandate: str | None = None,
+        ) -> SandboxPaymentData:
+            assert checkout == current
+            assert checkout_jwt == approved.checkout_jwt
+            assert payment_mandate == approved.payment_mandate
+            assert idempotency_key
+            return SandboxPaymentData(
+                instrument=SandboxPaymentInstrument(
+                    credential=PaymentCredential(token=SecretStr(TEST_TOKEN))
+                )
+            )
+
+        def payment_receipt(self, *, token: str, mandate: str) -> str:
+            assert token == TEST_TOKEN
+            assert mandate == approved.payment_mandate
+            return "signed-payment-receipt"
+
+    class Ap2Gateway(FakeGateway):
+        def complete_checkout(self, *args: Any, **kwargs: Any) -> CheckoutSessionWithOrder:
+            raise AssertionError("AP2 must never use legacy completion")
+
+        def complete_checkout_ap2(
+            self,
+            checkout_id: str,
+            payment_data: SandboxPaymentData,
+            checkout_mandate: str,
+            *,
+            idempotency_key: str,
+        ) -> tuple[CheckoutSessionWithOrder, str]:
+            assert checkout_id == current.id
+            assert payment_data.instrument.credential.token.get_secret_value() == TEST_TOKEN
+            assert checkout_mandate == approved.checkout_mandate
+            assert idempotency_key
+            self.complete_calls.append((checkout_id, payment_data, idempotency_key))
+            return completed(current), "signed-checkout-receipt"
+
+    gateway = Ap2Gateway(current)
+    service = CompletionService(gateway, approvals, Ap2Payments(), store)
+    result = service.complete(run_id="run-ap2")
+    assert result.order.id == "ord_completion_1"
+    assert len(gateway.complete_calls) == 1
+    assert service.complete(run_id="run-ap2") == result
+    assert len(gateway.complete_calls) == 1
+    with sqlite3.connect(tmp_path / "ap2.db") as connection:
+        receipts = connection.execute(
+            "SELECT checkout_receipt_jwt, payment_receipt_jwt FROM completion_results"
+        ).fetchone()
+    assert receipts == ("signed-checkout-receipt", "signed-payment-receipt")
 
 
 def test_changed_terms_never_call_complete(tmp_path: Path) -> None:

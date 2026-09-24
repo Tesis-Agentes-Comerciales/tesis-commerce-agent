@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import httpx
@@ -85,6 +86,25 @@ def test_create_supplies_trusted_headers_and_parses_total() -> None:
         )
     assert result.id == "cs_test_001"
     assert result.total_minor == 74000
+
+
+def test_create_uses_selected_cop_currency() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/checkout_sessions"
+        assert json.loads(request.content)["currency"] == "cop"
+        response = checkout()
+        response["currency"] = "cop"
+        return httpx.Response(201, json=response)
+
+    with ACPClient(
+        "http://127.0.0.1:4120",
+        SecretStr("test-token"),
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        assert (
+            client.create_checkout("SON-01", currency="COP", idempotency_key="cop-1").currency
+            == "cop"
+        )
 
 
 def test_update_accepts_only_typed_supported_fields() -> None:

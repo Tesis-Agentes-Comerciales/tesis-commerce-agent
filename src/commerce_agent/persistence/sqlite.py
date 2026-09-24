@@ -17,6 +17,9 @@ class ApprovalRecord:
     approved_at: str
     signature: str
     consumed_at: str | None
+    checkout_jwt: str | None = None
+    checkout_mandate: str | None = None
+    payment_mandate: str | None = None
 
 
 class SqliteAgentStore:
@@ -30,6 +33,7 @@ class SqliteAgentStore:
                 """
                 CREATE TABLE IF NOT EXISTS purchases (
                     run_id TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL DEFAULT 'local-human',
                     request_text TEXT NOT NULL,
                     stage TEXT NOT NULL,
                     selected_variant_id TEXT,
@@ -54,7 +58,10 @@ class SqliteAgentStore:
                     actor_id TEXT NOT NULL,
                     approved_at TEXT NOT NULL,
                     signature TEXT NOT NULL,
-                    consumed_at TEXT
+                    consumed_at TEXT,
+                    checkout_jwt TEXT,
+                    checkout_mandate TEXT,
+                    payment_mandate TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS orders (
@@ -70,7 +77,9 @@ class SqliteAgentStore:
                     checkout_id TEXT NOT NULL,
                     order_id TEXT NOT NULL,
                     snapshot TEXT NOT NULL,
-                    completed_at TEXT NOT NULL
+                    completed_at TEXT NOT NULL,
+                    checkout_receipt_jwt TEXT,
+                    payment_receipt_jwt TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS conversation_turns (
@@ -86,27 +95,74 @@ class SqliteAgentStore:
                     terms TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS purchase_graph_threads (
+                    run_id TEXT PRIMARY KEY REFERENCES purchases(run_id) ON DELETE CASCADE,
+                    thread_id TEXT NOT NULL
+                );
                 """
+            )
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(purchases)")}
+            if "owner_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE purchases ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'local-human'"
+                )
+            approval_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(approvals)")
+            }
+            for column in ("checkout_jwt", "checkout_mandate", "payment_mandate"):
+                if column not in approval_columns:
+                    connection.execute(f"ALTER TABLE approvals ADD COLUMN {column} TEXT")
+            completion_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(completion_results)")
+            }
+            for column in ("checkout_receipt_jwt", "payment_receipt_jwt"):
+                if column not in completion_columns:
+                    connection.execute(f"ALTER TABLE completion_results ADD COLUMN {column} TEXT")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS purchases_owner_stage ON purchases(owner_id, stage)"
             )
             self._initialize_webhook_events(connection)
 
-    def create_purchase(self, run_id: str, request_text: str) -> None:
+    def create_purchase(
+        self, run_id: str, request_text: str, owner_id: str = "local-human"
+    ) -> None:
         now = _timestamp()
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO purchases
-                  (run_id, request_text, stage, created_at, updated_at)
-                VALUES (?, ?, 'received', ?, ?)
+                  (run_id, owner_id, request_text, stage, created_at, updated_at)
+                VALUES (?, ?, ?, 'received', ?, ?)
                 ON CONFLICT (run_id) DO NOTHING
                 """,
-                (run_id, request_text, now, now),
+                (run_id, owner_id, request_text, now, now),
             )
             row = connection.execute(
-                "SELECT request_text FROM purchases WHERE run_id = ?", (run_id,)
+                "SELECT owner_id, request_text FROM purchases WHERE run_id = ?", (run_id,)
             ).fetchone()
-            if row is None or row[0] != request_text:
+            if row is None or row[0] != owner_id or row[1] != request_text:
                 raise ValueError("Purchase run conflicts with another request")
+
+    def save_graph_thread(self, run_id: str, thread_id: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO purchase_graph_threads (run_id, thread_id) VALUES (?, ?) "
+                "ON CONFLICT (run_id) DO NOTHING",
+                (run_id, thread_id),
+            )
+            row = connection.execute(
+                "SELECT thread_id FROM purchase_graph_threads WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if row is None or row[0] != thread_id:
+                raise ValueError("Purchase run belongs to another graph thread")
+
+    def graph_thread(self, run_id: str) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT thread_id FROM purchase_graph_threads WHERE run_id = ?", (run_id,)
+            ).fetchone()
+        return str(row[0]) if row is not None else None
 
     def claim_conversation_turn(self, turn_id: str, request_sha256: str) -> dict[str, Any] | None:
         now = _timestamp()
@@ -171,7 +227,9 @@ class SqliteAgentStore:
             if cursor.rowcount != 1:
                 raise KeyError("Purchase run does not exist")
 
-    def pending_purchase(self, stages: Sequence[str]) -> dict[str, str | None] | None:
+    def pending_purchase(
+        self, stages: Sequence[str], owner_id: str = "local-human"
+    ) -> dict[str, str | None] | None:
         """Oldest purchase still in one of ``stages``, without asking the client for a run ID."""
         if not stages:
             return None
@@ -180,12 +238,16 @@ class SqliteAgentStore:
             row = connection.execute(
                 f"""
                 SELECT run_id, stage, order_id
-                FROM purchases WHERE stage IN ({placeholders})
+                FROM purchases WHERE owner_id = ? AND stage IN ({placeholders})
                 ORDER BY created_at, run_id LIMIT 1
                 """,
-                tuple(stages),
+                (owner_id, *stages),
             ).fetchone()
         return dict(row) if row is not None else None
+
+    def purchase_for_owner(self, run_id: str, owner_id: str) -> dict[str, str | None] | None:
+        purchase = self.purchase(run_id)
+        return purchase if purchase is not None and purchase["owner_id"] == owner_id else None
 
     def save_approval_terms(self, run_id: str, terms: dict[str, Any]) -> None:
         """Keep the terms shown for a run, so an echoed approval card can be rebuilt server side."""
@@ -215,7 +277,7 @@ class SqliteAgentStore:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT run_id, request_text, stage, selected_variant_id, checkout_id,
+                SELECT run_id, owner_id, request_text, stage, selected_variant_id, checkout_id,
                        order_id, created_at, updated_at
                 FROM purchases WHERE run_id = ?
                 """,
@@ -276,15 +338,19 @@ class SqliteAgentStore:
                 """
                 INSERT INTO approvals
                   (run_id, checkout_id, checkout_fingerprint, actor_id,
-                   approved_at, signature, consumed_at)
-                VALUES (?, ?, ?, ?, ?, ?, NULL)
+                   approved_at, signature, consumed_at, checkout_jwt,
+                   checkout_mandate, payment_mandate)
+                VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
                 ON CONFLICT (run_id) DO UPDATE SET
                   checkout_id = excluded.checkout_id,
                   checkout_fingerprint = excluded.checkout_fingerprint,
                   actor_id = excluded.actor_id,
                   approved_at = excluded.approved_at,
                   signature = excluded.signature,
-                  consumed_at = NULL
+                  consumed_at = NULL,
+                  checkout_jwt = excluded.checkout_jwt,
+                  checkout_mandate = excluded.checkout_mandate,
+                  payment_mandate = excluded.payment_mandate
                 """,
                 (
                     record.run_id,
@@ -293,6 +359,9 @@ class SqliteAgentStore:
                     record.actor_id,
                     record.approved_at,
                     record.signature,
+                    record.checkout_jwt,
+                    record.checkout_mandate,
+                    record.payment_mandate,
                 ),
             )
 
@@ -301,14 +370,24 @@ class SqliteAgentStore:
             row = connection.execute(
                 """
                 SELECT run_id, checkout_id, checkout_fingerprint, actor_id,
-                       approved_at, signature, consumed_at
+                       approved_at, signature, consumed_at, checkout_jwt,
+                       checkout_mandate, payment_mandate
                 FROM approvals WHERE run_id = ?
                 """,
                 (run_id,),
             ).fetchone()
         return ApprovalRecord(**dict(row)) if row is not None else None
 
-    def record_completion(self, run_id: str, snapshot: dict[str, Any]) -> None:
+    def record_completion(
+        self,
+        run_id: str,
+        snapshot: dict[str, Any],
+        *,
+        checkout_receipt_jwt: str | None = None,
+        payment_receipt_jwt: str | None = None,
+    ) -> None:
+        if (checkout_receipt_jwt is None) != (payment_receipt_jwt is None):
+            raise ValueError("AP2 completion requires both receipts")
         checkout_id = snapshot.get("id")
         order = snapshot.get("order")
         if not isinstance(checkout_id, str) or not isinstance(order, dict):
@@ -359,10 +438,19 @@ class SqliteAgentStore:
             connection.execute(
                 """
                 INSERT INTO completion_results
-                  (run_id, checkout_id, order_id, snapshot, completed_at)
-                VALUES (?, ?, ?, ?, ?)
+                  (run_id, checkout_id, order_id, snapshot, completed_at,
+                   checkout_receipt_jwt, payment_receipt_jwt)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (run_id, checkout_id, order_id, serialized, now),
+                (
+                    run_id,
+                    checkout_id,
+                    order_id,
+                    serialized,
+                    now,
+                    checkout_receipt_jwt,
+                    payment_receipt_jwt,
+                ),
             )
             connection.execute(
                 """

@@ -23,11 +23,12 @@ import {
   type AgentState,
 } from "@/lib/agent-contract"
 import { AGENT_API_URL, checkoutDetails } from "@/lib/commerce-api"
+import { buyerHeaders } from "@/lib/auth-client"
 import type { BuyerProfile } from "@/lib/commerce-types"
 
 const STARTER_PROMPTS = [
-  "Audífonos negros por menos de 800 USD",
-  "Busco audífonos con cancelación de ruido",
+  "Quiero un celular de máximo 3 millones de pesos",
+  "Busco un iPhone; ayúdame a elegir",
   "¿Qué productos tienen en el catálogo?",
 ] as const
 
@@ -338,14 +339,19 @@ const AgentRuntime = memo(function AgentRuntime({
   const converter = useAgentConverter()
   // Estable como el resto: un re-render de este componente reiniciaría el thread.
   const [retries] = useState(createUpdateRetries)
+  const [conversationId] = useState(() => crypto.randomUUID())
 
   const runtime = useAssistantTransportRuntime<AgentState>({
     api: `${AGENT_API_URL}/assistant`,
     protocol: "assistant-transport",
     initialState,
     converter,
-    headers: {},
-    body: async () => ({ details: getDetails(), turn_id: crypto.randomUUID() }),
+    headers: buyerHeaders,
+    body: async () => ({
+      details: getDetails(),
+      turn_id: crypto.randomUUID(),
+      conversation_id: conversationId,
+    }),
     onError: (error, { commands, updateState }) => {
       const message = transportErrorMessage(error)
       retries.keep(commands)

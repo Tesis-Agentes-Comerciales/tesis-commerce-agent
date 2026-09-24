@@ -1,5 +1,7 @@
 from typing import Protocol
 
+import jwt
+
 from commerce_agent.acp.client import ACPClientError
 from commerce_agent.acp.models import (
     CheckoutSession,
@@ -21,6 +23,15 @@ class TrustedCompletionGateway(Protocol):
         *,
         idempotency_key: str,
     ) -> CheckoutSessionWithOrder: ...
+
+    def complete_checkout_ap2(
+        self,
+        checkout_id: str,
+        payment_data: SandboxPaymentData,
+        checkout_mandate: str,
+        *,
+        idempotency_key: str,
+    ) -> tuple[CheckoutSessionWithOrder, str]: ...
 
 
 class CompletionError(RuntimeError):
@@ -62,7 +73,8 @@ class CompletionService:
         checkout = self._gateway.get_checkout(checkout_id)
         if checkout.id != checkout_id:
             raise CompletionError("Merchant returned another checkout", code="checkout_mismatch")
-        if purchase["stage"] == "uncertain" and checkout.status == "completed":
+        replay_completed = purchase["stage"] == "uncertain" and checkout.status == "completed"
+        if replay_completed and not self._approvals.requires_ap2:
             reconciled = CheckoutSessionWithOrder.model_validate(checkout.model_dump(mode="json"))
             if not self._store.claim_completion(run_id):
                 raise CompletionError(
@@ -75,13 +87,41 @@ class CompletionService:
                 self._store.release_completion(run_id, stage="uncertain")
                 raise
             return reconciled
-        self._approvals.authorize(run_id=run_id, checkout=checkout)
+        approval = (
+            self._approvals.approved_record(run_id=run_id, checkout_id=checkout_id)
+            if replay_completed
+            else self._approvals.authorize(run_id=run_id, checkout=checkout)
+        )
+        approved_checkout = checkout
+        if replay_completed:
+            if approval.checkout_jwt is None:
+                raise CompletionError("AP2 checkout is missing", code="ap2_checkout_missing")
+            try:
+                claims = jwt.decode(
+                    approval.checkout_jwt,
+                    options={"verify_signature": False, "verify_exp": False},
+                    algorithms=["ES256"],
+                )
+                approved_checkout = CheckoutSession.model_validate(claims["checkout"])
+            except (jwt.PyJWTError, KeyError, TypeError, ValueError) as error:
+                raise CompletionError(
+                    "AP2 checkout is invalid", code="ap2_checkout_invalid"
+                ) from error
+            if approved_checkout.id != checkout_id:
+                raise CompletionError("AP2 checkout does not match", code="checkout_mismatch")
 
         idempotency_key = self._store.idempotency_key(run_id, "checkout.complete")
         try:
+            payment_kwargs = {}
+            if self._approvals.requires_ap2:
+                payment_kwargs = {
+                    "checkout_jwt": approval.checkout_jwt,
+                    "payment_mandate": approval.payment_mandate,
+                }
             payment_data = self._payments.payment_data(
-                checkout=checkout,
+                checkout=approved_checkout,
                 idempotency_key=self._store.idempotency_key(run_id, "payment.delegate"),
+                **payment_kwargs,
             )
         except DelegationError as error:
             raise CompletionError("Payment delegation failed", code=error.code) from error
@@ -92,17 +132,38 @@ class CompletionService:
             )
 
         try:
-            completed = self._gateway.complete_checkout(
-                checkout_id,
-                payment_data,
-                idempotency_key=idempotency_key,
-            )
+            checkout_receipt = None
+            payment_receipt = None
+            if self._approvals.requires_ap2:
+                if approval.checkout_mandate is None or approval.payment_mandate is None:
+                    raise CompletionError("AP2 mandates are missing", code="ap2_mandate_missing")
+                completed, checkout_receipt = self._gateway.complete_checkout_ap2(
+                    checkout_id,
+                    payment_data,
+                    approval.checkout_mandate,
+                    idempotency_key=idempotency_key,
+                )
+                payment_receipt = self._payments.payment_receipt(
+                    token=payment_data.instrument.credential.token.get_secret_value(),
+                    mandate=approval.payment_mandate,
+                )
+            else:
+                completed = self._gateway.complete_checkout(
+                    checkout_id,
+                    payment_data,
+                    idempotency_key=idempotency_key,
+                )
             if completed.id != checkout_id or completed.order.checkout_session_id != checkout_id:
                 raise CompletionError(
                     "Completed checkout and order do not match the purchase",
                     code="completion_mismatch",
                 )
-            self._store.record_completion(run_id, completed.model_dump(mode="json"))
+            self._store.record_completion(
+                run_id,
+                completed.model_dump(mode="json"),
+                checkout_receipt_jwt=checkout_receipt,
+                payment_receipt_jwt=payment_receipt,
+            )
         except ACPClientError as error:
             if (error.code, error.status_code) in {
                 ("payment_declined", 422),

@@ -1,11 +1,13 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from pydantic import SecretStr, ValidationError
 
 from commerce_agent.acp import load_product_feed
+from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.domain import (
     HardConstraints,
     OptionConstraint,
@@ -21,6 +23,8 @@ from commerce_agent.llm import (
     OpenAIConversationRouter,
 )
 from commerce_agent.llm import conversation_router as module
+from commerce_agent.llm.catalog_tool import make_catalog_lookup
+from commerce_agent.llm.reasoning import reasoning_listener
 
 FEED = load_product_feed(Path(__file__).parent / "fixtures" / "feed")
 
@@ -72,7 +76,9 @@ def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> N
     result = router.route(messages)
     router.close()
 
-    assert result == decision
+    assert result.intent is not None
+    assert result.intent.hard.currency == "USD"
+    assert result.model_copy(update={"intent": decision.intent}) == decision
     call = fake.responses.calls[0]
     assert call["text_format"] is CommerceDecision
     assert call["input"] == [message.model_dump(mode="json") for message in messages]
@@ -81,7 +87,165 @@ def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> N
     assert "headphones" in call["instructions"]
     assert "Audifonos Sonora SON-01" in call["instructions"]
     assert "never authorizes" in call["instructions"].casefold()
+    assert call["tools"][0]["name"] == "lookup_catalog"
+    assert call["parallel_tool_calls"] is False
     assert fake.closed
+
+
+def test_catalog_tool_is_read_only_and_reports_observed_prices() -> None:
+    output = json.loads(make_catalog_lookup(FEED).invoke({"query": "Sonora"}))
+
+    assert output["exact_text_matches"] > 0
+    assert all("Sonora" in item["title"] for item in output["products"])
+    assert output["prices_are_authoritative"] is False
+    assert "checkout_id" not in str(output)
+
+
+def test_catalog_tool_ranks_natural_spanish_query_without_claiming_exact_match() -> None:
+    output = json.loads(
+        make_catalog_lookup(FEED).invoke({"query": "¿Qué audífonos Sonora tienes?"})
+    )
+
+    assert output["sampled_fallback"] is False
+    assert output["partial_matches"] > 0
+    assert output["exact_text_matches"] == 0
+    assert output["products"][0]["variant_id"] == "SON-01"
+
+
+def test_catalog_tool_marks_unmatched_examples_as_fallback() -> None:
+    output = json.loads(make_catalog_lookup(FEED).invoke({"query": "televisores"}))
+
+    assert output["exact_text_matches"] == 0
+    assert output["partial_matches"] == 0
+    assert output["sampled_fallback"] is True
+
+
+def test_catalog_summary_stays_bounded_for_large_feeds() -> None:
+    original = FEED.available_candidates[0]
+    candidates = tuple(
+        original.model_copy(
+            update={"variant_id": f"variant-{index}", "product_title": f"Product {index:05d}"}
+        )
+        for index in range(2_000)
+    )
+    feed = cast(ProductFeed, SimpleNamespace(available_candidates=candidates))
+
+    summary = json.loads(module._catalog_vocabulary(feed))
+
+    assert summary["sampled"] is True
+    assert len(summary["product_titles"]) == 12
+    assert len(json.dumps(summary)) < 10_000
+
+
+def test_router_executes_one_model_requested_catalog_lookup(monkeypatch) -> None:
+    decision = CommerceDecision(action="respond", assistant_message="Tengo audífonos Sonora.")
+    tool_call = SimpleNamespace(
+        type="function_call",
+        name="lookup_catalog",
+        arguments='{"query":"Sonora"}',
+        call_id="call_catalog_1",
+        to_dict=lambda: {
+            "type": "function_call",
+            "name": "lookup_catalog",
+            "arguments": '{"query":"Sonora"}',
+            "call_id": "call_catalog_1",
+            "parsed_arguments": {"query": "Sonora"},
+        },
+    )
+
+    class ToolResponses:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def parse(self, **kwargs: Any) -> SimpleNamespace:
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return SimpleNamespace(output_parsed=None, output=[tool_call])
+            return SimpleNamespace(output_parsed=decision, output=[])
+
+    responses = ToolResponses()
+    monkeypatch.setattr(
+        module, "OpenAI", lambda **_: SimpleNamespace(responses=responses, close=lambda: None)
+    )
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"), model="test-model", feed=FEED
+    )
+
+    result = router.route((ConversationMessage(role="user", content="¿Qué Sonora tienes?"),))
+
+    assert result == decision
+    assert len(responses.calls) == 2
+    assert responses.calls[1]["tool_choice"] == "none"
+    output = responses.calls[1]["input"][-1]
+    assert output["type"] == "function_call_output"
+    assert output["call_id"] == "call_catalog_1"
+    assert "SON-01" in output["output"]
+    assert "checkout_id" not in output["output"]
+    assert "parsed_arguments" not in responses.calls[1]["input"][-2]
+
+
+def test_streamed_reasoning_keeps_catalog_tool_available(monkeypatch) -> None:
+    decision = CommerceDecision(action="respond", assistant_message="Tengo Sonora SON-01.")
+    tool_call = SimpleNamespace(
+        type="function_call",
+        name="lookup_catalog",
+        arguments='{"query":"Sonora"}',
+        call_id="call_stream_catalog",
+        to_dict=lambda: {
+            "type": "function_call",
+            "name": "lookup_catalog",
+            "arguments": '{"query":"Sonora"}',
+            "call_id": "call_stream_catalog",
+        },
+    )
+
+    class ToolStreams:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def stream(self, **kwargs: Any) -> Any:
+            self.calls.append(kwargs)
+            response = (
+                SimpleNamespace(output_parsed=None, output=[tool_call])
+                if len(self.calls) == 1
+                else SimpleNamespace(output_parsed=decision, output=[])
+            )
+
+            class Stream:
+                def __enter__(self) -> "Stream":
+                    return self
+
+                def __exit__(self, *_: object) -> None:
+                    return None
+
+                def __iter__(self) -> Any:
+                    return iter(())
+
+                def get_final_response(self) -> SimpleNamespace:
+                    return response
+
+            return Stream()
+
+    streams = ToolStreams()
+    monkeypatch.setattr(
+        module, "OpenAI", lambda **_: SimpleNamespace(responses=streams, close=lambda: None)
+    )
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"),
+        model="test-model",
+        feed=FEED,
+        reasoning_summary=True,
+    )
+
+    with reasoning_listener(lambda _: None):
+        result = router.route((ConversationMessage(role="user", content="¿Qué Sonora tienes?"),))
+
+    assert result == decision
+    assert len(streams.calls) == 2
+    assert streams.calls[0]["tools"][0]["name"] == "lookup_catalog"
+    assert streams.calls[0]["parallel_tool_calls"] is False
+    assert streams.calls[1]["tool_choice"] == "none"
+    assert "SON-01" in streams.calls[1]["input"][-1]["output"]
 
 
 def test_non_purchase_decision_rejects_purchase_payload() -> None:

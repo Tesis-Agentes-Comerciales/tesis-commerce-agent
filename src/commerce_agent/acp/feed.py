@@ -262,6 +262,47 @@ def load_product_feed(directory: Path) -> ProductFeed:
     return ProductFeed(metadata=metadata, products=tuple(products))
 
 
+def load_product_feed_payload(payload: object) -> ProductFeed:
+    """Validate the merchant's published full feed before using it for search."""
+    if not isinstance(payload, dict):
+        raise ProductFeedError("Published feed must be an object", code="invalid_feed")
+    raw_metadata = payload.get("metadata")
+    raw_products = payload.get("products")
+    if not isinstance(raw_metadata, dict) or not isinstance(raw_products, list):
+        raise ProductFeedError("Published feed requires metadata and products", code="invalid_feed")
+    if not 0 < len(raw_products) <= MAX_PRODUCT_LINES:
+        raise ProductFeedError("Published feed has an invalid product count", code="invalid_feed")
+    _validate_schema(_METADATA_VALIDATOR, raw_metadata, code="invalid_metadata")
+    try:
+        metadata = FeedMetadata.model_validate(raw_metadata)
+    except ValidationError as error:
+        raise ProductFeedError(
+            "Published feed metadata is invalid", code="invalid_metadata"
+        ) from error
+    products: list[FeedProduct] = []
+    product_ids: set[str] = set()
+    variant_ids: set[str] = set()
+    for number, raw_product in enumerate(raw_products, start=1):
+        _validate_schema(_PRODUCT_VALIDATOR, raw_product, code="invalid_product", line=number)
+        try:
+            product = FeedProduct.model_validate(raw_product)
+        except ValidationError as error:
+            raise ProductFeedError(
+                "Published feed product is invalid", code="invalid_product", line=number
+            ) from error
+        if product.id in product_ids:
+            raise ProductFeedError("Duplicate product ID", code="duplicate_product_id", line=number)
+        product_ids.add(product.id)
+        for variant in product.variants:
+            if variant.id in variant_ids:
+                raise ProductFeedError(
+                    "Duplicate variant ID", code="duplicate_variant_id", line=number
+                )
+            variant_ids.add(variant.id)
+        products.append(product)
+    return ProductFeed(metadata=metadata, products=tuple(products))
+
+
 def _load_json_object(path: Path, *, code: str) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))

@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Any
 
 import httpx
+import jwt
+from ap2.sdk.sdjwt import common
 from pydantic import SecretStr
 
 from commerce_agent.acp.models import (
@@ -51,6 +53,8 @@ class DelegatedPaymentClient:
         *,
         checkout: CheckoutSession,
         idempotency_key: str,
+        checkout_jwt: str | None = None,
+        payment_mandate: str | None = None,
     ) -> SandboxPaymentData:
         try:
             expiry = datetime.fromisoformat(checkout.expires_at.replace("Z", "+00:00"))
@@ -79,6 +83,11 @@ class DelegatedPaymentClient:
             "risk_signals": [{"type": "card_testing", "score": 0, "action": "authorized"}],
             "metadata": {},
         }
+        if checkout_jwt is not None or payment_mandate is not None:
+            if checkout_jwt is None or payment_mandate is None:
+                raise DelegationError("invalid_ap2_mandates")
+            body["ap2_checkout_jwt"] = checkout_jwt
+            body["ap2_payment_mandate"] = payment_mandate
         try:
             response = self._http.post(
                 "/agentic_commerce/delegate_payment",
@@ -106,3 +115,40 @@ class DelegatedPaymentClient:
                 credential=PaymentCredential(token=SecretStr(token))
             )
         )
+
+    def payment_receipt(self, *, token: str, mandate: str) -> str:
+        try:
+            response = self._http.post(
+                "/agentic_commerce/payment_receipt",
+                headers={"Authorization": f"Bearer {self._bearer_token.get_secret_value()}"},
+                json={"token": token},
+            )
+            keys_response = self._http.get("/.well-known/ap2/jwks.json")
+            if response.status_code != 200 or keys_response.status_code != 200:
+                raise ValueError("Provider receipt is unavailable")
+            result = response.json()
+            receipt = result["result"]["payment_receipt_jwt"]
+            keys = keys_response.json()["keys"]
+            if not isinstance(receipt, str) or not isinstance(keys, list) or len(keys) != 1:
+                raise ValueError("Provider receipt is invalid")
+            claims = jwt.decode(
+                receipt,
+                jwt.PyJWK.from_dict(keys[0]).key,
+                algorithms=["ES256"],
+                issuer="tesis_payment_provider",
+                options={
+                    "verify_aud": False,
+                    "require": ["iss", "iat", "status", "reference", "payment_id"],
+                },
+            )
+            expected = common.compute_sd_hash(common.parse_token(mandate))
+            if (
+                result["status"] != "approved"
+                or claims["status"] != "Success"
+                or claims["reference"] != expected
+                or claims["payment_id"] != result["result"]["id"]
+            ):
+                raise ValueError("Provider receipt does not match payment")
+            return receipt
+        except (httpx.HTTPError, jwt.PyJWTError, KeyError, TypeError, ValueError) as error:
+            raise DelegationError("invalid_payment_receipt") from error

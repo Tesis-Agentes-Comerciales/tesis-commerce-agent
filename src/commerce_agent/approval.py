@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from commerce_agent.acp.models import CheckoutSession
+from commerce_agent.ap2 import AgentMandateSigner
 from commerce_agent.persistence import ApprovalRecord, SqliteAgentStore
 
 
@@ -42,6 +43,7 @@ class ApprovalTerms(BaseModel):
     expires_at: str
     fingerprint_version: str
     fingerprint: str
+    checkout_jwt: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ApprovalService:
@@ -54,6 +56,7 @@ class ApprovalService:
         *,
         merchant_origin: str = "configured-merchant",
         clock: Callable[[], datetime] | None = None,
+        mandate_signer: AgentMandateSigner | None = None,
     ) -> None:
         if len(secret.get_secret_value()) < 32:
             raise ValueError("Approval secret must contain at least 32 characters")
@@ -61,8 +64,15 @@ class ApprovalService:
         self._secret = secret
         self._merchant_origin = merchant_origin
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._mandate_signer = mandate_signer
 
-    def present(self, checkout: CheckoutSession) -> ApprovalTerms:
+    @property
+    def requires_ap2(self) -> bool:
+        return self._mandate_signer is not None
+
+    def present(
+        self, checkout: CheckoutSession, *, checkout_jwt: str | None = None
+    ) -> ApprovalTerms:
         self._require_approvable(checkout)
         lines = tuple(_approval_line(line) for line in checkout.line_items)
         selected = _checkout_list(checkout, "selected_fulfillment_options")
@@ -81,6 +91,7 @@ class ApprovalService:
             expires_at=checkout.expires_at,
             fingerprint_version=self.FINGERPRINT_VERSION,
             fingerprint=self._fingerprint(checkout),
+            checkout_jwt=checkout_jwt,
         )
 
     def approve(
@@ -90,6 +101,7 @@ class ApprovalService:
         actor_id: str,
         expected_fingerprint: str,
         checkout: CheckoutSession,
+        checkout_jwt: str | None = None,
     ) -> ApprovalRecord:
         terms = self.present(checkout)
         if not hmac.compare_digest(expected_fingerprint, terms.fingerprint):
@@ -98,6 +110,12 @@ class ApprovalService:
                 code="checkout_terms_changed",
             )
         approved_at = _timestamp(self._clock())
+        checkout_mandate: str | None = None
+        payment_mandate: str | None = None
+        if self._mandate_signer is not None:
+            if checkout_jwt is None:
+                raise ApprovalError("Signed checkout is required", code="ap2_checkout_required")
+            checkout_mandate, payment_mandate = self._mandate_signer.sign(checkout_jwt, checkout)
         record = ApprovalRecord(
             run_id=run_id,
             checkout_id=checkout.id,
@@ -105,36 +123,57 @@ class ApprovalService:
             actor_id=actor_id,
             approved_at=approved_at,
             signature=self._signature(
-                run_id, checkout.id, terms.fingerprint, actor_id, approved_at
+                run_id,
+                checkout.id,
+                terms.fingerprint,
+                actor_id,
+                approved_at,
+                checkout_jwt,
+                checkout_mandate,
+                payment_mandate,
             ),
             consumed_at=None,
+            checkout_jwt=checkout_jwt,
+            checkout_mandate=checkout_mandate,
+            payment_mandate=payment_mandate,
         )
         self._store.save_approval(record)
         return record
 
     def authorize(self, *, run_id: str, checkout: CheckoutSession) -> ApprovalRecord:
         self._require_approvable(checkout)
-        record = self._store.approval(run_id)
-        if record is None:
-            raise ApprovalError("Human approval is required", code="approval_required")
-        if record.consumed_at is not None:
-            raise ApprovalError("Approval was already consumed", code="approval_consumed")
-        if record.checkout_id != checkout.id:
-            raise ApprovalError("Approval belongs to another checkout", code="approval_mismatch")
+        record = self.approved_record(run_id=run_id, checkout_id=checkout.id)
         fingerprint = self._fingerprint(checkout)
         if not hmac.compare_digest(record.checkout_fingerprint, fingerprint):
             raise ApprovalError(
                 "Checkout terms changed after approval", code="checkout_terms_changed"
             )
+        return record
+
+    def approved_record(self, *, run_id: str, checkout_id: str) -> ApprovalRecord:
+        record = self._store.approval(run_id)
+        if record is None:
+            raise ApprovalError("Human approval is required", code="approval_required")
+        if record.consumed_at is not None:
+            raise ApprovalError("Approval was already consumed", code="approval_consumed")
+        if record.checkout_id != checkout_id:
+            raise ApprovalError("Approval belongs to another checkout", code="approval_mismatch")
         expected_signature = self._signature(
             record.run_id,
             record.checkout_id,
             record.checkout_fingerprint,
             record.actor_id,
             record.approved_at,
+            record.checkout_jwt,
+            record.checkout_mandate,
+            record.payment_mandate,
         )
         if not hmac.compare_digest(record.signature, expected_signature):
             raise ApprovalError("Approval signature is invalid", code="invalid_approval")
+        if self._mandate_signer is not None and not all(
+            (record.checkout_jwt, record.checkout_mandate, record.payment_mandate)
+        ):
+            raise ApprovalError("AP2 mandates are missing", code="ap2_mandate_missing")
         return record
 
     def _require_approvable(self, checkout: CheckoutSession) -> None:
@@ -150,8 +189,16 @@ class ApprovalService:
         fingerprint: str,
         actor_id: str,
         approved_at: str,
+        checkout_jwt: str | None = None,
+        checkout_mandate: str | None = None,
+        payment_mandate: str | None = None,
     ) -> str:
-        content = "\x1f".join((run_id, checkout_id, fingerprint, actor_id, approved_at)).encode()
+        values = (run_id, checkout_id, fingerprint, actor_id, approved_at)
+        mandate_hashes = tuple(
+            hashlib.sha256((value or "").encode()).hexdigest()
+            for value in (checkout_jwt, checkout_mandate, payment_mandate)
+        )
+        content = "\x1f".join((*values, *mandate_hashes)).encode()
         return hmac.new(
             self._secret.get_secret_value().encode(), content, hashlib.sha256
         ).hexdigest()

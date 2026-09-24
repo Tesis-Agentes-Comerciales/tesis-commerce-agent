@@ -6,14 +6,16 @@ implementa intención, selección, aprobación humana, ejecución idempotente y 
 
 ## Alcance implementado
 
-- carga y validación del Product Feed estático;
+- lectura y validación del Product Feed publicado por el merchant antes de cada turno;
 - decisión conversacional tipada, `PurchaseIntent`, filtros duros, ranking determinista y elección
   explicada entre candidatos elegibles;
 - cliente ACP para discovery, create, get, update, cancel y complete;
 - validación de requests y responses contra el bundle ACP congelado;
 - persistencia SQLite de episodios, claves idempotentes, aprobaciones, órdenes y webhooks;
+- orquestación LangGraph con nodos explícitos, rutas condicionales, checkpoints SQLite por
+  conversación y pausa para la aprobación humana;
 - Human Present ligado mediante HMAC a comercio, checkout, líneas, identidad, dirección,
-  fulfillment, total, revisión y expiración;
+  fulfillment, total, revisión y expiración; el perfil AP2 añade mandatos SD-JWT y recibos firmados;
 - gateway de completion fuera del modelo, delegación a un proveedor sandbox independiente y CAS local;
 - estado `uncertain` y reconciliación desde el checkout autoritativo;
 - receptor de webhooks con HMAC, ventana temporal, límite de body, deduplicación y proyección
@@ -23,7 +25,9 @@ implementa intención, selección, aprobación humana, ejecución idempotente y 
 - harness E2E contra merchant y proveedor de pagos como procesos y repositorios separados.
 
 El modelo recibe los mensajes del chat y vocabulario validado del feed. Primero produce una decisión
-tipada con una intención estructurada; después puede elegir o aclarar entre candidatos que ya
+tipada con una intención estructurada. Puede invocar `lookup_catalog`, una herramienta de solo lectura
+sobre la instantánea validada del feed, para responder preguntas sobre productos y precios
+observados; después puede elegir o aclarar entre candidatos que ya
 pasaron los filtros deterministas. No recibe datos de entrega, Bearer, secretos, token de pago,
 actor, Request ID, clave idempotente, fingerprint de aprobación ni acceso al método de completion.
 El navegador tampoco construye ni envía `PurchaseIntent`.
@@ -31,26 +35,33 @@ El navegador tampoco construye ni envía `PurchaseIntent`.
 ## Arquitectura
 
 ```text
-mensajes + vocabulario --> router --> responder | aclarar | intención
-                                                       |
-                                                       v
-feed validado --> ranking elegible --> selector LLM --> aclarar | candidato
-          |
-          v
-PurchaseService --> ACP create/update/get --> ready_for_payment
-          |
-          v
-resumen Human Present --> aprobación HMAC durable
-          |
-          v
-CompletionService --> GET + CAS --> proveedor: delegate_payment
-                              --> ACP complete --> merchant: proveedor /confirm --> orden
-                                               |
-merchant webhook --> HMAC + dedupe ------------+
+UI → FastAPI → LangGraph (thread_id y checkpoints SQLite)
+                interpretar → responder | aclarar | buscar catálogo
+                                               buscar → recuperar | elegir candidato
+                                                                   ↓
+                              ACP: preparar checkout → Human Present → pausa
+                                                                        ↓
+                              aprobación humana REST → reanudar → CompletionService
+                                                         ↓
+                              token delegado → ACP complete → orden del merchant
 ```
 
-SQLite demuestra autoridad y coordinación local. El package `commerce_agent` nunca importa
+Los nodos llaman a servicios tipados existentes. La única herramienta invocable por el modelo es
+`lookup_catalog`: no crea checkouts ni accede a pagos, aprobación o datos de entrega.
+LangGraph guarda el estado conversacional en un segundo archivo (por ejemplo,
+`.local/agent.db` → `.local/agent.graph.db`). La base principal sigue siendo la autoridad de compras,
+aprobaciones e idempotencia. El package `commerce_agent` nunca importa
 `commerce_lab` ni accede a la base de datos del merchant.
+
+La UI conserva `conversation_id` durante el montaje actual; una recarga inicia un hilo nuevo,
+pero recupera la compra pendiente y su tarjeta de aprobación desde el backend. No hay todavía una
+vista de historial completo de conversaciones.
+
+Para la demo pública sintética, Better Auth (`auth/`) ofrece acceso por correo y contraseña.
+La UI envía JWT cortos y la API valida identidad antes de cada conversación y operación de compra.
+Los IDs de hilo y turno se separan por comprador, y las compras se autorizan por propietario.
+El registro no verifica correos: no usar cuentas ni pagos reales. Véanse el
+[runbook de despliegue](docs/deployment-railway.md) y el [perfil AP2 Human Present](docs/ap2-profile.md).
 
 ## Desarrollo
 
@@ -68,6 +79,35 @@ uv build
 Las pruebas E2E quedan omitidas en la suite normal. Las unitarias y de contrato no requieren red,
 modelo ni merchant.
 
+## Inspección con LangGraph Studio
+
+Studio permite ver los nodos, las rutas y el estado de ejecución del mismo grafo. Usa un Agent Server
+local separado de FastAPI; sus hilos no son los de la UI y no comparte sus checkpoints. Esta
+configuración es deliberadamente de solo lectura: puede explorar el catálogo y ver la selección
+propuesta, pero nunca prepara un checkout ni completa una compra. Para probar la aprobación y el
+checkout se usa la UI/API del agente. Studio carga el feed al iniciar; reinícielo para ver cambios
+posteriores del merchant. La UI/API sí consulta una instantánea nueva antes de cada turno.
+
+Con `OPENAI_API_KEY`, `OPENAI_MODEL` y el merchant disponibles en `.env`:
+
+```sh
+LANGSMITH_TRACING=false uv run langgraph dev --no-browser --host 127.0.0.1 --port 2024
+```
+
+Abra [LangGraph Studio](https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024) y seleccione
+`commerce_agent`. Use la vista de grafo e ingrese, por ejemplo:
+
+```json
+{
+  "incoming_messages": [{"role": "user", "content": "¿Qué audífonos Sonora tienes?"}],
+  "turn_id": "demo-1"
+}
+```
+
+Para otro turno en el mismo hilo, envíe solo el nuevo mensaje de usuario y un `turn_id` nuevo.
+La CLI y su almacenamiento local se instalaron solo como dependencias de desarrollo. No exponga el
+servidor local fuera de `127.0.0.1`; `LANGSMITH_TRACING=false` evita subir trazas de prueba.
+
 ## Configuración local
 
 ```sh
@@ -82,8 +122,13 @@ Configure en `.env`:
 - `AGENT_APPROVAL_SECRET`: secreto independiente para vincular la aprobación.
 - `PAYMENT_PROVIDER_URL`: origen del proveedor sandbox independiente.
 - `PAYMENT_AGENT_BEARER_TOKEN`: credencial del agente ante ese proveedor, no ante el merchant.
-- `AGENT_DATABASE_PATH`: SQLite local.
-- `AGENT_FEED_PATH`: directorio con `metadata.json` y `products.jsonl`.
+- `AGENT_DATABASE_PATH`: SQLite local; los checkpoints se guardan en un segundo archivo con el
+  mismo nombre base y sufijo `.graph.db`.
+- `AGENT_FEED_SOURCE=merchant` (predeterminado): lee `GET /feeds/current` del merchant al
+  arrancar y antes de cada turno. El feed observado sirve para buscar y perfilar; el checkout
+  del merchant sigue siendo la autoridad de precio y stock. Si la publicación falla, el turno
+  falla cerrado. `AGENT_FEED_SOURCE=file` y `AGENT_FEED_PATH` quedan solo para pruebas con un
+  snapshot ACP fijado.
 - `AGENT_PRINCIPAL_ID`: identidad humana resuelta por el backend local.
 - `AGENT_UI_ORIGIN`: origen exacto autorizado para la interfaz web local.
 - `OPENAI_API_KEY`, `OPENAI_MODEL` y `OPENAI_TIMEOUT_SECONDS`: modelo conversacional que enruta la
@@ -107,13 +152,15 @@ uv run uvicorn commerce_agent.api:app_factory --factory --host 127.0.0.1 --port 
 
 Flujo:
 
-1. `POST /conversation/turn` recibe un `turn_id` idempotente, mensajes y datos de entrega. Una respuesta o aclaración no
+1. `POST /conversation/turn` recibe un `turn_id` idempotente, un `conversation_id` opcional,
+   mensajes y datos de entrega. Una respuesta o aclaración no
    contacta al merchant; una elección válida prepara el checkout y devuelve los términos Human
    Present en la misma operación. Si ningún producto pasa los filtros, el modelo explica alternativas
    reales del catálogo en vez de convertirlo en error HTTP.
 2. `GET /purchases/{run_id}/approval` permite volver a consultar los términos exactos.
-3. `POST /purchases/{run_id}/approval` recibe solo el fingerprint mostrado; el actor viene del
-   backend.
+3. `POST /purchases/{run_id}/approval` recibe el fingerprint mostrado y, si AP2 está activo, el
+   Checkout JWT asociado a esos términos; el actor viene del backend. El servidor vuelve a verificar el
+   checkout y firma los mandatos fuera del LLM.
 4. `POST /purchases/{run_id}/cancel` cancela un checkout que aún espera aprobación.
 5. `POST /purchases/{run_id}/complete` ejecuta el gateway determinista.
 6. `GET /purchases/{run_id}` consulta el estado local.
@@ -172,9 +219,30 @@ Bearer efímero para cada frontera, inicia ambos servicios, completa una compra 
 - `order_create` firmado;
 - `order_update` firmado y transición a `processing`.
 
+Para verificar además el perfil AP2 Human Present con claves efímeras, mandatos y recibos firmados:
+
+```sh
+uv run python scripts/run_joint_e2e.py --ap2 \
+  --merchant-repo ../tesis-commerce-merchant \
+  --payment-repo ../tesis-payment-provider-sandbox
+```
+
 Si PostgreSQL ya está levantado, agregue `--skip-postgres-start`. Los puertos se cambian con
 `--merchant-port`, `--payment-port` y `--webhook-port`. El checkout usa el reloj sintético del
 episodio; el runner sincroniza ese reloj con el proveedor.
+
+Para probar el recorrido AP2 desde un navegador real —registro, conversación con el LLM,
+aprobación explícita y orden sandbox— instale Chromium para Playwright (`uv run playwright
+install chromium`) y ejecute:
+
+```sh
+uv run python scripts/run_joint_e2e.py --ap2 --ui --skip-postgres-start \
+  --merchant-port 4125 --payment-port 4135 --webhook-port 43126 \
+  --agent-port 43125 --auth-port 4215 --ui-port 5175
+```
+
+El runner crea claves, cuentas y bases temporales. Los puertos alternos permiten mantener la demo
+local en ejecución; cambie cualquiera que esté ocupado. La prueba deja una captura en `../output/`.
 
 Para incluir la extracción de intención con el modelo OpenAI configurado en `.env`:
 

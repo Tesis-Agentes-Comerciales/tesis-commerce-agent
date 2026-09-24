@@ -4,6 +4,11 @@ import { defineConfig } from "vite"
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    proxy: {
+      "/api/auth": process.env.AUTH_DEV_UPSTREAM ?? "http://127.0.0.1:4210",
+    },
+  },
   build: {
     rollupOptions: {
       output: {

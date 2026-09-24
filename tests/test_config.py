@@ -41,3 +41,8 @@ def test_sandbox_clock_requires_an_explicit_timezone() -> None:
 
     with pytest.raises(ValidationError):
         Settings(agent_sandbox_clock_at="2026-09-10T14:05:00")  # type: ignore[arg-type]
+
+
+def test_local_feed_requires_an_explicit_path() -> None:
+    with pytest.raises(ValidationError, match="AGENT_FEED_PATH"):
+        Settings(agent_feed_source="file", agent_feed_path=None)

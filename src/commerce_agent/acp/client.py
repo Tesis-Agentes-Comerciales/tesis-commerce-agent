@@ -1,9 +1,11 @@
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import httpx
+import jwt
+from ap2.sdk.sdjwt import common
 from pydantic import SecretStr, ValidationError
 
 from commerce_agent.acp.models import (
@@ -85,10 +87,20 @@ class ACPClient:
         self,
         variant_id: str,
         *,
+        currency: str = "usd",
         idempotency_key: str,
         request_id: str | None = None,
     ) -> CheckoutSession:
-        request = CheckoutCreateRequest(line_items=[CheckoutItemRequest(id=variant_id)])
+        normalized_currency: Literal["usd", "cop"]
+        if currency.lower() == "usd":
+            normalized_currency = "usd"
+        elif currency.lower() == "cop":
+            normalized_currency = "cop"
+        else:
+            raise ValueError("Checkout currency is not supported")
+        request = CheckoutCreateRequest(
+            line_items=[CheckoutItemRequest(id=variant_id)], currency=normalized_currency
+        )
         return self._checkout_mutation(
             "POST",
             "/checkout_sessions",
@@ -105,6 +117,43 @@ class ACPClient:
             request_id=request_id,
         )
         return self._parse_checkout(payload)
+
+    def signed_checkout(self, checkout: CheckoutSession) -> str:
+        checked_id = self._identifier(checkout.id)
+        payload = self._request("GET", f"/checkout_sessions/{checked_id}/ap2/checkout-jwt")
+        token = payload.get("checkout_jwt")
+        if not isinstance(token, str) or len(token) > 32_768:
+            raise ACPClientError("Merchant returned an invalid AP2 checkout JWT")
+        self.verify_signed_checkout(token, checkout)
+        return token
+
+    def verify_signed_checkout(self, token: str, checkout: CheckoutSession) -> None:
+        try:
+            header = jwt.get_unverified_header(token)
+            if header.get("alg") != "ES256" or not isinstance(header.get("kid"), str):
+                raise ValueError("Unexpected AP2 checkout signing key")
+            jwks = self._request("GET", "/.well-known/ap2/jwks.json", authenticated=False)
+            keys = jwks.get("keys")
+            if not isinstance(keys, list):
+                raise ValueError("Merchant JWKS is invalid")
+            matches = [
+                key for key in keys if isinstance(key, dict) and key.get("kid") == header["kid"]
+            ]
+            if len(matches) != 1:
+                raise ValueError("Merchant AP2 key is not unique")
+            claims = jwt.decode(
+                token,
+                jwt.PyJWK.from_dict(matches[0]).key,
+                algorithms=["ES256"],
+                issuer=self._base_url,
+                audience="ap2-shopping-agent",
+                options={"require": ["iss", "aud", "iat", "exp", "jti", "checkout"]},
+            )
+            signed = CheckoutSession.model_validate(claims["checkout"])
+        except (jwt.PyJWTError, ValueError, TypeError, ValidationError) as error:
+            raise ACPClientError("Merchant AP2 checkout signature is invalid") from error
+        if signed != checkout:
+            raise ACPClientError("Merchant AP2 checkout no longer matches the current checkout")
 
     def update_checkout(
         self,
@@ -172,6 +221,72 @@ class ACPClient:
             return CheckoutSessionWithOrder.model_validate(payload)
         except (ACPContractError, ValidationError) as error:
             raise ACPClientError("Merchant returned an invalid completed checkout") from error
+
+    def complete_checkout_ap2(
+        self,
+        checkout_id: str,
+        payment_data: SandboxPaymentData,
+        checkout_mandate: str,
+        *,
+        idempotency_key: str,
+    ) -> tuple[CheckoutSessionWithOrder, str]:
+        checked_id = self._identifier(checkout_id)
+        request = CheckoutCompleteRequest(payment_data=payment_data).acp_payload()
+        validate_acp("CheckoutSessionCompleteRequest", request)
+        payload = self._request(
+            "POST",
+            f"/checkout_sessions/{checked_id}/ap2/complete",
+            json={
+                "payment_data": request["payment_data"],
+                "checkout_mandate": checkout_mandate,
+            },
+            idempotency_key=idempotency_key,
+        )
+        try:
+            checkout_data = payload["checkout"]
+            validate_acp("CheckoutSessionWithOrder", checkout_data)
+            completed = CheckoutSessionWithOrder.model_validate(checkout_data)
+            receipt = payload["checkout_receipt_jwt"]
+            if not isinstance(receipt, str) or len(receipt) > 16_384:
+                raise ValueError("Invalid AP2 checkout receipt")
+        except (KeyError, TypeError, ValueError, ACPContractError, ValidationError) as error:
+            raise ACPClientError("Merchant returned an invalid AP2 completion") from error
+        self.verify_checkout_receipt(receipt, checkout_mandate, completed.order.id)
+        return completed, receipt
+
+    def verify_checkout_receipt(self, receipt: str, mandate: str, order_id: str) -> None:
+        try:
+            header = jwt.get_unverified_header(receipt)
+            if header.get("alg") != "ES256" or not isinstance(header.get("kid"), str):
+                raise ValueError("Invalid AP2 receipt signing key")
+            jwks = self._request("GET", "/.well-known/ap2/jwks.json", authenticated=False)
+            keys = jwks.get("keys")
+            if not isinstance(keys, list):
+                raise ValueError("Invalid merchant JWKS")
+            matches = [
+                key for key in keys if isinstance(key, dict) and key.get("kid") == header["kid"]
+            ]
+            if len(matches) != 1:
+                raise ValueError("Unknown merchant receipt key")
+            claims = jwt.decode(
+                receipt,
+                jwt.PyJWK.from_dict(matches[0]).key,
+                algorithms=["ES256"],
+                issuer=self._base_url,
+                options={
+                    "verify_aud": False,
+                    "require": ["iss", "iat", "status", "reference", "order_id"],
+                },
+            )
+            expected = common.compute_sd_hash(common.parse_token(mandate))
+            if (
+                claims["status"] != "Success"
+                or claims["reference"] != expected
+                or claims["order_id"] != order_id
+            ):
+                raise ValueError("AP2 checkout receipt does not match the purchase")
+        except (jwt.PyJWTError, KeyError, TypeError, ValueError) as error:
+            raise ACPClientError("Merchant AP2 checkout receipt is invalid") from error
 
     def _checkout_mutation(
         self,

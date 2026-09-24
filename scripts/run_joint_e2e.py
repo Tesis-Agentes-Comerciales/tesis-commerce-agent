@@ -16,6 +16,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from jwcrypto.jwk import JWK
+
 
 class HarnessError(RuntimeError):
     pass
@@ -69,6 +73,21 @@ def _wait_until_ready(url: str, process: subprocess.Popen[str], timeout_seconds:
     raise HarnessError(f"Service readiness check timed out: {url}")
 
 
+def _wait_http(url: str, process: subprocess.Popen[str], timeout_seconds: float) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise HarnessError(f"Service stopped before becoming ready: {url}")
+        try:
+            with urllib.request.urlopen(url, timeout=1) as response:
+                if response.status == 200:
+                    return
+        except (OSError, urllib.error.URLError):
+            pass
+        time.sleep(0.25)
+    raise HarnessError(f"Service readiness check timed out: {url}")
+
+
 def _terminate(process: subprocess.Popen[str]) -> None:
     if process.poll() is not None:
         return
@@ -112,11 +131,34 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Use the configured OpenAI model for the conversational scenario.",
     )
+    parser.add_argument(
+        "--ap2",
+        action="store_true",
+        help="Run the signed AP2 Human Present path instead of the legacy ACP path.",
+    )
+    parser.add_argument("--ui", action="store_true", help="Exercise AP2 through the React UI.")
+    parser.add_argument("--ui-port", type=int, default=5175)
+    parser.add_argument("--auth-port", type=int, default=4215)
+    parser.add_argument("--agent-port", type=int, default=43125)
     return parser
+
+
+def _ap2_private_key() -> str:
+    return (
+        ec.generate_private_key(ec.SECP256R1())
+        .private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        .decode()
+    )
 
 
 def main() -> int:
     arguments = _parser().parse_args()
+    if arguments.ui and not arguments.ap2:
+        raise HarnessError("--ui requires --ap2")
     agent = Path(__file__).resolve().parents[1]
     merchant = arguments.merchant_repo.resolve()
     payment = arguments.payment_repo.resolve()
@@ -143,6 +185,26 @@ def main() -> int:
             "no_proxy": "127.0.0.1,localhost",
         }
     )
+    if arguments.ap2:
+        agent_key = _ap2_private_key()
+        merchant_key = _ap2_private_key()
+        payment_key = _ap2_private_key()
+        agent_jwk = JWK.from_pem(agent_key.encode()).export_public()
+        merchant_jwk = JWK.from_pem(merchant_key.encode()).export_public()
+        environment.update(
+            {
+                "AGENT_AP2_REQUIRED": "true",
+                "AGENT_AP2_PRIVATE_KEY_PEM": agent_key,
+                "MERCHANT_AP2_REQUIRED": "true",
+                "MERCHANT_AP2_PRIVATE_KEY_PEM": merchant_key,
+                "MERCHANT_AP2_AGENT_JWK_JSON": agent_jwk,
+                "PAYMENT_AP2_REQUIRED": "true",
+                "PAYMENT_AP2_AGENT_JWK_JSON": agent_jwk,
+                "PAYMENT_AP2_MERCHANT_JWK_JSON": merchant_jwk,
+                "PAYMENT_AP2_MERCHANT_ISSUER": environment["ACP_API_BASE_URL"],
+                "PAYMENT_AP2_PRIVATE_KEY_PEM": payment_key,
+            }
+        )
     _run(["uv", "sync", "--frozen", "--all-groups"], cwd=merchant, env=environment)
     _run(["uv", "sync", "--frozen", "--all-groups"], cwd=payment, env=environment)
     if not arguments.skip_postgres_start:
@@ -178,7 +240,24 @@ def main() -> int:
         temp = Path(temporary)
         feed = temp / "feed"
         environment["AGENT_DATABASE_PATH"] = str(temp / "agent.db")
+        environment["AGENT_FEED_PATH"] = str(feed)
         environment["PAYMENT_DATABASE_PATH"] = str(temp / "payments.db")
+        if arguments.ui:
+            ui_origin = f"http://127.0.0.1:{arguments.ui_port}"
+            environment.update(
+                {
+                    "AGENT_AUTH_MODE": "jwt",
+                    "AGENT_AUTH_ISSUER": ui_origin,
+                    "AGENT_UI_ORIGIN": ui_origin,
+                    "BETTER_AUTH_URL": ui_origin,
+                    "BETTER_AUTH_SECRET": secrets.token_urlsafe(32),
+                    "AUTH_DATABASE_PATH": str(temp / "auth.db"),
+                    "PORT": str(arguments.auth_port),
+                    "AUTH_DEV_UPSTREAM": f"http://127.0.0.1:{arguments.auth_port}",
+                    "VITE_AGENT_API_URL": f"http://127.0.0.1:{arguments.agent_port}",
+                    "UI_AP2_SMOKE_URL": ui_origin,
+                }
+            )
         _run(
             [
                 "uv",
@@ -228,6 +307,8 @@ def main() -> int:
         )
         if arguments.live_llm:
             environment["RUN_LIVE_LLM"] = "1"
+        if arguments.ap2:
+            environment["RUN_JOINT_AP2_E2E"] = "1"
         if os.getenv("GITHUB_ACTIONS") == "true":
             print(f"::add-mask::{token}")
 
@@ -283,8 +364,94 @@ def main() -> int:
                     process,
                     timeout_seconds=30,
                 )
+                if arguments.ui:
+                    extra_processes: list[subprocess.Popen[str]] = []
+                    extra_logs = []
+                    try:
+                        for name, command, cwd, port in (
+                            (
+                                "auth",
+                                ["node", "server.js"],
+                                agent / "auth",
+                                arguments.auth_port,
+                            ),
+                            (
+                                "agent",
+                                [
+                                    "uv",
+                                    "run",
+                                    "uvicorn",
+                                    "commerce_agent.api:app_factory",
+                                    "--factory",
+                                    "--host",
+                                    "127.0.0.1",
+                                    "--port",
+                                    str(arguments.agent_port),
+                                ],
+                                agent,
+                                arguments.agent_port,
+                            ),
+                            (
+                                "ui",
+                                [
+                                    "node",
+                                    "node_modules/vite/bin/vite.js",
+                                    "--host",
+                                    "127.0.0.1",
+                                    "--port",
+                                    str(arguments.ui_port),
+                                    "--strictPort",
+                                ],
+                                agent / "ui",
+                                arguments.ui_port,
+                            ),
+                        ):
+                            log_file = (temp / f"{name}.log").open("w", encoding="utf-8")
+                            extra_logs.append(log_file)
+                            extra_processes.append(
+                                subprocess.Popen(
+                                    command,
+                                    cwd=cwd,
+                                    env=environment,
+                                    text=True,
+                                    stdout=log_file,
+                                    stderr=subprocess.STDOUT,
+                                )
+                            )
+                            ready_url = (
+                                f"http://127.0.0.1:{port}/health"
+                                if name == "agent"
+                                else f"http://127.0.0.1:{port}/"
+                            )
+                            if name == "agent":
+                                _wait_until_ready(ready_url, extra_processes[-1], 30)
+                            elif name == "ui":
+                                _wait_http(ready_url, extra_processes[-1], 30)
+                            else:
+                                _wait_http(
+                                    f"http://127.0.0.1:{port}/api/auth/jwks",
+                                    extra_processes[-1],
+                                    30,
+                                )
+                        _run(
+                            ["uv", "run", "python", "tests/e2e/ui_ap2_smoke.py"],
+                            cwd=agent,
+                            env=environment,
+                        )
+                    finally:
+                        for extra_process in reversed(extra_processes):
+                            _terminate(extra_process)
+                        for extra_log in extra_logs:
+                            extra_log.close()
+                    return 0
                 _run(
-                    ["uv", "run", "pytest", "tests/e2e", "-q"],
+                    [
+                        "uv",
+                        "run",
+                        "pytest",
+                        "tests/e2e/test_ap2_joint_purchase.py" if arguments.ap2 else "tests/e2e",
+                        "-q",
+                    ],
                     cwd=agent,
                     env=environment,
                 )
@@ -300,6 +467,9 @@ def main() -> int:
                         environment["PAYMENT_AGENT_BEARER_TOKEN"],
                         environment["PAYMENT_MERCHANT_BEARER_TOKEN"],
                         environment["PAYMENT_TOKEN_SECRET"],
+                        environment.get("AGENT_AP2_PRIVATE_KEY_PEM", ""),
+                        environment.get("MERCHANT_AP2_PRIVATE_KEY_PEM", ""),
+                        environment.get("PAYMENT_AP2_PRIVATE_KEY_PEM", ""),
                     ),
                 )
                 if safe_log:
@@ -312,6 +482,9 @@ def main() -> int:
                         environment["PAYMENT_AGENT_BEARER_TOKEN"],
                         environment["PAYMENT_MERCHANT_BEARER_TOKEN"],
                         environment["PAYMENT_TOKEN_SECRET"],
+                        environment.get("AGENT_AP2_PRIVATE_KEY_PEM", ""),
+                        environment.get("MERCHANT_AP2_PRIVATE_KEY_PEM", ""),
+                        environment.get("PAYMENT_AP2_PRIVATE_KEY_PEM", ""),
                     ),
                 )
                 if safe_payment_log:

@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from commerce_agent.acp import ACPClientError
+from commerce_agent.acp import ACPClientError, ProductFeedError
 from commerce_agent.acp.feed import ProductCandidate
 from commerce_agent.api import create_app, error_response
 from commerce_agent.config import Settings
@@ -21,6 +22,17 @@ from commerce_agent.llm import (
 )
 
 FEED = Path(__file__).parent / "fixtures" / "feed"
+
+
+def test_unavailable_merchant_feed_has_safe_service_error() -> None:
+    response = error_response(
+        ProductFeedError("bad product with untrusted details", code="invalid_product")
+    )
+    assert response.status_code == 503
+    assert json.loads(bytes(response.body)) == {
+        "code": "catalog_unavailable",
+        "message": "El catálogo del comercio no está disponible en este momento.",
+    }
 
 
 def test_merchant_request_id_is_exposed_without_merchant_error_text() -> None:
@@ -252,6 +264,7 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
         payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=tmp_path / "agent.db",
+        agent_feed_source="file",
         agent_feed_path=FEED,
         agent_principal_id="human-api-1",
     )
@@ -291,6 +304,7 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
             "/conversation/turn",
             json={
                 "turn_id": "turn-api-purchase",
+                "conversation_id": "conversation-api",
                 "messages": [{"role": "user", "content": "Quiero los audífonos disponibles"}],
                 "details": checkout_details(),
             },
@@ -307,6 +321,7 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
             "/conversation/turn",
             json={
                 "turn_id": "turn-api-purchase",
+                "conversation_id": "conversation-api",
                 "messages": [{"role": "user", "content": "Quiero los audífonos disponibles"}],
                 "details": checkout_details(),
             },
@@ -314,6 +329,34 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
         assert replay.status_code == 200
         assert replay.json() == payload
         assert router.route_calls == 1
+
+        pending_turn = client.post(
+            "/conversation/turn",
+            json={
+                "turn_id": "turn-api-pending",
+                "conversation_id": "conversation-api",
+                "messages": [{"role": "user", "content": "También quiero otros audífonos"}],
+                "details": checkout_details(),
+            },
+        )
+        assert pending_turn.status_code == 200
+        assert pending_turn.json()["action"] == "clarify"
+        assert router.route_calls == 1
+
+        other_thread = client.post(
+            "/conversation/turn",
+            json={
+                "turn_id": "turn-api-other-thread",
+                "conversation_id": "conversation-other",
+                "messages": [{"role": "user", "content": "También quiero otros audífonos"}],
+                "details": checkout_details(),
+            },
+        )
+        assert other_thread.status_code == 200
+        assert other_thread.json() == pending_turn.json()
+        assert router.route_calls == 1
+        with sqlite3.connect(tmp_path / "agent.db") as connection:
+            assert connection.execute("SELECT COUNT(*) FROM purchases").fetchone() == (1,)
 
         blocked = client.post(f"/purchases/{run_id}/complete")
         assert blocked.status_code == 409
@@ -337,6 +380,12 @@ def test_api_exposes_explicit_human_gate_before_completion(tmp_path: Path) -> No
         assert completion.json()["order"]["id"] == "ord_api_1"
         assert client.get(f"/purchases/{run_id}").json()["stage"] == "completed"
 
+    with sqlite3.connect(tmp_path / "agent.graph.db") as connection:
+        completed_nodes = connection.execute(
+            "SELECT COUNT(*) FROM writes WHERE channel = 'completion_result'"
+        ).fetchone()
+    assert completed_nodes == (1,)
+
 
 def test_conversation_turn_can_reply_without_contacting_merchant(tmp_path: Path) -> None:
     def unexpected_request(_: httpx.Request) -> httpx.Response:
@@ -348,6 +397,7 @@ def test_conversation_turn_can_reply_without_contacting_merchant(tmp_path: Path)
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
         payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=tmp_path / "agent.db",
+        agent_feed_source="file",
         agent_feed_path=FEED,
     )
     router = StubConversationRouter(
@@ -423,6 +473,7 @@ def test_pending_purchase_can_be_canceled_through_api(tmp_path: Path) -> None:
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
         payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=tmp_path / "agent.db",
+        agent_feed_source="file",
         agent_feed_path=FEED,
     )
     router = StubConversationRouter(
@@ -453,12 +504,32 @@ def test_pending_purchase_can_be_canceled_through_api(tmp_path: Path) -> None:
             },
         )
         run_id = prepared.json()["purchase"]["run_id"]
+        blocked_body = {
+            "turn_id": "turn-api-after-cancel",
+            "conversation_id": "conversation-after-cancel",
+            "messages": [{"role": "user", "content": "¿Qué más tienes?"}],
+            "details": checkout_details(),
+        }
+        blocked = client.post("/conversation/turn", json=blocked_body)
+        assert blocked.status_code == 200
+        assert blocked.json()["action"] == "clarify"
+        assert router.route_calls == 1
         response = client.post(f"/purchases/{run_id}/cancel")
         replay = client.post(f"/purchases/{run_id}/cancel")
+        router.decision = CommerceDecision(action="respond", assistant_message="Podemos seguir.")
+        after_cancel = client.post("/conversation/turn", json=blocked_body)
 
     assert response.status_code == 200
     assert response.json()["stage"] == "canceled"
     assert replay.status_code == 200
+    assert after_cancel.status_code == 200
+    assert after_cancel.json()["action"] == "respond"
+    assert router.route_calls == 2
+    with sqlite3.connect(tmp_path / "agent.graph.db") as connection:
+        resumed_nodes = connection.execute(
+            "SELECT COUNT(*) FROM writes WHERE channel = 'approval_action'"
+        ).fetchone()
+    assert resumed_nodes == (1,)
 
 
 def test_candidate_choice_can_ask_for_clarification_without_checkout(tmp_path: Path) -> None:
@@ -471,6 +542,7 @@ def test_candidate_choice_can_ask_for_clarification_without_checkout(tmp_path: P
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
         payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=tmp_path / "agent.db",
+        agent_feed_source="file",
         agent_feed_path=FEED,
     )
     router = StubConversationRouter(
@@ -519,6 +591,7 @@ def test_no_candidate_returns_catalog_alternatives_instead_of_an_error(tmp_path:
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
         payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=tmp_path / "agent.db",
+        agent_feed_source="file",
         agent_feed_path=FEED,
     )
     intent = PurchaseIntent.model_validate({"hard": {"max_unit_amount_minor": 1}})

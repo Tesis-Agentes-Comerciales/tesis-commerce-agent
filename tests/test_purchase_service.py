@@ -23,7 +23,9 @@ class FakeCheckoutGateway:
             status="not_ready_for_payment", total=total, unit_amount=unit_amount
         )
 
-    def create_checkout(self, variant_id: str, *, idempotency_key: str) -> CheckoutSession:
+    def create_checkout(
+        self, variant_id: str, *, currency: str, idempotency_key: str
+    ) -> CheckoutSession:
         self.calls.append(("create", idempotency_key))
         assert variant_id == "SON-01"
         return self.current
@@ -31,6 +33,12 @@ class FakeCheckoutGateway:
     def get_checkout(self, checkout_id: str) -> CheckoutSession:
         self.calls.append(("get", checkout_id))
         return self.current
+
+    def signed_checkout(self, checkout: CheckoutSession) -> str:
+        raise AssertionError("Legacy tests must not request AP2 checkout")
+
+    def verify_signed_checkout(self, token: str, checkout: CheckoutSession) -> None:
+        raise AssertionError("Legacy tests must not verify AP2 checkout")
 
     def update_checkout(self, checkout_id, update, *, idempotency_key):
         self.calls.append(("update", idempotency_key))
@@ -141,6 +149,23 @@ def test_purchase_reaches_human_confirmation_with_backend_only_details(tmp_path:
     assert "buyer@example.test" not in repr(result.selected_candidate)
 
 
+def test_checkout_currency_must_match_feed_candidate(tmp_path: Path) -> None:
+    gateway = FakeCheckoutGateway()
+    gateway.current = gateway.current.model_copy(update={"currency": "cop"})
+    service, store = make_service(tmp_path, gateway)
+
+    with pytest.raises(PurchaseServiceError) as captured:
+        service.start(
+            run_id="run-currency",
+            request="buy headphones",
+            intent=PurchaseIntent(),
+            selected_variant_id="SON-01",
+            details=details(),
+        )
+    assert captured.value.code == "checkout_mismatch"
+    assert store.purchase("run-currency")["stage"] == "failed"  # type: ignore[index]
+
+
 def test_authoritative_total_above_hard_budget_cancels(tmp_path: Path) -> None:
     gateway = FakeCheckoutGateway(total=90_000)
     service, store = make_service(tmp_path, gateway)
@@ -156,6 +181,71 @@ def test_authoritative_total_above_hard_budget_cancels(tmp_path: Path) -> None:
     assert captured.value.code == "budget_exceeded"
     assert store.purchase("run-1")["stage"] == "canceled"  # type: ignore[index]
     assert [call[0] for call in gateway.calls] == ["create", "cancel"]
+
+
+def test_total_increase_after_delivery_update_cancels_before_approval(tmp_path: Path) -> None:
+    gateway = FakeCheckoutGateway()
+    gateway.total = 90_000
+    service, store = make_service(tmp_path, gateway)
+
+    with pytest.raises(PurchaseServiceError) as captured:
+        service.start(
+            run_id="run-1",
+            request="under budget including delivery",
+            intent=PurchaseIntent(hard=HardConstraints(max_total_amount_minor=80_000)),
+            selected_variant_id="SON-01",
+            details=details(),
+        )
+
+    assert captured.value.code == "budget_exceeded"
+    assert store.purchase("run-1")["stage"] == "canceled"  # type: ignore[index]
+    assert [call[0] for call in gateway.calls] == ["create", "update", "get", "cancel"]
+
+
+def test_update_cannot_switch_to_another_checkout(tmp_path: Path) -> None:
+    class SwappedCheckoutGateway(FakeCheckoutGateway):
+        def update_checkout(self, checkout_id, update, *, idempotency_key):
+            updated = super().update_checkout(checkout_id, update, idempotency_key=idempotency_key)
+            return updated.model_copy(update={"id": "cs_other"})
+
+    gateway = SwappedCheckoutGateway()
+    service, store = make_service(tmp_path, gateway)
+
+    with pytest.raises(PurchaseServiceError) as captured:
+        service.start(
+            run_id="run-1",
+            request="buy",
+            intent=PurchaseIntent(),
+            selected_variant_id="SON-01",
+            details=details(),
+        )
+
+    assert captured.value.code == "checkout_mismatch"
+    assert store.purchase("run-1")["stage"] == "failed"  # type: ignore[index]
+    assert [call[0] for call in gateway.calls] == ["create", "update"]
+
+
+def test_checkout_cannot_add_another_item_after_delivery_update(tmp_path: Path) -> None:
+    class ExtraItemGateway(FakeCheckoutGateway):
+        def get_checkout(self, checkout_id: str) -> CheckoutSession:
+            current = super().get_checkout(checkout_id)
+            extra = {**current.line_items[0], "id": "li_extra", "item": {"id": "OTHER"}}
+            return current.model_copy(update={"line_items": [*current.line_items, extra]})
+
+    gateway = ExtraItemGateway()
+    service, store = make_service(tmp_path, gateway)
+
+    with pytest.raises(PurchaseServiceError) as captured:
+        service.start(
+            run_id="run-1",
+            request="buy one pair",
+            intent=PurchaseIntent(),
+            selected_variant_id="SON-01",
+            details=details(),
+        )
+
+    assert captured.value.code == "checkout_mismatch"
+    assert store.purchase("run-1")["stage"] == "failed"  # type: ignore[index]
 
 
 def test_feed_price_change_is_reported_but_checkout_remains_authoritative(tmp_path: Path) -> None:

@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 from fastapi import FastAPI
@@ -19,6 +19,7 @@ from pydantic import SecretStr
 
 from commerce_agent.acp.feed import ProductCandidate
 from commerce_agent.api import create_app
+from commerce_agent.buyer_auth import BuyerAuthenticator
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
 from commerce_agent.llm import (
@@ -270,6 +271,7 @@ def settings(database: Path) -> Settings:
         agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
         payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
         agent_database_path=database,
+        agent_feed_source="file",
         agent_feed_path=ASSISTANT_FEED,
         merchant_base_url=MERCHANT_ORIGIN,
     )
@@ -280,6 +282,7 @@ def build_app(
     *,
     router: Any | None = None,
     merchant: Merchant | None = None,
+    buyer_authenticator: BuyerAuthenticator | None = None,
 ) -> FastAPI:
     return create_app(
         settings=settings(database),
@@ -289,6 +292,7 @@ def build_app(
         ),
         conversation_router=router if router is not None else ScriptedRouter(),
         id_factory=counter_ids(),
+        buyer_authenticator=buyer_authenticator,
     )
 
 
@@ -338,7 +342,12 @@ def assistant_body(
     }
 
 
-def sse_body(response: httpx.Response) -> str:
+class TextResponse(Protocol):
+    @property
+    def text(self) -> str: ...
+
+
+def sse_body(response: TextResponse) -> str:
     """Response body without heartbeat comments, so it is byte-for-byte reproducible."""
     events = [event for event in response.text.split("\n\n") if event and event != ": heartbeat"]
     return "".join(f"{event}\n\n" for event in events)

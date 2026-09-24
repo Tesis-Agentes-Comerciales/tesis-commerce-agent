@@ -16,16 +16,19 @@ from uuid import uuid4
 
 from assistant_stream import RunController, create_run
 from assistant_stream.serialization import AssistantTransportResponse
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from commerce_agent.acp.feed import ProductFeedError
 from commerce_agent.application import CheckoutDetails
 from commerce_agent.application.conversation import (
+    PENDING_PURCHASE_MESSAGE,
     ConversationService,
     StepName,
     request_sha256,
 )
+from commerce_agent.buyer_auth import BuyerPrincipal
 from commerce_agent.llm import ConversationMessage
 
 logger = logging.getLogger(__name__)
@@ -37,7 +40,7 @@ MAX_DISPLAY_MESSAGES = 200
 MAX_COMMANDS = 8
 RUN_ID_PATTERN = r"^run_[A-Za-z0-9_-]{1,128}$"
 
-GUARD_TEXT = "Ya hay una compra pendiente. Revísala o cancélala antes de iniciar otra."
+GUARD_TEXT = PENDING_PURCHASE_MESSAGE
 PRICE_CHANGED_NOTE = "El precio cambió frente al feed; usé el total actual del checkout."
 DEFAULT_ERROR = "Ocurrió un error inesperado."
 CANCELLED_STEP = "Se canceló la solicitud."
@@ -53,6 +56,7 @@ ERROR_MESSAGES = {
     "invalid_item": "El producto ya no está disponible en el comercio.",
     "PROVIDER_UNAVAILABLE": "El proveedor de pagos del comercio no está disponible.",
     "http_error": "El ecommerce no pudo procesar la solicitud.",
+    "catalog_unavailable": "El catálogo del comercio no está disponible en este momento.",
     "turn_conflict": "Este envío ya se procesó con otro contenido. Escribe el mensaje de nuevo.",
     "purchase_not_found": "No encontré esa compra.",
 }
@@ -144,6 +148,7 @@ class AssistantRequest(BaseModel):
 
     commands: list[Command] = Field(min_length=1, max_length=MAX_COMMANDS)
     turn_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+    conversation_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,128}$")
     details: CheckoutDetails | None = None
     state: Any = None
 
@@ -438,6 +443,8 @@ def apply_operations(controller: RunController, operations: list[Operation]) -> 
 
 
 def _error_code(error: BaseException) -> str | None:
+    if isinstance(error, ProductFeedError):
+        return "catalog_unavailable"
     code = getattr(error, "code", None)
     return code if isinstance(code, str) else None
 
@@ -447,12 +454,16 @@ class AssistantTransport:
         self._service = service
         self._new_id = new_id
 
-    async def run(self, controller: RunController, request: AssistantRequest) -> None:
+    async def run(
+        self, controller: RunController, request: AssistantRequest, owner_id: str = "local-human"
+    ) -> None:
         """Run callback for `create_run`. It never raises, so no raw error reaches the client."""
         recorder: AssistantMessageRecorder | None = None
         try:
             messages, claimed_run_id = sanitize_state(request.state, self._new_id)
-            purchase = await asyncio.to_thread(self._restore_state, messages, claimed_run_id)
+            purchase = await asyncio.to_thread(
+                self._restore_state, messages, claimed_run_id, owner_id
+            )
             controller.state = {"messages": messages, "purchase": purchase}
             controller.flush()
             add_messages = 0
@@ -465,10 +476,12 @@ class AssistantTransport:
                         else f"{request.turn_id}:{add_messages}"
                     )
                     add_messages += 1
-                    await self._add_message(controller, command, request.details, key)
+                    await self._add_message(
+                        controller, command, request.details, key, request.conversation_id, owner_id
+                    )
                 elif isinstance(command, PurchaseUpdatedCommand):
                     recorder = self._direct_recorder(controller)
-                    await self._purchase_updated(recorder, command.runId)
+                    await self._purchase_updated(recorder, command.runId, owner_id)
                     recorder = None
         except asyncio.CancelledError:
             raise
@@ -490,21 +503,23 @@ class AssistantTransport:
             emit=lambda operations: apply_operations(controller, operations),
         )
 
-    def _verified_purchase(self, run_id: str | None) -> dict[str, Any] | None:
-        return self._service.purchase_view(run_id) if run_id is not None else None
+    def _verified_purchase(self, run_id: str | None, owner_id: str) -> dict[str, Any] | None:
+        return self._service.purchase_view(run_id, owner_id) if run_id is not None else None
 
     def _restore_state(
-        self, messages: list[dict[str, Any]], claimed_run_id: str | None
+        self, messages: list[dict[str, Any]], claimed_run_id: str | None, owner_id: str
     ) -> dict[str, Any] | None:
         """Reemplaza por datos de SQLite lo que el cliente devolvió y la UI usa como autoritativo.
 
         Corre en un hilo porque toca la base. El `run_id` que declara el cliente solo se usa como
         pista: si no señala ninguna compra, se muestra la pendiente que haya en SQLite.
         """
-        self._restore_approval_parts(messages)
-        return self._verified_purchase(claimed_run_id) or self._service.pending_purchase_view()
+        self._restore_approval_parts(messages, owner_id)
+        return self._verified_purchase(
+            claimed_run_id, owner_id
+        ) or self._service.pending_purchase_view(owner_id)
 
-    def _restore_approval_parts(self, messages: list[dict[str, Any]]) -> None:
+    def _restore_approval_parts(self, messages: list[dict[str, Any]], owner_id: str) -> None:
         """Repinta cada `request_approval` con los términos guardados, no con los del cliente."""
         parts = [
             part
@@ -515,10 +530,10 @@ class AssistantTransport:
             and "result" in part
         ]
         run_ids = sorted({run_id for part in parts if (run_id := _approval_run_id(part))})
-        snapshots = self._service.approval_terms_snapshots(run_ids)
+        snapshots = self._service.approval_terms_snapshots(run_ids, owner_id)
         for part in parts:
             run_id = _approval_run_id(part)
-            view = self._verified_purchase(run_id)
+            view = self._verified_purchase(run_id, owner_id)
             terms = snapshots.get(run_id) if run_id is not None else None
             if run_id is None or view is None or terms is None:
                 part["result"] = {
@@ -534,9 +549,11 @@ class AssistantTransport:
             part["result"] = {"run_id": run_id, "stage": view["stage"], "terms": terms}
             part["isError"] = False
 
-    async def _purchase_updated(self, recorder: AssistantMessageRecorder, run_id: str) -> None:
+    async def _purchase_updated(
+        self, recorder: AssistantMessageRecorder, run_id: str, owner_id: str
+    ) -> None:
         recorder.step_started("purchase_update", {"run_id": run_id})
-        view = await asyncio.to_thread(self._service.purchase_view, run_id)
+        view = await asyncio.to_thread(self._service.purchase_view, run_id, owner_id)
         if view is None:
             recorder.fail("purchase_not_found")
             return
@@ -551,6 +568,8 @@ class AssistantTransport:
         command: AddMessageCommand,
         details: CheckoutDetails,
         key: str,
+        conversation_id: str | None,
+        owner_id: str,
     ) -> None:
         text = command.message.text
         state = controller.state
@@ -570,13 +589,22 @@ class AssistantTransport:
                 "endpoint": "assistant",
                 "messages": [message.model_dump(mode="json") for message in history],
                 "details": details.model_dump(mode="json"),
+                "conversation_id": conversation_id,
             }
         )
         index = len(display) + 1
         await self._pump(
             controller,
             lambda emit, cancelled: self._turn_worker(
-                emit, cancelled, index, history, details, key, fingerprint
+                emit,
+                cancelled,
+                index,
+                history,
+                details,
+                key,
+                fingerprint,
+                conversation_id,
+                owner_id,
             ),
         )
 
@@ -624,6 +652,8 @@ class AssistantTransport:
         details: CheckoutDetails,
         key: str,
         fingerprint: str,
+        conversation_id: str | None,
+        owner_id: str,
     ) -> None:
         recorder = AssistantMessageRecorder(
             index=index, new_id=self._new_id, emit=emit, cancelled=cancelled
@@ -632,16 +662,24 @@ class AssistantTransport:
 
         def precheck() -> dict[str, Any] | None:
             # La compra pendiente se busca en SQLite: el cliente no elige cuál se verifica.
-            view = service.pending_purchase_view()
-            if view is None:
+            guarded = service.pending_purchase_guard(owner_id)
+            if guarded is None:
                 return None
-            recorder.text(GUARD_TEXT)
+            view, response = guarded
+            recorder.text(response.assistant_message)
             recorder.complete()
             return {"message": recorder.message, "run_id": view["run_id"]}
 
         def compute() -> dict[str, Any]:
             recorder.start()
-            response = service.execute(history, details, turn_id=key, observer=recorder)
+            response = service.execute(
+                history,
+                details,
+                turn_id=key,
+                conversation_id=conversation_id,
+                observer=recorder,
+                owner_id=owner_id,
+            )
             run_id = None
             text = response.assistant_message
             if response.purchase is not None:
@@ -651,17 +689,19 @@ class AssistantTransport:
                     text = f"{text}\n\n{PRICE_CHANGED_NOTE}"
             recorder.text(text)
             if run_id is not None:
-                recorder.set_purchase(service.purchase_view(run_id))
+                recorder.set_purchase(service.purchase_view(run_id, owner_id))
             recorder.complete()
             return {"message": recorder.message, "run_id": run_id}
 
         try:
-            payload, replayed = service.run_idempotent(key, fingerprint, compute, precheck=precheck)
+            payload, replayed = service.run_idempotent(
+                key, fingerprint, compute, precheck=precheck, owner_id=owner_id
+            )
             if replayed:
                 recorder.replay(payload["message"])
                 run_id = payload.get("run_id")
                 if isinstance(run_id, str):
-                    recorder.set_purchase(service.purchase_view(run_id))
+                    recorder.set_purchase(service.purchase_view(run_id, owner_id))
         except TurnCancelled:
             recorder.cancel()
         except Exception as error:
@@ -680,11 +720,18 @@ def register_assistant_transport(
     *,
     service: ConversationService,
     new_id: IdFactory = default_id_factory,
+    current_buyer: Callable[..., BuyerPrincipal] | None = None,
 ) -> AssistantTransport:
     transport = AssistantTransport(service, new_id=new_id)
 
+    def local_buyer() -> BuyerPrincipal:
+        return BuyerPrincipal("local-human")
+
     @app.post("/assistant")
-    async def assistant(request: Request) -> Response:
+    async def assistant(
+        request: Request,
+        buyer: Annotated[BuyerPrincipal, Depends(current_buyer or local_buyer)],
+    ) -> Response:
         declared = request.headers.get("content-length")
         if declared is not None and (not declared.isdigit() or int(declared) > MAX_BODY_BYTES):
             return _rejection(413, "request_too_large", "La solicitud es demasiado grande.")
@@ -700,7 +747,7 @@ def register_assistant_transport(
             return _rejection(422, "invalid_request", "La solicitud no es válida.")
 
         async def callback(controller: RunController) -> None:
-            await transport.run(controller, parsed)
+            await transport.run(controller, parsed, buyer.id)
 
         return AssistantTransportResponse(create_run(callback, state=None))
 

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "dependencies": ["."],
+  "graphs": {
+    "commerce_agent": "commerce_agent.studio:make_graph"
+  },
+  "python_version": "3.12"
+}

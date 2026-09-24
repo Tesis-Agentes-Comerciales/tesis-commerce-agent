@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,11 +55,16 @@ class Settings(BaseSettings):
     merchant_webhook_secret: SecretStr | None = Field(default=None, repr=False)
     merchant_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     agent_approval_secret: SecretStr | None = Field(default=None, repr=False)
+    agent_ap2_required: bool = False
+    agent_ap2_private_key_pem: SecretStr | None = Field(default=None, repr=False)
     payment_provider_url: str = "http://127.0.0.1:4130"
     payment_agent_bearer_token: SecretStr | None = Field(default=None, repr=False)
     agent_database_path: Path = Path(".local/agent.db")
-    agent_feed_path: Path = Path("artifacts/feed/p0")
+    agent_feed_source: Literal["merchant", "file"] = "merchant"
+    agent_feed_path: Path | None = None
     agent_principal_id: str = Field(default="local-human", min_length=1, max_length=128)
+    agent_auth_mode: Literal["local", "jwt"] = "local"
+    agent_auth_issuer: str | None = None
     agent_ui_origin: str = "http://127.0.0.1:5173"
     agent_sandbox_clock_at: datetime | None = None
     openai_api_key: SecretStr | None = Field(default=None, repr=False)
@@ -89,6 +94,20 @@ class Settings(BaseSettings):
         if value is not None and value.tzinfo is None:
             raise ValueError("Sandbox clock must include a timezone")
         return value
+
+    @model_validator(mode="after")
+    def validate_authentication(self) -> "Settings":
+        if self.agent_feed_source == "file" and self.agent_feed_path is None:
+            raise ValueError("AGENT_FEED_PATH is required when AGENT_FEED_SOURCE=file")
+        if self.agent_ap2_required and self.agent_auth_mode != "jwt":
+            raise ValueError("AP2 Human Present requires authenticated buyers")
+        if self.agent_ap2_required and self.agent_ap2_private_key_pem is None:
+            raise ValueError("AGENT_AP2_PRIVATE_KEY_PEM is required for AP2")
+        if self.agent_auth_mode == "jwt":
+            if self.agent_auth_issuer is None:
+                raise ValueError("AGENT_AUTH_ISSUER is required in jwt mode")
+            self.agent_auth_issuer = validate_browser_origin(self.agent_auth_issuer)
+        return self
 
 
 @lru_cache

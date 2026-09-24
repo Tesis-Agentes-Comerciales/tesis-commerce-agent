@@ -9,6 +9,7 @@ import {
   approvePurchase,
   cancelPurchase,
   completePurchase,
+  getApprovalTerms,
 } from "@/lib/commerce-api"
 
 const KNOWN_ERRORS: Record<string, string> = {
@@ -145,7 +146,16 @@ export function PurchaseApproval({ runId, terms, product, priceChanged }: Purcha
     try {
       if (!approvalRecorded) {
         updatePurchase(runId, { status: "approving", error: undefined, errorCode: undefined })
-        await approvePurchase(runId, terms.fingerprint)
+        const refreshed = await getApprovalTerms(runId)
+        if (refreshed.fingerprint !== terms.fingerprint) {
+          updatePurchase(runId, {
+            status: "error",
+            error: "Los términos del comercio cambiaron. Recarga la página y revísalos antes de aprobar.",
+            errorCode: "checkout_terms_changed",
+          })
+          return
+        }
+        await approvePurchase(runId, terms.fingerprint, refreshed.checkout_jwt)
         approvalRecorded = true
       }
       updatePurchase(runId, {
