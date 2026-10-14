@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.0",
+  "baseline_id": "B0-2026-10-06",
+  "frozen_at": "2026-10-06",
+  "git_tag": "b0-baseline-2026-10-06",
+  "description": "Prototipo transaccional ACP + AP2 Human Present sin una capa externa de gobernanza sobre la decision de producto.",
+  "services": [
+    {
+      "name": "buyer-agent",
+      "repository": "tesis-commerce-agent",
+      "branch_at_freeze": "main",
+      "commit": "767058ab015c19080603534be4ee0932d88e1b7e",
+      "python": "3.12.14",
+      "uv_lock_sha256": "95eebe9330cb8ce54d9a6ba9f073ef09a9c638369c399f85ee8d8ca28690885c"
+    },
+    {
+      "name": "merchant",
+      "repository": "tesis-commerce-merchant",
+      "branch_at_freeze": "integration/ap2-catalog",
+      "commit": "70ce92b97cee3d7aabf8d287f0bf700816dc584b",
+      "python": "3.12.14",
+      "uv_lock_sha256": "ddf7986e8b0b38f99ce8a46805a9875baf40c95f389a136826865ec7e910c4e6"
+    },
+    {
+      "name": "payment-provider",
+      "repository": "tesis-payment-provider-sandbox",
+      "branch_at_freeze": "main",
+      "commit": "ee19c06ecae3038b43d1fc7cb7a8822592fa1a08",
+      "python": "3.12.14",
+      "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+    }
+  ],
+  "runtime": {
+    "model": "gpt-5-mini",
+    "model_source": "OPENAI_MODEL",
+    "uv_version": "0.12.15",
+    "agent_feed_source": "file snapshot exported from the seeded merchant episode",
+    "acp_revision": "2026-04-17",
+    "ap2_profile": "v0.2 synthetic Human Present",
+    "payment_mode": "synthetic",
+    "governance_mode": "baseline"
+  },
+  "catalog": {
+    "seed_source": "../tesis-commerce-merchant/src/commerce_lab/fixtures/catalog_snapshot.json",
+    "seed_source_sha256": "724ab9ad656946924d06d75787cd094047b1b718960d804b0749c4ce45793815",
+    "generation": "deterministic generated offers seeded into a fresh experimental episode and exported as an ACP feed",
+    "currency": "COP",
+    "amount_unit": "minor units"
+  },
+  "controls_present_in_b0": [
+    "typed model output",
+    "deterministic hard-constraint filtering",
+    "closed model tool surface",
+    "authoritative ACP checkout",
+    "explicit Human Present approval",
+    "AP2 checkout and payment mandates",
+    "idempotent completion",
+    "signed receipts and webhooks"
+  ],
+  "controls_absent_from_b0": [
+    "external decision-policy evaluator",
+    "policy decision record for candidate selection",
+    "normative explanation linking every rejected candidate to a policy rule"
+  ],
+  "verification": {
+    "buyer_agent": {
+      "passed": 197,
+      "skipped": 3,
+      "note": "suite del commit congelado, antes de agregar el arnes experimental"
+    },
+    "evaluation_harness": {
+      "passed": 6,
+      "skipped": 0,
+      "full_workspace_after_harness": "203 passed, 3 skipped"
+    },
+    "payment_provider": {
+      "passed": 8,
+      "skipped": 0,
+      "note": "base suite with PAYMENT_AP2_REQUIRED=false"
+    },
+    "merchant_latest_local": {
+      "passed": 104,
+      "skipped": 61,
+      "blocked": 2,
+      "note": "two tests could not connect because local PostgreSQL was not running"
+    },
+    "merchant_last_complete_non_integration": {
+      "passed": 106,
+      "skipped": 61
+    }
+  },
+  "worktree_note": "The buyer-agent tag points to the runtime commit. Pre-existing uncommitted diagram files and scripts/build_presentation_diagrams.py are excluded from B0. Merchant and payment-provider worktrees were clean at freeze time.",
+  "tag_scope": "local only; tags have not been pushed"
+}
