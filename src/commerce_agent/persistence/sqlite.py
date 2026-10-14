@@ -2,10 +2,17 @@ import json
 import secrets
 import sqlite3
 from collections.abc import Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
+
+
+@dataclass(frozen=True, slots=True)
+class PurchaseCASResult:
+    status: Literal["applied", "unchanged", "stale", "not_found"]
+    state_version: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +130,55 @@ class SqliteAgentStore:
                 "CREATE INDEX IF NOT EXISTS purchases_owner_stage ON purchases(owner_id, stage)"
             )
             self._initialize_webhook_events(connection)
+            self._initialize_purchase_revision(connection)
+
+    @staticmethod
+    def _initialize_purchase_revision(connection: sqlite3.Connection) -> None:
+        # This migration runs after legacy executescript migrations, which may commit.
+        # Keep the additive column and its guards in one explicit transaction.
+        connection.execute("BEGIN IMMEDIATE")
+        columns = {row["name"]: row for row in connection.execute("PRAGMA table_info(purchases)")}
+        if "state_version" not in columns:
+            connection.execute(
+                "ALTER TABLE purchases ADD COLUMN state_version INTEGER NOT NULL DEFAULT 1 "
+                "CHECK(typeof(state_version) = 'integer' AND state_version >= 1)"
+            )
+        else:
+            column = columns["state_version"]
+            if (column["type"].upper(), column["notnull"], column["dflt_value"]) != (
+                "INTEGER",
+                1,
+                "1",
+            ):
+                raise RuntimeError("Incompatible purchase revision schema")
+        if connection.execute(
+            "SELECT 1 FROM purchases WHERE typeof(state_version) != 'integer' "
+            "OR state_version < 1 LIMIT 1"
+        ).fetchone():
+            raise RuntimeError("Invalid purchase revision")
+        connection.execute(
+            """CREATE TRIGGER IF NOT EXISTS purchases_revision_insert
+            BEFORE INSERT ON purchases WHEN NEW.state_version IS NOT 1
+            BEGIN SELECT RAISE(ABORT, 'purchase_revision_initial'); END"""
+        )
+        # Fail closed for every SQL writer, including connections outside this store.
+        # updated_at is bookkeeping; created_at and every business field are covered.
+        connection.execute(
+            """CREATE TRIGGER IF NOT EXISTS purchases_revision_update
+            BEFORE UPDATE ON purchases
+            WHEN typeof(NEW.state_version) != 'integer'
+              OR NEW.state_version != OLD.state_version + CASE WHEN
+                   NEW.run_id IS NOT OLD.run_id
+                OR NEW.owner_id IS NOT OLD.owner_id
+                OR NEW.request_text IS NOT OLD.request_text
+                OR NEW.stage IS NOT OLD.stage
+                OR NEW.selected_variant_id IS NOT OLD.selected_variant_id
+                OR NEW.checkout_id IS NOT OLD.checkout_id
+                OR NEW.order_id IS NOT OLD.order_id
+                OR NEW.created_at IS NOT OLD.created_at
+                THEN 1 ELSE 0 END
+            BEGIN SELECT RAISE(ABORT, 'purchase_revision_mismatch'); END"""
+        )
 
     def create_purchase(
         self, run_id: str, request_text: str, owner_id: str = "local-human"
@@ -209,23 +265,90 @@ class SqliteAgentStore:
         checkout_id: str | None = None,
         order_id: str | None = None,
     ) -> None:
-        assignments = ["stage = ?", "updated_at = ?"]
-        values: list[object] = [stage, _timestamp()]
+        assignments, values = self._purchase_update(
+            stage, selected_variant_id, checkout_id, order_id
+        )
+        values.append(run_id)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE purchases SET {assignments} WHERE run_id = ?", values
+            )
+            if cursor.rowcount != 1:
+                raise KeyError("Purchase run does not exist")
+
+    @staticmethod
+    def _purchase_update(
+        stage: str,
+        selected_variant_id: str | None,
+        checkout_id: str | None,
+        order_id: str | None,
+    ) -> tuple[str, list[object]]:
+        fields: list[tuple[str, str]] = [("stage", stage)]
         for column, value in (
             ("selected_variant_id", selected_variant_id),
             ("checkout_id", checkout_id),
             ("order_id", order_id),
         ):
             if value is not None:
-                assignments.append(f"{column} = ?")
-                values.append(value)
-        values.append(run_id)
-        with self._connect() as connection:
+                fields.append((column, value))
+        changed = " OR ".join(f"{column} IS NOT ?" for column, _ in fields)
+        assignments = ", ".join(f"{column} = ?" for column, _ in fields)
+        assignments += (
+            f", state_version = state_version + CASE WHEN {changed} THEN 1 ELSE 0 END"
+            ", updated_at = ?"
+        )
+        values: list[object] = [value for _, value in fields] * 2
+        values.append(_timestamp())
+        return assignments, values
+
+    def purchase_state_version(self, run_id: str) -> int | None:
+        """Read the persisted revision, without changing the legacy purchase projection."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT state_version FROM purchases WHERE run_id = ?", (run_id,)
+            ).fetchone()
+        return int(row[0]) if row is not None else None
+
+    def compare_and_set_purchase(
+        self,
+        run_id: str,
+        expected_state_version: int,
+        *,
+        stage: str,
+        selected_variant_id: str | None = None,
+        checkout_id: str | None = None,
+        order_id: str | None = None,
+    ) -> PurchaseCASResult:
+        """Local row CAS only; no authority, state-machine or external-effect validation.
+
+        Owns its transaction. A future evidence UoW must share a connection instead
+        of composing this independently committed operation with ledger writes.
+        None retains optional fields, as in update_purchase.
+        """
+        if type(expected_state_version) is not int or not 1 <= expected_state_version < 2**63:
+            raise ValueError("Expected purchase revision must be a positive SQLite integer")
+        assignments, values = self._purchase_update(
+            stage, selected_variant_id, checkout_id, order_id
+        )
+        values.extend((run_id, expected_state_version))
+        with closing(self._connect()) as connection, connection:
+            # Keep both the conditional write and result classification under the write lock.
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
-                f"UPDATE purchases SET {', '.join(assignments)} WHERE run_id = ?", values
+                f"UPDATE purchases SET {assignments} WHERE run_id = ? AND state_version = ?",
+                values,
             )
-            if cursor.rowcount != 1:
-                raise KeyError("Purchase run does not exist")
+            row = connection.execute(
+                "SELECT state_version FROM purchases WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if row is None:
+                return PurchaseCASResult("not_found", None)
+            version = int(row[0])
+            if cursor.rowcount == 0:
+                return PurchaseCASResult("stale", version)
+            return PurchaseCASResult(
+                "unchanged" if version == expected_state_version else "applied", version
+            )
 
     def pending_purchase(
         self, stages: Sequence[str], owner_id: str = "local-human"
@@ -291,7 +414,7 @@ class SqliteAgentStore:
             cursor = connection.execute(
                 """
                 UPDATE purchases
-                SET stage = 'completing', updated_at = ?
+                SET stage = 'completing', updated_at = ?, state_version = state_version + 1
                 WHERE run_id = ? AND stage IN ('approved', 'uncertain')
                 """,
                 (_timestamp(), run_id),
@@ -304,7 +427,7 @@ class SqliteAgentStore:
         with self._connect() as connection:
             cursor = connection.execute(
                 """
-                UPDATE purchases SET stage = ?, updated_at = ?
+                UPDATE purchases SET stage = ?, updated_at = ?, state_version = state_version + 1
                 WHERE run_id = ? AND stage = 'completing'
                 """,
                 (stage, _timestamp(), run_id),
@@ -455,10 +578,12 @@ class SqliteAgentStore:
             connection.execute(
                 """
                 UPDATE purchases
-                SET stage = 'completed', order_id = ?, updated_at = ?
+                SET stage = 'completed', order_id = ?, updated_at = ?,
+                    state_version = state_version + CASE
+                        WHEN stage IS NOT 'completed' OR order_id IS NOT ? THEN 1 ELSE 0 END
                 WHERE run_id = ?
                 """,
-                (order_id, now, run_id),
+                (order_id, now, order_id, run_id),
             )
             connection.execute(
                 "UPDATE approvals SET consumed_at = ? WHERE run_id = ? AND consumed_at IS NULL",
