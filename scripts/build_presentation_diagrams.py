@@ -150,13 +150,16 @@ class Page:
         end: tuple[int, int],
         *,
         points: tuple[tuple[int, int], ...] = (),
+        curved: bool = False,
         dashed: bool = False,
         arrow: bool = True,
         width: float = 2,
         color: str = LINE,
     ) -> None:
+        curve_style = "curved=1;" if curved else ""
         style = (
-            f"edgeStyle=none;rounded=0;html=1;strokeColor={color};strokeWidth={width};"
+            f"edgeStyle=none;{curve_style}rounded=0;html=1;"
+            f"strokeColor={color};strokeWidth={width};"
             f"dashed={int(dashed)};dashPattern=7 6;"
             f"endArrow={'block' if arrow else 'none'};endFill=1;endSize=11;"
         )
@@ -197,11 +200,13 @@ class C4Page(Page):
         border: str,
         *,
         technology: str | None = None,
+        show_type: bool = True,
     ) -> None:
         shapes = {
             "person": "shape=mxgraph.c4.person2;align=center;",
             "system": "rounded=1;arcSize=10;align=center;",
             "container": "rounded=1;arcSize=10;align=center;",
+            "component": "rounded=1;arcSize=10;align=center;",
             "browser": "shape=mxgraph.c4.webBrowserContainer2;boundedLbl=1;align=center;",
             "data": "shape=cylinder3;size=15;boundedLbl=1;align=center;",
         }
@@ -209,14 +214,18 @@ class C4Page(Page):
             "person": "Persona",
             "system": "Sistema de software",
             "container": "Contenedor",
+            "component": "Componente",
             "browser": "Contenedor",
             "data": "Contenedor",
         }[kind]
         type_line = "[%c4Type%: %c4Technology%]" if technology else "[%c4Type%]"
+        type_markup = (
+            f'<div style="font-size:15px;color:#686868">{type_line}</div>' if show_type else ""
+        )
         label = (
             '<div style="font-family:Arial;color:#333333">'
             '<div style="font-size:22px"><b>%c4Name%</b></div>'
-            f'<div style="font-size:15px;color:#686868">{type_line}</div>'
+            f"{type_markup}"
             '<div style="font-size:17px;color:#555555;margin-top:7px">%c4Description%</div>'
             "</div>"
         )
@@ -249,7 +258,17 @@ class C4Page(Page):
             },
         )
 
-    def boundary(self, x: int, y: int, width: int, height: int, name: str, border: str) -> None:
+    def boundary(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        name: str,
+        border: str,
+        *,
+        scope: str = "Sistema de software",
+    ) -> None:
         node = ET.SubElement(
             self.root,
             "object",
@@ -257,18 +276,20 @@ class C4Page(Page):
                 "id": self._id(),
                 "placeholders": "1",
                 "c4Name": name,
-                "c4Type": "SystemScopeBoundary",
-                "c4Application": "Sistema de software",
+                "c4Type": "ContainerScopeBoundary"
+                if scope == "Contenedor"
+                else "SystemScopeBoundary",
+                "c4Application": scope,
                 "label": (
                     '<div style="text-align:left;font-size:21px;font-family:Arial">'
-                    "<b>%c4Name%</b><br/>[%c4Application%]</div>"
+                    "<b>%c4Name%</b></div>"
                 ),
             },
         )
         style = (
-            "rounded=1;arcSize=20;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 4;"
+            "rounded=0;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 4;"
             f"fillColor=none;strokeColor={border};strokeWidth=2.5;fontColor={INK};"
-            "align=left;verticalAlign=bottom;spacing=20;metaEdit=1;rotatable=0;"
+            "align=left;verticalAlign=top;spacingLeft=24;spacingTop=18;metaEdit=1;rotatable=0;"
             "perimeter=rectanglePerimeter;connectable=0;pointerEvents=0;"
         )
         cell = ET.SubElement(node, "mxCell", {"style": style, "vertex": "1", "parent": "1"})
@@ -336,8 +357,8 @@ def system_context() -> C4Page:
         800,
         390,
         190,
-        "Proveedor sandbox",
-        "Procesa pagos sintéticos",
+        "Proveedor de pago",
+        "Procesa pagos de prueba",
         EXTERNAL_WINE,
     )
     p.element(
@@ -378,166 +399,104 @@ def system_context() -> C4Page:
 
 
 def architecture() -> C4Page:
-    p = C4Page("C4 · Contenedores del agente", 2650, 1530)
-    p.boundary(410, 260, 1250, 1010, "Agente comprador", AGENT_BLUE)
-    p.element("person", 65, 565, 300, 230, "Comprador", "Chatea y aprueba", BUYER_GREEN)
-    p.element(
-        "browser",
-        495,
-        575,
-        350,
-        210,
-        "Interfaz del agente",
-        "Chat y aprobación",
-        AGENT_BLUE,
-        technology="React · assistant-ui",
+    p = C4Page("C4 · Ecosistema del agente", 2860, 1450)
+    p.boundary(430, 265, 1570, 1060, "Agente comprador", AGENT_BLUE)
+    elements = (
+        ("person", 50, 610, 300, 220, "Comprador", "Chatea y aprueba", BUYER_GREEN),
+        ("browser", 530, 560, 350, 190, "Interfaz del agente", "Chat y aprobación", AGENT_BLUE),
+        ("container", 1150, 560, 350, 190, "API del agente", "Orquesta la compra", AGENT_BLUE),
+        ("container", 530, 980, 350, 175, "Identidad", "Autentica compradores", AGENT_BLUE),
+        ("data", 1050, 980, 330, 175, "Compras", "Términos y pedidos", AGENT_BLUE),
+        (
+            "data",
+            1550,
+            980,
+            330,
+            175,
+            "Memoria del grafo",
+            "Historial y puntos de control",
+            AGENT_BLUE,
+        ),
+        ("system", 1150, 35, 350, 175, "OpenAI", "Interpreta solicitudes", EXTERNAL_WINE),
+        ("system", 2300, 560, 390, 190, "Comercio", "Catálogo y compra", MERCHANT_AMBER),
+        ("system", 2300, 990, 390, 190, "Proveedor de pago", "Pago de prueba", EXTERNAL_WINE),
     )
-    p.element(
-        "container",
-        1060,
-        585,
-        350,
-        190,
-        "API del agente",
-        "Conversa y coordina",
-        AGENT_BLUE,
-        technology="FastAPI · LangGraph",
-    )
-    p.element(
-        "container",
-        495,
-        910,
-        350,
-        190,
-        "Identidad",
-        "Autentica compradores",
-        AGENT_BLUE,
-        technology="Better Auth",
-    )
-    p.element(
-        "data",
-        1060,
-        910,
-        350,
-        190,
-        "Estado persistente",
-        "Compras y conversaciones",
-        AGENT_BLUE,
-        technology="SQLite",
-    )
-    p.element(
-        "system",
-        1060,
-        50,
-        350,
-        180,
-        "Modelo de lenguaje",
-        "Interpreta solicitudes",
-        EXTERNAL_WINE,
-    )
-    p.element(
-        "system",
-        1960,
-        575,
-        390,
-        190,
-        "Comercio",
-        "Catálogo y checkout",
-        MERCHANT_AMBER,
-    )
-    p.element(
-        "system",
-        1960,
-        1030,
-        390,
-        190,
-        "Proveedor sandbox",
-        "Token de pago sintético",
-        EXTERNAL_WINE,
-    )
+    for kind, x, y, width, height, name, description, border in elements:
+        p.element(kind, x, y, width, height, name, description, border, show_type=False)
 
-    p.relationship((365, 685), (495, 685), "Usa el chat", 425, 495, 180, technology="HTTPS")
-    p.relationship(
-        (845, 680),
-        (1060, 680),
-        "Envía turnos",
-        845,
-        495,
-        215,
-        technology="HTTPS · SSE",
+    p.edge((350, 670), (530, 670), dashed=True)
+    p.text("HTTPS", 370, 605, 140, 38, size=18)
+    p.edge((880, 665), (1150, 665), dashed=True)
+    p.text("HTTPS · SSE", 895, 605, 235, 38, size=18)
+    p.edge((705, 750), (705, 980), dashed=True)
+    p.text("HTTPS", 555, 840, 130, 38, size=18)
+    p.edge((1150, 720), (880, 1060), points=((960, 720), (960, 1060)), dashed=True)
+    p.text("JWT · JWKS", 765, 845, 175, 38, size=18)
+    p.edge((1215, 750), (1215, 980), dashed=True)
+    p.text("SQLite", 1060, 850, 125, 38, size=18)
+    p.edge((1430, 750), (1715, 980), points=((1430, 925), (1715, 925)), dashed=True)
+    p.text("SQLite", 1535, 850, 125, 38, size=18)
+    p.edge((1325, 560), (1325, 210), dashed=True)
+    p.text("HTTPS · Responses API", 1360, 345, 290, 38, size=18, align="left")
+    p.edge((1500, 665), (2300, 665), dashed=True)
+    p.text("HTTPS · catálogo + ACP REST", 1600, 600, 340, 38, size=18)
+    p.edge((1500, 725), (2300, 1085), points=((2145, 725), (2145, 1085)), dashed=True)
+    p.text("HTTPS · AP2", 1760, 850, 170, 38, size=18)
+    p.edge((2495, 750), (2495, 990), dashed=True)
+    p.text("HTTPS", 2515, 845, 130, 38, size=18)
+    return p
+
+
+def agent_components() -> C4Page:
+    p = C4Page("C4 · Componentes de la API", 2440, 1450)
+    p.boundary(95, 90, 2250, 1270, "API del agente", AGENT_BLUE, scope="Contenedor")
+
+    for title, y in (
+        ("Entrada", 225),
+        ("Orquestación", 490),
+        ("Compra", 755),
+        ("Conectores y datos", 1020),
+    ):
+        p.text(title, 145, y, 360, 42, size=21, bold=True, align="left")
+
+    components = (
+        ("API HTTP", "Turnos y compras", 365, 285, 400, 155),
+        ("Sesión JWT", "Verifica al comprador", 970, 285, 400, 155),
+        ("Eventos SSE", "Muestra el progreso", 1575, 285, 400, 155),
+        ("LangGraph", "Conduce cada turno", 365, 550, 400, 155),
+        ("Enrutador LLM", "Interpreta y elige", 970, 550, 400, 155),
+        ("lookup_catalog", "Busca en el catálogo vigente", 1575, 550, 400, 155),
+        ("Selección", "Filtra y propone variante", 245, 815, 400, 155),
+        ("Sesión ACP", "Valida total y prepara sesión", 785, 815, 400, 155),
+        ("Aprobación AP2", "Firma tras consentimiento", 1325, 815, 400, 155),
+        ("Finalización", "Delega token y crea pedido", 1865, 815, 400, 155),
     )
-    p.relationship((670, 785), (670, 910), "Inicia sesión", 690, 805, 220, technology="HTTPS")
-    p.relationship(
-        (1060, 745),
-        (845, 1010),
-        "Verifica identidad",
-        970,
-        810,
-        190,
-        technology="JWT · JWKS",
-        points=((965, 745), (965, 1010)),
+    for name, description, x, y, width, height in components:
+        p.element("component", x, y, width, height, name, description, AGENT_BLUE, show_type=False)
+
+    adapters = (
+        ("Cliente de catálogo", "Consulta al comercio", 175),
+        ("Cliente ACP", "Sesión y pedido", 605),
+        ("Cliente de pago", "Token de prueba", 1035),
+        ("Compras", "Términos y mandatos", 1465),
+        ("Puntos de control", "Memoria por hilo", 1895),
     )
-    p.relationship(
-        (1235, 775),
-        (1235, 910),
-        "Guarda estado",
-        1240,
-        790,
-        190,
-        technology="SQLite",
-    )
-    p.relationship(
-        (1235, 585),
-        (1235, 230),
-        "Solicita inferencia",
-        1250,
-        365,
-        240,
-        technology="HTTPS API",
-    )
-    p.relationship(
-        (1410, 680),
-        (1960, 680),
-        "Catálogo y checkout",
-        1365,
-        495,
-        285,
-        technology="HTTPS · Feed / ACP REST / AP2",
-    )
-    p.relationship(
-        (1410, 745),
-        (1960, 1125),
-        "Delega pago",
-        1790,
-        865,
-        170,
-        technology="HTTPS · AP2",
-        points=((1775, 745), (1775, 1125)),
-    )
-    p.relationship(
-        (2155, 765),
-        (2155, 1030),
-        "Confirma pago",
-        2170,
-        865,
-        220,
-        technology="HTTPS",
-    )
-    p.text(
-        "Verde: persona  |  Azul: contenedores del agente  |  Ocre y vino: sistemas externos",
-        510,
-        1390,
-        1700,
-        45,
-        size=17,
-        color=MUTED,
-    )
+    for name, description, x in adapters:
+        p.element("component", x, 1080, 340, 145, name, description, AGENT_BLUE, show_type=False)
+
+    p.edge((565, 440), (565, 550), dashed=True)
+    p.edge((765, 625), (970, 625), dashed=True)
+    p.edge((1370, 625), (1575, 625), dashed=True)
+    p.edge((565, 705), (565, 815), dashed=True)
+    p.edge((645, 890), (785, 890), dashed=True)
+    p.edge((1185, 890), (1325, 890), dashed=True)
+    p.edge((1725, 890), (1865, 890), dashed=True)
     return p
 
 
 LANES = (
     ("Comprador", 180),
-    ("Agent UI", 555),
+    ("Interfaz del agente", 555),
     ("Agente", 945),
     ("Comercio", 1370),
     ("Proveedor de pago", 1820),
@@ -569,181 +528,174 @@ def message(
     p.text(label, left, y - 54, width, 46, size=19, color=INK)
 
 
-def compact_sequence() -> Page:
-    p = sequence_page("Compra · resumen", 1340)
-    phase(p, "SOLICITUD Y CHECKOUT", 135)
-    rows = [
-        (0, 1, "iPhone 12 mini 256 GB, máx. COP 800.000"),
-        (1, 2, "POST /assistant · HTTPS/SSE"),
-        (2, 3, "GET /feeds/current · Product Feed"),
-        (3, 2, "Variantes disponibles", True),
-        (2, 3, "ACP REST · crear y actualizar checkout"),
-        (3, 2, "Términos vigentes", True),
-        (2, 1, "Producto y términos · SSE", True),
-    ]
-    for index, row in enumerate(rows):
-        message(
-            p, row[0], row[1], 235 + index * 62, row[2], reply=row[3] if len(row) > 3 else False
-        )
-    phase(p, "APROBACIÓN Y PEDIDO", 675)
-    rows = [
-        (0, 1, "Aprueba los términos"),
-        (1, 2, "POST /purchases/{id}/approval"),
-        (1, 2, "POST /purchases/{id}/complete"),
-        (2, 4, "Delegar · Payment Mandate AP2"),
-        (4, 2, "Token de prueba", True),
-        (2, 3, "Completar · Checkout Mandate AP2 + token"),
-        (3, 4, "Confirmar token"),
-        (3, 2, "Pedido + recibo AP2", True),
-        (2, 1, "Pedido confirmado · SSE", True),
-    ]
-    for index, row in enumerate(rows):
-        message(
-            p, row[0], row[1], 775 + index * 62, row[2], reply=row[3] if len(row) > 3 else False
-        )
+PURCHASE_SECTIONS = (
+    (
+        140,
+        "CONVERSACIÓN Y CATÁLOGO",
+        250,
+        (
+            (0, 1, "Hola"),
+            (1, 2, "POST /assistant"),
+            (2, 1, "Saludo · respuesta sin compra", True),
+            (0, 1, "Quiero audífonos negros, máx. COP 700.000"),
+            (1, 2, "POST /assistant · nuevo turno"),
+            (2, 3, "GET /feeds/current · por turno"),
+            (3, 2, "Catálogo vigente", True),
+            (2, 1, "SSE · candidatos del catálogo", True),
+            (1, 0, "Muestra candidatos informativos", True),
+            (2, 1, "SSE · variante elegida por el agente", True),
+        ),
+    ),
+    (
+        1210,
+        "SESIÓN ACP · VARIANTE ELEGIDA",
+        1320,
+        (
+            (2, 3, "POST /checkout_sessions · variante elegida"),
+            (3, 2, "Sesión, precio y opciones", True),
+            (2, 3, "POST /checkout_sessions/{id} · entrega"),
+            (3, 2, "Total final vigente", True),
+            (2, 3, "GET /checkout_sessions/{id}/ap2/checkout-jwt"),
+            (3, 2, "JWT de compra firmado", True),
+            (2, 1, "SSE · producto y términos", True),
+            (1, 0, "Producto, entrega, total y botón", True),
+        ),
+    ),
+    (
+        2080,
+        "CONSENTIMIENTO Y PAGO DE PRUEBA",
+        2190,
+        (
+            (0, 1, "Aprueba los términos"),
+            (1, 2, "POST /purchases/{id}/approval"),
+            (2, 3, "GET /checkout_sessions/{id} · verificar"),
+            (3, 2, "Términos vigentes", True),
+            (2, 1, "Firma mandatos y registra aprobación", True),
+            (1, 2, "POST /purchases/{id}/complete"),
+            (2, 4, "POST /agentic_commerce/delegate_payment · mandato de pago AP2"),
+            (4, 2, "Token acotado", True),
+            (2, 3, "Completar compra AP2 · mandato de compra + token"),
+            (3, 4, "POST /payments/confirm · token"),
+            (4, 3, "Pago sintético aprobado", True),
+            (3, 2, "Pedido + comprobante de compra AP2", True),
+            (2, 4, "POST /agentic_commerce/payment_receipt"),
+            (4, 2, "Comprobante de pago AP2", True),
+            (2, 1, "JSON · pedido confirmado", True),
+            (1, 0, "Muestra número de pedido", True),
+        ),
+    ),
+)
+
+
+def add_purchase_sections(
+    p: Page,
+    sections: tuple[
+        tuple[int, str, int, tuple[tuple[int, int, str] | tuple[int, int, str, bool], ...]], ...
+    ],
+) -> None:
+    for phase_y, heading, first_y, rows in sections:
+        phase(p, heading, phase_y)
+        for index, row in enumerate(rows):
+            message(
+                p,
+                row[0],
+                row[1],
+                first_y + index * 93,
+                row[2],
+                reply=row[3] if len(row) > 3 else False,
+            )
+
+
+def purchase_sequence() -> Page:
+    p = sequence_page("Interacción de compra · comprador presente", 3760)
+    add_purchase_sections(p, PURCHASE_SECTIONS)
     return p
 
 
-def detailed_discovery() -> Page:
-    p = sequence_page("Conversación y selección", 2630)
-    phase(p, "CONVERSACIÓN", 150)
-    rows = [
-        (0, 1, "Hola"),
-        (1, 2, "POST /assistant · HTTPS/SSE"),
-        (2, 1, "Hola, ¿qué buscas? · respond", True),
-        (1, 0, "Muestra la respuesta", True),
-        (0, 1, "Quiero un celular"),
-        (1, 2, "POST /assistant · nuevo turno"),
-        (2, 3, "GET /feeds/current · Product Feed"),
-        (3, 2, "Catálogo vigente", True),
-        (2, 1, "¿Qué modelo o presupuesto? · clarify", True),
-        (1, 0, "Pide una preferencia", True),
-    ]
-    for index, row in enumerate(rows):
-        message(
-            p, row[0], row[1], 270 + index * 100, row[2], reply=row[3] if len(row) > 3 else False
-        )
-    phase(p, "SELECCIÓN Y CHECKOUT", 1320)
-    rows = [
-        (0, 1, "iPhone 12 mini 256 GB, máx. COP 800.000"),
-        (1, 2, "POST /assistant · nuevo turno"),
-        (2, 3, "GET /feeds/current · catálogo vigente"),
-        (3, 2, "Variantes disponibles", True),
-        (2, 3, "POST /checkout_sessions · ACP REST"),
-        (3, 2, "Sesión, precio y opciones", True),
-        (2, 3, "POST /checkout_sessions/{id} · entrega"),
-        (3, 2, "Total final vigente", True),
-        (2, 1, "Selección y términos · SSE", True),
-        (1, 0, "Revisa producto y total", True),
-    ]
-    for index, row in enumerate(rows):
-        message(
-            p, row[0], row[1], 1430 + index * 100, row[2], reply=row[3] if len(row) > 3 else False
-        )
+def purchase_sequence_discovery() -> Page:
+    p = sequence_page("Conversación y sesión ACP", 2150)
+    add_purchase_sections(p, PURCHASE_SECTIONS[:2])
     return p
 
 
-def detailed_payment() -> Page:
-    p = sequence_page("Aprobación y pago", 2430)
-    phase(p, "CONSENTIMIENTO EXPLÍCITO", 150)
-    rows = [
-        (0, 1, "Pulsa Aprobar"),
-        (1, 2, "POST /purchases/{id}/approval"),
-        (2, 3, "GET /checkout_sessions/{id}"),
-        (3, 2, "Términos actuales", True),
-        (2, 1, "Aprobación registrada", True),
-        (1, 0, "Muestra aprobación", True),
-    ]
-    for index, row in enumerate(rows):
-        message(
-            p, row[0], row[1], 270 + index * 100, row[2], reply=row[3] if len(row) > 3 else False
-        )
-    phase(p, "PAGO DE PRUEBA Y PEDIDO", 980)
-    rows = [
-        (1, 2, "POST /purchases/{id}/complete"),
-        (2, 3, "GET /checkout_sessions/{id}"),
-        (3, 2, "Checkout vigente", True),
-        (2, 4, "POST /agentic_commerce/delegate_payment · AP2"),
-        (4, 2, "Token acotado", True),
-        (2, 3, "POST /checkout_sessions/{id}/ap2/complete"),
-        (3, 4, "POST /payments/confirm · token"),
-        (4, 3, "Pago aprobado", True),
-        (3, 2, "Pedido + Checkout Receipt", True),
-        (2, 4, "POST /agentic_commerce/payment_receipt"),
-        (4, 2, "Payment Receipt", True),
-        (2, 1, "Pedido confirmado · SSE", True),
-        (1, 0, "Número de pedido", True),
-    ]
-    for index, row in enumerate(rows):
-        message(
-            p, row[0], row[1], 1100 + index * 95, row[2], reply=row[3] if len(row) > 3 else False
-        )
+def purchase_sequence_payment() -> Page:
+    p = sequence_page("Aprobación y pago de prueba", 1830)
+    _, heading, _, rows = PURCHASE_SECTIONS[2]
+    add_purchase_sections(p, ((140, heading, 250, rows),))
     return p
 
 
 def state_machine() -> Page:
-    p = Page("Estados de compra", 2460, 1050)
-    p.box(45, 360, 205, 110, border=AGENT_BLUE, stroke=2.5)
-    p.text("received", 55, 390, 185, 42, size=25, bold=True)
-    p.box(345, 360, 205, 110, border=AGENT_BLUE, stroke=2.5)
-    p.text("selected", 355, 390, 185, 42, size=25, bold=True)
-    p.box(645, 360, 270, 110, border=AGENT_BLUE, stroke=2.5)
-    p.text("checkout_prepared", 655, 390, 250, 42, size=23, bold=True)
-    p.box(1010, 360, 290, 110, border=MERCHANT_AMBER, stroke=2.5)
-    p.text("awaiting_confirmation", 1020, 390, 270, 42, size=22, bold=True)
-    p.box(1395, 360, 205, 110, border=MERCHANT_AMBER, stroke=2.5)
-    p.text("approved", 1405, 390, 185, 42, size=25, bold=True)
-    p.box(1695, 360, 225, 110, border=AGENT_BLUE, stroke=2.5)
-    p.text("completing", 1705, 390, 205, 42, size=25, bold=True)
-    p.box(2210, 360, 205, 110, border=BUYER_GREEN, stroke=2.5, double=True)
-    p.text("completed", 2220, 390, 185, 42, size=25, bold=True)
-    p.box(345, 710, 205, 110, border=FAILURE_RED, stroke=2.5, double=True)
-    p.text("failed", 355, 740, 185, 42, size=25, bold=True)
-    p.box(1050, 710, 205, 110, border=FAILURE_RED, stroke=2.5, double=True)
-    p.text("canceled", 1060, 740, 185, 42, size=25, bold=True)
-    p.box(1695, 710, 225, 110, border=UNCERTAIN_PURPLE, stroke=2.5)
-    p.text("uncertain", 1705, 740, 205, 42, size=25, bold=True)
-    p.initial(10, 399)
+    p = Page("Estados de compra del agente", 3900, 1490)
+    main_states = (
+        ("sin compra", 100, 250, AGENT_BLUE),
+        ("recibido", 540, 250, AGENT_BLUE),
+        ("seleccionado", 980, 250, AGENT_BLUE),
+        ("sesión preparada", 1420, 310, AGENT_BLUE),
+        ("esperando aprobación", 1910, 350, MERCHANT_AMBER),
+        ("aprobado", 2450, 250, MERCHANT_AMBER),
+        ("completando", 2890, 250, AGENT_BLUE),
+        ("compra completada", 3330, 270, BUYER_GREEN),
+    )
+    for name, x, width, border in main_states:
+        p.box(x, 520, width, 110, border=border, stroke=2.5, double=name == "compra completada")
+        p.text(name, x + 8, 552, width - 16, 46, size=25, bold=True)
+    for name, x, width, border in (
+        ("fallido", 1430, 250, FAILURE_RED),
+        ("cancelado", 1955, 260, FAILURE_RED),
+        ("resultado incierto", 2875, 265, UNCERTAIN_PURPLE),
+    ):
+        p.box(x, 1010, width, 110, border=border, stroke=2.5, double=name != "resultado incierto")
+        p.text(name, x + 8, 1042, width - 16, 46, size=25, bold=True)
 
-    transitions = [
-        ((32, 410), (45, 410), (), "", (0, 0, 0)),
-        ((250, 415), (345, 415), (), "variante válida", (247, 321, 105)),
-        ((550, 415), (645, 415), (), "crear sesión", (550, 321, 95)),
-        ((915, 415), (1010, 415), (), "total válido", (915, 321, 95)),
-        ((1300, 415), (1395, 415), (), "clic + AP2", (1300, 321, 95)),
-        ((1600, 415), (1695, 415), (), "completar", (1600, 321, 95)),
-        ((1920, 415), (2210, 415), (), "pedido", (1970, 321, 190)),
-        ((448, 470), (448, 710), (), "error de preparación", (455, 565, 230)),
-        ((780, 470), (1050, 765), ((780, 640), (1050, 640)), "sobre presupuesto", (792, 593, 225)),
-        ((1155, 470), (1155, 710), (), "cancelar", (1160, 565, 145)),
-        ((1807, 470), (1807, 710), (), "timeout / 5xx", (1815, 565, 170)),
-        (
-            (1920, 765),
-            (2312, 470),
-            ((2070, 765), (2070, 560), (2312, 560)),
-            "reconciliar",
-            (2095, 592, 180),
-        ),
-        ((1695, 765), (1695, 470), ((1645, 765), (1645, 470)), "reintentar", (1530, 575, 155)),
-        (
-            (1807, 360),
-            (1498, 360),
-            ((1807, 210), (1498, 210)),
-            "4xx recuperable",
-            (1548, 164, 210),
-        ),
-        (
-            (1695, 425),
-            (550, 765),
-            ((1650, 425), (1650, 900), (550, 900)),
-            "pago rechazado",
-            (1170, 856, 210),
-        ),
-    ]
-    for start, end, points, label, (x, y, width) in transitions:
-        p.edge(start, end, points=points)
-        if label:
-            p.text(label, x, y, width, 38, size=20)
+    p.initial(50, 564)
+    p.edge((72, 575), (100, 575))
+    labels = (
+        "compra",
+        "variante",
+        "crear sesión",
+        "total válido",
+        "aprueba + AP2",
+        "completar",
+        "pedido",
+    )
+    for (_, x, width, _), (_, next_x, _, _), label in zip(
+        main_states[:-1], main_states[1:], labels, strict=True
+    ):
+        start = x + width
+        gap = next_x - start
+        p.edge((start, 575), (next_x, 575))
+        p.text(label, start + 5, 530, gap - 10, 34, size=22)
+
+    p.edge((170, 520), (300, 520), points=((65, 330), (405, 330)), curved=True)
+    p.text("responde o pide aclaración", 80, 260, 330, 40, size=19)
+
+    p.edge((1120, 630), (1480, 1010), points=((1250, 810),), curved=True)
+    p.text("fallo al crear sesión", 930, 745, 240, 42, size=19)
+    p.edge((1510, 630), (1580, 1010), points=((1500, 825),), curved=True)
+    p.text("fallo de preparación", 1570, 865, 235, 42, size=19)
+    p.edge((1670, 630), (2010, 1010), points=((1830, 810),), curved=True)
+    p.text("supera presupuesto", 1845, 725, 230, 42, size=19)
+    p.edge((2140, 630), (2140, 1010))
+    p.text("usuario cancela", 2160, 790, 180, 42, size=19)
+
+    p.edge((2940, 520), (2610, 520), points=((2780, 335),), curved=True)
+    p.text("error recuperable", 2670, 380, 245, 42, size=19)
+
+    p.edge((3015, 630), (3015, 1010))
+    p.text("tiempo agotado / 5xx", 2790, 805, 205, 42, size=19)
+    p.edge((3090, 1010), (3060, 630), points=((3250, 820),), curved=True)
+    p.text("reintenta", 3145, 760, 130, 42, size=19)
+    p.edge((3140, 1065), (3510, 630), points=((3710, 965), (3740, 730)), curved=True)
+    p.text("reconcilia pedido", 3500, 795, 250, 42, size=19)
+
+    p.edge(
+        (2900, 630),
+        (1555, 1120),
+        points=((2590, 720), (2500, 1280), (1555, 1280)),
+        curved=True,
+    )
+    p.text("pago rechazado / sin inventario", 1940, 1210, 320, 42, size=19)
     return p
 
 
@@ -751,8 +703,10 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     write("agent-system-context-c4.drawio", [system_context()])
     write("agent-architecture-c4.drawio", [architecture()])
-    write("purchase-sequence-compact.drawio", [compact_sequence()])
-    write("purchase-sequence.drawio", [detailed_discovery(), detailed_payment()])
+    write("agent-components-c4.drawio", [agent_components()])
+    write("purchase-sequence.drawio", [purchase_sequence()])
+    write("purchase-sequence-1-discovery.drawio", [purchase_sequence_discovery()])
+    write("purchase-sequence-2-payment.drawio", [purchase_sequence_payment()])
     write("purchase-state-machine.drawio", [state_machine()])
 
 

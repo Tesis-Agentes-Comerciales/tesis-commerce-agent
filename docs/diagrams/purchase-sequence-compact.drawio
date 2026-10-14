@@ -20,7 +20,7 @@
         <mxCell id="5" value="" style="rounded=1;arcSize=9;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#333333;strokeWidth=2;" vertex="1" parent="1">
           <mxGeometry x="415" y="40" width="280" height="72" as="geometry" />
         </mxCell>
-        <mxCell id="6" value="Agent UI" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=24;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+        <mxCell id="6" value="Interfaz del agente" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=24;fontStyle=1;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="425" y="55" width="260" height="40" as="geometry" />
         </mxCell>
         <mxCell id="7" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#AAAAAA;strokeWidth=1.5;dashed=1;dashPattern=7 6;endArrow=none;endFill=1;endSize=11;" edge="1" parent="1">
@@ -65,7 +65,7 @@
             <mxPoint x="1820" y="1290" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="17" value="SOLICITUD Y CHECKOUT" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=22;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+        <mxCell id="17" value="SOLICITUD Y SESIÓN ACP" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=22;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="42" y="135" width="570" height="38" as="geometry" />
         </mxCell>
         <mxCell id="18" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#BBBBBB;strokeWidth=1;dashed=0;dashPattern=7 6;endArrow=none;endFill=1;endSize=11;" edge="1" parent="1">
@@ -98,7 +98,7 @@
             <mxPoint x="1370" y="359" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="24" value="GET /feeds/current · Product Feed" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+        <mxCell id="24" value="GET /feeds/current · catálogo vigente" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="957" y="305" width="401" height="46" as="geometry" />
         </mxCell>
         <mxCell id="25" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=1.9;dashed=1;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
@@ -116,7 +116,7 @@
             <mxPoint x="1370" y="483" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="28" value="ACP REST · crear y actualizar checkout" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+        <mxCell id="28" value="ACP REST · crear y actualizar sesión" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="957" y="429" width="401" height="46" as="geometry" />
         </mxCell>
         <mxCell id="29" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=1.9;dashed=1;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
@@ -179,7 +179,7 @@
             <mxPoint x="1820" y="961" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="42" value="Delegar · Payment Mandate AP2" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+        <mxCell id="42" value="Delegar · mandato de pago AP2" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="957" y="907" width="851" height="46" as="geometry" />
         </mxCell>
         <mxCell id="43" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=1.9;dashed=1;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
@@ -197,7 +197,7 @@
             <mxPoint x="1370" y="1085" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="46" value="Completar · Checkout Mandate AP2 + token" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+        <mxCell id="46" value="Completar · mandato de compra AP2 + token" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#333333;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="957" y="1031" width="401" height="46" as="geometry" />
         </mxCell>
         <mxCell id="47" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=1.9;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">

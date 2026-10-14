@@ -1,0 +1,145 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" agent="Codex" version="31.4.5" type="device">
+  <diagram id="c4-·-componentes-de-la-api" name="C4 · Componentes de la API">
+    <mxGraphModel dx="2440" dy="1450" grid="0" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2440" pageHeight="1450" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <object id="2" placeholders="1" c4Name="API del agente" c4Type="ContainerScopeBoundary" c4Application="Contenedor" label="&lt;div style=&quot;text-align:left;font-size:21px;font-family:Arial&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;">
+          <mxCell style="rounded=0;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 4;fillColor=none;strokeColor=#336C96;strokeWidth=2.5;fontColor=#333333;align=left;verticalAlign=top;spacingLeft=24;spacingTop=18;metaEdit=1;rotatable=0;perimeter=rectanglePerimeter;connectable=0;pointerEvents=0;" vertex="1" parent="1">
+            <mxGeometry x="95" y="90" width="2250" height="1270" as="geometry" />
+          </mxCell>
+        </object>
+        <mxCell id="3" value="Entrada" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=21;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="145" y="225" width="360" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="Orquestación" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=21;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="145" y="490" width="360" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="Compra" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=21;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="145" y="755" width="360" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="Conectores y datos" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=21;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="145" y="1020" width="360" height="42" as="geometry" />
+        </mxCell>
+        <object id="7" placeholders="1" c4Name="API HTTP" c4Type="Componente" c4Description="Turnos y compras" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="365" y="285" width="400" height="155" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="8" placeholders="1" c4Name="Sesión JWT" c4Type="Componente" c4Description="Verifica al comprador" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="970" y="285" width="400" height="155" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="9" placeholders="1" c4Name="Eventos SSE" c4Type="Componente" c4Description="Muestra el progreso" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="1575" y="285" width="400" height="155" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="10" placeholders="1" c4Name="LangGraph" c4Type="Componente" c4Description="Conduce cada turno" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="365" y="550" width="400" height="155" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="11" placeholders="1" c4Name="Enrutador LLM" c4Type="Componente" c4Description="Interpreta y elige" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="970" y="550" width="400" height="155" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="12" placeholders="1" c4Name="lookup_catalog" c4Type="Componente" c4Description="Busca en el catálogo vigente" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="1575" y="550" width="400" height="155" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="13" placeholders="1" c4Name="Selección" c4Type="Componente" c4Description="Filtra y propone variante" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="245" y="815" width="400" height="155" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="14" placeholders="1" c4Name="Sesión ACP" c4Type="Componente" c4Description="Valida total y prepara sesión" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="785" y="815" width="400" height="155" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="15" placeholders="1" c4Name="Aprobación AP2" c4Type="Componente" c4Description="Firma tras consentimiento" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="1325" y="815" width="400" height="155" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="16" placeholders="1" c4Name="Finalización" c4Type="Componente" c4Description="Delega token y crea pedido" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="1865" y="815" width="400" height="155" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="17" placeholders="1" c4Name="Cliente de catálogo" c4Type="Componente" c4Description="Consulta al comercio" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="175" y="1080" width="340" height="145" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="18" placeholders="1" c4Name="Cliente ACP" c4Type="Componente" c4Description="Sesión y pedido" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="605" y="1080" width="340" height="145" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="19" placeholders="1" c4Name="Cliente de pago" c4Type="Componente" c4Description="Token de prueba" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="1035" y="1080" width="340" height="145" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="20" placeholders="1" c4Name="Compras" c4Type="Componente" c4Description="Términos y mandatos" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="1465" y="1080" width="340" height="145" as="geometry" />
+          </mxCell>
+        </object>
+        <object id="21" placeholders="1" c4Name="Puntos de control" c4Type="Componente" c4Description="Memoria por hilo" label="&lt;div style=&quot;font-family:Arial;color:#333333&quot;&gt;&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#555555;margin-top:7px&quot;&gt;%c4Description%&lt;/div&gt;&lt;/div&gt;">
+          <mxCell style="rounded=1;arcSize=10;align=center;whiteSpace=wrap;html=1;labelBackgroundColor=none;fillColor=#FFFFFF;strokeColor=#336C96;strokeColor2=#336C96;strokeWidth=2.5;fontColor=#333333;metaEdit=1;resizable=0;" vertex="1" parent="1">
+            <mxGeometry x="1895" y="1080" width="340" height="145" as="geometry" />
+          </mxCell>
+        </object>
+        <mxCell id="22" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2;dashed=1;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="565" y="440" as="sourcePoint" />
+            <mxPoint x="565" y="550" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="23" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2;dashed=1;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="765" y="625" as="sourcePoint" />
+            <mxPoint x="970" y="625" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="24" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2;dashed=1;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1370" y="625" as="sourcePoint" />
+            <mxPoint x="1575" y="625" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="25" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2;dashed=1;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="565" y="705" as="sourcePoint" />
+            <mxPoint x="565" y="815" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="26" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2;dashed=1;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="645" y="890" as="sourcePoint" />
+            <mxPoint x="785" y="890" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="27" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2;dashed=1;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1185" y="890" as="sourcePoint" />
+            <mxPoint x="1325" y="890" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="28" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2;dashed=1;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1725" y="890" as="sourcePoint" />
+            <mxPoint x="1865" y="890" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
