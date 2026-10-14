@@ -1,0 +1,1349 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Tesis · Roadmap del diseño final</title><style>:root{color-scheme:light;--ink:#202320;--muted:#62685f;--line:#d6dbd1;--paper:#fff;--accent:#245637}*{box-sizing:border-box}body{margin:0;background:#f6f7f3;color:var(--ink);font:16px/1.65 system-ui,-apple-system,sans-serif}main{max-width:1120px;margin:32px auto;padding:32px 40px;background:var(--paper);border:1px solid var(--line);border-radius:12px}h1,h2,h3{line-height:1.3;scroll-margin-top:24px}h1{font-size:2.3rem}h2{margin-top:54px;border-top:1px solid var(--line);padding-top:24px}h3{margin-top:32px}a{color:var(--accent);overflow-wrap:anywhere}table{width:100%;border-collapse:collapse;margin:24px 0;font-size:.91rem;table-layout:fixed}th,td{text-align:left;vertical-align:top;padding:12px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}th{background:#f2f5ef}pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:16px;border:1px solid var(--line);background:#f7f8f5;border-radius:8px;font-size:.85rem;line-height:1.5}code{font-family:ui-monospace,SFMono-Regular,monospace}p code,li code{background:#f0f2ec;padding:2px 4px;border-radius:4px}.diagram-panel{background:#f5f7f1;border:1px solid var(--line);border-radius:8px}.diagram-node{border:1px solid var(--line);border-radius:6px;background:#fff}.diagram-muted,.caption,.export-note{color:var(--muted)}.export-note{font-size:.9rem}nav{display:flex;gap:12px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--line)}@media(max-width:700px){main{margin:0;padding:22px 16px;border:0;border-radius:0}body{font-size:15px}table{font-size:.8rem}th,td{padding:8px}h1{font-size:1.9rem}}@media print{main{border:0;margin:0;padding:0}body{background:#fff;font-size:11pt}h2,h3{break-after:avoid}tr,pre{break-inside:avoid}nav{display:none}}.architecture-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px; }.architecture-grid h3 {margin:0 0 12px;}.actor,.agent,.legend {grid-column:1/-1;}.module-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}.diagram-panel {padding:18px;}.diagram-node {padding:12px;}.legend {padding:4px 12px;}@media(max-width:580px){.architecture-grid,.module-grid{grid-template-columns:1fr;}.actor,.agent,.legend{grid-column:auto;}}</style></head><body><main><p class="export-note">Copia local de lectura · Human Present y Human Not Present · Contenido del 11 de octubre de 2026. Abre sin servidor ni conexión. Las secuencias se conservan como notación Mermaid.</p><nav aria-label="Secciones"><a href="#section-0">Cómo leer el roadmap</a><a href="#section-1">1. Protocolos: selección propuesta y partes utilizadas</a><a href="#section-2">2. Qué será componente, clase, proceso o servicio</a><a href="#section-3">3. Políticas: catálogo inicial y dueño de cada control</a><a href="#section-4">4. Estructuras de datos y contratos que hay que cerrar</a><a href="#section-5">5. Estados, frescura, idempotencia y fallos</a><a href="#section-6">6. Interfaces y ubicación en código</a><a href="#section-7">7. Operación, seguridad y evolución B2B</a><a href="#section-8">8. Registro de decisiones y entregables</a><a href="#section-9">9. Qué significa estar listos para implementar</a></nav><h1>Tesis · Roadmap del diseño final</h1>
+<p>Fecha: <strong>11 de octubre de 2026</strong>. El enfoque de gobernanza recibió el visto bueno en la reunión del 9 de octubre, según el reporte de Yair. Este documento propone las decisiones técnicas y las pruebas necesarias para congelar el diseño v1. Las recomendaciones técnicas aún no equivalen a decisiones aceptadas ni a funcionalidades implementadas.</p>
+<p>El resultado buscado es un paquete que permita programar sin improvisar autoridad, contratos, persistencia o recuperación. Cada decisión debe tener una recomendación, su motivo, dependencias, un artefacto y una condición verificable de cierre.</p>
+<p><strong>Ejemplo de recorrido:</strong> una persona solicita un teléfono con un presupuesto máximo. El agente propone una variante elegible; el merchant calcula producto y envío; la interfaz presenta esos términos; la persona aprueba; el backend verifica vigencia y gobernanza, firma mandatos y completa. Si cambian los términos, solicita un nuevo clic. Si se pierde la respuesta, consulta la operación antes de comunicar el resultado.</p>
+<p><strong>Alcance confirmado por Yair: Human Present y Human Not Present.</strong> Ambos deben quedar diseñados para la primera arquitectura final. Se propone mantener B2C, un merchant configurado, una unidad, COP y pago sintético. B2B es una dimensión independiente y queda como extensión condicionada. La aprobación a gobernanza no se interpreta como aprobación previa de OPA o ACP.</p>
+<p><strong>Ejemplo autónomo:</strong> la persona consiente previamente una delegación para comprar una variante dentro de límites y vigencia explícitos. Después, sin un clic por esa transacción, el agente obtiene términos actuales, comprueba la delegación, reserva su uso y vincula mandatos cerrados a esa compra. Si no puede probar autoridad suficiente, detiene la operación o pide consentimiento nuevo. HNP conserva autorización humana previa; no consiste en omitir el control humano de la base existente.</p>
+<h2 id="section-0">Cómo leer el roadmap</h2>
+<p><strong>Base</strong> significa que existe en código o documentación actual. <strong>Recomendación</strong> es una elección concreta propuesta. <strong>Prueba pendiente</strong> exige un experimento técnico antes de cerrar. <strong>Alcance pendiente</strong> depende de la cobertura académica. Ninguna decisión técnica se marca cerrada solo por estar escrita aquí; el requisito HP+HNP sí está confirmado por Yair.</p>
+<p>Primero se resuelven alcance, protocolo y consentimiento; después ubicación de controles, contratos y datos; luego concurrencia, operación y evaluación. El cronograma propuesto es 12–18 de octubre, con implementación desde el 19 si se cumplen los criterios de cierre. No representa horas ni responsables ya asignados.</p>
+<table>
+<thead>
+<tr>
+<th>Hito</th>
+<th>Ventana propuesta</th>
+<th>Resultado para revisión</th>
+<th>Depende de</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>M0 · Alcance y requisitos</td>
+<td>12 oct.</td>
+<td>Casos de uso, límites, tratamiento experimental y requisitos identificados</td>
+<td>Reporte de reunión + documentos de tesis</td>
+</tr>
+<tr>
+<td>M1 · Perfil de protocolos</td>
+<td>12–13 oct.</td>
+<td>ACP/AP2 HP+HNP; spike del puente HNP; comparación UCP; exclusiones/extensiones</td>
+<td>M0</td>
+</tr>
+<tr>
+<td>M2 · Políticas y arquitectura</td>
+<td>14 oct.</td>
+<td>D1/D2 por modo + D3-HNP, delegaciones, componentes/procesos y ADR del motor</td>
+<td>M0/M1</td>
+</tr>
+<tr>
+<td>M3 · Estructuras y contratos</td>
+<td>15 oct.</td>
+<td>Modelos tipados, relaciones, APIs y semántica de frescura</td>
+<td>M1/M2</td>
+</tr>
+<tr>
+<td>M4 · Estados y consistencia</td>
+<td>15–16 oct.</td>
+<td>Estados compra/grant/reserva, revocación, tareas, errores y reconciliación</td>
+<td>M3</td>
+</tr>
+<tr>
+<td>M5 · Operación y evidencia</td>
+<td>16–17 oct.</td>
+<td>Despliegue, confianza, límites medidos, auditoría y recuperación</td>
+<td>M2/M3/M4</td>
+</tr>
+<tr>
+<td>M6 · Evaluación y congelación</td>
+<td>17–18 oct.</td>
+<td>Trazabilidad, corpus, pruebas por mecanismo, documentos coherentes y backlog</td>
+<td>M0–M5</td>
+</tr>
+</tbody></table>
+<h2 id="section-1">1. Protocolos: selección propuesta y partes utilizadas</h2>
+<p><strong>Recomendación provisional:</strong> conservar <strong>ACP <code>2026-04-17</code> por REST + AP2 v0.2 para HP y HNP</strong>. HP existe en B0; HNP requiere trabajo nuevo en los tres repositorios y una prueba obligatoria del puente. El helper AP2 fijado interpreta un checkout UCP, mientras el merchant actual firma un wrapper con un snapshot ACP: la compatibilidad HNP no está demostrada. Congelar ACP solo si un adaptador determinista permite verificar correctamente los mandatos abiertos contra los términos firmados originales. Si esa prueba falla o la extensión queda desproporcionada, elegir UCP REST y generar una base experimental común nueva.</p>
+<p>UCP merece una comparación explícita: aporta negociación de capacidades y una extensión AP2 publicada. Adoptarlo requeriría cambiar discovery, metadatos, actualización de checkout, estados y representación criptográfica. Se reabre la elección si la tesis exige interoperabilidad AP2 publicada, negociación de capacidades o varios comercios heterogéneos. En ese caso, diseñar un perfil UCP REST antes de congelar una nueva base experimental.</p>
+<table>
+<thead>
+<tr>
+<th>Pieza</th>
+<th>Decisión propuesta</th>
+<th>Responsabilidad en v1</th>
+<th>Condición que cambia la elección</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>ACP · 2026-04-17</td>
+<td>Incluir REST</td>
+<td>Discovery, snapshot de productos, checkout, handler sintético, delegación y eventos de orden</td>
+<td>Requisito de capacidades comerciales que este perfil no cubra</td>
+</tr>
+<tr>
+<td>AP2 · v0.2 / e1ea56d</td>
+<td>Incluir HP y HNP</td>
+<td>HP: mandatos cerrados; HNP: abiertos + cierre por Agent Key; recibos y validación determinista</td>
+<td>Spike del puente/SDK define perfil verificable y baseline nuevo para HNP</td>
+</tr>
+<tr>
+<td>UCP · 2026-08-25 consultada</td>
+<td>Alternativa real antes de congelar</td>
+<td>Perfil comercial con extensión AP2 publicada y modelo que espera el helper del SDK</td>
+<td>Puente HNP ACP inviable/costoso o requisito de interoperabilidad normativa</td>
+</tr>
+<tr>
+<td>MCP · 2026-07-28 consultada</td>
+<td>Excluir de v1</td>
+<td>Herramientas internas siguen como funciones tipadas</td>
+<td>Cliente externo debe descubrir e invocar herramientas mediante MCP</td>
+</tr>
+<tr>
+<td>A2A · 1.0.0 consultada</td>
+<td>Excluir de v1</td>
+<td>Merchant/PSP siguen como servicios deterministas</td>
+<td>Agente externo independiente con Agent Card, tareas y artefactos propios</td>
+</tr>
+<tr>
+<td>TAP · Visa</td>
+<td>Excluir de v1</td>
+<td>Confianza fijada con merchant/PSP configurados</td>
+<td>Terceros necesitan reconocer al agente y sus firmas dentro de una red de confianza</td>
+</tr>
+<tr>
+<td>OPA/Rego</td>
+<td>Motor recomendado; fijar versión tras prueba</td>
+<td>Evaluar decisiones de gobernanza; no es protocolo comercial</td>
+<td>No aportar valor suficiente frente a evaluador Python equivalente o incumplir límites operativos</td>
+</tr>
+</tbody></table>
+<table>
+<thead>
+<tr>
+<th>Módulo ACP</th>
+<th>Usar</th>
+<th>Límite explícito</th>
+<th>Artefacto de cierre</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Discovery</td>
+<td>/.well-known/acp.json; versión, origen, REST y servicios compatibles</td>
+<td>Discovery no establece confianza por sí solo</td>
+<td>Perfil compatible/incompatible y validación de origen</td>
+</tr>
+<tr>
+<td>Productos</td>
+<td>Esquema Product y snapshot completo</td>
+<td>/feeds/current es publicación propia por pull; no Feed API push/incremental</td>
+<td>Mapeo feed → candidatos y prueba de snapshot inválido</td>
+</tr>
+<tr>
+<td>Checkout</td>
+<td>Create, get, update, cancel; complete a través del puente AP2 propio</td>
+<td>Una unidad, moneda COP, un merchant; estados no soportados se rechazan explícitamente</td>
+<td>Operaciones, cuerpos, headers, errores y estados contra bundle congelado</td>
+</tr>
+<tr>
+<td>Fulfillment</td>
+<td>Buyer/destino y selección de envío físico</td>
+<td>Sin pickup, delivery digital o múltiples grupos en v1</td>
+<td>Términos aprobados incluyen envío y destino</td>
+</tr>
+<tr>
+<td>Handler + Delegate Payment</td>
+<td>tesis_sandbox, token opaco y allowance acotado</td>
+<td>Confirm/lookup/receipt del sandbox son contratos propios; sin dinero real o 3DS</td>
+<td>Delegación repetida, mismatch, rechazo y expiración</td>
+</tr>
+<tr>
+<td>Order + webhook</td>
+<td>Orden autoritativa; autenticación, dedupe y proyección de eventos</td>
+<td>Sin refunds, disputas o chargebacks</td>
+<td>Evento repetido/fuera de orden/de otro merchant</td>
+</tr>
+<tr>
+<td>Módulos adicionales</td>
+<td>Exclusión razonada</td>
+<td>Cart independiente, Feed API push, binding MCP, descuentos/loyalty y Delegate Authentication</td>
+<td>Requisito que justificaría reabrir cada módulo</td>
+</tr>
+</tbody></table>
+<p>El contrato fijado prevalece sobre ejemplos narrativos sin versión. En el OpenAPI ACP congelado, <code>Idempotency-Key</code> es obligatorio en los POST. El adaptador debe normalizar estados y errores del perfil; no debe interpretar un estado desconocido como permiso para completar. Fuentes: <a href="https://github.com/agentic-commerce-protocol/agentic-commerce-protocol/blob/7fdd78df677a94dce04c770644b0fbbb1401272b/spec/2026-04-17/openapi/openapi.agentic_checkout.yaml">Checkout OpenAPI</a> y <a href="https://github.com/agentic-commerce-protocol/agentic-commerce-protocol/blob/7fdd78df677a94dce04c770644b0fbbb1401272b/spec/2026-04-17/json-schema/schema.agentic_checkout.json">JSON Schema</a>. La <a href="https://github.com/agentic-commerce-protocol/agentic-commerce-protocol/blob/7fdd78df677a94dce04c770644b0fbbb1401272b/changelog/2026-04-17.md">release de abril</a> identifica módulos disponibles; disponibilidad no implica que el proyecto deba implementarlos todos. El <a href="https://github.com/agentic-commerce-protocol/agentic-commerce-protocol/blob/7fdd78df677a94dce04c770644b0fbbb1401272b/spec/2026-04-17/openapi/openapi.feed.yaml">Feed API fijado</a> describe publicación push, distinta de la ruta pull propia.</p>
+<h3>ACP y UCP sobre la misma compra</h3>
+<table>
+<thead>
+<tr>
+<th>Paso</th>
+<th>ACP fijado</th>
+<th>UCP consultado</th>
+<th>Implicación</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Discovery</td>
+<td>/.well-known/acp.json</td>
+<td>Perfiles Business/Platform + /.well-known/ucp</td>
+<td>UCP añade composición y negociación de capacidades</td>
+</tr>
+<tr>
+<td>Crear / consultar</td>
+<td>POST /checkout_sessions; GET por id</td>
+<td>POST /checkout-sessions; GET por id</td>
+<td>Se puede conservar un puerto interno; cambia el adaptador</td>
+</tr>
+<tr>
+<td>Actualizar</td>
+<td>POST por id</td>
+<td>PUT por id, reemplazo del checkout</td>
+<td>No es suficiente renombrar endpoints</td>
+</tr>
+<tr>
+<td>Completar / cancelar</td>
+<td>POST .../complete y .../cancel</td>
+<td>POST .../complete y .../cancel</td>
+<td>Traducir estados, errores e idempotencia del perfil</td>
+</tr>
+<tr>
+<td>Autorización AP2</td>
+<td>Puente propio /ap2/checkout-jwt y /ap2/complete</td>
+<td>Extensión dev.ucp.common.payment.ap2_mandate</td>
+<td>Representación criptográfica y contrato diferentes</td>
+</tr>
+</tbody></table>
+<p>Fuentes comparadas: <a href="https://ucp.dev/2026-08-25/specification/shopping/checkout/rest/">UCP REST</a>, <a href="https://ucp.dev/2026-08-25/specification/shopping/checkout/">checkout y estados UCP</a> y <a href="https://ucp.dev/2026-08-25/specification/overview/">discovery/capacidades</a>. La <a href="https://ucp.dev/2026-08-25/specification/payment/extensions/ap2-mandates/">extensión AP2 de UCP</a> utiliza <code>merchant_authorization</code> con JWS detached sobre checkout canonicalizado mediante JCS; el puente actual usa Checkout JWT. Se documentan como perfiles distintos.</p>
+<h3>AP2: responsabilidades, no un servicio por cada rol</h3>
+<p>En HP se utilizarán mandatos cerrados: merchant firma checkout; Trusted Surface presenta términos; backend verifica consentimiento y firma; merchant/proveedor verifican y devuelven recibos. En HNP se añadirá la delegación abierta y su cierre posterior, descritos abajo. El sandbox puede asumir Credential Provider y Merchant Payment Processor, documentando ambas responsabilidades. <a href="https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/specification.md">Especificación AP2 fijada</a>.</p>
+<p>El perfil debe fijar <code>vct</code>, hash del JWT original, algoritmos, emisores, audiencias aplicables, claves de confianza, moneda/monto, expiración y asociación de recibos. <a href="https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/checkout_mandate.md">Checkout Mandate</a> y <a href="https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/payment_mandate.md">Payment Mandate</a>. La firma del proveedor del agente tras consentimiento autenticado requiere confianza explícita de los verificadores; no equivale a una clave individual del comprador. <a href="https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/agent_authorization.md">Modelo de autorización</a>.</p>
+<p>MCP, A2A y TAP se evalúan por la interacción que habilitarían: <a href="https://modelcontextprotocol.io/docs/2026-07-28/learn/architecture">herramientas MCP</a>, <a href="https://a2a-protocol.org/latest/specification/">agentes independientes A2A</a> y <a href="https://developer.visa.com/capabilities/trusted-agent-protocol/trusted-agent-protocol-specifications/">reconocimiento de agentes TAP</a>. HNP por sí solo no exige ninguno de ellos.</p>
+<h3>Perfil Human Not Present que se debe cerrar</h3>
+<p>AP2 v0.2 define <code>mandate.checkout.open.1</code> y <code>mandate.payment.open.1</code>, ligados mediante <code>cnf</code> a una clave de agente. La persona consiente su contenido en Trusted Surface; después el agente vincula mandatos cerrados a una transacción y presenta la cadena. Restricciones desconocidas fallan. Esta semántica procede del <a href="https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/agent_authorization.md">modelo de autorización</a>; <code>IntentMandate</code> no será el tipo normativo v0.2. <code>PurchaseIntent</code> y <code>DelegationGrant</code> son estructuras propias.</p>
+<p><strong>Propuesta de autonomía mínima:</strong> una delegación para una sola compra futura, merchant/moneda/destino acotados, cantidad y gasto máximo incluidos gastos de envío, vigencia explícita y sin subdelegación. No ampliar a compras recurrentes ni presupuesto empresarial compartido por implicación. Los valores concretos y variantes permitidas se muestran al crear la delegación; el LLM no los inventa ni los expande.</p>
+<table>
+<thead>
+<tr>
+<th>Decisión</th>
+<th>Human Present</th>
+<th>Human Not Present</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Consentimiento</td>
+<td>Clic sobre términos exactos de esa compra</td>
+<td>Consentimiento previo sobre alcance, restricciones y vigencia de delegación</td>
+</tr>
+<tr>
+<td>Autoridad de firma</td>
+<td>Proveedor de agente después de Trusted Surface autenticada</td>
+<td>Emisor de delegación separado del Agent Key que prueba posesión al cerrar; LLM sin acceso a ninguna clave</td>
+</tr>
+<tr>
+<td>Objetos AP2</td>
+<td>Checkout/Payment Mandates cerrados</td>
+<td>OpenCheckout + OpenPayment + cadena a mandatos cerrados + recibos</td>
+</tr>
+<tr>
+<td>Cambio de términos</td>
+<td>Nueva presentación y nuevo intento</td>
+<td>Recotizar y cerrar contra términos nuevos solo si siguen dentro del alcance; fuera de él, detener/pedir nueva delegación</td>
+</tr>
+<tr>
+<td>Uso/cupo</td>
+<td>Idempotencia de aprobación y compra</td>
+<td>Registro durable de delegación + reserva/consumo/liberación, además de idempotencia de compra</td>
+</tr>
+<tr>
+<td>Revocación</td>
+<td>Cancelar o invalidar aprobación aún no despachada</td>
+<td>Estado/epoch autoritativos; carrera con compromiso de despacho especificada</td>
+</tr>
+<tr>
+<td>Ejecución</td>
+<td>Solicitud interactiva</td>
+<td>Tarea durable con condición/fecha de activación y worker acotado; no depende de que la pestaña siga abierta</td>
+</tr>
+<tr>
+<td>Base experimental</td>
+<td>B0 existente, con cambios comunes controlados</td>
+<td>Nueva base HNP equivalente antes de comparar B0/B2; no comparar HP con HNP y atribuir diferencia a gobernanza</td>
+</tr>
+</tbody></table>
+<p>Constraints estándar a perfilar: <code>checkout.allowed_merchants</code>, <code>checkout.line_items</code>, <code>payment.allowed_payees</code>, <code>payment.amount_range</code>, <code>payment.allowed_payment_instruments</code> y <code>payment.reference</code>. Destino, semántica de preferencias y lifecycle son controles propios; si deben probarse criptográficamente ante terceros, requieren extensión con schema y algoritmo compartido. Fuentes: <a href="https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/checkout_mandate.md">Checkout constraints</a> y <a href="https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/payment_mandate.md">Payment constraints</a>.</p>
+<p>El SDK espera un checkout UCP directamente en el JWT; el wrapper ACP y sus estados necesitan adaptación explícita. <a href="https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/code/sdk/python/ap2/sdk/checkout_mandate_chain.py">CheckoutMandateChain fijado</a>. AP2 exige evitar cierres solapados y conservar la relación mandato abierto–cerrado–recibo. <a href="https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/security_and_privacy_considerations.md">Double Spend</a>, <a href="https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/flows.md">flujo HNP</a>. La gestión/revocación remota inmediata no tiene un endpoint normativo en el perfil consultado. <a href="https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/implementation_considerations.md">Mandate Management y Agent Key</a>.</p>
+<p>La revocación operativa, reservas de uso, activación y consumo no aparecen resueltos por incluir una firma AP2: se especificarán como contratos de aplicación y sandbox. Merchant y proveedor deben verificar independientemente las restricciones que les corresponden; un <code>allow</code> de OPA no sustituye esa verificación.</p>
+<p><strong>Prueba decisiva del puente:</strong> abrir una delegación, cerrar sobre checkout ACP válido, verificar cadena en merchant y pago en proveedor, rechazar un total/merchant/variante fuera del alcance y repetir sin doble uso. Mantener hash del JWT original; no crear una conversión que desvincule los términos verificados de los firmados. Documentar cada adaptación y limitación; no declarar conformidad HNP antes de esa prueba.</p>
+<h2 id="section-2">2. Qué será componente, clase, proceso o servicio</h2>
+<p><strong>Recomendación:</strong> agente como monolito modular, OPA local como proceso separado y merchant/proveedor como servicios externos. <code>PurchaseService</code>, <code>ApprovalService</code> y <code>CompletionService</code> son clases Python en el proceso del agente. La gobernanza también será un componente en ese proceso; no hace falta crear una API de gobernanza propia adicional.</p>
+<div class="architecture-grid"><section class="diagram-panel actor"><h3>Comprador</h3><div class="diagram-node">UI / Trusted Surface</div><p class="diagram-muted">Consentimiento HP sobre términos o HNP sobre límites</p></section><section class="diagram-panel agent"><h3>Proceso del agente</h3><div class="module-grid"><div class="diagram-node">API + identidad</div><div class="diagram-node">LangGraph + intención</div><div class="diagram-node">Compra · D1/D2 + D3-HNP</div><div class="diagram-node">Delegaciones + worker durable</div><div class="diagram-node">Gobernanza + evidencia</div><div class="diagram-node">ApprovalService + AP2</div><div class="diagram-node">CompletionService</div></div><p class="diagram-muted">Módulos y clases Python; SQLite propia + checkpoints separados</p></section><section class="diagram-panel opa"><h3>Proceso OPA</h3><div class="diagram-node">Rego + datos fijados</div><p class="diagram-muted">Hechos JSON → allow / deny<br/>Sin capacidad de compra o firma</p></section><section class="diagram-panel merchant"><h3>Servicio merchant</h3><div class="diagram-node">ACP + puente AP2</div><p class="diagram-muted">Catálogo, revisión, inventario y orden en PostgreSQL</p></section><section class="diagram-panel provider"><h3>Servicio proveedor sandbox</h3><div class="diagram-node">Credential Provider + MPP</div><p class="diagram-muted">Delegación, confirmación y recibo en SQLite propia</p></section><p class="diagram-muted legend">UI ↔ agente: API autenticada · agente ↔ OPA: HTTP local · agente ↔ merchant: ACP + puente AP2 · agente/merchant ↔ proveedor: credenciales separadas</p></div><p class="caption">Topología propuesta; las fronteras muestran quién conserva la autoridad y el estado.</p>
+<table>
+<thead>
+<tr>
+<th>Pieza</th>
+<th>Forma</th>
+<th>Reutiliza / dónde vive</th>
+<th>Responsabilidad</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Conversación</td>
+<td>Componente en proceso</td>
+<td>application/conversation.py · ConversationService</td>
+<td>Intención, aclaraciones, búsqueda y presentación</td>
+</tr>
+<tr>
+<td>Compra</td>
+<td>Servicio de aplicación / clase</td>
+<td>application/purchase.py · PurchaseService</td>
+<td>Aplicar D1/D2 y despachar por modo HP/HNP sin bypass de LangGraph</td>
+</tr>
+<tr>
+<td>Delegación HNP</td>
+<td>Módulo/clases Python propuestos</td>
+<td>delegation/{models,service,store}.py + application/authorization.py</td>
+<td>Crear/revocar delegaciones; resolver autoridad; reservar y materializar mandatos; no fingir un clic HP</td>
+</tr>
+<tr>
+<td>Activación HNP</td>
+<td>Worker acotado en proceso para v1</td>
+<td>application/autonomous_execution.py propuesto + tareas durables en store</td>
+<td>Activar, claim, revalidar y recuperar; una instancia, sin scheduler distribuido</td>
+</tr>
+<tr>
+<td>Gobernanza</td>
+<td>Módulo Python propuesto</td>
+<td>governance/{models,ports,assembler,opa,reasons}.py</td>
+<td>Ensamblar hechos, evaluar, validar y persistir decisión</td>
+</tr>
+<tr>
+<td>Motor de política</td>
+<td>Proceso OPA local/sidecar</td>
+<td>policies/commerce/v1 + deploy/opa propuestos</td>
+<td>Evaluación declarativa; no autenticación ni efectos</td>
+</tr>
+<tr>
+<td>Frescura</td>
+<td>Componente propuesto</td>
+<td>application/offer_freshness.py + contrato merchant</td>
+<td>Recotizar y comparar términos materiales</td>
+</tr>
+<tr>
+<td>Consentimiento y firma</td>
+<td>Puertos/clases en proceso</td>
+<td>approval.py HP; emisores y AgentKeySigner HNP propuestos</td>
+<td>Separar emisión tras consentimiento de cierre delegado; firmas deterministas después de D2</td>
+</tr>
+<tr>
+<td>Finalización</td>
+<td>Clase en proceso</td>
+<td>completion.py · CompletionService</td>
+<td>Exigir evidencia correlacionada, CAS, pago, orden y reconciliación</td>
+</tr>
+<tr>
+<td>Persistencia</td>
+<td>Repositorio en proceso</td>
+<td>persistence/sqlite.py · SqliteAgentStore</td>
+<td>Transiciones locales atómicas e historial de decisiones/intentos</td>
+</tr>
+<tr>
+<td>Adaptador ACP</td>
+<td>Cliente en proceso</td>
+<td>acp/client.py · ACPClient</td>
+<td>Implementar CheckoutGateway y TrustedCompletionGateway; validar frontera</td>
+</tr>
+<tr>
+<td>Composición</td>
+<td>Composition root</td>
+<td>runtime.py · build_runtime</td>
+<td>Inyectar evaluador, modos, relojes y configuración</td>
+</tr>
+</tbody></table>
+<p>OPA admite integración mediante REST o runtimes embebidos. Para este Python experimental se recomienda HTTP local detrás de <code>PolicyEvaluator</code>, evitando acoplar la aplicación a detalles de Rego. La elección se valida con una prueba de latencia, readiness y fallo. <a href="https://www.openpolicyagent.org/docs/integration">Integración OPA</a>. Cedar sigue siendo una alternativa válida para autorización principal–acción–recurso; no se descarta por supuesta incapacidad. <a href="https://docs.cedarpolicy.com/auth/authorization.html">Semántica Cedar</a>.</p>
+<h2 id="section-3">3. Políticas: catálogo inicial y dueño de cada control</h2>
+<p>El catálogo organiza <strong>reglas declarativas</strong>, <strong>invariantes de aplicación</strong>, <strong>recuperación conversacional</strong> y <strong>validación comercial/criptográfica</strong>. La cantidad de reglas no determina el número de llamadas OPA.</p>
+<p>Se proponen <strong>D1</strong> antes de crear checkout y <strong>D2</strong> antes de materializar mandatos: D2-HP valida intento presentado; D2-HNP valida delegación y términos vigentes. Para HNP se añade <strong>D3</strong>, junto al compromiso durable de despacho, con estado/epoch/reserva actuales. D3 no elimina por sí sola la carrera con revocación: necesita la transacción descrita más abajo. <code>PolicyDecision</code> admite <code>allow|deny</code>; pedir consentimiento nuevo es un resultado del orquestador. Evidencia, reservas y revalidación son pasos fijos, no instrucciones arbitrarias de OPA.</p>
+<table>
+<thead>
+<tr>
+<th>Política / regla</th>
+<th>Dueño / hechos</th>
+<th>Rechazo</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>POL-01 · D1: Elegida pertenece al conjunto elegible de la misma intención</td>
+<td>Rego + PurchaseService.start. Hechos: selected_id, eligible_ids, intent_ref, feed_ref.</td>
+<td>deny; cero checkout</td>
+</tr>
+<tr>
+<td>POL-02 · D1: Acción y merchant están permitidos por el perfil de compra</td>
+<td>Rego; hechos ensamblados por backend. Hechos: prepare_checkout, merchant_ref, policy data.</td>
+<td>deny; no invocar merchant</td>
+</tr>
+<tr>
+<td>POL-03 · D2: Acción de compra permitida para principal y contexto verificados</td>
+<td>Rego; autenticación/ownership siguen en API. Hechos: principal_ref, owns_run, complete_purchase.</td>
+<td>deny; no firmar</td>
+</tr>
+<tr>
+<td>POL-04 · D2: D1, intención, selección e intento pertenecen al mismo episodio</td>
+<td>Rego + integridad de referencias Python. Hechos: D1 ref, intent version, variant, run, attempt.</td>
+<td>deny; no reutilizar un allow ajeno</td>
+</tr>
+<tr>
+<td>POL-05 · D2: Checkout actual satisface moneda, cantidad y límites de la intención</td>
+<td>Rego sobre hechos tipados; guardas comunes se conservan. Hechos: currency, quantity, total_minor, hard limits.</td>
+<td>deny; nuevo flujo/selección si hace falta</td>
+</tr>
+<tr>
+<td>POL-06 · D2: Contexto y decisión previa corresponden a la versión permitida</td>
+<td>Rego + verificación de despliegue. Hechos: schema, context version, D1 bundle, configured policy version.</td>
+<td>deny; reevaluar explícitamente</td>
+</tr>
+<tr>
+<td>POL-07 · D2-HNP: Delegación activa, no expirada y vinculada a principal/agente/acción</td>
+<td>Rego sobre estado resuelto por backend; firmas fuera de OPA. Hechos: grant facts, owner/agent refs, validity, server_now.</td>
+<td>deny; no cerrar mandato</td>
+</tr>
+<tr>
+<td>POL-08 · D2-HNP: Términos dentro de merchant, productos, destino, moneda, cantidad y gasto delegados</td>
+<td>Rego como gobernanza + verificadores AP2 independientes. Hechos: restricciones tipadas y checkout vigente.</td>
+<td>deny; detener o pedir delegación nueva</td>
+</tr>
+<tr>
+<td>POL-09 · D2/D3-HNP: Uso permitido y reserva exclusiva para esta operación</td>
+<td>Rego sobre hechos; ledger/CAS hace cumplir concurrencia. Hechos: grant limit/consumed/reserved + operation/reservation refs.</td>
+<td>deny; no reutilizar delegación consumida</td>
+</tr>
+<tr>
+<td>POL-10 · D3-HNP: Epoch, reserva, términos y decisiones siguen vigentes al comprometer despacho</td>
+<td>Rego + unidad de trabajo con CAS autoritativo. Hechos: grant epoch, expected versions, D2/terms/reservation facts.</td>
+<td>deny; liberar solo cuando se pruebe ausencia de efecto</td>
+</tr>
+</tbody></table>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th>Dueño</th>
+<th>Comportamiento requerido</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Ambigüedad / cero candidatos</td>
+<td>ConversationService</td>
+<td>Pregunta o explicación canónica; no crear checkout</td>
+</tr>
+<tr>
+<td>Ownership / identidad</td>
+<td>API + servicio de aplicación</td>
+<td>API verifica JWT/owner; worker HNP usa identidad de servicio y owner del grant, sin conservar sesión humana; OPA no autentica</td>
+</tr>
+<tr>
+<td>Frescura / cambio material</td>
+<td>OfferFreshnessGuard + merchant</td>
+<td>HP: volver a presentar; HNP: reevaluar alcance y generar cierre nuevo; no reutilizar términos obsoletos</td>
+</tr>
+<tr>
+<td>Firma / expiración / correspondencia AP2</td>
+<td>AP2 + merchant/proveedor</td>
+<td>Verificación determinista; nunca LLM o Rego criptográfico</td>
+</tr>
+<tr>
+<td>Idempotencia / concurrencia</td>
+<td>Stores locales + merchant/proveedor</td>
+<td>Identidad durable por operación y compare-and-set; efectos remotos reconciliables</td>
+</tr>
+<tr>
+<td>Fallo del motor</td>
+<td>OpaPolicyEvaluator</td>
+<td>Timeout, undefined, JSON inválido o versión inesperada bloquean avance en enforce</td>
+</tr>
+<tr>
+<td>Evidencia antes de transición</td>
+<td>GovernanceEvidenceStore + transacción local</td>
+<td>En enforce no avanzar sin vínculo; shadow no bloquea por fallo de observación añadido</td>
+</tr>
+<tr>
+<td>Herramientas y datos no confiables</td>
+<td>Modelos, assemblers, allowlists</td>
+<td>Catálogo/modelo no aportan identidad, secretos, autoridad ni precio final</td>
+</tr>
+</tbody></table>
+<p>D1 vuelve explícita una condición que Python ya valida: su aporte propuesto es versionado y reconstrucción de la decisión, no una nueva garantía de elegibilidad. Las reglas D2 también deben justificar su valor incremental. El experimento medirá el paquete de gobernanza; atribuir mejoras específicamente a OPA requeriría un control Python equivalente.</p>
+<p>Cada regla tendrá propietario humano por asignar, fuente del requisito, esquema de hechos, prioridad, razón canónica, ejemplo permitido/rechazado, prueba de fallo y revisión. Cambiar políticas requiere revisión y despliegue versionado; el agente y la UI de compra no las editan.</p>
+<h2 id="section-4">4. Estructuras de datos y contratos que hay que cerrar</h2>
+<p>Se reutilizan <code>PurchaseIntent</code>, <code>HardConstraints</code>, <code>SoftPreferences</code>, <code>CheckoutSession</code>, <code>ApprovalTerms</code> y <code>ApprovalRecord</code>. Los modelos nuevos serán estrictos y versionados. Separan datos para evaluación, estado operativo sensible y evidencia exportable.</p>
+<table>
+<thead>
+<tr>
+<th>Estructura propuesta</th>
+<th>Campos de diseño</th>
+<th>Regla de integridad</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>SelectionPolicyInput</td>
+<td>schema, decision/run/trace, intent_ref, merchant_ref, action, eligible_variant_ids, selected_variant_id, feed_snapshot_ref</td>
+<td>Hechos calculados por backend; sin catálogo libre o credenciales</td>
+</tr>
+<tr>
+<td>AuthorizationPolicyInput</td>
+<td>schema, run/trace, mode HP|HNP, principal_ref, action, hard_constraints tipadas, selected_variant_id, hechos D1 resueltos (outcome/intent/selection/bundle), expected bundle/context, snapshots vigentes, total/currency/quantity, server_now; rama HP: attempt/material_match; rama HNP: grant/constraints/epoch/reservation facts</td>
+<td>Backend resuelve y verifica referencias antes de OPA; un ID no contiene los hechos. Sin JWT, dirección o consultas del motor al store</td>
+</tr>
+<tr>
+<td>PolicyDecision</td>
+<td>decision_id, phase, allow|deny, reason_codes, input_digest, engine_decision_id opcional, policy_version/digest, latency, mode</td>
+<td>Version/digest esperados se verifican por configuración del runtime, no por eco del motor</td>
+</tr>
+<tr>
+<td>MaterialTerms / OfferSnapshot</td>
+<td>merchant, checkout, variant/lines, quantity, total/currency, fulfillment/destination binding, material_revision, expires_at, material_fingerprint, observed_at</td>
+<td>Comparación semántica separada de updated_at; PII completa permanece en almacén protegido</td>
+</tr>
+<tr>
+<td>ApprovalAttempt</td>
+<td>attempt_id, run, owner, presented_snapshot, expected_fingerprint, request_digest, timestamp, outcome, resulting_decision/approval refs</td>
+<td>Una presentación crea un intento; doble clic/retry conserva ese intento; nueva presentación crea otro</td>
+</tr>
+<tr>
+<td>DelegationGrant</td>
+<td>grant_id/version, owner, agent key ref, open checkout/payment refs, constraints tipadas, valid_from/expires_at, state, authority_epoch, consent evidence</td>
+<td>Inmutable por versión; ampliar límites exige consentimiento nuevo; revocación/cupo se consultan en store autoritativo</td>
+</tr>
+<tr>
+<td>GrantReservation / ExecutionTask</td>
+<td>reservation/task/operation IDs, grant/version/epoch, amount/currency/uses, expected state, trigger/deadline, lease/claim, dispatch commitment, receipt refs</td>
+<td>Una reserva activa por grant single-use; timeout conserva reserva; worker reiniciable no autoriza por sí mismo</td>
+</tr>
+<tr>
+<td>DispatchPolicyInput</td>
+<td>D2 facts resueltos, grant current epoch/status, reservation owner/state, terms validity, operation identity, expected state version, server_now</td>
+<td>Comprobar de nuevo en CAS al guardar decisión + compromiso; no confiar solo en snapshot de OPA</td>
+</tr>
+<tr>
+<td>DecisionEvidence</td>
+<td>schema, run/trace, phase, mode, input mínimo canonicalizado, digest, decision, policy/engine identity, snapshot/attempt/grant/reservation/operation refs, sequence/time</td>
+<td>Permite replay; un hash aislado no basta para reconstruir entrada</td>
+</tr>
+<tr>
+<td>ExperimentManifest</td>
+<td>commits, lock digests, model/prompt, catalog/corpus hashes, schemas, protocol profile, SDK, OPA/bundle, mode, seeds/clocks</td>
+<td>Fijar antes de evaluar; distinguir tiempo sintético y expiración criptográfica real</td>
+</tr>
+</tbody></table>
+<p>Identificadores: <code>run_id</code> conserva el significado actual de compra; <code>conversation_id</code> identifica conversación; <code>trace_id</code> correlaciona; <code>decision_id</code>, <code>snapshot_id</code> y <code>approval_attempt_id</code> son identidades distintas generadas por servidor. Ninguno autoriza acceso. <code>experiment_run_id</code> identifica una ejecución experimental y no debe confundirse con <code>run_id</code>. Moneda se normaliza explícitamente; los montos son enteros en unidad menor, nunca float.</p>
+<h3>Esqueleto de puertos propuesto</h3>
+<p>Este ejemplo describe el contrato a acordar; todavía no es código implementado. Los servicios siguen usando los puertos comerciales existentes.</p>
+<p><strong>src/commerce_agent/governance/ports.py · propuesto</strong></p>
+<pre><code class="language-python">class PolicyEvaluator(Protocol):
+    def evaluate(self, policy_input: PolicyInput) -&gt; PolicyDecision: ...
+
+class GovernanceEvidenceStore(Protocol):
+    def record_decision(self, decision: DecisionEvidence) -&gt; None: ...
+
+# La unidad de trabajo local vincula decisión + transición.
+# PurchaseService nunca avanza solo porque recibió HTTP 200 de OPA.
+</code></pre>
+<ul>
+<li><p>Líneas 1-2 · <strong>Puerto pequeño:</strong> Evaluador síncrono para integrarse con los servicios actuales; el adaptador impone timeout. PolicyInput es unión tipada D1/D2/D3; no diccionario libre.</p>
+</li>
+<li><p>Líneas 4-5 · <strong>Persistencia propia:</strong> Contrato conceptual; la implementación de unidad de trabajo debe agrupar escritura y transición, sin transacción SQL abierta durante llamadas de red.</p>
+</li>
+<li><p>Líneas 7-8 · <strong>Enforcement:</strong> Validar resultado, integridad, versión y persistencia antes del siguiente efecto.</p>
+</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Almacén / tabla</th>
+<th>Estado actual</th>
+<th>Diseño que se debe especificar</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Agente · purchases / operation_keys</td>
+<td>Existen</td>
+<td>Añadir referencias a decisiones vigentes y operación/intento; claves y ownership explícitos</td>
+</tr>
+<tr>
+<td>Agente · policy_decisions</td>
+<td>Propuesta</td>
+<td>PK decision_id; FK compra; fase/mode/digests/input mínimo; historial de allows y denies</td>
+</tr>
+<tr>
+<td>Agente · offer_snapshots</td>
+<td>Propuesta</td>
+<td>PK snapshot_id; FK compra; versión material, fingerprint, observación y referencia protegida</td>
+</tr>
+<tr>
+<td>Agente · approval_attempts</td>
+<td>Propuesta</td>
+<td>PK attempt_id; FK compra/snapshot; unicidad por intento + digest; resultado durable</td>
+</tr>
+<tr>
+<td>Agente · approval_terms / approvals</td>
+<td>Existen, se sobrescriben por run_id</td>
+<td>Conservar proyección actual y añadir historial explícito; no llamarlas ledger append-only</td>
+</tr>
+<tr>
+<td>Agente · completion_results / orders / webhook_events</td>
+<td>Existen</td>
+<td>Enlazar decisiones, consentimiento HP o delegación HNP, mandatos/recibos y proyección sin regresión</td>
+</tr>
+<tr>
+<td>Agente · delegation_grants / grant_reservations</td>
+<td>Propuestas HNP</td>
+<td>Versiones de alcance y hash de mandatos abiertos; reserva única por delegación single-use; epoch y CAS con compromiso</td>
+</tr>
+<tr>
+<td>Agente · execution_tasks / dispatch_outbox</td>
+<td>Propuestas HNP</td>
+<td>Trigger/deadline, claim con vencimiento, operación durable y resultado; no recrear identidad tras restart</td>
+</tr>
+<tr>
+<td>Checkpoints LangGraph</td>
+<td>SQLite separada</td>
+<td>Memoria conversacional; no autoridad de compra ni doble verdad transaccional</td>
+</tr>
+<tr>
+<td>Merchant / proveedor</td>
+<td>PostgreSQL / SQLite independientes</td>
+<td>Cada servicio mantiene su autoridad y sus claves idempotentes; sin acceso directo desde agente</td>
+</tr>
+</tbody></table>
+<p>Las FK deben conservar el ámbito de compra/propietario. Definir índices, claves únicas, borrado/retención y migración con datos existentes. Proponer una sola instancia de agente con SQLite para v1; multi-instancia requiere rediseñar coordinación y migrar el store antes de afirmarla soportada.</p>
+<p>Guardar snapshots mínimos y referencias suficientes para replay. Los mandatos/JWT necesarios para recuperación permanecen en almacenamiento operativo protegido, no en logs de política ni exportaciones. Un SHA-256 de correo o dirección no anonimiza datos de baja entropía: usar identificadores pseudónimos o HMAC con key_id cuando haga falta correlación. Append-only en aplicación no significa evidencia resistente a un administrador con acceso a la base.</p>
+<h2 id="section-5">5. Estados, frescura, idempotencia y fallos</h2>
+<p>La máquina actual usa <code>received</code>, <code>selected</code>, <code>checkout_prepared</code>, <code>awaiting_confirmation</code>, <code>approved</code>, <code>completing</code>, <code>uncertain</code>, <code>completed</code>, <code>canceled</code>, <code>failed</code>. Debe acordarse cómo representar bloqueos de política, cambios de términos y recuperación sin equiparar los estados del agente a los estados normativos del checkout.</p>
+<h3>Secuencia Human Present propuesta</h3>
+<pre><code class="language-mermaid">sequenceDiagram
+    actor U as Comprador
+    participant P as PurchaseService
+    participant G as Gobernanza / OPA
+    participant M as Merchant
+    participant A as ApprovalService / AP2
+    participant C as CompletionService
+    U-&gt;&gt;P: Solicitud y propuesta de variante
+    P-&gt;&gt;P: Intención validada + elegibles
+    P-&gt;&gt;G: D1 selección
+    G--&gt;&gt;P: Decisión D1 persistida
+    alt D1 rechaza o falla en enforce
+        P--&gt;&gt;U: Bloqueo con razón
+    else D1 permite
+        P-&gt;&gt;M: Preparar checkout
+        M--&gt;&gt;U: Términos mostrados por UI
+        U-&gt;&gt;P: Clic + attempt_id + fingerprint
+        P-&gt;&gt;M: Refrescar términos
+        M--&gt;&gt;P: Términos vigentes y revisión
+        alt cambian términos materiales
+            P--&gt;&gt;U: Nuevos términos, requiere otro clic
+        else coinciden términos y vigencia
+            P-&gt;&gt;G: D2-HP autorización
+            G--&gt;&gt;P: Decisión D2 persistida
+            alt D2 rechaza o falla en enforce
+                P--&gt;&gt;U: Bloqueo sin firma
+            else D2 permite
+                P-&gt;&gt;A: Aprobar y firmar mandatos
+                A--&gt;&gt;P: Aprobación persistida
+                P-&gt;&gt;C: Finalizar con referencias
+                C-&gt;&gt;C: Verificar evidencia + CAS local
+                C-&gt;&gt;M: Complete AP2 idempotente
+                M--&gt;&gt;C: Orden + recibos o resultado incierto
+                C--&gt;&gt;U: Resultado autoritativo o pendiente
+            end
+        end
+    end
+</code></pre>
+<p>Detalle del flujo; cada rechazo o fallo detiene el efecto correspondiente. Los denies no siguen al siguiente paso.</p>
+<pre><code class="language-mermaid">sequenceDiagram
+    actor U as Comprador
+    participant D as DelegationService
+    participant W as Worker determinista
+    participant G as Gobernanza
+    participant S as Store de autoridad
+    participant M as Merchant y PSP
+    U-&gt;&gt;D: Consentir alcance y vigencia
+    D-&gt;&gt;S: Delegación abierta y evidencia
+    W-&gt;&gt;S: Claim de tarea durable
+    W-&gt;&gt;G: D1 selección
+    G--&gt;&gt;W: Decisión
+    W-&gt;&gt;M: Checkout vigente si D1 permite
+    W-&gt;&gt;G: D2-HNP con hechos de delegación
+    alt no hay autoridad suficiente
+        W--&gt;&gt;U: Pausa, requiere consentimiento nuevo
+    else D2 permite
+        W-&gt;&gt;S: Persistir D2 y reservar uso por CAS
+        W-&gt;&gt;W: Cerrar mandatos con Agent Key
+        W-&gt;&gt;G: D3 con epoch y reserva actuales
+        W-&gt;&gt;S: CAS decisión y compromiso de despacho
+        alt revocación ganó o D3 rechaza
+            W--&gt;&gt;U: Detenido antes de despacho
+        else compromiso válido
+            W-&gt;&gt;M: Cadena AP2 con identidad durable
+            M--&gt;&gt;W: Recibos autoritativos o timeout
+            W-&gt;&gt;S: Consumir o mantener incierto
+            W--&gt;&gt;U: Estado consultable y resultado
+        end
+    end
+</code></pre>
+<p>Secuencia HNP propuesta. Rechazos de D1 y fallos de reserva también detienen. El compromiso tiene un orden explícito frente a revocación.</p>
+<h3>Decisión crítica: refresco sin invalidación permanente</h3>
+<p>El código actual del merchant devuelve el checkout almacenado en GET. Update recotiza, pero incrementa revisión y cambia <code>updated_at</code> incluso sin cambio comercial. La huella actual incluye <code>updated_at</code>, y el JWT incorpora revisión. Un refresh ingenuo en cada clic podría exigir otro clic indefinidamente.</p>
+<p><strong>Recomendación para probar:</strong> refresco propio que recalcule estado actual y, si es inocuo, preserve <strong>todo el contenido firmado y consentido</strong>, incluida revisión, <code>updated_at</code> vinculante y bytes del Checkout JWT. Registrar <code>observed_at</code> aparte y actualizar la referencia de revalidación de oferta sin modificar ese contenido. Si hay cambio material, publicar otra revisión: HP vuelve a presentar; HNP reevalúa alcance y cierra contra términos nuevos. Rechazar expiración/stock inválido. <code>complete</code> debe contrastar atómicamente revisión y referencia de oferta revalidada contra estado comercial actual, sin pretender una transacción global con PSP. Documentar HTTP/auth/idempotencia como contrato local. Prueba mínima: oferta cambia internamente pero conserva términos → aprobación HP válida; precio/destino/envío cambian → aprobación HP inválida y HNP limitado por delegación.</p>
+<p>La alternativa es huella material independiente y un Checkout JWT nuevo tras refrescar. Esa alternativa cambia cómo se vincula el clic al objeto firmado y necesita justificar ese vínculo explícitamente. La prueba debe decidir entre ambas; no se implementa de manera implícita. Cambiar un control compartido o el perfil de consentimiento exige una nueva base común o una condición experimental separada.</p>
+<table>
+<thead>
+<tr>
+<th>Situación</th>
+<th>Estado / respuesta propuestos</th>
+<th>Dato que permite recuperar</th>
+<th>Criterio de cierre</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Intento humano repetido</td>
+<td>Mismo resultado; cuerpo distinto entra en conflicto</td>
+<td>attempt_id + request_digest</td>
+<td>No duplicar firma/efecto lógico</td>
+</tr>
+<tr>
+<td>Nuevo clic tras nuevos términos</td>
+<td>Intento nuevo vinculado al snapshot nuevo</td>
+<td>snapshot_id + attempt_id</td>
+<td>No reutilizar aprobación anterior</td>
+</tr>
+<tr>
+<td>Precio/envío/destino/variante/vigencia cambian</td>
+<td>HP: nueva presentación; HNP: reevaluar alcance y cierre, o pausa</td>
+<td>snapshots + consentimiento/grant</td>
+<td>Cero aprobación obsoleta ni expansión de límites; sin loop técnico</td>
+</tr>
+<tr>
+<td>D1/D2 deny o motor inválido</td>
+<td>blocked con razón canónica en enforce</td>
+<td>decision_id + retryability definida</td>
+<td>Cero efecto; shadow registra sin cambiar B0</td>
+</tr>
+<tr>
+<td>Fallo al persistir evidencia añadida</td>
+<td>Enforce: error y no avance; shadow: observación perdida sin bloquear B0</td>
+<td>Intento durable o ausencia explícita</td>
+<td>Semántica por modo; no confundir evidencia añadida con store operativo</td>
+</tr>
+<tr>
+<td>Fallo local después de D2 antes de aprobación</td>
+<td>Reanudar mismo intento con contexto revalidado</td>
+<td>D2 + estado de intento</td>
+<td>No usar allow desconectado o contexto cambiado</td>
+</tr>
+<tr>
+<td>Dos completions concurrentes</td>
+<td>Solo un claim local; otro consulta</td>
+<td>CAS + misma operación remota</td>
+<td>Una orden; ningún cambio de clave para saltar reserva</td>
+</tr>
+<tr>
+<td>Timeout tras despacho</td>
+<td>uncertain; reconciliar antes de repetir</td>
+<td>Clave durable + checkout/provider refs</td>
+<td>No anunciar fallo o éxito sin evidencia</td>
+</tr>
+<tr>
+<td>Pago confirmado y orden todavía desconocida</td>
+<td>Resultado pendiente/reconciliación</td>
+<td>Operación de pago + checkout</td>
+<td>Resolver sin segundo cargo ni éxito prematuro</td>
+</tr>
+<tr>
+<td>Webhook repetido/fuera de orden</td>
+<td>Persistir/deduplicar; proyección monotónica</td>
+<td>Firma, body digest, merchant y order refs</td>
+<td>No contaminar compra ajena ni regresar estado</td>
+</tr>
+<tr>
+<td>Dos tareas HNP sobre la misma delegación</td>
+<td>Una reserva válida; otra espera/rechaza</td>
+<td>grant hash + reserva + operación</td>
+<td>Sin cierres solapados aunque checkout/idempotency keys difieran</td>
+</tr>
+<tr>
+<td>Revocar HNP durante ejecución</td>
+<td>Antes de compromiso: detiene; después: en curso y reconciliar</td>
+<td>authority_epoch + orden durable de compromiso</td>
+<td>UI no promete deshacer una operación ya comprometida</td>
+</tr>
+<tr>
+<td>HNP fuera de límites, cnf ajeno o constraint desconocido</td>
+<td>No firmar/despachar; requiere resolver o nuevo consentimiento</td>
+<td>Chain/grant refs + razón canónica</td>
+<td>Merchant/PSP rechazan independientemente de OPA</td>
+</tr>
+</tbody></table>
+<p>En enforce, decisión y transición se guardan atómicamente en SQLite mediante una unidad de trabajo. Evaluar OPA y consultar merchant fuera de esa transacción; al persistir, comprobar versión local. Firma, guardado de aprobación y cambio a approved necesitan recuperación explícita. Una presentación HP crea un intento; doble clic y fallo reintentable conservan ese intento si sigue vigente; nueva presentación crea otro.</p>
+<p>La llamada remota no comparte la transacción SQL. Merchant puede hacer stock y orden atómicos localmente; PSP está en otra frontera. Mantener identidad de operación, estado durable y reconciliación. Una decisión OPA no congela stock, precio ni autorización futura.</p>
+<h3>Autoridad y consumo HNP junto al efecto</h3>
+<p>La propuesta serializa en un mismo store local revocación y compromiso: D2 reserva uso antes de cerrar; D3 evalúa hechos actuales; una transacción verifica de nuevo epoch/reserva/versión, guarda evidencia y compromete la operación en outbox. Revocación anterior a ese commit impide el despacho. Una revocación posterior detiene ejecuciones nuevas, pero esa operación ya está en curso y puede enviarse o haber llegado al verificador; requiere reconciliación. El worker conserva identidad y cadena al reintentar. No genera otro cierre mientras la presentación anterior siga sin resultado autoritativo, aunque una recotización nueva cumpla los límites.</p>
+<p>Si se exige impedir también la aceptación remota después de revocar, hace falta una comprobación online en merchant/PSP y un contrato de orden compartido adicional. No se promete revocación distribuida instantánea. La reserva single-use se consume con recibos; una respuesta perdida no la libera. Antes de cualquier presentación remota, ausencia de despacho demostrada puede liberar la reserva. Si ya se presentó un cierre, rechazo firmado y reconciliado puede permitir otro según el perfil; un recibo de pago aislado no prueba que toda la compra terminó. Especificar transiciones de grant, reserva y compra por separado, incluyendo fallo parcial entre ambos verificadores.</p>
+<h2 id="section-6">6. Interfaces y ubicación en código</h2>
+<p>Reutilizar las rutas existentes de conversación, consulta, aprobación, cancelación y complete. La nueva aprobación necesitará <code>approval_attempt_id</code> generado por backend al presentar términos. El cliente devuelve esa referencia y el fingerprint; no aporta principal, monto autoritativo, claves idempotentes, flags de política o un <code>allow</code>.</p>
+<p><strong>POST /purchases/{run_id}/approval</strong> — HP: aprobar exactamente un intento presentado
+Autenticación: JWT verificado + ownership del run</p>
+<ul>
+<li><code>run_id</code> (path, string): obligatorio. </li>
+<li><code>approval_attempt_id</code> (body, string): obligatorio. </li>
+<li><code>expected_fingerprint</code> (body, string): obligatorio. </li>
+<li><code>checkout_jwt</code> (body, string): Perfil AP2 actual; validar sin copiar a evidencia pública.</li>
+</ul>
+<pre><code class="language-json">{&quot;approval_attempt_id&quot;:&quot;att_...&quot;,&quot;expected_fingerprint&quot;:&quot;...&quot;,&quot;checkout_jwt&quot;:&quot;&lt;no registrar&gt;&quot;}
+</code></pre>
+<p>Respuestas:</p>
+<ul>
+<li><strong>200:</strong> Intento aprobado o replay del mismo resultado; representación final por especificar.</li>
+<li><strong>409:</strong> Términos/estado cambiaron o mismo intento con contenido distinto.</li>
+<li><strong>403:</strong> Acción no permitida; no revela existencia de compra ajena.</li>
+<li><strong>503:</strong> Motor/evidencia no disponibles en enforce; no avanza.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Interfaz propuesta de aplicación</th>
+<th>Autoridad</th>
+<th>Contrato que hay que cerrar</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Preparar y consentir delegación</td>
+<td>Usuario autenticado en Trusted Surface</td>
+<td>Alcance mostrado, versión, consentimiento, emisión abierta y replay; no autorización genérica del chat</td>
+</tr>
+<tr>
+<td>Consultar / revocar delegación</td>
+<td>Owner verificado por backend</td>
+<td>Estado, epoch, usos y operaciones en curso; revocación idempotente con orden durable</td>
+</tr>
+<tr>
+<td>Crear / consultar tarea HNP</td>
+<td>Owner + delegación válida; ejecución interna autenticada</td>
+<td>Trigger/deadline, identidad de tarea, cancelación y estado; UI no puede forzar allow</td>
+</tr>
+<tr>
+<td>Cerrar / presentar cadena</td>
+<td>Backend determinista y Agent Key</td>
+<td>No exponer signer al LLM ni bypass de aprobación; errores por modo y constraints soportados</td>
+</tr>
+</tbody></table>
+<p>Acordar compatibilidad API, migración de cliente, códigos y payload de error antes de añadir el campo. La respuesta de política puede exponerse como razón canónica y referencia corta; no incluir hechos de autorización privados.</p>
+<p>El adaptador OPA consultará una ruta fija, por ejemplo <code>POST /v1/data/commerce/governance/decision</code>, con <code>{&quot;input&quot;: ...}</code>. HTTP 200 sin <code>result</code> representa documento indefinido y debe bloquear en enforce. No se aceptan outcomes, razones o campos no definidos. <a href="https://www.openpolicyagent.org/docs/rest-api">REST API OPA</a>.</p>
+<p><strong>application/purchase.py · inserciones propuestas sobre PurchaseService</strong></p>
+<pre><code class="language-python"># start(): reutilizar rank_candidates y selección validada.
+selection = rank_candidates(feed, intent)
+# D1: ensamblar hechos, evaluar, validar y persistir + claim local.
+# Solo un allow vinculado al estado permite create_checkout().
+
+# approve(): reutilizar ownership, checkout y ApprovalService.
+# 1. Resolver intento + refrescar términos + comparar contenido material.
+# 2. D2: evaluar y persistir antes de cualquier firma AP2.
+# 3. ApprovalService.approve(...): firmar y persistir aprobación.
+# 4. Actualizar etapa con la misma versión esperada o recuperar el intento.
+</code></pre>
+<ul>
+<li><p>Líneas 1-4 · <strong>D1 cerca del efecto:</strong> El control vive en el servicio de aplicación y cubre invocaciones que no pasen por LangGraph.</p>
+</li>
+<li><p>Líneas 6-8 · <strong>D2 antes de firma:</strong> ApprovalService.approve actualmente firma AP2 antes de guardar. La inserción debe preceder esa llamada.</p>
+</li>
+<li><p>Líneas 9 · <strong>Persistencia recuperable:</strong> Definir transacción y recuperación del intento; las escrituras actuales separadas no constituyen la nueva garantía.</p>
+</li>
+</ul>
+<p>La implementación futura añadirá <code>governance/</code>, <code>delegation/</code>, autorización/worker HNP, frescura, políticas y configuración OPA. Modificará compra, aprobación HP, completion, store, runtime y UI. Merchant/proveedor necesitarán recepción/verificación de cadenas HNP, restricciones y recuperación, además del refresco si gana esa opción. No se habilitará HNP pasando <code>human_approved=True</code> ni desactivando el guard HP. Todo ello es backlog posterior al diseño.</p>
+<h2 id="section-7">7. Operación, seguridad y evolución B2B</h2>
+<table>
+<thead>
+<tr>
+<th>Tema</th>
+<th>Recomendación</th>
+<th>Qué falta para cerrar</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Bundle OPA</td>
+<td>Estático local, versión/digest de motor y artefacto; sin actualización remota durante experimento</td>
+<td>Build reproducible, digest verificado y prueba de bundle ausente/incompatible</td>
+</tr>
+<tr>
+<td>Superficie OPA</td>
+<td>Red privada/loopback y API de evaluación cerrada; agente no administra políticas</td>
+<td>Config de rutas, readiness y prueba de inaccesibilidad desde UI/LLM</td>
+</tr>
+<tr>
+<td>Modos</td>
+<td>off, shadow, enforce cerrados y registrados por episodio</td>
+<td>Shadow no modifica B0; enforce nunca cae a off por error</td>
+</tr>
+<tr>
+<td>Disponibilidad/latencia</td>
+<td>Definir timeout y límites con benchmark local antes de freeze</td>
+<td>p50/p95/p99, fallos, presupuesto máximo por decisión y end-to-end</td>
+</tr>
+<tr>
+<td>Confiabilidad</td>
+<td>Persistencia durable, backup y reconciliación al reiniciar</td>
+<td>Pruebas de restart en cada punto de firma/pago/orden</td>
+</tr>
+<tr>
+<td>Claves</td>
+<td>Claves por rol, trust anchors fijados, key_id y procedimiento de rotación</td>
+<td>Audiencias/expiración/tolerancia y prueba de emisor o clave incorrectos</td>
+</tr>
+<tr>
+<td>Evidencia</td>
+<td>Ledger de aplicación antes del efecto; logs OPA complementarios</td>
+<td>Allowlist de campos, retención/acceso, replay y detección de secretos</td>
+</tr>
+</tbody></table>
+<table>
+<thead>
+<tr>
+<th>Mecanismo</th>
+<th>off</th>
+<th>shadow</th>
+<th>enforce</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Deny del PDP añadido</td>
+<td>No evaluar</td>
+<td>Registrar, continuar base equivalente</td>
+<td>Bloquear el efecto correspondiente</td>
+</tr>
+<tr>
+<td>Timeout/undefined/bundle inválido</td>
+<td>Sin dependencia del PDP</td>
+<td>Pérdida de observación, continuar base</td>
+<td>Bloquear y exponer fallo operativo</td>
+</tr>
+<tr>
+<td>Fallo de evidencia añadida</td>
+<td>Sin dependencia añadida</td>
+<td>Contabilizar observación perdida, no bloquear base</td>
+<td>No avanzar sin decisión vinculada</td>
+</tr>
+<tr>
+<td>Fallo de persistencia operativa/mandato/reserva</td>
+<td>Controles comunes de base</td>
+<td>Controles comunes de base</td>
+<td>Bloquear según control común; no continuar sin autoridad</td>
+</tr>
+<tr>
+<td>Frescura que muta merchant</td>
+<td>Contrato común fijado por baseline</td>
+<td>Observar sin mutar; o declarar otra condición experimental</td>
+<td>Contrato de frescura del tratamiento documentado</td>
+</tr>
+<tr>
+<td>HNP: firma/constraints/uso/revocación</td>
+<td>Obligatorios en base HNP equivalente</td>
+<td>No se deshabilitan para preservar autoridad</td>
+<td>Obligatorios además de PDP/evidencia</td>
+</tr>
+</tbody></table>
+<p>Los modos afectan al tratamiento de gobernanza añadido; no habilitan comprar sin consentimiento o sin verificar AP2. El B0 actual solo cubre HP. La base HNP debe construirse con los controles comunes imprescindibles antes de comparar. Fijar por episodio perfil, modo y mecanismos; los fallos de observación en shadow entran en métricas de cobertura.</p>
+<p>Los <a href="https://www.openpolicyagent.org/docs/management-bundles">bundles OPA</a> admiten firma y metadatos de revisión; decidir el mecanismo de integridad del artefacto desplegado, sin tratar la revisión declarada como prueba suficiente. Los <a href="https://www.openpolicyagent.org/docs/management-decision-logs">decision logs</a> pueden incluir input y resultado y permiten masking; no sustituyen la persistencia transaccional de evidencia de la compra.</p>
+<h3>Ruta B2B condicionada al alcance</h3>
+<p>Si B2B debe implementarse, ampliar el diseño antes de congelar: organización/membresía, roles solicitante/aprobador, mandato organizacional versionado, presupuesto compartido, reservas y revocación. La autorización organizacional es un contrato de aplicación adicional; no se declara implementada por tener mandatos AP2 Human Present.</p>
+<table>
+<thead>
+<tr>
+<th>Adición</th>
+<th>Estructuras/controles necesarios</th>
+<th>Prueba que demuestra cierre</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Roles y autoridad</td>
+<td>Organization, Membership, OrganizationalMandate; scope/owner/roles</td>
+<td>Solicitante no aprueba por inventar un campo o reutilizar identidad</td>
+</tr>
+<tr>
+<td>Presupuesto compartido</td>
+<td>BudgetAccount + Reservation; reserva/consumo/liberación atómicos</td>
+<td>Dos compras concurrentes no exceden saldo; timeout no libera sin resolver efecto</td>
+</tr>
+<tr>
+<td>Revocación</td>
+<td>authority_epoch + evento; orden entre revocar y comprometer despacho</td>
+<td>Carrera revocación/despacho con semántica explícita del efecto en curso</td>
+</tr>
+<tr>
+<td>Decisión próxima al efecto</td>
+<td>D3 o lease/versión de autorización consumible; datos dinámicos autoritativos</td>
+<td>Rechazar autorización obsoleta; D3 aislada no pretende cerrar toda ventana TOCTOU</td>
+</tr>
+<tr>
+<td>Coordinación</td>
+<td>Reevaluar PostgreSQL para store de autoridad y despliegue</td>
+<td>Transacciones, bloqueos y reconciliación entre servicios probados</td>
+</tr>
+</tbody></table>
+<p>HP y HNP sí forman parte del alcance confirmado. B2B, recurrencias, subdelegación y jerarquías de mandatos son ampliaciones independientes. Reserva y revocación de delegación personal HNP ya pertenecen al núcleo y no esperan a B2B.</p>
+<h2 id="section-8">8. Registro de decisiones y entregables</h2>
+<p>Cada fila es una unidad de trabajo de diseño. La elección propuesta debe pasar su evidencia antes de recibir estado cerrado. Los responsables se asignarán por persona según disponibilidad; las responsabilidades de los componentes ya aparecen arriba.</p>
+<h3>Decisiones M0</h3>
+<table>
+<thead>
+<tr>
+<th>Decisión / estado</th>
+<th>Propuesta / entregable</th>
+<th>Cierre / dependencias</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>D01 · Alcance funcional. Estado: Recomendación</td>
+<td>HP + HNP confirmados; B2C/compra única propuestos; B2B independiente. Entregable: scope.md</td>
+<td>Modos confirmados por Yair; cerrar límites y profundidad de cada caso. Depende de: —</td>
+</tr>
+<tr>
+<td>D02 · Casos de uso y requisitos. Estado: Recomendación</td>
+<td>Compra válida + recuperación + amenazas por requisito. Entregable: requirements.md</td>
+<td>Cada requisito tiene ID, dueño, prioridad y oráculo. Depende de: D01</td>
+</tr>
+<tr>
+<td>D03 · Tratamiento experimental. Estado: Recomendación</td>
+<td>Paquete gobernanza; no atribuirlo solo a OPA. Entregable: experiment-design.md</td>
+<td>Variables mantenidas constantes y mecanismos separados. Depende de: D01</td>
+</tr>
+</tbody></table>
+<h3>Decisiones M1</h3>
+<table>
+<thead>
+<tr>
+<th>Decisión / estado</th>
+<th>Propuesta / entregable</th>
+<th>Cierre / dependencias</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>D04 · Protocolo comercial. Estado: Prueba pendiente</td>
+<td>ACP REST provisional; UCP si falla puente HNP. Entregable: protocol-profile.md + ADR-001</td>
+<td>Comparación ACP/UCP y spike HNP contra requisitos y estándar/propio. Depende de: D02, D03, H01</td>
+</tr>
+<tr>
+<td>D05 · Módulos comerciales. Estado: Recomendación</td>
+<td>Discovery/product snapshot/checkout/fulfillment/payment/order events. Entregable: protocol-coverage.csv</td>
+<td>Operación/campo/estado → fuente congelada → prueba. Depende de: D04</td>
+</tr>
+<tr>
+<td>D06 · Autorización del pago. Estado: Recomendación</td>
+<td>AP2 v0.2 HP cerrado + HNP abierto/cierre; claves separadas. Entregable: ap2-profile.md</td>
+<td>Actores, claims, firmas, trusts, expiración y recibos. Depende de: D04</td>
+</tr>
+<tr>
+<td>D07 · Bridge ACP–AP2. Estado: Recomendación</td>
+<td>Contrato propio HP/HNP sobre JWT, cadena, revisión y constraints. Entregable: bridge-contract.md</td>
+<td>Vínculos términos/consentimiento/delegación/cadena/operación/recibos. Depende de: D05, D06</td>
+</tr>
+<tr>
+<td>D08 · MCP/A2A/TAP. Estado: Recomendación</td>
+<td>Excluir con condición de reapertura. Entregable: ADR-002</td>
+<td>Una interacción ausente o requisito concreto por protocolo. Depende de: D02, D04</td>
+</tr>
+<tr>
+<td>H01 · Viabilidad criptográfica del puente HNP. Estado: Prueba pendiente</td>
+<td>Spike ACP firmado → constraints AP2; comparar UCP. Entregable: hnp-bridge-spike.md</td>
+<td>Cadena válida aceptada; cnf/hash/campo/límite alterados rechazados. Depende de: D02, D03</td>
+</tr>
+</tbody></table>
+<h3>Decisiones M2</h3>
+<table>
+<thead>
+<tr>
+<th>Decisión / estado</th>
+<th>Propuesta / entregable</th>
+<th>Cierre / dependencias</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>D09 · Topología y fronteras. Estado: Recomendación</td>
+<td>Agente modular + OPA separado + merchant/PSP externos. Entregable: architecture.md</td>
+<td>Contexto/contenedores y autoridad de datos sin accesos cruzados. Depende de: D04, D06</td>
+</tr>
+<tr>
+<td>D10 · Puntos de enforcement. Estado: Recomendación</td>
+<td>D1 selección; D2-HP/HNP antes de firma; D3-HNP junto a compromiso. Entregable: control-map.md</td>
+<td>Todo camino a crear/firmar/completar pasa por guardas. Depende de: D09</td>
+</tr>
+<tr>
+<td>D11 · Motor de políticas. Estado: Prueba pendiente</td>
+<td>OPA local detrás de PolicyEvaluator. Entregable: ADR-003 + spike report</td>
+<td>Benchmark, fail closed y comparación Python/Cedar razonada. Depende de: D10</td>
+</tr>
+<tr>
+<td>D12 · Catálogo de políticas. Estado: Recomendación</td>
+<td>POL-01–10; ledger, cripto y UX con dueños distintos. Entregable: policy-catalog.md</td>
+<td>Hechos, dueño, razones, pruebas positivas/negativas por regla. Depende de: D10</td>
+</tr>
+<tr>
+<td>D13 · Resultados y obligaciones. Estado: Recomendación</td>
+<td>allow/deny; recuperación y evidencia como pasos fijos. Entregable: policy-contract.json</td>
+<td>Unknown/undefined/razón desconocida bloquean; no código dinámico. Depende de: D11, D12</td>
+</tr>
+<tr>
+<td>D14 · Gobierno de políticas. Estado: Recomendación</td>
+<td>Revisión humana + bundle fijado y desplegado. Entregable: policy-lifecycle.md</td>
+<td>Quién cambia, revisa, activa y revierte; agente sin escritura. Depende de: D11, D12</td>
+</tr>
+<tr>
+<td>H02 · Alcance de delegación autónoma. Estado: Recomendación</td>
+<td>Una compra; merchant/variantes/cantidad/total/instrumento/TTL explícitos. Entregable: delegation-profile.md</td>
+<td>UI muestra exactamente límites; schema distingue estándar y extensión. Depende de: D06, D12</td>
+</tr>
+</tbody></table>
+<h3>Decisiones M3</h3>
+<table>
+<thead>
+<tr>
+<th>Decisión / estado</th>
+<th>Propuesta / entregable</th>
+<th>Cierre / dependencias</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>D15 · Modelos canónicos. Estado: Recomendación</td>
+<td>Intención/checkout reutilizados; D1/D2/D3, grant y reserva tipados. Entregable: schemas/</td>
+<td>JSON válido/inválido y mapeo a modelos existentes. Depende de: D05, D13</td>
+</tr>
+<tr>
+<td>D16 · Identidad y correlación. Estado: Recomendación</td>
+<td>run/conversation/experiment/trace/decision/attempt separados. Entregable: identity-map.md</td>
+<td>IDs no autorizan; scope consistente en rutas/FK. Depende de: D15</td>
+</tr>
+<tr>
+<td>D17 · Frescura y consentimiento. Estado: Prueba pendiente</td>
+<td>Refresh inocuo preserva todo contenido firmado/consentido. Entregable: freshness-contract.md + ADR-004</td>
+<td>Sin loop HP; HNP revalida alcance; complete contrasta oferta vigente. Depende de: D07, D15</td>
+</tr>
+<tr>
+<td>D18 · Persistencia y migraciones. Estado: Recomendación</td>
+<td>Snapshots/decisiones/intentos/delegaciones; proyecciones actuales explícitas. Entregable: data-model.md + migration plan</td>
+<td>PK/FK/unique/índices/retención y migración con datos existentes. Depende de: D15, D16, D17</td>
+</tr>
+<tr>
+<td>D19 · API y compatibilidad. Estado: Recomendación</td>
+<td>Intento HP + gestión de delegación/tarea HNP; ownership servidor. Entregable: openapi-agent.yaml</td>
+<td>Errores/replay/cambios materiales y migración UI coherentes. Depende de: D16, D17</td>
+</tr>
+<tr>
+<td>D20 · Contrato OPA. Estado: Recomendación</td>
+<td>Ruta fija, schema validado, versión verificada. Entregable: opa-contract.json</td>
+<td>200 sin result/timeout/bundle distinto no habilitan. Depende de: D11, D13, D15</td>
+</tr>
+<tr>
+<td>H03 · Emisión y cierre de mandatos. Estado: Recomendación</td>
+<td>Separar Trusted Surface/emisor de Agent Key/materializador. Entregable: delegation-crypto-contract.md</td>
+<td>Consentimiento previo, cadena, cnf, audiencia/nonce y recibos verificables. Depende de: D07, H01, H02, D15, D16</td>
+</tr>
+</tbody></table>
+<h3>Decisiones M4</h3>
+<table>
+<thead>
+<tr>
+<th>Decisión / estado</th>
+<th>Propuesta / entregable</th>
+<th>Cierre / dependencias</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>D21 · Máquinas de estado. Estado: Recomendación</td>
+<td>Separar compra, checkout, intento HP, grant/reserva/tarea HNP y operación. Entregable: states.md</td>
+<td>Cada transición tiene precondición, dueño y recuperación. Depende de: D18, D19</td>
+</tr>
+<tr>
+<td>D22 · Idempotencia. Estado: Recomendación</td>
+<td>Identidades durables por operación/intento y reserva por delegación. Entregable: idempotency-matrix.md</td>
+<td>Mismo body replay; mismatch conflicto; restart conserva identidad. Depende de: D18, D19</td>
+</tr>
+<tr>
+<td>D23 · Atomicidad local. Estado: Recomendación</td>
+<td>Decisión/transición y grant/reserva/compromiso mediante UoW/CAS. Entregable: transaction-boundaries.md</td>
+<td>Carreras y crash points sin efecto sin evidencia. Depende de: D18, D20, D21</td>
+</tr>
+<tr>
+<td>D24 · Incertidumbre y reconciliación. Estado: Recomendación</td>
+<td>Consultar antes de redespachar; conservar clave. Entregable: recovery-sequences.md</td>
+<td>Pago confirmado/orden desconocida y respuesta perdida recuperables. Depende de: D07, D22, D23</td>
+</tr>
+<tr>
+<td>D25 · Eventos de orden. Estado: Recomendación</td>
+<td>Autenticación, dedupe y proyección monotónica. Entregable: event-contract.md</td>
+<td>Duplicados/fuera de orden/merchant distinto sin contaminación. Depende de: D05, D18</td>
+</tr>
+<tr>
+<td>D26 · Integración UI. Estado: Recomendación</td>
+<td>HP términos y presentación; HNP consentir límites, revocar y ver tarea. Entregable: ui-state-contract.md</td>
+<td>La UI no inventa intención ni autoridad; cada bloqueo recuperable. Depende de: D19, D21, D24</td>
+</tr>
+<tr>
+<td>H04 · Ledger y doble uso de delegación. Estado: Recomendación</td>
+<td>Reserva single-use + CAS por mandato abierto y operación. Entregable: grant-ledger.md</td>
+<td>Dos checkouts distintos no producen cierres solapados; timeout no libera. Depende de: D18, D22, D23, H02</td>
+</tr>
+<tr>
+<td>H05 · Revocación frente a compromiso. Estado: Recomendación</td>
+<td>Epoch + D3 y outbox en transacción; en curso se reconcilia. Entregable: revocation-order.md</td>
+<td>Carreras antes/después del commit y fallo parcial entre verificadores. Depende de: H03, H04, D24</td>
+</tr>
+</tbody></table>
+<h3>Decisiones M5</h3>
+<table>
+<thead>
+<tr>
+<th>Decisión / estado</th>
+<th>Propuesta / entregable</th>
+<th>Cierre / dependencias</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>D27 · Identidad/ownership. Estado: Recomendación</td>
+<td>JWT verificado y scopes desde backend. Entregable: trust-boundaries.md</td>
+<td>Intento de leer/aprobar compra de otro falla. Depende de: D09, D16, D19</td>
+</tr>
+<tr>
+<td>D28 · Claves/cripto/relojes. Estado: Recomendación</td>
+<td>Claves emisor/Agent Key separadas; anchors, nonce/audiencia y relojes. Entregable: key-and-clock-profile.md</td>
+<td>Issuer/audience/key/exp incorrectos rechazados; rotación especificada. Depende de: D06, D07, D27, H03</td>
+</tr>
+<tr>
+<td>D29 · Catálogo/LLM no confiables. Estado: Recomendación</td>
+<td>Allowlist, schemas, herramientas de lectura, sin autoridad modelada. Entregable: threat-model.md</td>
+<td>Inyección no modifica actor, total, política o efecto. Depende de: D10, D15, D27</td>
+</tr>
+<tr>
+<td>D30 · Evidencia y privacidad. Estado: Recomendación</td>
+<td>Entrada mínima replayable + referencias; datos sensibles protegidos. Entregable: evidence-schema.json + retention.md</td>
+<td>Replay reproduce decisión y exportación excluye secretos/PII. Depende de: D18, D23, D28</td>
+</tr>
+<tr>
+<td>D31 · Modos y readiness. Estado: Recomendación</td>
+<td>off/shadow/enforce por episodio; readiness bundle/config. Entregable: runtime-contract.md</td>
+<td>Matriz por mecanismo: shadow sin bloqueo añadido; enforce no degrada. Depende de: D14, D20, D23</td>
+</tr>
+<tr>
+<td>D32 · SLO/timeouts/límites. Estado: Prueba pendiente</td>
+<td>Fijar números tras prueba local antes de evaluar. Entregable: operational-budgets.md</td>
+<td>p95/timeout/body/concurrencia/retry budgets medidos y aceptados. Depende de: D11, D24, D31</td>
+</tr>
+<tr>
+<td>D33 · Despliegue/reinicio/backup. Estado: Recomendación</td>
+<td>Instancia agente única y volúmenes persistentes. Entregable: deployment-runbook.md</td>
+<td>Restart en compra pendiente y restore verificable. Depende de: D09, D18, D24, D31</td>
+</tr>
+<tr>
+<td>H06 · Activación y worker HNP. Estado: Recomendación</td>
+<td>Tarea durable de compra única; claim acotado, deadline y restart. Entregable: autonomous-worker.md</td>
+<td>Sin pestaña activa, retries/crash no recrean identidad ni amplían autoridad. Depende de: H04, H05, D31, D33</td>
+</tr>
+</tbody></table>
+<h3>Decisiones M6</h3>
+<table>
+<thead>
+<tr>
+<th>Decisión / estado</th>
+<th>Propuesta / entregable</th>
+<th>Cierre / dependencias</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>D34 · Escenarios y oráculos. Estado: Recomendación</td>
+<td>S01–S05 HP + HNP límites/cadena/revocación/concurrencia/recovery. Entregable: acceptance-matrix.csv</td>
+<td>Requisito → control → caso → métrica/evidencia. Depende de: D12, D24, D25, D29, D30</td>
+</tr>
+<tr>
+<td>D35 · Corpus y comparación. Estado: Recomendación</td>
+<td>Pares B0/B2 por modo; nueva base HNP; corpus reservado. Entregable: evaluation-manifest.json</td>
+<td>Denominadores, semillas/configs y frozen artifacts trazables. Depende de: D03, D14, D34</td>
+</tr>
+<tr>
+<td>D36 · Atribución y límites. Estado: Recomendación</td>
+<td>Medir paquete; ablación si se afirma beneficio específico del PDP. Entregable: analysis-plan.md</td>
+<td>Resultados por mecanismo; no exigir mejora donde B0 ya controla. Depende de: D03, D35</td>
+</tr>
+<tr>
+<td>D37 · Consistencia documental. Estado: Recomendación</td>
+<td>D1/D2 por modo y D3-HNP coherentes en todo artefacto. Entregable: design-index.md</td>
+<td>Sin P1–P5 activo contradictorio ni HNP presentado como HP sin clic. Depende de: D10, D13, D15, D21, D34</td>
+</tr>
+<tr>
+<td>D38 · Handoff de implementación. Estado: Recomendación</td>
+<td>Tareas por repo con dependencias y aceptación. Entregable: implementation-backlog.md</td>
+<td>Compra y todos los fallos pueden recorrerse sin decidir contratos. Depende de: D01, D02, D03, D04, D05, D06, D07, D08, D09, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30, D31, D32, D33, D34, D35, D36, D37, H01, H02, H03, H04, H05, H06, H07, H08</td>
+</tr>
+<tr>
+<td>H07 · Aceptación de ambos modos. Estado: Recomendación</td>
+<td>HP clic exacto; HNP límites y gestión de delegación. Entregable: hp-hnp-acceptance.csv</td>
+<td>Cadena falsa/cnf ajeno/expiry/límites/unknown/revoke/doble uso/fallback. Depende de: H03, H04, H05, H06, D26</td>
+</tr>
+<tr>
+<td>H08 · Comparabilidad HP/HNP. Estado: Recomendación</td>
+<td>Baseline común por modo antes de medir gobernanza. Entregable: hnp-baseline-manifest.json</td>
+<td>No atribuir a PDP cambios de autonomía, protocolo o controles comunes. Depende de: H07, D35, D36</td>
+</tr>
+</tbody></table>
+<h3>Decisiones B2B</h3>
+<table>
+<thead>
+<tr>
+<th>Decisión / estado</th>
+<th>Propuesta / entregable</th>
+<th>Cierre / dependencias</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>B01 · Roles y mandato organizacional. Estado: Alcance pendiente</td>
+<td>Diseñar si B2B entra al núcleo. Entregable: b2b-authority.md</td>
+<td>Roles y autoridad empresarial verificables. Depende de: D01, D27</td>
+</tr>
+<tr>
+<td>B02 · Presupuesto compartido. Estado: Alcance pendiente</td>
+<td>Reserva/consumo/liberación atómicos. Entregable: b2b-budget.md</td>
+<td>Dos compras concurrentes y efecto incierto sin sobregiro. Depende de: B01, D23, D24</td>
+</tr>
+<tr>
+<td>B03 · Revocación y efecto. Estado: Alcance pendiente</td>
+<td>Epoch/lease + orden compromiso/revocación + D3 si procede. Entregable: b2b-revocation.md</td>
+<td>Carreras y ventana hasta efecto explicitadas. Depende de: B01, B02, D28</td>
+</tr>
+<tr>
+<td>B04 · Persistencia y evaluación empresarial. Estado: Alcance pendiente</td>
+<td>Reevaluar PostgreSQL y corpus B2B separado. Entregable: b2b-experiment.md</td>
+<td>Aislamiento organizaciones y coordinación demostrables. Depende de: B02, B03, D35</td>
+</tr>
+</tbody></table>
+<h2 id="section-9">9. Qué significa estar listos para implementar</h2>
+<p>El gate de congelación D38 exige todas las decisiones D01–D37 y H01–H08; B01–B04 solo si B2B entra al núcleo. Las tres pruebas prioritarias son H01 (puente HNP), D17 (frescura sin invalidar consentimiento) y D11 (integración/fallos OPA). El plazo semanal se reevalúa con esos resultados: HNP añade trabajo real y el 19 sigue siendo una fecha tentativa.</p>
+<p>El paquete congelado incluirá un índice y registros de decisiones; perfil de protocolos; catálogo de políticas; contexto/contenedores/componentes; contratos JSON/OpenAPI; modelo ER con migraciones; máquinas de estado; secuencias de éxito y fallos; modelo de amenazas; runbook; esquema de evidencia; plan experimental; y backlog por repositorio. Los nombres del registro son entregables propuestos, no archivos que ya existan.</p>
+<p>La validación del diseño consiste en recorrer los casos contra esos artefactos y resolver contradicciones. Las pruebas de código que se enumeran a continuación serán requisitos de implementación; no se presentan como ejecutadas para funcionalidades aún inexistentes.</p>
+<ul>
+<li><input disabled="" type="checkbox"> HP y HNP cubiertos; límites de autonomía y alcance B2B explícitos</li>
+<li><input disabled="" type="checkbox"> Cada módulo incluido tiene versión/fuente, operación, mapeo y prueba; las extensiones propias están identificadas</li>
+<li><input disabled="" type="checkbox"> Cada política tiene dueño, hechos, razón, enforcement y casos permitidos/rechazados</li>
+<li><input disabled="" type="checkbox"> Frescura resuelta sin GET obsoleto ni bucle de aprobación por timestamps</li>
+<li><input disabled="" type="checkbox"> Modelos, IDs, FK, índices, unicidad, retención y migración especificados</li>
+<li><input disabled="" type="checkbox"> Transacciones locales, firma, CAS e idempotencia tienen recuperación en cada crash point</li>
+<li><input disabled="" type="checkbox"> Pago/orden desconocidos se reconcilian sin afirmar atomicidad entre servicios</li>
+<li><input disabled="" type="checkbox"> Versiones, bundle, claves, relojes, readiness y presupuestos operativos fijados</li>
+<li><input disabled="" type="checkbox"> La evidencia mínima permite replay sin secretos ni PII exportada</li>
+<li><input disabled="" type="checkbox"> Corpus/oráculos/métricas y tratamiento experimental definidos antes de medir B2</li>
+<li><input disabled="" type="checkbox"> Diagramas/contratos/manifiesto/backlog coinciden: D1/D2 por modo y D3-HNP</li>
+<li><input disabled="" type="checkbox"> Delegación, cadena, doble uso, revocación/compromiso y worker HNP tienen contratos verificables</li>
+<li><input disabled="" type="checkbox"> Una compra y sus fallos se recorren sin inventar una estructura, autoridad o transición</li>
+</ul>
+<h3>Verificación futura de implementación</h3>
+<p>Usar contratos congelados, pruebas de políticas Rego, fallos OPA, ownership, frescura y persistencia. Añadir carreras y crash recovery que prueben la semántica, no solo funciones aisladas. El smoke integrado existente constituye el punto de partida para ejercer merchant y PSP como procesos separados; ampliar el runner a B2, ejecutar modo sombra y luego enforcement con el mismo episodio.</p>
+<p><strong>tesis-commerce-agent · runner existente, ampliación B2 pendiente</strong></p>
+<pre><code class="language-sh">uv run python scripts/run_joint_e2e.py --ap2   --merchant-repo ../tesis-commerce-merchant   --payment-repo ../tesis-payment-provider-sandbox
+</code></pre>
+<p>Comando existente de integración AP2; no ejecuta gobernanza B2 por sí solo.</p>
+<p>La aceptación B2 HP deberá comprobar: intento idéntico reintentado; precio material cambiado; revisión/timestamp sin cambio comercial; OPA caído/undefined; fallo de escritura; aprobación ajena; firma o recibo inválidos; dos completions; restart; pago confirmado con orden incierta; webhook repetido. HNP añade cadena falsa, cnf ajeno, scope expandido, constraint desconocido, dos cierres, expiry/revocación, activación sin navegador y fallo parcial entre verificadores. Verificar en bases y recibos el resultado, además de la narración de la UI.</p>
+<h3>Evidencia de esta entrega</h3>
+<p>Se revisaron documentación, modelos, puntos de efecto y persistencia de los tres repositorios, además de especificaciones primarias. No se implementaron políticas, migraciones o rutas B2, ni se ejecutó una certificación de conformidad. Las recomendaciones se basan en el alcance actual y la inspección selectiva; las pruebas pendientes están identificadas en el registro.</p>
+<h3>Open Questions</h3>
+<p><strong>¿Hay restricciones académicas o técnicas adicionales que cambien estas decisiones?</strong></p>
+<p>Por ejemplo, exigir un protocolo concreto, múltiples comercios, un despliegue específico o soporte empresarial en la evaluación.</p>
+</main></body></html>

@@ -1,0 +1,809 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-10-11",
+  "scope_confirmed": "Human Present and Human Not Present, confirmed by Yair 2026-10-11",
+  "scope_assumptions": [
+    "B2C",
+    "single-use delegated purchase",
+    "one merchant, one unit, COP, synthetic payment"
+  ],
+  "conditional_scope": "B2B independent; not confirmed",
+  "decisions": [
+    {
+      "id": "D01",
+      "phase": "M0",
+      "topic": "Alcance funcional",
+      "status": "recommended",
+      "recommendation": "HP + HNP confirmados; B2C/compra única propuestos; B2B independiente",
+      "artifact": "scope.md",
+      "closing_evidence": "Modos confirmados por Yair; cerrar límites y profundidad de cada caso",
+      "depends_on": [],
+      "owner": null
+    },
+    {
+      "id": "D02",
+      "phase": "M0",
+      "topic": "Casos de uso y requisitos",
+      "status": "recommended",
+      "recommendation": "Compra válida + recuperación + amenazas por requisito",
+      "artifact": "requirements.md",
+      "closing_evidence": "Cada requisito tiene ID, dueño, prioridad y oráculo",
+      "depends_on": [
+        "D01"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D03",
+      "phase": "M0",
+      "topic": "Tratamiento experimental",
+      "status": "recommended",
+      "recommendation": "Paquete gobernanza; no atribuirlo solo a OPA",
+      "artifact": "experiment-design.md",
+      "closing_evidence": "Variables mantenidas constantes y mecanismos separados",
+      "depends_on": [
+        "D01"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D04",
+      "phase": "M1",
+      "topic": "Protocolo comercial",
+      "status": "needs_spike",
+      "recommendation": "ACP REST provisional; UCP si falla puente HNP",
+      "artifact": "protocol-profile.md + ADR-001",
+      "closing_evidence": "Comparación ACP/UCP y spike HNP contra requisitos y estándar/propio",
+      "depends_on": [
+        "D02",
+        "D03",
+        "H01"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D05",
+      "phase": "M1",
+      "topic": "Módulos comerciales",
+      "status": "recommended",
+      "recommendation": "Discovery/product snapshot/checkout/fulfillment/payment/order events",
+      "artifact": "protocol-coverage.csv",
+      "closing_evidence": "Operación/campo/estado → fuente congelada → prueba",
+      "depends_on": [
+        "D04"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D06",
+      "phase": "M1",
+      "topic": "Autorización del pago",
+      "status": "recommended",
+      "recommendation": "AP2 v0.2 HP cerrado + HNP abierto/cierre; claves separadas",
+      "artifact": "ap2-profile.md",
+      "closing_evidence": "Actores, claims, firmas, trusts, expiración y recibos",
+      "depends_on": [
+        "D04"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D07",
+      "phase": "M1",
+      "topic": "Bridge ACP–AP2",
+      "status": "recommended",
+      "recommendation": "Contrato propio HP/HNP sobre JWT, cadena, revisión y constraints",
+      "artifact": "bridge-contract.md",
+      "closing_evidence": "Vínculos términos/consentimiento/delegación/cadena/operación/recibos",
+      "depends_on": [
+        "D05",
+        "D06"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D08",
+      "phase": "M1",
+      "topic": "MCP/A2A/TAP",
+      "status": "recommended",
+      "recommendation": "Excluir con condición de reapertura",
+      "artifact": "ADR-002",
+      "closing_evidence": "Una interacción ausente o requisito concreto por protocolo",
+      "depends_on": [
+        "D02",
+        "D04"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D09",
+      "phase": "M2",
+      "topic": "Topología y fronteras",
+      "status": "recommended",
+      "recommendation": "Agente modular + OPA separado + merchant/PSP externos",
+      "artifact": "architecture.md",
+      "closing_evidence": "Contexto/contenedores y autoridad de datos sin accesos cruzados",
+      "depends_on": [
+        "D04",
+        "D06"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D10",
+      "phase": "M2",
+      "topic": "Puntos de enforcement",
+      "status": "recommended",
+      "recommendation": "D1 selección; D2-HP/HNP antes de firma; D3-HNP junto a compromiso",
+      "artifact": "control-map.md",
+      "closing_evidence": "Todo camino a crear/firmar/completar pasa por guardas",
+      "depends_on": [
+        "D09"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D11",
+      "phase": "M2",
+      "topic": "Motor de políticas",
+      "status": "needs_spike",
+      "recommendation": "OPA local detrás de PolicyEvaluator",
+      "artifact": "ADR-003 + spike report",
+      "closing_evidence": "Benchmark, fail closed y comparación Python/Cedar razonada",
+      "depends_on": [
+        "D10"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D12",
+      "phase": "M2",
+      "topic": "Catálogo de políticas",
+      "status": "recommended",
+      "recommendation": "POL-01–10; ledger, cripto y UX con dueños distintos",
+      "artifact": "policy-catalog.md",
+      "closing_evidence": "Hechos, dueño, razones, pruebas positivas/negativas por regla",
+      "depends_on": [
+        "D10"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D13",
+      "phase": "M2",
+      "topic": "Resultados y obligaciones",
+      "status": "recommended",
+      "recommendation": "allow/deny; recuperación y evidencia como pasos fijos",
+      "artifact": "policy-contract.json",
+      "closing_evidence": "Unknown/undefined/razón desconocida bloquean; no código dinámico",
+      "depends_on": [
+        "D11",
+        "D12"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D14",
+      "phase": "M2",
+      "topic": "Gobierno de políticas",
+      "status": "recommended",
+      "recommendation": "Revisión humana + bundle fijado y desplegado",
+      "artifact": "policy-lifecycle.md",
+      "closing_evidence": "Quién cambia, revisa, activa y revierte; agente sin escritura",
+      "depends_on": [
+        "D11",
+        "D12"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D15",
+      "phase": "M3",
+      "topic": "Modelos canónicos",
+      "status": "recommended",
+      "recommendation": "Intención/checkout reutilizados; D1/D2/D3, grant y reserva tipados",
+      "artifact": "schemas/",
+      "closing_evidence": "JSON válido/inválido y mapeo a modelos existentes",
+      "depends_on": [
+        "D05",
+        "D13"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D16",
+      "phase": "M3",
+      "topic": "Identidad y correlación",
+      "status": "recommended",
+      "recommendation": "run/conversation/experiment/trace/decision/attempt separados",
+      "artifact": "identity-map.md",
+      "closing_evidence": "IDs no autorizan; scope consistente en rutas/FK",
+      "depends_on": [
+        "D15"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D17",
+      "phase": "M3",
+      "topic": "Frescura y consentimiento",
+      "status": "needs_spike",
+      "recommendation": "Refresh inocuo preserva todo contenido firmado/consentido",
+      "artifact": "freshness-contract.md + ADR-004",
+      "closing_evidence": "Sin loop HP; HNP revalida alcance; complete contrasta oferta vigente",
+      "depends_on": [
+        "D07",
+        "D15"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D18",
+      "phase": "M3",
+      "topic": "Persistencia y migraciones",
+      "status": "recommended",
+      "recommendation": "Snapshots/decisiones/intentos/delegaciones; proyecciones actuales explícitas",
+      "artifact": "data-model.md + migration plan",
+      "closing_evidence": "PK/FK/unique/índices/retención y migración con datos existentes",
+      "depends_on": [
+        "D15",
+        "D16",
+        "D17"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D19",
+      "phase": "M3",
+      "topic": "API y compatibilidad",
+      "status": "recommended",
+      "recommendation": "Intento HP + gestión de delegación/tarea HNP; ownership servidor",
+      "artifact": "openapi-agent.yaml",
+      "closing_evidence": "Errores/replay/cambios materiales y migración UI coherentes",
+      "depends_on": [
+        "D16",
+        "D17"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D20",
+      "phase": "M3",
+      "topic": "Contrato OPA",
+      "status": "recommended",
+      "recommendation": "Ruta fija, schema validado, versión verificada",
+      "artifact": "opa-contract.json",
+      "closing_evidence": "200 sin result/timeout/bundle distinto no habilitan",
+      "depends_on": [
+        "D11",
+        "D13",
+        "D15"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D21",
+      "phase": "M4",
+      "topic": "Máquinas de estado",
+      "status": "recommended",
+      "recommendation": "Separar compra, checkout, intento HP, grant/reserva/tarea HNP y operación",
+      "artifact": "states.md",
+      "closing_evidence": "Cada transición tiene precondición, dueño y recuperación",
+      "depends_on": [
+        "D18",
+        "D19"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D22",
+      "phase": "M4",
+      "topic": "Idempotencia",
+      "status": "recommended",
+      "recommendation": "Identidades durables por operación/intento y reserva por delegación",
+      "artifact": "idempotency-matrix.md",
+      "closing_evidence": "Mismo body replay; mismatch conflicto; restart conserva identidad",
+      "depends_on": [
+        "D18",
+        "D19"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D23",
+      "phase": "M4",
+      "topic": "Atomicidad local",
+      "status": "recommended",
+      "recommendation": "Decisión/transición y grant/reserva/compromiso mediante UoW/CAS",
+      "artifact": "transaction-boundaries.md",
+      "closing_evidence": "Carreras y crash points sin efecto sin evidencia",
+      "depends_on": [
+        "D18",
+        "D20",
+        "D21"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D24",
+      "phase": "M4",
+      "topic": "Incertidumbre y reconciliación",
+      "status": "recommended",
+      "recommendation": "Consultar antes de redespachar; conservar clave",
+      "artifact": "recovery-sequences.md",
+      "closing_evidence": "Pago confirmado/orden desconocida y respuesta perdida recuperables",
+      "depends_on": [
+        "D07",
+        "D22",
+        "D23"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D25",
+      "phase": "M4",
+      "topic": "Eventos de orden",
+      "status": "recommended",
+      "recommendation": "Autenticación, dedupe y proyección monotónica",
+      "artifact": "event-contract.md",
+      "closing_evidence": "Duplicados/fuera de orden/merchant distinto sin contaminación",
+      "depends_on": [
+        "D05",
+        "D18"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D26",
+      "phase": "M4",
+      "topic": "Integración UI",
+      "status": "recommended",
+      "recommendation": "HP términos y presentación; HNP consentir límites, revocar y ver tarea",
+      "artifact": "ui-state-contract.md",
+      "closing_evidence": "La UI no inventa intención ni autoridad; cada bloqueo recuperable",
+      "depends_on": [
+        "D19",
+        "D21",
+        "D24"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D27",
+      "phase": "M5",
+      "topic": "Identidad/ownership",
+      "status": "recommended",
+      "recommendation": "JWT verificado y scopes desde backend",
+      "artifact": "trust-boundaries.md",
+      "closing_evidence": "Intento de leer/aprobar compra de otro falla",
+      "depends_on": [
+        "D09",
+        "D16",
+        "D19"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D28",
+      "phase": "M5",
+      "topic": "Claves/cripto/relojes",
+      "status": "recommended",
+      "recommendation": "Claves emisor/Agent Key separadas; anchors, nonce/audiencia y relojes",
+      "artifact": "key-and-clock-profile.md",
+      "closing_evidence": "Issuer/audience/key/exp incorrectos rechazados; rotación especificada",
+      "depends_on": [
+        "D06",
+        "D07",
+        "D27",
+        "H03"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D29",
+      "phase": "M5",
+      "topic": "Catálogo/LLM no confiables",
+      "status": "recommended",
+      "recommendation": "Allowlist, schemas, herramientas de lectura, sin autoridad modelada",
+      "artifact": "threat-model.md",
+      "closing_evidence": "Inyección no modifica actor, total, política o efecto",
+      "depends_on": [
+        "D10",
+        "D15",
+        "D27"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D30",
+      "phase": "M5",
+      "topic": "Evidencia y privacidad",
+      "status": "recommended",
+      "recommendation": "Entrada mínima replayable + referencias; datos sensibles protegidos",
+      "artifact": "evidence-schema.json + retention.md",
+      "closing_evidence": "Replay reproduce decisión y exportación excluye secretos/PII",
+      "depends_on": [
+        "D18",
+        "D23",
+        "D28"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D31",
+      "phase": "M5",
+      "topic": "Modos y readiness",
+      "status": "recommended",
+      "recommendation": "off/shadow/enforce por episodio; readiness bundle/config",
+      "artifact": "runtime-contract.md",
+      "closing_evidence": "Matriz por mecanismo: shadow sin bloqueo añadido; enforce no degrada",
+      "depends_on": [
+        "D14",
+        "D20",
+        "D23"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D32",
+      "phase": "M5",
+      "topic": "SLO/timeouts/límites",
+      "status": "needs_spike",
+      "recommendation": "Fijar números tras prueba local antes de evaluar",
+      "artifact": "operational-budgets.md",
+      "closing_evidence": "p95/timeout/body/concurrencia/retry budgets medidos y aceptados",
+      "depends_on": [
+        "D11",
+        "D24",
+        "D31"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D33",
+      "phase": "M5",
+      "topic": "Despliegue/reinicio/backup",
+      "status": "recommended",
+      "recommendation": "Instancia agente única y volúmenes persistentes",
+      "artifact": "deployment-runbook.md",
+      "closing_evidence": "Restart en compra pendiente y restore verificable",
+      "depends_on": [
+        "D09",
+        "D18",
+        "D24",
+        "D31"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D34",
+      "phase": "M6",
+      "topic": "Escenarios y oráculos",
+      "status": "recommended",
+      "recommendation": "S01–S05 HP + HNP límites/cadena/revocación/concurrencia/recovery",
+      "artifact": "acceptance-matrix.csv",
+      "closing_evidence": "Requisito → control → caso → métrica/evidencia",
+      "depends_on": [
+        "D12",
+        "D24",
+        "D25",
+        "D29",
+        "D30"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D35",
+      "phase": "M6",
+      "topic": "Corpus y comparación",
+      "status": "recommended",
+      "recommendation": "Pares B0/B2 por modo; nueva base HNP; corpus reservado",
+      "artifact": "evaluation-manifest.json",
+      "closing_evidence": "Denominadores, semillas/configs y frozen artifacts trazables",
+      "depends_on": [
+        "D03",
+        "D14",
+        "D34"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D36",
+      "phase": "M6",
+      "topic": "Atribución y límites",
+      "status": "recommended",
+      "recommendation": "Medir paquete; ablación si se afirma beneficio específico del PDP",
+      "artifact": "analysis-plan.md",
+      "closing_evidence": "Resultados por mecanismo; no exigir mejora donde B0 ya controla",
+      "depends_on": [
+        "D03",
+        "D35"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D37",
+      "phase": "M6",
+      "topic": "Consistencia documental",
+      "status": "recommended",
+      "recommendation": "D1/D2 por modo y D3-HNP coherentes en todo artefacto",
+      "artifact": "design-index.md",
+      "closing_evidence": "Sin P1–P5 activo contradictorio ni HNP presentado como HP sin clic",
+      "depends_on": [
+        "D10",
+        "D13",
+        "D15",
+        "D21",
+        "D34"
+      ],
+      "owner": null
+    },
+    {
+      "id": "D38",
+      "phase": "M6",
+      "topic": "Handoff de implementación",
+      "status": "recommended",
+      "recommendation": "Tareas por repo con dependencias y aceptación",
+      "artifact": "implementation-backlog.md",
+      "closing_evidence": "Compra y todos los fallos pueden recorrerse sin decidir contratos",
+      "depends_on": [
+        "D01",
+        "D02",
+        "D03",
+        "D04",
+        "D05",
+        "D06",
+        "D07",
+        "D08",
+        "D09",
+        "D10",
+        "D11",
+        "D12",
+        "D13",
+        "D14",
+        "D15",
+        "D16",
+        "D17",
+        "D18",
+        "D19",
+        "D20",
+        "D21",
+        "D22",
+        "D23",
+        "D24",
+        "D25",
+        "D26",
+        "D27",
+        "D28",
+        "D29",
+        "D30",
+        "D31",
+        "D32",
+        "D33",
+        "D34",
+        "D35",
+        "D36",
+        "D37",
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "H05",
+        "H06",
+        "H07",
+        "H08"
+      ],
+      "owner": null
+    },
+    {
+      "id": "H01",
+      "phase": "M1",
+      "topic": "Viabilidad criptográfica del puente HNP",
+      "status": "needs_spike",
+      "recommendation": "Spike ACP firmado → constraints AP2; comparar UCP",
+      "artifact": "hnp-bridge-spike.md",
+      "closing_evidence": "Cadena válida aceptada; cnf/hash/campo/límite alterados rechazados",
+      "depends_on": [
+        "D02",
+        "D03"
+      ],
+      "owner": null
+    },
+    {
+      "id": "H02",
+      "phase": "M2",
+      "topic": "Alcance de delegación autónoma",
+      "status": "recommended",
+      "recommendation": "Una compra; merchant/variantes/cantidad/total/instrumento/TTL explícitos",
+      "artifact": "delegation-profile.md",
+      "closing_evidence": "UI muestra exactamente límites; schema distingue estándar y extensión",
+      "depends_on": [
+        "D06",
+        "D12"
+      ],
+      "owner": null
+    },
+    {
+      "id": "H03",
+      "phase": "M3",
+      "topic": "Emisión y cierre de mandatos",
+      "status": "recommended",
+      "recommendation": "Separar Trusted Surface/emisor de Agent Key/materializador",
+      "artifact": "delegation-crypto-contract.md",
+      "closing_evidence": "Consentimiento previo, cadena, cnf, audiencia/nonce y recibos verificables",
+      "depends_on": [
+        "D07",
+        "H01",
+        "H02",
+        "D15",
+        "D16"
+      ],
+      "owner": null
+    },
+    {
+      "id": "H04",
+      "phase": "M4",
+      "topic": "Ledger y doble uso de delegación",
+      "status": "recommended",
+      "recommendation": "Reserva single-use + CAS por mandato abierto y operación",
+      "artifact": "grant-ledger.md",
+      "closing_evidence": "Dos checkouts distintos no producen cierres solapados; timeout no libera",
+      "depends_on": [
+        "D18",
+        "D22",
+        "D23",
+        "H02"
+      ],
+      "owner": null
+    },
+    {
+      "id": "H05",
+      "phase": "M4",
+      "topic": "Revocación frente a compromiso",
+      "status": "recommended",
+      "recommendation": "Epoch + D3 y outbox en transacción; en curso se reconcilia",
+      "artifact": "revocation-order.md",
+      "closing_evidence": "Carreras antes/después del commit y fallo parcial entre verificadores",
+      "depends_on": [
+        "H03",
+        "H04",
+        "D24"
+      ],
+      "owner": null
+    },
+    {
+      "id": "H06",
+      "phase": "M5",
+      "topic": "Activación y worker HNP",
+      "status": "recommended",
+      "recommendation": "Tarea durable de compra única; claim acotado, deadline y restart",
+      "artifact": "autonomous-worker.md",
+      "closing_evidence": "Sin pestaña activa, retries/crash no recrean identidad ni amplían autoridad",
+      "depends_on": [
+        "H04",
+        "H05",
+        "D31",
+        "D33"
+      ],
+      "owner": null
+    },
+    {
+      "id": "H07",
+      "phase": "M6",
+      "topic": "Aceptación de ambos modos",
+      "status": "recommended",
+      "recommendation": "HP clic exacto; HNP límites y gestión de delegación",
+      "artifact": "hp-hnp-acceptance.csv",
+      "closing_evidence": "Cadena falsa/cnf ajeno/expiry/límites/unknown/revoke/doble uso/fallback",
+      "depends_on": [
+        "H03",
+        "H04",
+        "H05",
+        "H06",
+        "D26"
+      ],
+      "owner": null
+    },
+    {
+      "id": "H08",
+      "phase": "M6",
+      "topic": "Comparabilidad HP/HNP",
+      "status": "recommended",
+      "recommendation": "Baseline común por modo antes de medir gobernanza",
+      "artifact": "hnp-baseline-manifest.json",
+      "closing_evidence": "No atribuir a PDP cambios de autonomía, protocolo o controles comunes",
+      "depends_on": [
+        "H07",
+        "D35",
+        "D36"
+      ],
+      "owner": null
+    },
+    {
+      "id": "B01",
+      "phase": "B2B",
+      "topic": "Roles y mandato organizacional",
+      "status": "scope_pending",
+      "recommendation": "Diseñar si B2B entra al núcleo",
+      "artifact": "b2b-authority.md",
+      "closing_evidence": "Roles y autoridad empresarial verificables",
+      "depends_on": [
+        "D01",
+        "D27"
+      ],
+      "owner": null
+    },
+    {
+      "id": "B02",
+      "phase": "B2B",
+      "topic": "Presupuesto compartido",
+      "status": "scope_pending",
+      "recommendation": "Reserva/consumo/liberación atómicos",
+      "artifact": "b2b-budget.md",
+      "closing_evidence": "Dos compras concurrentes y efecto incierto sin sobregiro",
+      "depends_on": [
+        "B01",
+        "D23",
+        "D24"
+      ],
+      "owner": null
+    },
+    {
+      "id": "B03",
+      "phase": "B2B",
+      "topic": "Revocación y efecto",
+      "status": "scope_pending",
+      "recommendation": "Epoch/lease + orden compromiso/revocación + D3 si procede",
+      "artifact": "b2b-revocation.md",
+      "closing_evidence": "Carreras y ventana hasta efecto explicitadas",
+      "depends_on": [
+        "B01",
+        "B02",
+        "D28"
+      ],
+      "owner": null
+    },
+    {
+      "id": "B04",
+      "phase": "B2B",
+      "topic": "Persistencia y evaluación empresarial",
+      "status": "scope_pending",
+      "recommendation": "Reevaluar PostgreSQL y corpus B2B separado",
+      "artifact": "b2b-experiment.md",
+      "closing_evidence": "Aislamiento organizaciones y coordinación demostrables",
+      "depends_on": [
+        "B02",
+        "B03",
+        "D35"
+      ],
+      "owner": null
+    }
+  ],
+  "sources": {
+    "acp_checkout": "https://github.com/agentic-commerce-protocol/agentic-commerce-protocol/blob/7fdd78df677a94dce04c770644b0fbbb1401272b/spec/2026-04-17/openapi/openapi.agentic_checkout.yaml",
+    "acp_schema": "https://github.com/agentic-commerce-protocol/agentic-commerce-protocol/blob/7fdd78df677a94dce04c770644b0fbbb1401272b/spec/2026-04-17/json-schema/schema.agentic_checkout.json",
+    "acp_feed": "https://github.com/agentic-commerce-protocol/agentic-commerce-protocol/blob/7fdd78df677a94dce04c770644b0fbbb1401272b/spec/2026-04-17/openapi/openapi.feed.yaml",
+    "acp_release": "https://github.com/agentic-commerce-protocol/agentic-commerce-protocol/blob/7fdd78df677a94dce04c770644b0fbbb1401272b/changelog/2026-04-17.md",
+    "acp_arch": "https://www.agenticcommerce.dev/docs/concepts/architecture",
+    "ucp_overview": "https://ucp.dev/2026-08-25/specification/overview/",
+    "ucp_rest": "https://ucp.dev/2026-08-25/specification/shopping/checkout/rest/",
+    "ucp_checkout": "https://ucp.dev/2026-08-25/specification/shopping/checkout/",
+    "ucp_ap2": "https://ucp.dev/2026-08-25/specification/payment/extensions/ap2-mandates/",
+    "ap2_spec": "https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/specification.md",
+    "ap2_checkout": "https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/checkout_mandate.md",
+    "ap2_payment": "https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/payment_mandate.md",
+    "ap2_authorization": "https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/agent_authorization.md",
+    "ap2_flows": "https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/flows.md",
+    "ap2_security": "https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/security_and_privacy_considerations.md",
+    "ap2_operations": "https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/implementation_considerations.md",
+    "ap2_sdk_chain": "https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/code/sdk/python/ap2/sdk/checkout_mandate_chain.py",
+    "mcp": "https://modelcontextprotocol.io/docs/2026-07-28/learn/architecture",
+    "a2a": "https://a2a-protocol.org/latest/specification/",
+    "tap": "https://developer.visa.com/capabilities/trusted-agent-protocol/trusted-agent-protocol-specifications/",
+    "opa_integration": "https://www.openpolicyagent.org/docs/integration",
+    "opa_rest": "https://www.openpolicyagent.org/docs/rest-api",
+    "opa_bundles": "https://www.openpolicyagent.org/docs/management-bundles",
+    "opa_logs": "https://www.openpolicyagent.org/docs/management-decision-logs",
+    "cedar": "https://docs.cedarpolicy.com/auth/authorization.html"
+  }
+}
