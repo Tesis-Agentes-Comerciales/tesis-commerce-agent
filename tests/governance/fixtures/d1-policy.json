@@ -1,0 +1,1 @@
+{"allowed_actions":["prepare_checkout"],"allowed_merchant_refs":["merchant-1"],"currency":"COP","policy_ids":["POL-01","POL-02"],"policy_set_id":"offline-d1","quantity":1,"schema_version":"commerce-policy/1.0","version":1}
