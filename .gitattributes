@@ -1,0 +1,7 @@
+# Preserve frozen ACP source bytes on every platform.
+/src/commerce_agent/vendor/acp/2026-04-17/schema.agentic_checkout.json text eol=lf
+/src/commerce_agent/vendor/acp/2026-04-17/openapi.agentic_checkout.yaml text eol=lf
+/src/commerce_agent/vendor/acp/2026-04-17/LICENSE text eol=lf
+/src/commerce_agent/vendor/acp/2026-04-17/schema.feed.json text eol=lf
+/src/commerce_agent/vendor/acp/2026-04-17/openapi.feed.yaml text eol=lf
+/src/commerce_agent/vendor/acp/2026-04-17/openapi.agentic_checkout_webhook.yaml text eol=lf
