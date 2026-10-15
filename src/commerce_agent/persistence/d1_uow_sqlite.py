@@ -200,7 +200,15 @@ class SqliteD1UnitOfWork:
             raise EvidenceError("GOV_STATE_CONFLICT")
         if not allow and app.disposition != "blocked":
             raise EvidenceError("GOV_INPUT_INVALID")
-        self.ledger.prepare_decision(record)
+        if record.decision.origin == "policy":
+            self.ledger.prepare_decision(record)
+        else:
+            # A validated operational denial can be persisted but never authorizes.
+            if self.connection.in_transaction or allow:
+                raise EvidenceError("GOV_OUTPUT_INVALID")
+            validate_evidence(record)
+            scope, _, _ = self.ledger._episode(data.run_id, data.decision_id)
+            scope_input(scope, data)
         self._admitted.add(self._key(request))
 
     def _facts(self, request: D1Application, owner_id: str) -> None:
@@ -212,9 +220,8 @@ class SqliteD1UnitOfWork:
         )
         intent = self.vault.recover_intent(data.run_id, owner_id, data.intent.intent_ref)
         feed = self.vault.recover_feed(data.run_id, owner_id, data.feed_snapshot_ref)
-        eligible = tuple(
-            sorted(item.candidate.variant_id for item in rank_candidates(feed, intent).ranked)
-        )
+        selection = rank_candidates(feed, intent)
+        eligible = tuple(sorted(item.candidate.variant_id for item in selection.ranked))
         if (
             ctx.governance_mode != "enforce"
             or request.evidence.policy_artifact_ref != ctx.policy_artifact_ref
@@ -229,10 +236,7 @@ class SqliteD1UnitOfWork:
             or data.experiment_run_id != ctx.experiment_run_id
             or data.conversation_id != ctx.conversation_id
             or data.eligible_variant_ids != eligible
-            or any(
-                item.candidate.currency.upper() != "COP"
-                for item in rank_candidates(feed, intent).ranked
-            )
+            or any(item.candidate.currency.upper() != "COP" for item in selection.ranked)
         ):
             raise EvidenceError("GOV_INPUT_INVALID")
         snapshots: tuple[tuple[ObjectRef, Kind], ...] = (

@@ -81,6 +81,28 @@ class CheckoutGateway(Protocol):
     ) -> CheckoutSession: ...
 
 
+class D1EnforceGate(Protocol):
+    """Backend injection only; never a shadow observer or a model-facing authority."""
+
+    def capture(
+        self,
+        feed: ProductFeed,
+        intent: PurchaseIntent,
+        ranking: Callable[[ProductFeed, PurchaseIntent], SelectionResult],
+    ) -> object: ...
+
+    def create_checkout(
+        self,
+        capture: object,
+        *,
+        run_id: str,
+        owner_id: str,
+        selection: SelectionResult,
+        candidate: ProductCandidate,
+        gateway: CheckoutGateway,
+    ) -> CheckoutSession: ...
+
+
 class PurchaseServiceError(RuntimeError):
     def __init__(self, message: str, *, code: str) -> None:
         super().__init__(message)
@@ -113,12 +135,16 @@ class PurchaseService:
         store: SqliteAgentStore,
         approvals: ApprovalService,
         d1_observer: D1SelectionObserver | None = None,
+        d1_gate: D1EnforceGate | None = None,
     ) -> None:
         self._feed = feed
         self._checkout = checkout
         self._store = store
         self._approvals = approvals
         self._d1_observer = d1_observer
+        if d1_gate is not None and d1_observer is not None:
+            raise ValueError("D1 enforce and shadow must be configured separately")
+        self._d1_gate = d1_gate
 
     def start(
         self,
@@ -133,10 +159,23 @@ class PurchaseService:
         feed: ProductFeed | None = None,
     ) -> PurchasePreparation:
         self._store.create_purchase(run_id, request, owner_id)
+        if self._d1_gate is not None:
+            current = self._store.purchase(run_id)
+            if current is None or current["stage"] != PurchaseStage.RECEIVED:
+                raise PurchaseServiceError(
+                    "D1 operation requires explicit recovery", code="d1_recovery_required"
+                )
         if graph_thread_id is not None:
             self._store.save_graph_thread(run_id, graph_thread_id)
         effective_feed = feed or self._feed
         captured = None
+        if self._d1_gate is not None:
+            try:
+                captured = self._d1_gate.capture(effective_feed, intent, rank_candidates)
+            except Exception:
+                raise PurchaseServiceError(
+                    "D1 capture unavailable", code="d1_capture_failed"
+                ) from None
         if self._d1_observer is not None:
             try:
                 captured = self._d1_observer.capture(effective_feed, intent, rank_candidates)
@@ -159,11 +198,26 @@ class PurchaseService:
             raise PurchaseServiceError(
                 "Selected candidate does not satisfy the request", code="invalid_candidate"
             )
-        self._store.update_purchase(
-            run_id,
-            stage=PurchaseStage.SELECTED,
-            selected_variant_id=candidate.variant_id,
-        )
+        enforced_checkout = None
+        if self._d1_gate is not None:
+            enforced_checkout = self._d1_gate.create_checkout(
+                captured,
+                run_id=run_id,
+                owner_id=owner_id,
+                selection=selection,
+                candidate=candidate,
+                gateway=self._checkout,
+            )
+            if not isinstance(enforced_checkout, CheckoutSession):
+                raise PurchaseServiceError(
+                    "D1 gate returned an invalid checkout", code="d1_invalid_result"
+                )
+        else:
+            self._store.update_purchase(
+                run_id,
+                stage=PurchaseStage.SELECTED,
+                selected_variant_id=candidate.variant_id,
+            )
         if self._d1_observer is not None and captured is not None:
             try:
                 self._d1_observer.observe(
@@ -175,21 +229,32 @@ class PurchaseService:
                 )
             except Exception:
                 self._shadow_unavailable()
-        idempotency_key = self._store.idempotency_key(run_id, "checkout.create")
+        idempotency_key = (
+            self._store.idempotency_key(run_id, "checkout.create")
+            if self._d1_gate is None
+            else None
+        )
         # Un fallo a medio camino deja la compra en `selected` o `checkout_prepared`: se marca
         # `failed` para que no quede bloqueando la siguiente compra sin poder cancelarse.
         with self._abandon_on_error(run_id):
-            checkout = self._checkout.create_checkout(
-                candidate.variant_id,
-                currency=candidate.currency,
-                idempotency_key=idempotency_key,
-            )
-            self._validate_created_checkout(checkout, candidate)
-            self._store.update_purchase(
-                run_id,
-                stage=PurchaseStage.CHECKOUT_PREPARED,
-                checkout_id=checkout.id,
-            )
+            if enforced_checkout is not None:
+                checkout = enforced_checkout
+            else:
+                if idempotency_key is None:
+                    raise PurchaseServiceError(
+                        "Checkout lacks authorization", code="d1_invalid_result"
+                    )
+                checkout = self._checkout.create_checkout(
+                    candidate.variant_id,
+                    currency=candidate.currency,
+                    idempotency_key=idempotency_key,
+                )
+                self._validate_created_checkout(checkout, candidate)
+                self._store.update_purchase(
+                    run_id,
+                    stage=PurchaseStage.CHECKOUT_PREPARED,
+                    checkout_id=checkout.id,
+                )
             self._enforce_authoritative_budget(run_id, checkout, intent)
             ready = self._apply_details(run_id, checkout, details)
             self._validate_created_checkout(ready, candidate)
