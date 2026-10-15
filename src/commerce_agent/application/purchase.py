@@ -16,6 +16,8 @@ from commerce_agent.acp.models import (
 )
 from commerce_agent.approval import ApprovalError, ApprovalService, ApprovalTerms
 from commerce_agent.domain import PurchaseIntent, SelectionResult, rank_candidates
+from commerce_agent.governance.canonical import canonical_bytes
+from commerce_agent.governance.post_create import PostCreateFlow
 from commerce_agent.persistence import ApprovalRecord, SqliteAgentStore
 
 
@@ -102,6 +104,8 @@ class D1EnforceGate(Protocol):
         gateway: CheckoutGateway,
     ) -> CheckoutSession: ...
 
+    def post_create_flow(self, run_id: str, owner_id: str) -> PostCreateFlow: ...
+
 
 class PurchaseServiceError(RuntimeError):
     def __init__(self, message: str, *, code: str) -> None:
@@ -159,6 +163,10 @@ class PurchaseService:
         feed: ProductFeed | None = None,
     ) -> PurchasePreparation:
         self._store.create_purchase(run_id, request, owner_id)
+        if self._d1_gate is None and self._store.has_d1_operation(run_id):
+            raise PurchaseServiceError(
+                "D1 operation requires explicit recovery", code="d1_recovery_required"
+            )
         if self._d1_gate is not None:
             current = self._store.purchase(run_id)
             if current is None or current["stage"] != PurchaseStage.RECEIVED:
@@ -234,9 +242,11 @@ class PurchaseService:
             if self._d1_gate is None
             else None
         )
-        # Un fallo a medio camino deja la compra en `selected` o `checkout_prepared`: se marca
-        # `failed` para que no quede bloqueando la siguiente compra sin poder cancelarse.
-        with self._abandon_on_error(run_id):
+        # Preserve legacy abandonment only for off/shadow episodes without D1 history.
+        flow = (
+            self._d1_gate.post_create_flow(run_id, owner_id) if self._d1_gate is not None else None
+        )
+        with self._abandon_on_error(run_id, flow):
             if enforced_checkout is not None:
                 checkout = enforced_checkout
             else:
@@ -255,14 +265,17 @@ class PurchaseService:
                     stage=PurchaseStage.CHECKOUT_PREPARED,
                     checkout_id=checkout.id,
                 )
-            self._enforce_authoritative_budget(run_id, checkout, intent)
-            ready = self._apply_details(run_id, checkout, details)
+            self._enforce_authoritative_budget(run_id, checkout, intent, flow)
+            ready = self._apply_details(run_id, checkout, details, flow)
             self._validate_created_checkout(ready, candidate)
-            self._enforce_authoritative_budget(run_id, ready, intent)
-            self._store.update_purchase(run_id, stage=PurchaseStage.AWAITING_CONFIRMATION)
+            self._enforce_authoritative_budget(run_id, ready, intent, flow)
+            if flow is None:
+                self._store.update_purchase(run_id, stage=PurchaseStage.AWAITING_CONFIRMATION)
             price_changed = _checkout_unit_amount(ready, candidate.variant_id) != (
                 candidate.observed_unit_amount_minor
             )
+            if flow is not None:
+                flow.finish()
         return PurchasePreparation(
             run_id=run_id,
             stage=PurchaseStage.AWAITING_CONFIRMATION,
@@ -280,6 +293,7 @@ class PurchaseService:
         logging.getLogger(__name__).warning("D1 shadow observation unavailable")
 
     def approval_terms(self, run_id: str) -> ApprovalTerms:
+        self._block_d1_continuation(run_id)
         checkout = self._current_checkout(run_id)
         signed = self._checkout.signed_checkout(checkout) if self._approvals.requires_ap2 else None
         return self._approvals.present(checkout, checkout_jwt=signed)
@@ -292,6 +306,7 @@ class PurchaseService:
         expected_fingerprint: str,
         checkout_jwt: str | None = None,
     ) -> ApprovalRecord:
+        self._block_d1_continuation(run_id)
         purchase = self._require_purchase(run_id)
         if purchase.get("stage") != PurchaseStage.AWAITING_CONFIRMATION:
             raise PurchaseServiceError("Purchase is not awaiting approval", code="invalid_stage")
@@ -311,6 +326,7 @@ class PurchaseService:
         return record
 
     def cancel(self, *, run_id: str) -> None:
+        self._block_d1_continuation(run_id)
         purchase = self._require_purchase(run_id)
         if purchase.get("stage") == PurchaseStage.CANCELED:
             return
@@ -330,10 +346,20 @@ class PurchaseService:
         self._store.update_purchase(run_id, stage=PurchaseStage.CANCELED)
 
     @contextmanager
-    def _abandon_on_error(self, run_id: str) -> Iterator[None]:
+    def _abandon_on_error(self, run_id: str, flow: PostCreateFlow | None = None) -> Iterator[None]:
         try:
             yield
-        except BaseException:
+        except BaseException as error:
+            if flow is not None:
+                flow.fail()
+                if isinstance(error, Exception) and not (
+                    isinstance(error, PurchaseServiceError) and error.code == "budget_exceeded"
+                ):
+                    raise PurchaseServiceError(
+                        "Post-create operation requires local inspection",
+                        code="d1_post_create_uncertain",
+                    ) from None
+                raise
             purchase = self._store.purchase(run_id)
             unfinished = {PurchaseStage.SELECTED, PurchaseStage.CHECKOUT_PREPARED}
             if purchase is not None and purchase.get("stage") in unfinished:
@@ -341,7 +367,11 @@ class PurchaseService:
             raise
 
     def _apply_details(
-        self, run_id: str, checkout: CheckoutSession, details: CheckoutDetails
+        self,
+        run_id: str,
+        checkout: CheckoutSession,
+        details: CheckoutDetails,
+        flow: PostCreateFlow | None = None,
     ) -> CheckoutSession:
         option = _selected_fulfillment(checkout)
         update = CheckoutUpdateRequest(
@@ -350,6 +380,25 @@ class PurchaseService:
             selected_fulfillment_options=[option],
         )
         key = self._store.idempotency_key(run_id, "checkout.update.details")
+        if flow is not None:
+
+            def update_once() -> CheckoutSession:
+                updated = self._checkout.update_checkout(checkout.id, update, idempotency_key=key)
+                if updated.id != checkout.id:
+                    raise PurchaseServiceError(
+                        "Merchant changed checkout identity", code="checkout_mismatch"
+                    )
+                return updated
+
+            flow.effect("update_details", canonical_bytes(update), key, update_once)
+
+            def get_once() -> CheckoutSession:
+                current = self._checkout.get_checkout(checkout.id)
+                if current.id != checkout.id or current.status != "ready_for_payment":
+                    raise PurchaseServiceError("Checkout is not ready", code="checkout_not_ready")
+                return current
+
+            return flow.effect("get_current", canonical_bytes(["GET", checkout.id]), None, get_once)
         updated = self._checkout.update_checkout(checkout.id, update, idempotency_key=key)
         if updated.id != checkout.id:
             raise PurchaseServiceError(
@@ -367,18 +416,44 @@ class PurchaseService:
         return current
 
     def _enforce_authoritative_budget(
-        self, run_id: str, checkout: CheckoutSession, intent: PurchaseIntent
+        self,
+        run_id: str,
+        checkout: CheckoutSession,
+        intent: PurchaseIntent,
+        flow: PostCreateFlow | None = None,
     ) -> None:
         maximum = intent.hard.max_total_amount_minor
         if maximum is None or checkout.total_minor <= maximum:
             return
         key = self._store.idempotency_key(run_id, "checkout.cancel.budget")
-        self._checkout.cancel_checkout(
-            checkout.id,
-            idempotency_key=key,
-            reason_code="price_sensitivity",
-        )
-        self._store.update_purchase(run_id, stage=PurchaseStage.CANCELED)
+        if flow is not None:
+
+            def cancel_once() -> CheckoutSession:
+                canceled = self._checkout.cancel_checkout(
+                    checkout.id,
+                    idempotency_key=key,
+                    reason_code="price_sensitivity",
+                )
+                if canceled.id != checkout.id or canceled.status != "canceled":
+                    raise PurchaseServiceError(
+                        "Cancellation is unverified", code="checkout_mismatch"
+                    )
+                return canceled
+
+            flow.effect(
+                "cancel_budget",
+                canonical_bytes(["cancel", checkout.id, "price_sensitivity"]),
+                key,
+                cancel_once,
+            )
+            flow.finish(canceled=True)
+        else:
+            self._checkout.cancel_checkout(
+                checkout.id,
+                idempotency_key=key,
+                reason_code="price_sensitivity",
+            )
+            self._store.update_purchase(run_id, stage=PurchaseStage.CANCELED)
         raise PurchaseServiceError(
             "Authoritative checkout total exceeds the budget",
             code="budget_exceeded",
@@ -407,11 +482,18 @@ class PurchaseService:
             )
 
     def _current_checkout(self, run_id: str) -> CheckoutSession:
+        self._block_d1_continuation(run_id)
         purchase = self._require_purchase(run_id)
         checkout_id = purchase.get("checkout_id")
         if not isinstance(checkout_id, str):
             raise PurchaseServiceError("Purchase has no checkout", code="checkout_missing")
         return self._checkout.get_checkout(checkout_id)
+
+    def _block_d1_continuation(self, run_id: str) -> None:
+        if self._d1_gate is not None or self._store.has_d1_operation(run_id):
+            raise PurchaseServiceError(
+                "D1 continuation requires independent authorization", code="d1_continuation_blocked"
+            )
 
     def _require_purchase(self, run_id: str) -> dict[str, str | None]:
         purchase = self._store.purchase(run_id)

@@ -108,6 +108,10 @@ class SingleAttemptSpy:
             variant_id, currency=currency, idempotency_key=idempotency_key
         )
 
+    def perform_once(self, effect, call):
+        """Explicit offline post-create test port; no commercial authorization."""
+        return call()
+
 
 @dataclass
 class Case:
@@ -171,6 +175,7 @@ def make_case(
         keys,
         ClockReader(profile),
         dispatch=None if blocked else dispatch or SingleAttemptSpy(),
+        post_create_dispatch=None if blocked else SingleAttemptSpy(),
         policy_bytes=policy,
         policy_binding=binding,
         evaluator_factory=evaluator_factory,

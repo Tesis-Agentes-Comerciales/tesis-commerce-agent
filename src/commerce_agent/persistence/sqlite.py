@@ -372,6 +372,24 @@ class SqliteAgentStore:
         purchase = self.purchase(run_id)
         return purchase if purchase is not None and purchase["owner_id"] == owner_id else None
 
+    def has_d1_operation(self, run_id: str) -> bool:
+        """Read-only downgrade guard; ordinary off/shadow databases need no D1 schema."""
+        with self._connect() as connection:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='d1_checkout_operations'"
+                ).fetchone()
+                is None
+            ):
+                return False
+            return (
+                connection.execute(
+                    "SELECT 1 FROM d1_checkout_operations WHERE run_id=?", (run_id,)
+                ).fetchone()
+                is not None
+            )
+
     def save_approval_terms(self, run_id: str, terms: dict[str, Any]) -> None:
         """Keep the terms shown for a run, so an echoed approval card can be rebuilt server side."""
         serialized = json.dumps(terms, sort_keys=True, separators=(",", ":"))

@@ -62,6 +62,7 @@ from .models import (
     PolicyDecision,
     SelectionPolicyInput,
 )
+from .post_create import ExperimentalPostCreateDispatch, PostCreateFlow
 from .provenance import ClockReader, D1EnforceConfiguration, ProvenanceKeys, utc_milliseconds
 from .provenance_artifacts import measure_d1_sources
 from .shadow_artifacts import verify_loaded_selection
@@ -115,6 +116,7 @@ class SqliteD1EnforceGate:
         clocks: ClockReader,
         *,
         dispatch: InitialCheckoutDispatch | None = None,
+        post_create_dispatch: ExperimentalPostCreateDispatch | None = None,
         policy_bytes: bytes | None = None,
         policy_binding: PolicyBinding | None = None,
         evaluator_factory: Callable[[bytes, PolicyBinding, EvaluationMetadata], PolicyEvaluator]
@@ -130,6 +132,7 @@ class SqliteD1EnforceGate:
             raise GovernanceError("GOV_FACTS_UNAVAILABLE")
         self._clocks = clocks
         self._dispatch = dispatch
+        self._post_create_dispatch = post_create_dispatch
         self._policy, self._binding = policy_bytes, policy_binding
         if (policy_bytes is None) != (policy_binding is None):
             raise GovernanceError("GOV_ARTIFACT_MISMATCH")
@@ -611,12 +614,21 @@ class SqliteD1EnforceGate:
             invalid = True
             checkout = CheckoutSession.model_validate(_model_values(response))
             PurchaseService._validate_created_checkout(checkout, candidate)
-            current = CheckoutSession.model_validate(
-                _model_values(gateway.get_checkout(checkout.id))
+            flow = self.post_create_flow(run_id, owner_id)
+            flow.begin(checkout)
+
+            def verify_creation() -> CheckoutSession:
+                current = CheckoutSession.model_validate(
+                    _model_values(gateway.get_checkout(checkout.id))
+                )
+                if current != checkout or current.status != "not_ready_for_payment":
+                    raise GovernanceError("GOV_INPUT_INVALID")
+                PurchaseService._validate_created_checkout(current, candidate)
+                return current
+
+            current = flow.effect(
+                "verify_creation_get", canonical_bytes(["GET", checkout.id]), None, verify_creation
             )
-            if current != checkout or current.status != "not_ready_for_payment":
-                raise GovernanceError("GOV_INPUT_INVALID")
-            PurchaseService._validate_created_checkout(current, candidate)
             with closing(self._connect()) as connection, connection:
                 connection.execute("BEGIN IMMEDIATE")
                 row = connection.execute(
@@ -642,6 +654,7 @@ class SqliteD1EnforceGate:
                     checkout_id=current.id,
                     code="CHECKOUT_VERIFIED",
                 )
+                flow.confirm_creation(connection)
             return current
         except Exception:
             try:
@@ -670,3 +683,8 @@ class SqliteD1EnforceGate:
         """Read only, backend-only. No resend and no idempotency key export."""
         with closing(self._connect()) as connection:
             return SqliteD1DispatchStore(connection).status(run_id)
+
+    def post_create_flow(self, run_id: str, owner_id: str) -> PostCreateFlow:
+        return PostCreateFlow(
+            self._connect, self._keys, run_id, owner_id, self._post_create_dispatch
+        )
