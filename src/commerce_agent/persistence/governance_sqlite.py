@@ -1,4 +1,4 @@
-"""Explicit, additive SQLite ledger; SqliteAgentStore and runtime are unchanged.
+"""Explicit, additive SQLite ledger; no writes to commercial purchase state.
 
     ledger.prepare_decision(evidence)  # evaluation/verification outside SQL transaction
     with connection:
@@ -12,6 +12,8 @@ update purchase state. FK must already be enabled on the supplied connection.
 """
 
 import sqlite3
+
+from pydantic import TypeAdapter
 
 from ..governance.canonical import canonical_bytes, parse_model, sha256_digest
 from ..governance.evaluator import measure_reference_engine
@@ -31,7 +33,7 @@ from ..governance.evidence_artifacts import (
     verify_artifacts,
 )
 from ..governance.evidence_ports import LocalTransitionVerifier
-from ..governance.models import PolicyDecision
+from ..governance.models import Id, PolicyDecision
 
 _TABLES = (
     """CREATE TABLE IF NOT EXISTS governance_schema (
@@ -197,7 +199,71 @@ class SqliteGovernanceEvidenceStore:
         except Exception:
             raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
 
-    def _episode(self, run_id: str) -> tuple[EvidenceScope, bytes | None, bytes | None]:
+    def initialize_shadow_scopes(self) -> None:
+        """Opt-in additive extension; legacy episode registration stays immutable."""
+        self._transaction()
+        self.connection.execute(
+            """CREATE TABLE IF NOT EXISTS governance_d1_shadow_scopes (
+            decision_id TEXT PRIMARY KEY NOT NULL,
+            run_id TEXT NOT NULL REFERENCES governance_episodes(run_id),
+            scope TEXT NOT NULL CHECK(json_valid(scope)))"""
+        )
+        columns = tuple(
+            row[1]
+            for row in self.connection.execute("PRAGMA table_info(governance_d1_shadow_scopes)")
+        )
+        if columns != ("decision_id", "run_id", "scope"):
+            raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE")
+        for action in ("UPDATE", "DELETE"):
+            self.connection.execute(
+                f"CREATE TRIGGER IF NOT EXISTS governance_d1_shadow_scopes_no_{action.lower()} "
+                f"BEFORE {action} ON governance_d1_shadow_scopes "
+                "BEGIN SELECT RAISE(ABORT, 'governance_append_only'); END"
+            )
+        self.connection.execute(
+            """CREATE TRIGGER IF NOT EXISTS governance_d1_shadow_scopes_no_replace
+            BEFORE INSERT ON governance_d1_shadow_scopes
+            WHEN EXISTS(SELECT 1 FROM governance_d1_shadow_scopes WHERE decision_id=NEW.decision_id)
+            BEGIN SELECT RAISE(ABORT, 'governance_identity_conflict'); END"""
+        )
+
+    def register_shadow_scope(self, decision_id: str, scope: EvidenceScope) -> None:
+        self._transaction()
+        try:
+            TypeAdapter(Id).validate_python(decision_id, strict=True)
+            scope = EvidenceScope.model_validate(scope)
+            base, _, _ = self._episode(scope.run_id)
+            if (
+                scope.governance_mode != "shadow"
+                or base.model_copy(update={"source_refs": scope.source_refs}) != scope
+            ):
+                raise EvidenceError("GOV_INPUT_INVALID")
+            body = canonical_bytes(scope).decode()
+            old = self.connection.execute(
+                "SELECT run_id,scope FROM governance_d1_shadow_scopes WHERE decision_id=?",
+                (decision_id,),
+            ).fetchone()
+            if old is not None:
+                if tuple(old) != (scope.run_id, body):
+                    raise EvidenceError("GOV_INPUT_INVALID")
+                return
+            # A scope cannot be retrospectively attached to a legacy decision.
+            if self.connection.execute(
+                "SELECT 1 FROM governance_evidence WHERE decision_id=?", (decision_id,)
+            ).fetchone():
+                raise EvidenceError("GOV_INPUT_INVALID")
+            self.connection.execute(
+                "INSERT INTO governance_d1_shadow_scopes VALUES (?,?,?)",
+                (decision_id, scope.run_id, body),
+            )
+        except EvidenceError:
+            raise
+        except Exception:
+            raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
+
+    def _episode(
+        self, run_id: str, decision_id: str | None = None
+    ) -> tuple[EvidenceScope, bytes | None, bytes | None]:
         row = self.connection.execute(
             "SELECT scope,policy_bytes,engine_bytes FROM governance_episodes WHERE run_id = ?",
             (run_id,),
@@ -207,6 +273,26 @@ class SqliteGovernanceEvidenceStore:
         scope = parse_model(EvidenceScope, row[0].encode("utf-8"))
         if scope.run_id != run_id:
             raise EvidenceError("GOV_INPUT_INVALID")
+        if (
+            decision_id is not None
+            and self.connection.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type='table' AND name='governance_d1_shadow_scopes'"
+            ).fetchone()
+        ):
+            registered = self.connection.execute(
+                "SELECT run_id,scope FROM governance_d1_shadow_scopes WHERE decision_id=?",
+                (decision_id,),
+            ).fetchone()
+            if registered is not None:
+                specific = parse_model(EvidenceScope, registered[1].encode())
+                if (
+                    registered[0] != run_id
+                    or specific.governance_mode != "shadow"
+                    or (scope.model_copy(update={"source_refs": specific.source_refs}) != specific)
+                ):
+                    raise EvidenceError("GOV_INPUT_INVALID")
+                scope = specific
         verify_artifacts(scope, row[1], row[2])
         return scope, row[1], row[2]
 
@@ -227,7 +313,7 @@ class SqliteGovernanceEvidenceStore:
                 run_id, decision_id = data.run_id, data.decision_id
             else:
                 run_id, decision_id = evidence.run_id, evidence.decision_id
-            scope, _, _ = self._episode(run_id)
+            scope, _, _ = self._episode(run_id, decision_id)
             linked_runs = self.connection.execute(
                 "SELECT DISTINCT run_id FROM governance_evidence WHERE decision_id = ?",
                 (decision_id,),
@@ -328,7 +414,9 @@ class SqliteGovernanceEvidenceStore:
             checked = validate_evidence(evidence)
             if not isinstance(checked, DecisionRecord):
                 raise EvidenceError("GOV_INPUT_INVALID")
-            scope, policy_bytes, engine_bytes = self._episode(checked.policy_input().run_id)
+            scope, policy_bytes, engine_bytes = self._episode(
+                checked.policy_input().run_id, checked.decision.decision_id
+            )
             scope_input(scope, checked.policy_input())
             replay_reference(checked, scope, policy_bytes, engine_bytes)
             self._prepared.add(sha256_digest(canonical_bytes(checked)))
@@ -350,7 +438,7 @@ class SqliteGovernanceEvidenceStore:
             if sha256_digest(raw) != values["body_digest"]:
                 raise EvidenceError("GOV_INPUT_INVALID")
             evidence = parse_evidence(raw)
-            scope, _, _ = self._episode(values["run_id"])
+            scope, _, _ = self._episode(values["run_id"], values["decision_id"])
             if isinstance(evidence, DecisionRecord):
                 data = evidence.policy_input()
                 scope_input(scope, data)
@@ -431,7 +519,9 @@ class SqliteGovernanceEvidenceStore:
             evidence = self.get(evidence_id)
             if not isinstance(evidence, DecisionRecord):
                 raise EvidenceError("GOV_FACTS_UNAVAILABLE")
-            scope, policy_bytes, engine_bytes = self._episode(evidence.policy_input().run_id)
+            scope, policy_bytes, engine_bytes = self._episode(
+                evidence.policy_input().run_id, evidence.decision.decision_id
+            )
             return replay_reference(evidence, scope, policy_bytes, engine_bytes)
         except EvidenceError:
             raise

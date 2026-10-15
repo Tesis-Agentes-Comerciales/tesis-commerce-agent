@@ -1,4 +1,5 @@
-from collections.abc import Iterator
+import logging
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from enum import StrEnum
 from typing import Protocol
@@ -14,8 +15,29 @@ from commerce_agent.acp.models import (
     SelectedFulfillmentOption,
 )
 from commerce_agent.approval import ApprovalError, ApprovalService, ApprovalTerms
-from commerce_agent.domain import PurchaseIntent, rank_candidates
+from commerce_agent.domain import PurchaseIntent, SelectionResult, rank_candidates
 from commerce_agent.persistence import ApprovalRecord, SqliteAgentStore
+
+
+class D1SelectionObserver(Protocol):
+    def failure(self) -> None: ...
+
+    def capture(
+        self,
+        feed: ProductFeed,
+        intent: PurchaseIntent,
+        ranking: Callable[[ProductFeed, PurchaseIntent], SelectionResult],
+    ) -> object | None: ...
+
+    def observe(
+        self,
+        capture: object,
+        *,
+        run_id: str,
+        owner_id: str,
+        selection: SelectionResult,
+        selected_variant_id: str,
+    ) -> None: ...
 
 
 class PurchaseStage(StrEnum):
@@ -90,11 +112,13 @@ class PurchaseService:
         checkout: CheckoutGateway,
         store: SqliteAgentStore,
         approvals: ApprovalService,
+        d1_observer: D1SelectionObserver | None = None,
     ) -> None:
         self._feed = feed
         self._checkout = checkout
         self._store = store
         self._approvals = approvals
+        self._d1_observer = d1_observer
 
     def start(
         self,
@@ -111,7 +135,14 @@ class PurchaseService:
         self._store.create_purchase(run_id, request, owner_id)
         if graph_thread_id is not None:
             self._store.save_graph_thread(run_id, graph_thread_id)
-        selection = rank_candidates(feed or self._feed, intent)
+        effective_feed = feed or self._feed
+        captured = None
+        if self._d1_observer is not None:
+            try:
+                captured = self._d1_observer.capture(effective_feed, intent, rank_candidates)
+            except Exception:
+                self._shadow_unavailable()
+        selection = rank_candidates(effective_feed, intent)
         if selection.selected is None:
             self._store.update_purchase(run_id, stage=PurchaseStage.FAILED)
             raise PurchaseServiceError("No candidate satisfies the request", code="no_candidate")
@@ -133,6 +164,17 @@ class PurchaseService:
             stage=PurchaseStage.SELECTED,
             selected_variant_id=candidate.variant_id,
         )
+        if self._d1_observer is not None and captured is not None:
+            try:
+                self._d1_observer.observe(
+                    captured,
+                    run_id=run_id,
+                    owner_id=owner_id,
+                    selection=selection,
+                    selected_variant_id=candidate.variant_id,
+                )
+            except Exception:
+                self._shadow_unavailable()
         idempotency_key = self._store.idempotency_key(run_id, "checkout.create")
         # Un fallo a medio camino deja la compra en `selected` o `checkout_prepared`: se marca
         # `failed` para que no quede bloqueando la siguiente compra sin poder cancelarse.
@@ -163,6 +205,14 @@ class PurchaseService:
             checkout=ready,
             price_changed=price_changed,
         )
+
+    def _shadow_unavailable(self) -> None:
+        try:
+            if self._d1_observer is not None:
+                self._d1_observer.failure()
+        except Exception:
+            pass
+        logging.getLogger(__name__).warning("D1 shadow observation unavailable")
 
     def approval_terms(self, run_id: str) -> ApprovalTerms:
         checkout = self._current_checkout(run_id)

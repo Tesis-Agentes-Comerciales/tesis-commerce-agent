@@ -1,6 +1,7 @@
 """Explicit D1 operational vault. Caller supplies keys, connection and transaction.
 
-No calls from B0/runtime. Ciphertext is AES-256-GCM, not SQLite/database encryption.
+No initialization in off. Explicit shadow callers own the transaction.
+Ciphertext is AES-256-GCM, not SQLite/database encryption.
 Provisioning, backup, file ACLs and key rotation remain deployment responsibilities.
 """
 
@@ -20,7 +21,7 @@ from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.domain.intent import PurchaseIntent
 from commerce_agent.governance.canonical import canonical_bytes, parse_model, sha256_digest
 from commerce_agent.governance.evaluator import GovernanceError, verify_artifact
-from commerce_agent.governance.models import SCHEMA, Id, IntentFacts, ObjectRef
+from commerce_agent.governance.models import SCHEMA, Id, IntentFacts, ObjectRef, PolicyBinding
 from commerce_agent.governance.provenance import (
     ClockProfile,
     ClockReader,
@@ -377,7 +378,13 @@ class SqliteD1ProvenanceStore:
 
     @_safe
     def register_context(
-        self, run_id: str, owner_id: str, configuration: D1Configuration
+        self,
+        run_id: str,
+        owner_id: str,
+        configuration: D1Configuration,
+        *,
+        policy_bytes: bytes | None = None,
+        policy_binding: PolicyBinding | None = None,
     ) -> RegisteredContext:
         self._episode(run_id, owner_id)
         configuration = D1Configuration.model_validate(configuration)
@@ -400,6 +407,16 @@ class SqliteD1ProvenanceStore:
             version=configuration.policy_revision,
             merchant_ref=merchant_ref,
         )
+        if policy_bytes is not None or policy_binding is not None:
+            if policy_bytes is None or policy_binding is None:
+                raise GovernanceError("GOV_ARTIFACT_MISMATCH")
+            artifact = verify_artifact(policy_bytes, policy_binding)
+            if (artifact.policy_set_id, artifact.version) != (
+                configuration.policy_set_id,
+                configuration.policy_revision,
+            ) or any(action != "prepare_checkout" for action in artifact.allowed_actions):
+                raise GovernanceError("GOV_ARTIFACT_MISMATCH")
+            payload, binding = policy_bytes, PolicyBinding.model_validate(policy_binding)
         known = self.connection.execute(
             "SELECT artifact_digest,payload FROM d1_provenance_policies "
             "WHERE policy_set_id=? AND version=?",
@@ -473,9 +490,9 @@ class SqliteD1ProvenanceStore:
             policy,
         ):
             raise GovernanceError("GOV_ARTIFACT_MISMATCH")
-        if artifact.allowed_actions != ("prepare_checkout",) or artifact.allowed_merchant_refs != (
-            data.merchant_ref,
-        ):
+        # A verified restrictive D1 artifact may deny this configured merchant/action.
+        # That is an observed POL-02 denial, not an incompatible artifact or a permission.
+        if any(action != "prepare_checkout" for action in artifact.allowed_actions):
             raise GovernanceError("GOV_ARTIFACT_MISMATCH")
         return RegisteredContext(ref=ref, data=data)
 

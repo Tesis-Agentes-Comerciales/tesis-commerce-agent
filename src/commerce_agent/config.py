@@ -67,6 +67,17 @@ class Settings(BaseSettings):
     agent_auth_issuer: str | None = None
     agent_ui_origin: str = "http://127.0.0.1:5173"
     agent_sandbox_clock_at: datetime | None = None
+    agent_governance_mode: Literal["off", "shadow"] = "off"
+    # Decode/validate shadow-only configuration in the isolated bootstrap boundary,
+    # so missing or malformed B2 settings never prevent ordinary B0 construction.
+    agent_d1_policy_set_id: str | None = None
+    agent_d1_policy_revision: str | None = None
+    agent_d1_policy_path: Path | None = None
+    agent_d1_policy_digest: str | None = None
+    agent_d1_key_id: str | None = None
+    agent_d1_hmac_key_hex: SecretStr | None = Field(default=None, repr=False)
+    agent_d1_aes_key_hex: SecretStr | None = Field(default=None, repr=False)
+    agent_d1_commercial_clock_id: str | None = None
     openai_api_key: SecretStr | None = Field(default=None, repr=False)
     openai_model: str | None = Field(default=None, min_length=1, max_length=128)
     openai_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
