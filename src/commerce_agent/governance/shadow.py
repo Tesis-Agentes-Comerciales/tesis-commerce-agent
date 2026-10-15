@@ -85,6 +85,8 @@ class ShadowD1Observer:
         self.diagnostics = ShadowDiagnostics()
         self._path = path
         self._configuration = D1Configuration.model_validate(configuration)
+        if self._configuration.governance_mode != "shadow":
+            raise GovernanceError("GOV_INPUT_INVALID")
         self._keys = ProvenanceKeys.model_validate(keys)
         self._clocks = clocks
         if clocks.profile != configuration.clock:

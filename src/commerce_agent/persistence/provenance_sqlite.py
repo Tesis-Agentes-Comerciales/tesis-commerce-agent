@@ -28,6 +28,7 @@ from commerce_agent.governance.provenance import (
     ContextData,
     ContextObservation,
     D1Configuration,
+    D1EnforceConfiguration,
     ProvenanceKeys,
     RegisteredContext,
     build_d1_policy,
@@ -381,13 +382,26 @@ class SqliteD1ProvenanceStore:
         self,
         run_id: str,
         owner_id: str,
-        configuration: D1Configuration,
+        configuration: D1Configuration | D1EnforceConfiguration,
         *,
         policy_bytes: bytes | None = None,
         policy_binding: PolicyBinding | None = None,
     ) -> RegisteredContext:
         self._episode(run_id, owner_id)
-        configuration = D1Configuration.model_validate(configuration)
+        configuration = TypeAdapter(D1Configuration | D1EnforceConfiguration).validate_python(
+            configuration, strict=True
+        )
+        # Mode belongs to the episode, not to a replaceable snapshot. This also
+        # covers a shadow context registered before its first ledger observation.
+        for source_id, version, digest in self.connection.execute(
+            "SELECT source_id,version,digest FROM d1_provenance_sources "
+            "WHERE run_id=? AND kind='context'",
+            (run_id,),
+        ).fetchall():
+            ref = ObjectRef(schema_version=SCHEMA, id=source_id, version=version, digest=digest)
+            previous = parse_model(ContextData, self._get(run_id, owner_id, ref, "context")[0])
+            if previous.governance_mode != configuration.governance_mode:
+                raise GovernanceError("GOV_INPUT_INVALID")
         measured = measure_d1_sources()
         algorithm = self._register(
             run_id, owner_id, "algorithm", measured["algorithm"], public=True
@@ -453,7 +467,7 @@ class SqliteD1ProvenanceStore:
             conversation_id=episode[2],
             experiment_run_id=episode[3],
             purchase_mode="HP",
-            governance_mode="shadow",
+            governance_mode=configuration.governance_mode,
             merchant_ref=merchant_ref,
             commercial_ref=commercial,
             clock_profile_ref=clock,

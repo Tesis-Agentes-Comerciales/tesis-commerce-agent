@@ -58,14 +58,13 @@ class ClockObservation(ProvenanceModel):
     commercial_now: UtcTime
 
 
-class D1Configuration(ProvenanceModel):
+class _D1Configuration(ProvenanceModel):
     """Explicit trusted configuration; no deployment defaults and no secret settings loader.
 
     policy_revision is operator-managed: changing artifact bytes under the same
     policy_set_id requires a strictly newer revision in the local registry.
     """
 
-    governance_mode: Literal["shadow"]
     merchant_base_url: str
     policy_set_id: Id
     policy_revision: Version
@@ -79,12 +78,24 @@ class D1Configuration(ProvenanceModel):
         return validate_service_base_url(value)
 
 
+class D1Configuration(_D1Configuration):
+    """Existing shadow configuration; still rejects enforce."""
+
+    governance_mode: Literal["shadow"]
+
+
+class D1EnforceConfiguration(_D1Configuration):
+    """Explicit backend-only UoW configuration; no Settings/runtime loader."""
+
+    governance_mode: Literal["enforce"]
+
+
 class ContextData(ProvenanceModel):
     run_id: Id
     trace_id: Id
     owner_ref: Id
     purchase_mode: Literal["HP"]
-    governance_mode: Literal["shadow"]
+    governance_mode: Literal["shadow", "enforce"]
     conversation_id: Id | None
     experiment_run_id: Id | None
     merchant_ref: Id
