@@ -20,6 +20,7 @@ from typing import Protocol
 
 from pydantic import SecretStr
 
+from commerce_agent.acp.creation import build_checkout_create
 from commerce_agent.acp.feed import ProductCandidate, ProductFeed
 from commerce_agent.acp.models import CheckoutSession
 from commerce_agent.application.purchase import (
@@ -29,6 +30,7 @@ from commerce_agent.application.purchase import (
 )
 from commerce_agent.domain import PurchaseIntent, SelectionResult, rank_candidates
 from commerce_agent.persistence.d1_dispatch_sqlite import SqliteD1DispatchStore
+from commerce_agent.persistence.d1_envelope_sqlite import SqliteD1EnvelopeStore
 from commerce_agent.persistence.d1_uow_sqlite import SqliteD1UnitOfWork
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.persistence.provenance_sqlite import (
@@ -38,6 +40,11 @@ from commerce_agent.persistence.provenance_sqlite import (
 )
 
 from .canonical import canonical_bytes, parse_model, sha256_digest
+from .dispatch_envelope import (
+    CheckoutCreationEnvelope,
+    ExpectedRemoteBinding,
+    merchant_creation_digest,
+)
 from .evaluator import (
     D1PolicyBoundary,
     GovernanceError,
@@ -113,6 +120,7 @@ class SqliteD1EnforceGate:
         evaluator_factory: Callable[[bytes, PolicyBinding, EvaluationMetadata], PolicyEvaluator]
         | None = None,
         connection_factory: Callable[[], sqlite3.Connection] | None = None,
+        expected_remote_binding: ExpectedRemoteBinding | None = None,
     ):
         started = perf_counter_ns()
         self._path = path
@@ -127,6 +135,11 @@ class SqliteD1EnforceGate:
             raise GovernanceError("GOV_ARTIFACT_MISMATCH")
         self._factory = evaluator_factory
         self._connection_factory = connection_factory
+        self._expected_remote_binding = (
+            parse_model(ExpectedRemoteBinding, canonical_bytes(expected_remote_binding))
+            if expected_remote_binding is not None
+            else None
+        )
         self._sources = measure_d1_sources()
         verify_loaded_selection(json.loads(self._sources["algorithm"])["sources"], rank_candidates)
         self._identity = measure_reference_engine()
@@ -324,6 +337,7 @@ class SqliteD1EnforceGate:
                 with connection:
                     connection.execute("BEGIN IMMEDIATE")
                     uow.initialize()
+                    SqliteD1EnvelopeStore(connection, self._keys).initialize()
                 self.timings["uow_setup_ms"] = (perf_counter_ns() - started) / 1e6
                 metadata = EvaluationMetadata(
                     schema_version=SCHEMA,
@@ -394,11 +408,52 @@ class SqliteD1EnforceGate:
                 )
                 started = perf_counter_ns()
                 uow.prepare(request)
+                envelope = None
+                if allow:
+                    body = canonical_bytes(
+                        build_checkout_create(candidate.variant_id, candidate.currency)
+                    )
+                    envelope = CheckoutCreationEnvelope(
+                        schema_version="commerce-acp-create-envelope/1",
+                        operation_id=operation_id,
+                        run_id=run_id,
+                        owner_id=owner_id,
+                        merchant_origin=self._configuration.merchant_base_url,
+                        merchant_ref=data.merchant_ref,
+                        api_version="2026-04-17",
+                        creation_profile="merchant-p0-create/1",
+                        method="POST",
+                        path="/checkout_sessions",
+                        body_canonical=body.decode("utf-8"),
+                        body_digest=merchant_creation_digest(body),
+                        idempotency_key=SecretStr(key),
+                        decision_id=data.decision_id,
+                        evidence_id=evidence_id,
+                        evidence_digest=sha256_digest(canonical_bytes(record)),
+                        d1_input_digest=result.input_digest,
+                        context_ref=context_ref,
+                        prepared_at=record.recorded_at,
+                        binding_status="backend_expected_unverified"
+                        if self._expected_remote_binding is not None
+                        else "unavailable",
+                        expected_remote_binding=self._expected_remote_binding,
+                    )
                 self.timings["evidence_verification_ms"] = (perf_counter_ns() - started) / 1e6
                 started = perf_counter_ns()
                 try:
                     connection.execute("BEGIN IMMEDIATE")
                     applied = uow.apply(request, owner_id=owner_id)
+                    if envelope is not None:
+                        envelopes = SqliteD1EnvelopeStore(connection, self._keys)
+                        if applied.reused:
+                            # Never invent a request for a historical 06B reservation.
+                            if (
+                                envelopes.recover(operation_id, run_id=run_id, owner_id=owner_id)
+                                != envelope
+                            ):
+                                raise GovernanceError("GOV_STATE_CONFLICT")
+                        else:
+                            envelopes.persist(envelope)
                     connection.commit()
                 except BaseException:
                     connection.rollback()
@@ -415,6 +470,14 @@ class SqliteD1EnforceGate:
                         "reserved",
                         None,
                         operation_id,
+                    ):
+                        raise GovernanceError("GOV_STATE_CONFLICT")
+                    if (
+                        envelope is None
+                        or SqliteD1EnvelopeStore(verifier, self._keys).recover(
+                            operation_id, run_id=run_id, owner_id=owner_id
+                        )
+                        != envelope
                     ):
                         raise GovernanceError("GOV_STATE_CONFLICT")
                 if applied.reused or self._dispatch is None:
@@ -520,12 +583,30 @@ class SqliteD1EnforceGate:
     ) -> CheckoutSession:
         invalid = False
         try:
+            with closing(self._connect()) as reader:
+                envelope = SqliteD1EnvelopeStore(reader, self._keys).recover(
+                    operation_id, run_id=run_id, owner_id=owner_id
+                )
+                if (
+                    envelope is None
+                    or envelope.idempotency_key.get_secret_value() != key
+                    or envelope.merchant_origin != self._configuration.merchant_base_url
+                    or envelope.expected_remote_binding != self._expected_remote_binding
+                    or envelope.body_canonical.encode("utf-8")
+                    != canonical_bytes(
+                        build_checkout_create(candidate.variant_id, candidate.currency)
+                    )
+                ):
+                    raise GovernanceError("GOV_STATE_CONFLICT")
+            # The experimental legacy port only accepts variant/currency. Reject
+            # any envelope it cannot represent exactly, rather than fill defaults.
+            # A production wire transport and authenticated binding remain absent.
             assert self._dispatch is not None
             response = self._dispatch.create_once(
                 gateway,
-                variant_id=candidate.variant_id,
-                currency=candidate.currency,
-                idempotency_key=key,
+                variant_id=envelope.body()["line_items"][0]["id"],
+                currency=envelope.body()["currency"],
+                idempotency_key=envelope.idempotency_key.get_secret_value(),
             )
             invalid = True
             checkout = CheckoutSession.model_validate(_model_values(response))
