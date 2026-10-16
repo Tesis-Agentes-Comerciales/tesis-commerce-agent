@@ -91,17 +91,19 @@ def clean_environment():
 
 
 class LiveEnvironment:
-    def __init__(self):
+    def __init__(self, *, agent_head=AGENT_HEAD, allowed_agent_changes=frozenset()):
         assert os.name == "nt", "This audited harness currently requires Windows socket sharing"
         assert os.environ.get("RUN_GOV06DC_REAL") == "1", "Explicit real-test opt-in required"
-        for root, commit in ((AGENT, AGENT_HEAD), (MERCHANT, MERCHANT_HEAD)):
+        self.agent_head = agent_head
+        for root, commit in ((AGENT, agent_head), (MERCHANT, MERCHANT_HEAD)):
             actual = subprocess.check_output(
                 ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
             ).strip()
             assert actual == commit
-            assert not subprocess.check_output(
-                ["git", "-C", str(root), "diff", "HEAD", "--name-only"]
-            )
+            changed = subprocess.check_output(
+                ["git", "-C", str(root), "diff", "HEAD", "--name-only"], text=True
+            ).splitlines()
+            assert set(changed) <= (set(allowed_agent_changes) if root == AGENT else set())
         assert not subprocess.check_output(["git", "-C", str(MERCHANT), "status", "--porcelain"])
         self.root = AGENT / ".local" / ("gov06dc-" + secrets.token_hex(6))
         self.root.mkdir(parents=True, exist_ok=False)
@@ -325,7 +327,7 @@ class LiveEnvironment:
             postgres_version=self.command(PG_BIN / "postgres.exe", "--version"),
             merchant_versions=self.rpc("versions"),
             agent_python=sys.version.split()[0],
-            agent_commit=AGENT_HEAD,
+            agent_commit=self.agent_head,
             merchant_commit=MERCHANT_HEAD,
             merchant_listener_owned_pid=self.server_pid,
         )

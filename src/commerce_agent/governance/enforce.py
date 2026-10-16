@@ -1,7 +1,7 @@
 """Experimental backend-injected D1 gate. No public/runtime enforce assembly.
 
-No production initial-dispatch implementation is provided: the Merchant recovery
-contract has not passed its gates. Tests inject an observable single-attempt port.
+An explicit envelope transport can be injected by the backend for the first POST
+only. Its creation observation stops before every post-create commercial effect.
 There is deliberately no automatic remote replay, even after an unsent claim.
 """
 
@@ -22,6 +22,7 @@ from pydantic import SecretStr
 
 from commerce_agent.acp.creation import build_checkout_create
 from commerce_agent.acp.feed import ProductCandidate, ProductFeed
+from commerce_agent.acp.initial_dispatch import EnvelopeInitialDispatch
 from commerce_agent.acp.models import CheckoutSession
 from commerce_agent.application.purchase import (
     CheckoutGateway,
@@ -116,6 +117,7 @@ class SqliteD1EnforceGate:
         clocks: ClockReader,
         *,
         dispatch: InitialCheckoutDispatch | None = None,
+        initial_dispatch: EnvelopeInitialDispatch | None = None,
         post_create_dispatch: ExperimentalPostCreateDispatch | None = None,
         policy_bytes: bytes | None = None,
         policy_binding: PolicyBinding | None = None,
@@ -132,6 +134,9 @@ class SqliteD1EnforceGate:
             raise GovernanceError("GOV_FACTS_UNAVAILABLE")
         self._clocks = clocks
         self._dispatch = dispatch
+        if dispatch is not None and initial_dispatch is not None:
+            raise ValueError("Initial dispatch ports must be configured separately")
+        self._initial_dispatch = initial_dispatch
         self._post_create_dispatch = post_create_dispatch
         self._policy, self._binding = policy_bytes, policy_binding
         if (policy_bytes is None) != (policy_binding is None):
@@ -483,11 +488,15 @@ class SqliteD1EnforceGate:
                         != envelope
                     ):
                         raise GovernanceError("GOV_STATE_CONFLICT")
-                if applied.reused or self._dispatch is None:
+                if applied.reused or (self._dispatch is None and self._initial_dispatch is None):
                     raise PurchaseServiceError(
                         "D1 dispatch protocol unavailable or recovery required",
                         code="d1_dispatch_blocked",
                     )
+                if self._initial_dispatch is not None:
+                    assert envelope is not None
+                    # Missing credentials/scope must fail before committing a claim.
+                    self._initial_dispatch.validate(envelope)
                 started = perf_counter_ns()
                 claimant = "worker:" + secrets.token_hex(16)
                 try:
@@ -603,19 +612,30 @@ class SqliteD1EnforceGate:
                     raise GovernanceError("GOV_STATE_CONFLICT")
             # The experimental legacy port only accepts variant/currency. Reject
             # any envelope it cannot represent exactly, rather than fill defaults.
-            # A production wire transport and authenticated binding remain absent.
-            assert self._dispatch is not None
-            response = self._dispatch.create_once(
-                gateway,
-                variant_id=envelope.body()["line_items"][0]["id"],
-                currency=envelope.body()["currency"],
-                idempotency_key=envelope.idempotency_key.get_secret_value(),
-            )
+            # The separate initial-only port sends the exact recovered bytes;
+            # neither port promotes expected scope to authenticated evidence.
+            if self._initial_dispatch is not None:
+                response = self._initial_dispatch.create_once(envelope)
+            else:
+                assert self._dispatch is not None
+                response = self._dispatch.create_once(
+                    gateway,
+                    variant_id=envelope.body()["line_items"][0]["id"],
+                    currency=envelope.body()["currency"],
+                    idempotency_key=envelope.idempotency_key.get_secret_value(),
+                )
             invalid = True
             checkout = CheckoutSession.model_validate(_model_values(response))
             PurchaseService._validate_created_checkout(checkout, candidate)
             flow = self.post_create_flow(run_id, owner_id)
             flow.begin(checkout)
+            if self._initial_dispatch is not None:
+                # Durable creation_observed is not creation_confirmed, a fresh
+                # D2-HP authorization, or permission to invoke even the next GET.
+                raise PurchaseServiceError(
+                    "Initial creation observed; post-create flow blocked",
+                    code="d1_initial_creation_observed",
+                )
 
             def verify_creation() -> CheckoutSession:
                 current = CheckoutSession.model_validate(
@@ -656,28 +676,38 @@ class SqliteD1EnforceGate:
                 )
                 flow.confirm_creation(connection)
             return current
-        except Exception:
-            try:
-                with closing(self._connect()) as connection, connection:
-                    connection.execute("BEGIN IMMEDIATE")
-                    # No checkout identity is stored when the response is not verified.
-                    SqliteD1DispatchStore(connection).observe(
-                        operation_id,
-                        state="uncertain",
-                        checkout_id=None,
-                        code="CHECKOUT_INVALID" if invalid else "DISPATCH_UNCERTAIN",
-                    )
-                    connection.execute(
-                        "UPDATE purchases SET stage='uncertain',state_version=state_version+1 "
-                        "WHERE run_id=? AND owner_id=? AND stage='selected'",
-                        (run_id, owner_id),
-                    )
-            except Exception:
-                self.lost_diagnostics += 1
-                logging.getLogger(__name__).warning("D1 dispatch observation unavailable")
+        except PurchaseServiceError as error:
+            if error.code == "d1_initial_creation_observed":
+                raise
+            self._uncertain(run_id, owner_id, operation_id, invalid)
             raise PurchaseServiceError(
                 "Checkout dispatch requires reconciliation", code="d1_dispatch_uncertain"
             ) from None
+        except Exception:
+            self._uncertain(run_id, owner_id, operation_id, invalid)
+            raise PurchaseServiceError(
+                "Checkout dispatch requires reconciliation", code="d1_dispatch_uncertain"
+            ) from None
+
+    def _uncertain(self, run_id, owner_id, operation_id, invalid):
+        try:
+            with closing(self._connect()) as connection, connection:
+                connection.execute("BEGIN IMMEDIATE")
+                # No checkout identity is stored when the response is not verified.
+                SqliteD1DispatchStore(connection).observe(
+                    operation_id,
+                    state="uncertain",
+                    checkout_id=None,
+                    code="CHECKOUT_INVALID" if invalid else "DISPATCH_UNCERTAIN",
+                )
+                connection.execute(
+                    "UPDATE purchases SET stage='uncertain',state_version=state_version+1 "
+                    "WHERE run_id=? AND owner_id=? AND stage='selected'",
+                    (run_id, owner_id),
+                )
+        except Exception:
+            self.lost_diagnostics += 1
+            logging.getLogger(__name__).warning("D1 dispatch observation unavailable")
 
     def recovery_status(self, run_id: str) -> tuple[str, str | None, str] | None:
         """Read only, backend-only. No resend and no idempotency key export."""
