@@ -257,8 +257,11 @@ class LiveEnvironment:
             self.server_pid = actual_pid
             self.processes.append(actual_pid)
             assert self.server.stdin is not None
+            shared_bytes = share(actual_pid)
+            if not isinstance(shared_bytes, bytes):
+                raise RuntimeError("Invalid Windows socket sharing payload")
             self.server.stdin.write(
-                json.dumps({"socket_share": share(actual_pid).hex()}).encode() + b"\n"
+                json.dumps({"socket_share": shared_bytes.hex()}).encode() + b"\n"
             )
             self.server.stdin.flush()
             self.server.stdin.close()
