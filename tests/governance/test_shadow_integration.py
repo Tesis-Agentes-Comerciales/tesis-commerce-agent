@@ -224,7 +224,7 @@ def test_same_commercial_result_operations_and_real_evidence_before_gateway(tmp_
         with pytest.raises(GovernanceError):
             vault.recover_feed("run-real", "wrong-owner", data.feed_snapshot_ref)
         connection.rollback()
-        output = Path(".local/gov05c/example.json")
+        output = tmp_path / "example.json"
         output.write_text(
             json.dumps(
                 {
@@ -237,7 +237,7 @@ def test_same_commercial_result_operations_and_real_evidence_before_gateway(tmp_
             ),
             encoding="utf-8",
         )
-        with closing(sqlite3.connect(".local/gov05c/example.sqlite")) as archive:
+        with closing(sqlite3.connect(tmp_path / "example.sqlite")) as archive:
             connection.backup(archive)
 
 
@@ -566,7 +566,7 @@ def test_measured_off_shadow_latency_separate_from_bootstrap(tmp_path: Path) -> 
                 assert observed.diagnostics.status == "observed"
         samples.append(pair)
     output = {
-        "environment": "Windows; Python 3.12.6; SQLite 3.45.3; spy gateway; no network",
+        "environment": f"{sys.platform}; Python {sys.version_info.major}.{sys.version_info.minor}; SQLite {sqlite3.sqlite_version}; spy gateway; no network",
         "pairs": samples,
         "off_median_ms": median(s["off"]["start_ms"] for s in samples),
         "shadow_median_ms": median(s["shadow"]["start_ms"] for s in samples),
@@ -574,7 +574,7 @@ def test_measured_off_shadow_latency_separate_from_bootstrap(tmp_path: Path) -> 
             s["shadow"]["start_ms"] - s["off"]["start_ms"] for s in samples
         ),
     }
-    Path(".local/gov05c/latency.json").write_text(json.dumps(output, indent=2), encoding="utf-8")
+    (tmp_path / "latency.json").write_text(json.dumps(output, indent=2), encoding="utf-8")
 
 
 def test_retry_after_ledger_failure_preserves_actual_attempt_identity(
