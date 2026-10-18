@@ -566,7 +566,10 @@ def test_measured_off_shadow_latency_separate_from_bootstrap(tmp_path: Path) -> 
                 assert observed.diagnostics.status == "observed"
         samples.append(pair)
     output = {
-        "environment": f"{sys.platform}; Python {sys.version_info.major}.{sys.version_info.minor}; SQLite {sqlite3.sqlite_version}; spy gateway; no network",
+        "environment": (
+            f"{sys.platform}; Python {sys.version_info.major}.{sys.version_info.minor}; "
+            f"SQLite {sqlite3.sqlite_version}; spy gateway; no network"
+        ),
         "pairs": samples,
         "off_median_ms": median(s["off"]["start_ms"] for s in samples),
         "shadow_median_ms": median(s["shadow"]["start_ms"] for s in samples),
