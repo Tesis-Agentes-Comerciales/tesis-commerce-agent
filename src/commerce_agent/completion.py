@@ -54,6 +54,10 @@ class CompletionService:
         self._store = store
 
     def complete(self, *, run_id: str) -> CheckoutSessionWithOrder:
+        if self._store.has_d1_operation(run_id):
+            raise CompletionError(
+                "D1 continuation requires independent authorization", code="d1_continuation_blocked"
+            )
         persisted = self._store.completion_result(run_id)
         if persisted is not None:
             return CheckoutSessionWithOrder.model_validate(persisted)

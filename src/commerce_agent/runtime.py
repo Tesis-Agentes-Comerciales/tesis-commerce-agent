@@ -2,6 +2,7 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import httpx
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -19,6 +20,9 @@ from commerce_agent.delegated_payment import DelegatedPaymentClient
 from commerce_agent.llm import ConversationRouter, OpenAIConversationRouter
 from commerce_agent.persistence import SqliteAgentStore
 
+if TYPE_CHECKING:
+    from commerce_agent.governance.shadow import ShadowD1Observer, UnavailableShadowObserver
+
 
 @dataclass
 class AgentRuntime:
@@ -31,6 +35,7 @@ class AgentRuntime:
     published_feed: PublishedFeedClient | None
     checkpoint_connection: sqlite3.Connection
     mandate_signer: AgentMandateSigner | None = None
+    d1_shadow: "ShadowD1Observer | UnavailableShadowObserver | None" = None
 
     def close(self) -> None:
         self.client.close()
@@ -117,7 +122,14 @@ def build_runtime(
         transport=payment_transport,
     )
     completion = CompletionService(client, approvals, payments, store)
-    purchases = PurchaseService(feed=feed, checkout=client, store=store, approvals=approvals)
+    d1_shadow = None
+    if configuration.agent_governance_mode == "shadow":
+        from commerce_agent.governance.shadow import build_shadow_observer
+
+        d1_shadow = build_shadow_observer(configuration, clock)
+    purchases = PurchaseService(
+        feed=feed, checkout=client, store=store, approvals=approvals, d1_observer=d1_shadow
+    )
     owned_router = None
     router_factory = None
     if (
@@ -164,4 +176,5 @@ def build_runtime(
         published_feed=published_feed,
         checkpoint_connection=checkpoint_connection,
         mandate_signer=mandate_signer,
+        d1_shadow=d1_shadow,
     )

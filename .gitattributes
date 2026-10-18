@@ -5,3 +5,9 @@
 /src/commerce_agent/vendor/acp/2026-04-17/schema.feed.json text eol=lf
 /src/commerce_agent/vendor/acp/2026-04-17/openapi.feed.yaml text eol=lf
 /src/commerce_agent/vendor/acp/2026-04-17/openapi.agentic_checkout_webhook.yaml text eol=lf
+
+# Preserve the exact source bytes used by the Python governance fingerprint.
+/src/commerce_agent/governance/__init__.py text eol=lf
+/src/commerce_agent/governance/canonical.py text eol=lf
+/src/commerce_agent/governance/models.py text eol=lf
+/src/commerce_agent/governance/evaluator.py text eol=lf

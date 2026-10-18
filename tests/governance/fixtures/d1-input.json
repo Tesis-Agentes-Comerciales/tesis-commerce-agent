@@ -1,0 +1,65 @@
+{
+  "schema_version": "commerce-policy/1.0",
+  "decision_id": "decision-1",
+  "run_id": "run-1",
+  "trace_id": "trace-1",
+  "owner_ref": "owner-1",
+  "purchase_mode": "HP",
+  "governance_mode": "enforce",
+  "phase": "D1",
+  "action": "prepare_checkout",
+  "context_version": 1,
+  "expected_local_state_version": 1,
+  "expected_policy": {
+    "schema_version": "commerce-policy/1.0",
+    "policy_set_id": "offline-d1",
+    "version": 1,
+    "artifact_digest": "sha256:b2d5572abf38153918abc0a70378ac25da116c662e113c87840fcbae1b9cb245"
+  },
+  "authority_now": "2026-10-14T15:00:00.000Z",
+  "commercial_now": "2026-10-14T15:00:00.000Z",
+  "clock_profile_ref": {
+    "schema_version": "commerce-policy/1.0",
+    "id": "clock-1",
+    "version": 1,
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "experiment_run_id": null,
+  "conversation_id": null,
+  "intent": {
+    "schema_version": "commerce-policy/1.0",
+    "intent_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "intent-1",
+      "version": 1,
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "currency": "COP",
+    "max_unit_minor": 90000000,
+    "max_total_minor": 100000000,
+    "quantity": 1,
+    "hard_constraint_refs": [
+      "constraint-1",
+      "constraint-2"
+    ],
+    "normalization_version": "normalizer-1"
+  },
+  "feed_snapshot_ref": {
+    "schema_version": "commerce-policy/1.0",
+    "id": "feed-1",
+    "version": 1,
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "eligibility_algorithm_ref": {
+    "schema_version": "commerce-policy/1.0",
+    "id": "eligibility-1",
+    "version": 1,
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "eligible_variant_ids": [
+    "variant-1",
+    "variant-2"
+  ],
+  "selected_variant_id": "variant-1",
+  "merchant_ref": "merchant-1"
+}

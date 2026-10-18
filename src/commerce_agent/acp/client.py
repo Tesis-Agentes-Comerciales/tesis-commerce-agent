@@ -1,6 +1,6 @@
 import re
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -8,11 +8,10 @@ import jwt
 from ap2.sdk.sdjwt import common
 from pydantic import SecretStr, ValidationError
 
+from commerce_agent.acp.creation import build_checkout_create
 from commerce_agent.acp.models import (
     ACP_VERSION,
     CheckoutCompleteRequest,
-    CheckoutCreateRequest,
-    CheckoutItemRequest,
     CheckoutSession,
     CheckoutSessionWithOrder,
     CheckoutUpdateRequest,
@@ -91,16 +90,7 @@ class ACPClient:
         idempotency_key: str,
         request_id: str | None = None,
     ) -> CheckoutSession:
-        normalized_currency: Literal["usd", "cop"]
-        if currency.lower() == "usd":
-            normalized_currency = "usd"
-        elif currency.lower() == "cop":
-            normalized_currency = "cop"
-        else:
-            raise ValueError("Checkout currency is not supported")
-        request = CheckoutCreateRequest(
-            line_items=[CheckoutItemRequest(id=variant_id)], currency=normalized_currency
-        )
+        request = build_checkout_create(variant_id, currency)
         return self._checkout_mutation(
             "POST",
             "/checkout_sessions",
