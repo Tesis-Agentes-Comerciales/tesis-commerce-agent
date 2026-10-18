@@ -1,0 +1,227 @@
+[
+  {
+    "relative_to_validation_root": "review-package-final/hashes.sha256",
+    "sha256": "084650bda43de00f2df50fd7969293c5202a6844aa8a0c4e22ae97f4e99fc6ef",
+    "size_bytes": 5831
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/hashes.sha256",
+    "sha256": "a52051571d8753c1b2d2cd633fc03ee9bdbcdbe020ac2cdce2c68ebe14adefc8",
+    "size_bytes": 13110
+  },
+  {
+    "relative_to_validation_root": "review-package-final/merchant-db-observations.jsonl",
+    "sha256": "d3f9874d47535930a2f68d8c4e36766513e50c3e207681d8b684d0b32d4b6366",
+    "size_bytes": 188209
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/merchant-test-inventory.csv",
+    "sha256": "65bcf4fbf93a995d4628795e59eecb5766655d42a95897a4da1bb04242f4b7d0",
+    "size_bytes": 125740
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/scenario-matrix.csv",
+    "sha256": "be7d4ba5dbfa9ed01a7e33a10c21b28c98cb3a5f2091c346bb0572edda279911",
+    "size_bytes": 9868
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/current-evidence/merchant-db-counts.jsonl",
+    "sha256": "b6945631d942192026cc759c0f6c482862d1bdb7082655386b9d58c562a059bf",
+    "size_bytes": 97231
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/current-evidence/merchant-test-events.jsonl",
+    "sha256": "d0fd8106b9e7f85df12617049ad9aed572b97f30dc728a6a7dc41637f08e0485",
+    "size_bytes": 82884
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/current-evidence/integrity-final.json",
+    "sha256": "b7af07e3ef726c639ba0b980a01bfaee35afb25b938115ab6c4fac09c14891cb",
+    "size_bytes": 4037
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/current-evidence/http-execution-seal.json",
+    "sha256": "7aafdfe448eabdf458af7b2bf9c91fc0d87aedfa0e5a66b2719999fa69a53d22",
+    "size_bytes": 638
+  },
+  {
+    "relative_to_validation_root": "sources/agent/.github/workflows/ci.yml",
+    "sha256": "3a484a7854ba4c7b813f575c24703e1f3c56df01a5c83982472abad9c8e9ce11",
+    "size_bytes": 1436
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/.github/workflows/ci.yml",
+    "sha256": "1bbec3fd05af5b57bb214f2e067098ab028e7576fcd66c65b2e4890795861622",
+    "size_bytes": 1834
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/integration/test_acp_creation_lookup.py",
+    "sha256": "c57c5588b022064c89d10b32478d1762b794bde667ab2870d2e88696fbc997c2",
+    "size_bytes": 16300
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/integration/test_acp_creation_recovery.py",
+    "sha256": "c766e7525b39c90ba5301273f52c684044df4b577f57dcb410454e2665169e12",
+    "size_bytes": 23499
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/integration/test_acp_http.py",
+    "sha256": "ca2315541f4323925167813d830820b8e985c5818f01255052777d55beac8078",
+    "size_bytes": 26084
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/integration/test_ap2_checkout_integration.py",
+    "sha256": "a2cc83951b4628b3627537dbb8dfb7092ade3e0491447448c719ca38a91a71a3",
+    "size_bytes": 4390
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/integration/test_checkout.py",
+    "sha256": "9f42dc7d7c50ff8c64fa8852e9941a7142be4374b1fa9e5e2b9d1d04c64ac211",
+    "size_bytes": 16128
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/integration/test_completion.py",
+    "sha256": "93d14d3e521c441603f19e3c280cdb39eb4b7dc1c20fb30cb97b00dba946956d",
+    "size_bytes": 20048
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/integration/test_guarded_creation.py",
+    "sha256": "b4ea72658c9593395584d0cbfabe171c17036ce36b408f57ff115132988a0d5b",
+    "size_bytes": 23797
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/integration/test_guarded_lookup.py",
+    "sha256": "b539530860ad55b7af28b32b77d4ed5cc640775382e8fac491552277dbba078f",
+    "size_bytes": 21375
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/integration/test_managed_catalog_publication.py",
+    "sha256": "6b1beacd7335ff5af4281c7ed8059f6dc454f4583994129c594448ca021f9a4f",
+    "size_bytes": 2701
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/integration/test_p0_profile.py",
+    "sha256": "631430479b5155216f0968cab41ec6e7e5441e3c98f23c319768b5980568967f",
+    "size_bytes": 5426
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/integration/test_webhook_delivery.py",
+    "sha256": "aa0db4b3799371c49eb0c1ac34b99ef5cfdf0c5b30f30d540b1b5d88b361c1b2",
+    "size_bytes": 16090
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/test_ap2_checkout.py",
+    "sha256": "e971b310a83958509e5c6e95669792e4ecee0a4fe946d6d56ffde22edfb5cc53",
+    "size_bytes": 13221
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/test_api.py",
+    "sha256": "d1043d431620d32cf3f2dbe5b4f09a45434c5ad36083f95c98b775098f8e9ca8",
+    "size_bytes": 16088
+  },
+  {
+    "relative_to_validation_root": "sources/merchant/tests/test_payment_client.py",
+    "sha256": "f7371ef1c57d44b85800cdcce249b3656a6514251e89076268789cd07ab6710d",
+    "size_bytes": 2940
+  },
+  {
+    "relative_to_validation_root": "review-package-final/test-results.json",
+    "sha256": "612ab86dd3da2db4acad93d48c20eb5c8fb3d04112a6b5c9d80d02479c40a894",
+    "size_bytes": 3583
+  },
+  {
+    "relative_to_validation_root": "review-package-final/linked-results.json",
+    "sha256": "0cf61ec951ab4431c9414787548999a14fce6fd49dabaaa7721fca3862f49d89",
+    "size_bytes": 271
+  },
+  {
+    "relative_to_validation_root": "review-package-final/environment.json",
+    "sha256": "104c95f7970631487aa4afdba4f1ece30d18b6f8db62d8ddd52cf10e62fee532",
+    "size_bytes": 1669
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/test-results.json",
+    "sha256": "c252af87b1e01675e9e0b257209227ce71c20884ba1a33b210fabfee7d129714",
+    "size_bytes": 3003
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/effects-audit.json",
+    "sha256": "4521a2b84deaeb1a1dacecbebe3425a8a0096dba1c1f8be0a97510c96adf361a",
+    "size_bytes": 9230
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/gates.json",
+    "sha256": "132f63ffe078755aeb07ac5c8682b707317ec19ddc0881f964c1b461db1207be",
+    "size_bytes": 851
+  },
+  {
+    "relative_to_validation_root": "review-package-final/evidence/agent-digest.json",
+    "sha256": "1405515d55f77cfba008eab68bfc31b0af1ac04604ad32ecdf32c0ea84dccba1",
+    "size_bytes": 38997
+  },
+  {
+    "relative_to_validation_root": "review-package-final/evidence/agent-expiry.json",
+    "sha256": "09e0afcfb069034348df10f44f4c615b4edbecba82cb5cfa3ad76595e7810033",
+    "size_bytes": 38997
+  },
+  {
+    "relative_to_validation_root": "review-package-final/evidence/agent-lost.json",
+    "sha256": "87dee0f137c9176ba7644cb29a3d5c213a2ae4715a6143402778764f11ab1011",
+    "size_bytes": 43733
+  },
+  {
+    "relative_to_validation_root": "review-package-final/evidence/agent-received.json",
+    "sha256": "004c3c3c7b29197c6f08649196a133d2b48b1b7aa51f06b937c0074a0349181d",
+    "size_bytes": 48869
+  },
+  {
+    "relative_to_validation_root": "review-package-final/evidence/agent-revision.json",
+    "sha256": "f3a22fe0b842b4cdf11333068e6a61adf51f0825fc2af079ad194896bb36024a",
+    "size_bytes": 39000
+  },
+  {
+    "relative_to_validation_root": "review-package-final/evidence/agent-shipping.json",
+    "sha256": "6f5ae6cdc20a9911bd94b1eb78d20a960f79b2a791fd0cc26536711e5c783eda",
+    "size_bytes": 39000
+  },
+  {
+    "relative_to_validation_root": "review-package-final/linked-positive.json",
+    "sha256": "02bbfdabcaab7b4e3212e0118ed83d5fc14e2db18ab54d619bca69bc5d0ac48d",
+    "size_bytes": 62938
+  },
+  {
+    "relative_to_validation_root": "review-package-final/linked-rejected.json",
+    "sha256": "8d18494ddd0628f1580c04499c0569e559fa9ddf70f0b70452497191d70854cf",
+    "size_bytes": 45013
+  },
+  {
+    "relative_to_validation_root": "review-package-final/linked-d2-exercise.json",
+    "sha256": "553248a77efc5cdcb5fcf1c3164b3435761d82c6052f566e02b95fd28e651233",
+    "size_bytes": 5398
+  },
+  {
+    "relative_to_validation_root": "review-package-final/linked-d2-recover.json",
+    "sha256": "755e9f96ed9d5de0f32c10586e7b63353e2fa93361c8c2c6972f5d095c529574",
+    "size_bytes": 3882
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/current-evidence/http-deny.json",
+    "sha256": "7cf15d338cd00781ff62a2540cce6656f994c84440ca53f486ee5c38e940f7ab",
+    "size_bytes": 30942
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/current-evidence/http-not-found.json",
+    "sha256": "2042cbb61e6a0fde65c03a49cd7df84559fde09e842b289529dc2aaced8eb81e",
+    "size_bytes": 43444
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/current-evidence/http-corrupt-history.json",
+    "sha256": "7b1a448adec7e32550ffd160ffd3a928911366e468de340bc1975fab53a0e7b7",
+    "size_bytes": 44246
+  },
+  {
+    "relative_to_validation_root": "final-validation-2026-10-17/consolidated-review/current-evidence/http-results.json",
+    "sha256": "9c490906c3ab05da2cba6d0a3829588fede5fc790e0e39a0fe0907b4453bc07e",
+    "size_bytes": 411
+  }
+]

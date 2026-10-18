@@ -1,0 +1,221 @@
+{
+  "incident_id": "AUDIT-MERCHANT-CANCEL-01",
+  "test": "tests/integration/test_guarded_lookup.py::test_catalog_and_current_checkout_changes_preserve_history",
+  "cluster": "mer07a2-283ec644204b",
+  "db": "tesis_lab",
+  "role": "mer07_app",
+  "postgres_port": 53190,
+  "fixture_variant": "B2",
+  "transport": "In-process Merchant service cancel; creation/lookup through TestClient ASGI",
+  "operation": "CheckoutService.cancel -> _mutate(operation=cancel)",
+  "idempotency_test_literal": "synthetic-cancel",
+  "run_actor_checkout_uuids": "NOT_CAPTURED_IN_RETAINED_SANITIZED_EVIDENCE; database not reopened",
+  "observed_mutation_increments": 2,
+  "unique_test": 1,
+  "snapshots": 230,
+  "max_orders": 0,
+  "max_completion_attempts": 0,
+  "direct_cancel_writes_from_code": [
+    "UPDATE checkout_sessions",
+    "INSERT checkout_mutations",
+    "INSERT run_events"
+  ],
+  "catalog_edit_from_test": "UPDATE catalog_offers revision/snapshot; not a cancellation write",
+  "observations": [
+    {
+      "session": 2,
+      "phase": "guard_lookup_new",
+      "before_jsonl_line": 22,
+      "after_jsonl_line": 23,
+      "before": {
+        "session": 2,
+        "nodeid": "tests/integration/test_guarded_lookup.py::test_rejected_known_and_exact_record",
+        "outcome": "passed",
+        "identity": {
+          "database": "tesis_lab",
+          "user": "mer07_app",
+          "host": "127.0.0.1",
+          "port": 53190,
+          "data_directory": "<VALIDATION_ROOT>/sources/merchant/.local/mer07a2-283ec644204b/pgdata"
+        },
+        "counts": {
+          "catalog_offers": 930,
+          "checkout_completion_attempts": 0,
+          "checkout_mutations": 0,
+          "checkout_sessions": 1,
+          "experiment_runs": 3,
+          "guarded_checkout_creations": 1,
+          "lab_sessions": 3,
+          "orders": 0,
+          "rejected_guarded_checkout_attempts": 1,
+          "request_observations": 0,
+          "run_events": 4,
+          "schema_migrations": 12,
+          "webhook_deliveries": 0,
+          "webhook_delivery_attempts": 0
+        },
+        "transaction_read_only": "on"
+      },
+      "after": {
+        "session": 2,
+        "nodeid": "tests/integration/test_guarded_lookup.py::test_catalog_and_current_checkout_changes_preserve_history",
+        "outcome": "passed",
+        "identity": {
+          "database": "tesis_lab",
+          "user": "mer07_app",
+          "host": "127.0.0.1",
+          "port": 53190,
+          "data_directory": "<VALIDATION_ROOT>/sources/merchant/.local/mer07a2-283ec644204b/pgdata"
+        },
+        "counts": {
+          "catalog_offers": 1240,
+          "checkout_completion_attempts": 0,
+          "checkout_mutations": 1,
+          "checkout_sessions": 2,
+          "experiment_runs": 4,
+          "guarded_checkout_creations": 2,
+          "lab_sessions": 4,
+          "orders": 0,
+          "rejected_guarded_checkout_attempts": 1,
+          "request_observations": 0,
+          "run_events": 7,
+          "schema_migrations": 12,
+          "webhook_deliveries": 0,
+          "webhook_delivery_attempts": 0
+        },
+        "transaction_read_only": "on"
+      },
+      "count_delta": {
+        "catalog_offers": 310,
+        "checkout_completion_attempts": 0,
+        "checkout_mutations": 1,
+        "checkout_sessions": 1,
+        "experiment_runs": 1,
+        "guarded_checkout_creations": 1,
+        "lab_sessions": 1,
+        "orders": 0,
+        "rejected_guarded_checkout_attempts": 0,
+        "request_observations": 0,
+        "run_events": 3,
+        "schema_migrations": 0,
+        "webhook_deliveries": 0,
+        "webhook_delivery_attempts": 0
+      },
+      "evidence_scope": "Between consecutive teardown snapshots; includes fixture, create, catalog edit and cancellation, not only cancel transaction."
+    },
+    {
+      "session": 4,
+      "phase": "full_filtered",
+      "before_jsonl_line": 158,
+      "after_jsonl_line": 159,
+      "before": {
+        "session": 4,
+        "nodeid": "tests/integration/test_guarded_lookup.py::test_rejected_known_and_exact_record",
+        "outcome": "passed",
+        "identity": {
+          "database": "tesis_lab",
+          "user": "mer07_app",
+          "host": "127.0.0.1",
+          "port": 53190,
+          "data_directory": "<VALIDATION_ROOT>/sources/merchant/.local/mer07a2-283ec644204b/pgdata"
+        },
+        "counts": {
+          "catalog_offers": 39678,
+          "checkout_completion_attempts": 0,
+          "checkout_mutations": 1,
+          "checkout_sessions": 43,
+          "experiment_runs": 128,
+          "guarded_checkout_creations": 43,
+          "lab_sessions": 129,
+          "orders": 0,
+          "rejected_guarded_checkout_attempts": 36,
+          "request_observations": 0,
+          "run_events": 172,
+          "schema_migrations": 12,
+          "webhook_deliveries": 0,
+          "webhook_delivery_attempts": 0
+        },
+        "transaction_read_only": "on"
+      },
+      "after": {
+        "session": 4,
+        "nodeid": "tests/integration/test_guarded_lookup.py::test_catalog_and_current_checkout_changes_preserve_history",
+        "outcome": "passed",
+        "identity": {
+          "database": "tesis_lab",
+          "user": "mer07_app",
+          "host": "127.0.0.1",
+          "port": 53190,
+          "data_directory": "<VALIDATION_ROOT>/sources/merchant/.local/mer07a2-283ec644204b/pgdata"
+        },
+        "counts": {
+          "catalog_offers": 39988,
+          "checkout_completion_attempts": 0,
+          "checkout_mutations": 2,
+          "checkout_sessions": 44,
+          "experiment_runs": 129,
+          "guarded_checkout_creations": 44,
+          "lab_sessions": 130,
+          "orders": 0,
+          "rejected_guarded_checkout_attempts": 36,
+          "request_observations": 0,
+          "run_events": 175,
+          "schema_migrations": 12,
+          "webhook_deliveries": 0,
+          "webhook_delivery_attempts": 0
+        },
+        "transaction_read_only": "on"
+      },
+      "count_delta": {
+        "catalog_offers": 310,
+        "checkout_completion_attempts": 0,
+        "checkout_mutations": 1,
+        "checkout_sessions": 1,
+        "experiment_runs": 1,
+        "guarded_checkout_creations": 1,
+        "lab_sessions": 1,
+        "orders": 0,
+        "rejected_guarded_checkout_attempts": 0,
+        "request_observations": 0,
+        "run_events": 3,
+        "schema_migrations": 0,
+        "webhook_deliveries": 0,
+        "webhook_delivery_attempts": 0
+      },
+      "evidence_scope": "Between consecutive teardown snapshots; includes fixture, create, catalog edit and cancellation, not only cancel transaction."
+    }
+  ],
+  "source_refs": [
+    {
+      "source": "tests/integration/test_guarded_lookup.py",
+      "line": 180,
+      "file_sha256": "b539530860ad55b7af28b32b77d4ed5cc640775382e8fac491552277dbba078f",
+      "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-merchant/blob/0dca1083f4b6a7d82c98ed3d81d44ec224501730/tests/integration/test_guarded_lookup.py#L180"
+    },
+    {
+      "source": "tests/integration/test_guarded_creation.py",
+      "line": 53,
+      "file_sha256": "b4ea72658c9593395584d0cbfabe171c17036ce36b408f57ff115132988a0d5b",
+      "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-merchant/blob/0dca1083f4b6a7d82c98ed3d81d44ec224501730/tests/integration/test_guarded_creation.py#L53"
+    },
+    {
+      "source": "tests/integration/test_guarded_creation.py",
+      "line": 105,
+      "file_sha256": "b4ea72658c9593395584d0cbfabe171c17036ce36b408f57ff115132988a0d5b",
+      "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-merchant/blob/0dca1083f4b6a7d82c98ed3d81d44ec224501730/tests/integration/test_guarded_creation.py#L105"
+    },
+    {
+      "source": "src/commerce_lab/checkout.py",
+      "line": 1,
+      "file_sha256": "d915ac8fef0b14d4d34a83b6daf4ed88d4da681a11d299654d8c5feb7a5d4554",
+      "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-merchant/blob/0dca1083f4b6a7d82c98ed3d81d44ec224501730/src/commerce_lab/checkout.py#L1"
+    },
+    {
+      "source": "src/commerce_lab/db/core.py",
+      "line": 1,
+      "file_sha256": "036afb91c9c4b74eb9e924a3480ed56c8d22ff14efac3082fa307f365e33e69f",
+      "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-merchant/blob/0dca1083f4b6a7d82c98ed3d81d44ec224501730/src/commerce_lab/db/core.py#L1"
+    }
+  ],
+  "boundary": "Authorization perimeter violated inside Merchant-only synthetic B2 fixture; no observed Agent/D2 continuation or PSP/order effects."
+}

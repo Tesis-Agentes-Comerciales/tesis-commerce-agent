@@ -1,0 +1,1718 @@
+{
+  "scenario": "shipping",
+  "agent_pid": 20780,
+  "merchant_pid": 24440,
+  "guard": {
+    "schema_version": "commerce-d17-envelope/1",
+    "operation_id": "operation:b65db2d9fa7f983ea0eeb0bdd70e86f3",
+    "run_id": "e95660c9-e537-4ccd-bc3e-7628bf0be6ad",
+    "owner_id": "b-experimental-owner",
+    "merchant_origin": "http://127.0.0.1:50280",
+    "api_version": "2026-04-17",
+    "method": "POST",
+    "path": "/lab/governance/checkout-creation/guarded",
+    "idempotency_key_sha256": "d9f9f7947f732d57e62a9ea378230e4f6b17c5afbe34861427f31385a0c2fe82",
+    "decision_id": "decision:d503b97589e7ebfd4b3cf3683da6828b",
+    "evidence_id": "evidence:9bd1b87591c36535e16dd0e0d1b0e5d9",
+    "evidence_digest": "sha256:461ca04debd4b173ada30c0c772e47bfff9a728b28682b2e27dda7dbd721f7bf",
+    "d1_input_digest": "sha256:fc5fe483ac70de752d6e3b52b4644753bc8419a64c40b94dc6ab478394c2d9c3",
+    "context_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "source:7f03dbe243beedc133954ec457b3bac68eed2dc2782efc103485ac514894e9d6",
+      "version": 1,
+      "digest": "sha256:5161f38fef18d0b43ed4b6838217578700e8f354d1a511ac26bd9e6eb26a4507"
+    },
+    "legacy_envelope_digest": "sha256:f39a5251dd4f7d95e6779918c8f783442f0fdd5cdbe3797e12984f07ee34c282",
+    "shadow_binding": {
+      "schema_version": "commerce-preselection-d1-binding/1",
+      "evaluation_id": "fb0b19a8-22c0-4073-a13e-433e5fe2612d",
+      "store_id": "876cd058-4bf5-49a2-9a8c-77cac53c9979",
+      "request": {
+        "schema_version": "commerce-preselection-d1-request/1",
+        "episode_id": "e95660c9-e537-4ccd-bc3e-7628bf0be6ad",
+        "run_id": "e95660c9-e537-4ccd-bc3e-7628bf0be6ad",
+        "owner_id": "b-experimental-owner",
+        "seal_digest": "sha256:21772ef56eb42ebc11b3c003394bb008c83abde0862b560afd28e0ff2c26dba5",
+        "feed_digest": "sha256:b581befdf3c90c6df2f8a56c5317b0be27929a00b9626fa607b2309dba4a58fb",
+        "intent_digest": "sha256:7797764db8d16a314fe29f958f9040273fff68a5b58b13adf7a21da74e36509b",
+        "selected_variant_id": "BBiPhone12mini-64GB"
+      },
+      "episode_digest": "sha256:3c8e606b3c3c365e5294ab6f74d90c4469f9212d0d8a131c56cbf1cbfb955565",
+      "observation_id": "37f259d8-d0be-484c-b8e8-a0507367d734",
+      "observation_digest": "sha256:82ff119d159e3be248834a65ad4be71194481e1a17565340ab3a31ce95263085",
+      "offer_id": "BBiPhone12mini-64GB",
+      "offer_revision": 1,
+      "offer_snapshot_profile": "merchant-offer-snapshot/1",
+      "offer_snapshot_sha256": "4882fbead7f685cca5b7e58cf35a48dc6c94d3aab1cf4b960104cb4beef67809",
+      "merchant": {
+        "assurance": "backend_managed_catalog_registry/1",
+        "merchant_origin": "http://127.0.0.1:50280",
+        "merchant_id": "merchant-sim-01",
+        "catalog_kind": "merchant",
+        "feed_id": "feed_merchant_catalog",
+        "scope": {
+          "assurance": "backend_session_registry/1",
+          "remote_run_id": "c0b4aa83-b9df-4eb0-9f9e-9989f5120d76",
+          "remote_actor_id": "merchant-agent",
+          "source_ref": {
+            "schema_version": "commerce-policy/1.0",
+            "id": "registry:f07060cb-e90b-457d-9b79-c072e4727620",
+            "version": 1,
+            "digest": "sha256:fa54520384b15b82155eff5a600e02f123e4883d6443bd2f5cd87cfcf4cafc75"
+          }
+        },
+        "source_ref": {
+          "schema_version": "commerce-policy/1.0",
+          "id": "registry:bc9ca8ad-3d99-43c4-8bb2-793e4060daef",
+          "version": 1,
+          "digest": "sha256:d1e0b993501585789f4998c4edeaa2e9e12e860f1af8bc680b08721dadc0759e"
+        }
+      },
+      "provisioning": {
+        "schema_version": "commerce-provisioning-resolution/1",
+        "assurance": "test_backend_receipt_not_remote_authentication",
+        "receipt_ref": {
+          "schema_version": "commerce-policy/1.0",
+          "id": "registry:bc9ca8ad-3d99-43c4-8bb2-793e4060daef",
+          "version": 1,
+          "digest": "sha256:d1e0b993501585789f4998c4edeaa2e9e12e860f1af8bc680b08721dadc0759e"
+        },
+        "credential_ref": {
+          "schema_version": "commerce-policy/1.0",
+          "id": "registry:f07060cb-e90b-457d-9b79-c072e4727620",
+          "version": 1,
+          "digest": "sha256:fa54520384b15b82155eff5a600e02f123e4883d6443bd2f5cd87cfcf4cafc75"
+        },
+        "catalog_source_ref": {
+          "schema_version": "commerce-policy/1.0",
+          "id": "registry:2a774110-16ac-4ecb-a360-f963886a8732",
+          "version": 1,
+          "digest": "sha256:eb78644293eb6bea53a9288db555cd9f468bf2e19b15cce9f67d5925f031c1a9"
+        },
+        "grant_ref": {
+          "schema_version": "commerce-policy/1.0",
+          "id": "registry:643eff96-1c00-47ac-813b-9da6b28e4448",
+          "version": 1,
+          "digest": "sha256:ab522ef83bd0e5a913ff18ce9c9e19e157c89bc2060f129fb80dd48dae5a9be7"
+        },
+        "verified_at": "2026-10-18T02:44:34.919487Z",
+        "deployment_attestation": null
+      },
+      "context_ref": {
+        "schema_version": "commerce-policy/1.0",
+        "id": "source:7f03dbe243beedc133954ec457b3bac68eed2dc2782efc103485ac514894e9d6",
+        "version": 1,
+        "digest": "sha256:8076cef8d0a8da51990b2de4693e4c8fd581e19329883841b52d8b70c17f5e6f"
+      },
+      "feed_snapshot_ref": {
+        "schema_version": "commerce-policy/1.0",
+        "id": "source:51e72820dfa6ecc0d2d58ca5fe7fa95673859b319668d0b481fa8376cf685071",
+        "version": 1,
+        "digest": "sha256:805ee7f13a01b9b576751f47d3f3400c1ca5721bd856928a2939017dd461509e"
+      },
+      "intent_ref": {
+        "schema_version": "commerce-policy/1.0",
+        "id": "source:6019d4d29d5369c5b529e54e85c40b5834f454d9a2739936ad0b5e88c9e3312c",
+        "version": 1,
+        "digest": "sha256:b5b07b0705590b565f5c29d5090b303a4810472986727dfdbaa129e45da226c6"
+      },
+      "eligibility_algorithm_ref": {
+        "schema_version": "commerce-policy/1.0",
+        "id": "source:2985312a46f9ed19b92a3d10b1fa7d385a45f1f1990fc494baa8ba6667fff1b1",
+        "version": 1,
+        "digest": "sha256:770271e14547e5b1ad8cc705930b91dfeb269d00e8e3fbda79dafae7bbe6e20c"
+      },
+      "policy_binding": {
+        "schema_version": "commerce-policy/1.0",
+        "policy_set_id": "b-live-policy",
+        "version": 1,
+        "artifact_digest": "sha256:c6579f997fbab09b3649dc27d3733b766d1b21d33846cb61d1558c2be572399b"
+      },
+      "policy_artifact_ref": {
+        "schema_version": "commerce-policy/1.0",
+        "id": "source:da99228ce763c89e26df8a834279a1d2f274d9e0f7e9d674b95aa4c8ad56424c",
+        "version": 1,
+        "digest": "sha256:c6579f997fbab09b3649dc27d3733b766d1b21d33846cb61d1558c2be572399b"
+      },
+      "engine_artifact_ref": {
+        "schema_version": "commerce-policy/1.0",
+        "id": "python-reference:b1b5286deaf7741804bb0efda0017f1162d87cfc2de0efdacae545ab38457a14",
+        "version": 1,
+        "digest": "sha256:b1b5286deaf7741804bb0efda0017f1162d87cfc2de0efdacae545ab38457a14"
+      },
+      "decision_id": "decision:b4bc01137dbe79d043fbb0b9bb407a1c",
+      "evidence_id": "evidence:31d9e95b4bbd32dbfed5e1ed4552c7f9",
+      "evidence_digest": "sha256:9970e877ce591e67ecbd677682fa85a4f72545b1992a3fa203f8f19fa6a50a46",
+      "outcome": "allow",
+      "governance_mode": "shadow",
+      "application": "observed_shadow",
+      "operation_id": null,
+      "dispatch_capability": false,
+      "bound_at": "2026-10-18T02:44:42.174484Z"
+    },
+    "shadow_binding_digest": "sha256:53eafefe5ca331d65009e30b1393c0c544bb83dc6154c5b00b7181ef6b92a15f",
+    "selected_offer": {
+      "id": "BBiPhone12mini-64GB",
+      "product_id": "prod-bbiphone12mini",
+      "product_status": "active",
+      "sku": "BBiPhone12mini-64GB",
+      "merchant_id": "merchant-sim-01",
+      "revision": 1,
+      "category": "smartphones",
+      "name": "iPhone 12 mini 64GB",
+      "product_title": "iPhone 12 mini",
+      "product_description": "Teléfono Apple de 2020. Pantalla de 5.4 pulgadas, procesador Apple A14 Bionic, 4 GB de RAM y batería de 2227 mAh. Disponible en 3 capacidades, de 64 GB a 256 GB. Llega con iOS 14.",
+      "brand": "Apple",
+      "image_url": "/assets/products/BBiPhone12mini.jpg",
+      "color": "grafito",
+      "attributes": {
+        "battery": "2227 mAh",
+        "chip": "Apple A14 Bionic",
+        "os": "iOS 14",
+        "ram": "4 GB",
+        "screen": "5.4 pulgadas",
+        "storage": "64 GB"
+      },
+      "condition": "refurbished",
+      "availability": "in_stock",
+      "available_quantity": 11,
+      "pricing": {
+        "currency": "cop",
+        "items_total_minor": 38000000,
+        "shipping_total_minor": 2500000,
+        "total_minor": 40500000,
+        "tax_included": true
+      },
+      "delivery_context": {
+        "country": "CO",
+        "city": "Bogota",
+        "postal_code": "110111"
+      },
+      "delivery_days": 3,
+      "observed_at": "2026-10-18T02:31:22Z",
+      "expires_at": "2027-10-18T02:31:22Z"
+    },
+    "request": {
+      "schema_version": "merchant-guarded-acp-create/1",
+      "acp_request": {
+        "line_items": [
+          {
+            "id": "BBiPhone12mini-64GB"
+          }
+        ],
+        "currency": "cop",
+        "capabilities": {
+          "payment": {
+            "handlers": []
+          }
+        }
+      },
+      "offer_id": "BBiPhone12mini-64GB",
+      "expected_offer_revision": 1,
+      "offer_snapshot_profile": "merchant-offer-snapshot/1",
+      "offer_snapshot_sha256": "4882fbead7f685cca5b7e58cf35a48dc6c94d3aab1cf4b960104cb4beef67809"
+    },
+    "guard_fingerprint": "e9e7b07228c909742e94a62b9751f39397ee551ffc2d9486be0dfb3a7d2ec670",
+    "prepared_at": "2026-10-18T02:45:06.484Z"
+  },
+  "initial": {
+    "schema_version": "commerce-d17-observation/1",
+    "result": "error",
+    "proof": null,
+    "rejection": null,
+    "reason": "invalid_or_unavailable",
+    "replay_allowed": false,
+    "continuation_allowed": false
+  },
+  "recovered": {
+    "schema_version": "commerce-d17-observation/1",
+    "result": "rejected",
+    "proof": null,
+    "rejection": {
+      "schema_version": "merchant-guarded-acp-rejection/1",
+      "run_id": "c0b4aa83-b9df-4eb0-9f9e-9989f5120d76",
+      "actor_id": "merchant-agent",
+      "idempotency_sha256": "d9f9f7947f732d57e62a9ea378230e4f6b17c5afbe34861427f31385a0c2fe82",
+      "guard_fingerprint": "e9e7b07228c909742e94a62b9751f39397ee551ffc2d9486be0dfb3a7d2ec670",
+      "code": "offer_snapshot_mismatch"
+    },
+    "reason": "historical_rejection",
+    "replay_allowed": false,
+    "continuation_allowed": false
+  },
+  "calls": [
+    {
+      "method": "GET",
+      "path": "/feeds/current",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/recovery/checkout-creation/lookup",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/offers/get",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/recovery/checkout-creation/lookup",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/governance/checkout-creation/guarded",
+      "status": 409
+    },
+    {
+      "method": "POST",
+      "path": "/lab/recovery/guarded-checkout-creation/lookup",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/lab/recovery/guarded-checkout-creation/lookup",
+      "status": 200
+    }
+  ],
+  "before": {
+    "checkout_sessions": 2,
+    "checkout_mutations": 0,
+    "orders": 0,
+    "checkout_completion_attempts": 0,
+    "guarded_checkout_creations": 2,
+    "rejected_guarded_checkout_attempts": 2
+  },
+  "after": {
+    "checkout_sessions": 2,
+    "checkout_mutations": 0,
+    "orders": 0,
+    "checkout_completion_attempts": 0,
+    "guarded_checkout_creations": 2,
+    "rejected_guarded_checkout_attempts": 3
+  },
+  "post_commercial": 1,
+  "readonly_lookups": 2
+}

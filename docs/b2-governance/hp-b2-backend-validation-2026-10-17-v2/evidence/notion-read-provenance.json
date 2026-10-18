@@ -1,0 +1,21 @@
+{
+  "pages": [
+    {
+      "id": "a0bec8b0-ab2e-823a-b32a-014df4793741",
+      "title": "07 Cronograma y estado actual",
+      "last_edited_at": "2026-10-18T01:49:09.145Z"
+    },
+    {
+      "id": "360ec8b0-ab2e-820b-a033-81f5046d54ba",
+      "title": "08 Decisiones y bitácora",
+      "last_edited_at": "2026-10-18T01:32:10.706Z"
+    }
+  ],
+  "native_verification": "unverified",
+  "operations": [
+    "search",
+    "fetch"
+  ],
+  "writes": 0,
+  "proposal_mode": "new dated block; preserve all historical content; no replacement"
+}

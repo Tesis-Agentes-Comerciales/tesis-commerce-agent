@@ -1,0 +1,18 @@
+{
+  "classification": "PASS_REAL_INTEGRATION",
+  "cases": 3,
+  "covered_ids": [
+    "I05",
+    "I06",
+    "I09",
+    "I10"
+  ],
+  "new_d17_posts": 0,
+  "lookups": 4,
+  "all_effect_counts_zero": true,
+  "limits": [
+    "I05 and I06 share one case",
+    "I10 local HMAC corruption only, not all historical failures",
+    "I09 crash before send, distinct from earlier lost response scenario"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "captured_utc": "2026-10-18T03:56:36.254207+00:00",
+  "protected_entries_checked": 29555,
+  "git_roots_checked": 12,
+  "git_status_branches_heads_refs_worktrees_stashes_unchanged": true,
+  "prior_packages_reverified": [
+    64,
+    124
+  ],
+  "source_catalog_reverified": true,
+  "tests_executed": 0,
+  "services_started": 0,
+  "database_connections": 0,
+  "notion_write_calls": 0,
+  "allowed_extensions": [
+    ".md",
+    ".json",
+    ".csv",
+    ".sha256"
+  ],
+  "sensitive_pattern_scan": "PASS; bounded patterns, requires independent content review",
+  "scope": "Same pre-existing 29555-entry seal, excluding .env/dependency caches/raw PG; no claim of all-host or .git-byte seal.",
+  "writes": "Only publication-preparation helpers and publication-candidate documents/archive inside isolated validation directory"
+}

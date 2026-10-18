@@ -1,0 +1,45 @@
+{
+  "reference_date": "2026-10-17",
+  "timezone": "America/Bogota",
+  "os": "Windows x64; PowerShell",
+  "interpreters": {
+    "agent": {
+      "python": "3.12.6 (tags/v3.12.6:a4a2d2b, Sep  6 2024, 20:11:23) [MSC v.1940 64 bit (AMD64)]",
+      "packages": {
+        "pytest": "9.0.2",
+        "ruff": "0.16.8",
+        "pyright": "1.1.414",
+        "fastapi": "0.141.1",
+        "psycopg": null,
+        "httpx": "0.28.1",
+        "pydantic": "2.12.5",
+        "ap2": "0.1"
+      }
+    },
+    "merchant": {
+      "python": "3.12.6 (tags/v3.12.6:a4a2d2b, Sep  6 2024, 20:11:23) [MSC v.1940 64 bit (AMD64)]",
+      "packages": {
+        "pytest": "9.0.2",
+        "ruff": "0.16.8",
+        "pyright": "1.1.414",
+        "fastapi": "0.141.1",
+        "psycopg": "3.3.5",
+        "httpx": "0.28.1",
+        "pydantic": "2.12.5",
+        "ap2": "0.1"
+      }
+    }
+  },
+  "postgresql": "17.2",
+  "uv": "0.12.15",
+  "git": "2.45.1.windows.1",
+  "source_commits": {
+    "agent": "83510f8dd5fbe5026d909df2b4949802b8b2aa1a",
+    "merchant": "0dca1083f4b6a7d82c98ed3d81d44ec224501730",
+    "merchant_runtime": "9743c9f179c7ad5413e8818766ef3dceb326a917",
+    "lab": "b3be474e26ebbedc79dd4f3c3b133f42491f9542",
+    "psp": "ee19c06ecae3038b43d1fc7cb7a8822592fa1a08",
+    "hnp": "a633a043337286406f9a3e859809556ce46bcba1"
+  },
+  "scope": "Local disposable PG, real TCP for Agent–Merchant; D2 synthetic principal over ASGI; no external provider calls."
+}

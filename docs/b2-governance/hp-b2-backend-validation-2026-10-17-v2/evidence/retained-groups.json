@@ -1,0 +1,32 @@
+{
+  "R1": {
+    "label": "Creación/recovery/lookup ACP legacy",
+    "count": 70,
+    "restriction": "Fixtures o llamadas de creación pública no condicionada; replay y recuperación legacy, con cancelación en dos variantes. Exclusión conservadora de módulos mixtos."
+  },
+  "R2": {
+    "label": "Ciclo de checkout ordinario",
+    "count": 29,
+    "restriction": "Preparación pública/interna, update/cancel, readiness y firma AP2; no son la cadena D17 gobernada autorizada."
+  },
+  "R3": {
+    "label": "Compatibilidad guarded frente a rutas públicas",
+    "count": 7,
+    "restriction": "Creación o replay público, mezcla de serialización e historia ordinaria; fuera del transporte acotado autorizado."
+  },
+  "R4": {
+    "label": "Completion, órdenes y webhooks de órdenes",
+    "count": 27,
+    "restriction": "Activan o prueban rutas de completion/orden y sus fixtures; proveedor simulado no convierte esa ejecución en autorizada."
+  },
+  "R5": {
+    "label": "AP2 completion y cliente PSP sintéticos",
+    "count": 4,
+    "restriction": "Semántica de completion/confirmación de pago con dobles; no pagos reales. Retención por alcance, no por coste financiero demostrado."
+  },
+  "R6": {
+    "label": "Fronteras API con stubs o rechazo de autenticación",
+    "count": 7,
+    "restriction": "Selección conservadora de llamadas a rutas públicas/cancel/complete; cinco variantes StubCheckout y dos rechazos 401. No se demuestra necesidad de efectos reales para estas siete."
+  }
+}

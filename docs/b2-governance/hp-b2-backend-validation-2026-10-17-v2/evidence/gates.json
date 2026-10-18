@@ -1,0 +1,14 @@
+{
+  "A_preflight": "APPROVED_FOR_BOUNDED_RUN",
+  "B_merchant_compatible": "APPROVED_FOR_CURRENT_134_NEW_TESTS_AND_BOOTSTRAP",
+  "B_merchant_unrestricted": "NOT_EXECUTED_RESTRICTIONS_144_PENDING",
+  "C_http_backend": "DEFINED_CASES_PASSED; I05_I06_I09_CLOSED_REAL; BROAD_I10_PARTIAL_LOCAL_VARIANT_PASSED",
+  "D_synthetic_consent": "APPROVED_REAL_D17_SOURCE_SYNTHETIC_ASGI_HUMAN_ONLY; D08_D09_VARIANTS_PARTIAL",
+  "E_current_integrity_and_effects": "APPROVED",
+  "E_historical_campaign_conformance": "NOT_APPROVED_CANCEL_INCIDENT_REQUIRES_HUMAN_REVIEW",
+  "overall": "PARTIAL",
+  "backend_functional_demonstration": "SUPPORTED_BY_LINKED_EVIDENCE",
+  "formal_backend_validation": "NOT_DECLARED_UNTIL_HISTORICAL_BOUNDARY_INCIDENT_AND_COVERAGE_LIMITS_REVIEWED",
+  "full_governed_purchase": "NOT_VALIDATED",
+  "real_human_UI": "NOT_VALIDATED"
+}
