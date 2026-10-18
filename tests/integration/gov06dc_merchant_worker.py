@@ -396,7 +396,12 @@ def main():
             json.dumps({"pid": os.getpid(), "parent_pid": os.getppid()}), encoding="utf-8"
         )
         transfer = json.loads(sys.stdin.readline())
-        shared = socket.fromshare(bytes.fromhex(transfer["socket_share"]))
+        fromshare = getattr(socket, "fromshare", None)
+        if not callable(fromshare):
+            raise RuntimeError("Windows socket sharing API unavailable")
+        shared = fromshare(bytes.fromhex(transfer["socket_share"]))
+        if not isinstance(shared, socket.socket):
+            raise RuntimeError("Invalid Windows socket object")
         assert shared.getsockname() == ("127.0.0.1", int(os.environ["G06_HTTP"]))
         marker = {
             "pid": os.getpid(),
