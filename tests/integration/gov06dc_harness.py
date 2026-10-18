@@ -74,6 +74,12 @@ def wait_ready(call, timeout=25):
     raise RuntimeError("G06_PROCESS_NOT_READY")
 
 
+def _require_windows_socket_sharing() -> None:
+    """Require Windows without making other class attributes unreachable on Linux."""
+    if os.name != "nt":
+        raise RuntimeError("This audited harness currently requires Windows socket sharing")
+
+
 def clean_environment():
     result = dict(os.environ)
     for key in tuple(result):
@@ -92,7 +98,7 @@ def clean_environment():
 
 class LiveEnvironment:
     def __init__(self, *, agent_head=AGENT_HEAD, allowed_agent_changes=frozenset()):
-        assert os.name == "nt", "This audited harness currently requires Windows socket sharing"
+        _require_windows_socket_sharing()
         assert os.environ.get("RUN_GOV06DC_REAL") == "1", "Explicit real-test opt-in required"
         self.agent_head = agent_head
         for root, commit in ((AGENT, agent_head), (MERCHANT, MERCHANT_HEAD)):
@@ -229,7 +235,11 @@ class LiveEnvironment:
         # Keep this exact kernel listener under our ownership across process start.
         # There is no close/rebind interval in which another process can take it.
         with socket.socket() as listener:
-            listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+            share = getattr(listener, "share", None)
+            if not isinstance(exclusive, int) or not callable(share):
+                raise RuntimeError("Windows socket sharing API unavailable")
+            listener.setsockopt(socket.SOL_SOCKET, exclusive, 1)
             listener.bind(("127.0.0.1", self.http_port))
             listener.listen(128)
             ticket = secrets.token_hex(12)
@@ -247,8 +257,11 @@ class LiveEnvironment:
             self.server_pid = actual_pid
             self.processes.append(actual_pid)
             assert self.server.stdin is not None
+            shared_bytes = share(actual_pid)
+            if not isinstance(shared_bytes, bytes):
+                raise RuntimeError("Invalid Windows socket sharing payload")
             self.server.stdin.write(
-                json.dumps({"socket_share": listener.share(actual_pid).hex()}).encode() + b"\n"
+                json.dumps({"socket_share": shared_bytes.hex()}).encode() + b"\n"
             )
             self.server.stdin.flush()
             self.server.stdin.close()
