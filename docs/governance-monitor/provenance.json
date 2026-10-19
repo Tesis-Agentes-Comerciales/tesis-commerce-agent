@@ -1,0 +1,15 @@
+{
+  "sourcePins": {
+    "agent-received.json": "b89c3252739dd947323106ffe8e36f44ed4a840564d33a2be18087ded7c34cfe",
+    "agent-lost.json": "30bdb6a2e544d38eb1d8870e886d539e4fdaf774f1a6e08f57fdf266f4b66ce7",
+    "http-deny.json": "b287bbf5d4386a36627f7c1b988bfa477d1268cf961c32b2c7933aa39d8bef03",
+    "results.json": "9194ec79aab8c74b31648655744f325991a20fd12045a10dff66f4a0401c4f33",
+    "evidence.jsonl": "203961b809fd1c1bf7cb441d746ff7d689eb348c9cbabfd15447d13e37eff75d",
+    "summary.json": "030118bdd5ce423ad4d40719e4b787c1a057831a90a7284907e985289d961455"
+  },
+  "hnpLedgerEntriesVerified": 65,
+  "hnpResultsVerified": 54,
+  "projection_sha256": "3b56e16b0708052c0b90beecce0cbd38ce068e6d4df3dfecf1d981f42e981415",
+  "execution": "artifact verification and projection only; no harness execution",
+  "cryptography": "digest consistency, not a signature or human authorization"
+}

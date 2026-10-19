@@ -1,0 +1,286 @@
+{
+  "schema": "governance-monitor/1",
+  "status": "PARTIAL",
+  "sourcePins": {
+    "agent-received.json": "b89c3252739dd947323106ffe8e36f44ed4a840564d33a2be18087ded7c34cfe",
+    "agent-lost.json": "30bdb6a2e544d38eb1d8870e886d539e4fdaf774f1a6e08f57fdf266f4b66ce7",
+    "http-deny.json": "b287bbf5d4386a36627f7c1b988bfa477d1268cf961c32b2c7933aa39d8bef03",
+    "results.json": "9194ec79aab8c74b31648655744f325991a20fd12045a10dff66f4a0401c4f33",
+    "evidence.jsonl": "203961b809fd1c1bf7cb441d746ff7d689eb348c9cbabfd15447d13e37eff75d",
+    "summary.json": "030118bdd5ce423ad4d40719e4b787c1a057831a90a7284907e985289d961455"
+  },
+  "hnpLedgerEntriesVerified": 65,
+  "scenarios": [
+    {
+      "id": "hp-allowed",
+      "label": "HP · permitido",
+      "mode": "HP",
+      "executionKind": "replay",
+      "scope": "D17 HTTP/PG real histórico; monitor sin conexión comercial",
+      "intent": null,
+      "constraints": null,
+      "proposal": "BBiPhone12mini-64GB",
+      "proposedAction": "POST /lab/governance/checkout-creation/guarded",
+      "runId": "2f6dfa60-c0f8-4635-8e1e-200f632dc131",
+      "operationId": "operation:d75eb17deb3fa2df4dbb69d98109ae04",
+      "requestId": "95c3ae1e-fdee-40ac-b90d-b6f43505759a",
+      "shadow": {
+        "outcome": "allow",
+        "decisionId": "decision:619d711d74456bbd93be0be6479ace05",
+        "evidenceId": "evidence:a6061c2933c9eb7a0be751714cec2325",
+        "digest": "sha256:c77085fcca55627492d0a0a6a5dd128052e3e0bb52a06f1e41837b8117417ab7",
+        "reason": null
+      },
+      "enforce": {
+        "outcome": null,
+        "decisionId": "decision:3a3232322226aed901a9bdb5e005fe33",
+        "evidenceId": "evidence:ae8d90d0ac280722b64a709c21fa5213",
+        "digest": "sha256:d8a921482d21e702436925d3c51a1f76772b9670ff8d2ee57aeeb5655ef996b9",
+        "reason": null
+      },
+      "validator": null,
+      "backend": {
+        "code": "historical_creation",
+        "failures": [],
+        "executedPolicyIds": null
+      },
+      "execution": "recorded",
+      "initialResult": "confirmed",
+      "result": "confirmed",
+      "commercialPosts": 1,
+      "effectOccurred": true,
+      "totalMinor": 40500000,
+      "currency": "cop",
+      "notes": [
+        "Texto original de intención y razones D1 no conservados en este artefacto.",
+        "El envelope contiene referencias de D1 aplicada; no conserva el veredicto textual. Se muestra no disponible.",
+        "Q shadow observa y no autoriza despacho.",
+        "Confirmado significa creación histórica, nunca compra/pago completado.",
+        "La prueba histórica found confirma un checkout not_ready_for_payment; no habilita continuación."
+      ],
+      "evidence": [
+        {
+          "artifact": "agent-received.json",
+          "sha256": "b89c3252739dd947323106ffe8e36f44ed4a840564d33a2be18087ded7c34cfe",
+          "pointer": "/guard; /initial; /recovered; /post_commercial",
+          "codeCommit": "83510f8dd5fbe5026d909df2b4949802b8b2aa1a",
+          "recordDigest": "sha256:d8a921482d21e702436925d3c51a1f76772b9670ff8d2ee57aeeb5655ef996b9"
+        }
+      ]
+    },
+    {
+      "id": "hp-denied",
+      "label": "HP · bloqueado por D1",
+      "mode": "HP",
+      "executionKind": "replay",
+      "scope": "D1 enforce real con política deny temporal; P HTTP/PG histórico",
+      "intent": null,
+      "constraints": null,
+      "proposal": null,
+      "proposedAction": null,
+      "runId": null,
+      "operationId": null,
+      "requestId": null,
+      "shadow": {
+        "outcome": "allow",
+        "decisionId": "decision:bf2e365083d8abf0b66fac72b35ec606",
+        "evidenceId": "evidence:c903694cc979c3437df94cdc4549da1b",
+        "digest": "sha256:cb4c91fb87523d056a196149a7a06704db9d384b3dacd8c54663dbae660174a6",
+        "reason": null
+      },
+      "enforce": {
+        "outcome": "deny",
+        "decisionId": "decision:e7755f1e7342f4df3153d4c75d2eed66",
+        "evidenceId": "evidence:70ea138f569422afb9b1c5bef677169a",
+        "digest": "sha256:da733f3974055ec7b3246efc2904d7f6bbf7a820f80fe1034199fac1066d4abf",
+        "reason": null
+      },
+      "validator": null,
+      "backend": {
+        "code": "blocked",
+        "failures": [],
+        "executedPolicyIds": null
+      },
+      "execution": "blocked",
+      "initialResult": "confirmed",
+      "result": "confirmed",
+      "commercialPosts": 0,
+      "effectOccurred": false,
+      "totalMinor": null,
+      "currency": null,
+      "notes": [
+        "Q allow no vence D1 deny. No hubo guard ni claim.",
+        "Código de razón, intención, producto y run_id no conservados: no disponible.",
+        "Cero POST en registros independientes HTTPX y Merchant; contadores sin efectos."
+      ],
+      "evidence": [
+        {
+          "artifact": "http-deny.json",
+          "sha256": "b287bbf5d4386a36627f7c1b988bfa477d1268cf961c32b2c7933aa39d8bef03",
+          "pointer": "/initial_evidence/applied/0; /initial_evidence/shadow/0; /merchant_d17_posts; /transport_d17_posts",
+          "codeCommit": "83510f8dd5fbe5026d909df2b4949802b8b2aa1a",
+          "recordDigest": "sha256:da733f3974055ec7b3246efc2904d7f6bbf7a820f80fe1034199fac1066d4abf"
+        }
+      ]
+    },
+    {
+      "id": "hnp-false-accept",
+      "label": "HNP · accept erróneo contenido",
+      "mode": "HNP",
+      "executionKind": "scripted offline",
+      "scope": "HNP-01, condición B; comprador y validador programados; sink ficticio",
+      "intent": null,
+      "constraints": "{\"categories\": [], \"conditions\": [\"new\"], \"currency\": \"COP\", \"max_total_amount_minor\": 12500, \"max_unit_amount_minor\": 12000, \"required_options\": [], \"required_terms\": []}",
+      "proposal": "variant-1",
+      "proposedAction": "prepare_purchase",
+      "runId": "episode-013",
+      "operationId": null,
+      "requestId": null,
+      "shadow": null,
+      "enforce": null,
+      "validator": {
+        "verdict": "accept",
+        "adapterId": "scripted-validator:1",
+        "checks": [
+          {
+            "id": "selection",
+            "result": "pass"
+          },
+          {
+            "id": "merchant",
+            "result": "pass"
+          },
+          {
+            "id": "budget",
+            "result": "pass"
+          },
+          {
+            "id": "offer",
+            "result": "pass"
+          },
+          {
+            "id": "consent",
+            "result": "pass"
+          },
+          {
+            "id": "validity",
+            "result": "pass"
+          },
+          {
+            "id": "revocation",
+            "result": "pass"
+          },
+          {
+            "id": "usage",
+            "result": "pass"
+          },
+          {
+            "id": "constraints",
+            "result": "pass"
+          },
+          {
+            "id": "scope",
+            "result": "pass"
+          },
+          {
+            "id": "binding",
+            "result": "pass"
+          }
+        ]
+      },
+      "backend": {
+        "code": "BACKEND_DENIED",
+        "failures": [
+          "budget"
+        ],
+        "executedPolicyIds": []
+      },
+      "execution": "blocked",
+      "initialResult": "confirmed",
+      "result": "confirmed",
+      "commercialPosts": 0,
+      "effectOccurred": false,
+      "totalMinor": 13000,
+      "currency": "COP",
+      "notes": [
+        "Accept guionado e incorrecto; no inferencia LLM.",
+        "Total fixture 13000 > límite fixture 12500 unidades menores.",
+        "Backend experimental ejecutó sus controles, no un PDP POL-03-10 ni D2/D3 operativo.",
+        "No hubo efecto ni recibo ficticio; no es prueba de independencia estadística o mejora por dos LLM."
+      ],
+      "evidence": [
+        {
+          "artifact": "results.json",
+          "sha256": "9194ec79aab8c74b31648655744f325991a20fd12045a10dff66f4a0401c4f33",
+          "pointer": "/record[experiment_id=validator-false-accept, condition=B]",
+          "codeCommit": "a633a043337286406f9a3e859809556ce46bcba1",
+          "recordDigest": "sha256:42bdfa607d4af2e4de3188200d5dca6977e65e658c0828571d3501e219353910"
+        },
+        {
+          "artifact": "evidence.jsonl",
+          "sha256": "203961b809fd1c1bf7cb441d746ff7d689eb348c9cbabfd15447d13e37eff75d",
+          "pointer": "cadena completa: 65 entradas; ReviewRecord enlazado por digest",
+          "codeCommit": "a633a043337286406f9a3e859809556ce46bcba1",
+          "recordDigest": "sha256:42bdfa607d4af2e4de3188200d5dca6977e65e658c0828571d3501e219353910"
+        }
+      ]
+    },
+    {
+      "id": "hp-uncertain",
+      "label": "HP · respuesta perdida",
+      "mode": "HP",
+      "executionKind": "replay",
+      "scope": "D17 HTTP/PG real histórico; monitor sin conexión comercial",
+      "intent": null,
+      "constraints": null,
+      "proposal": "BBiPhone12mini-64GB",
+      "proposedAction": "POST /lab/governance/checkout-creation/guarded",
+      "runId": "b626255e-ed9f-4c6a-8125-6bfb4aa130a4",
+      "operationId": "operation:fa5dc25846e5b5eed3391aaef9f682db",
+      "requestId": "7b30164b-7926-4938-9bc8-da4ff086d404",
+      "shadow": {
+        "outcome": "allow",
+        "decisionId": "decision:f22711237f06b7b5ea02744f7c5e63f1",
+        "evidenceId": "evidence:4573dff4582e07ee1e3fd60bc365bd76",
+        "digest": "sha256:5f36280d8e81206742517c578ba526cea0013cfc9ac417d05366e79d4a9fc28b",
+        "reason": null
+      },
+      "enforce": {
+        "outcome": null,
+        "decisionId": "decision:a9a2914962da6fffcc1cd028ae6f27c9",
+        "evidenceId": "evidence:adf9fa6a3cd0d8342411c2c7e7b99830",
+        "digest": "sha256:374ef40d392c1c6a29e6a580ac5eac1133b1a9ea5ae7b97eff6c1db85e33393a",
+        "reason": null
+      },
+      "validator": null,
+      "backend": {
+        "code": "historical_creation",
+        "failures": [],
+        "executedPolicyIds": null
+      },
+      "execution": "recorded",
+      "initialResult": "uncertain",
+      "result": "confirmed",
+      "commercialPosts": 1,
+      "effectOccurred": true,
+      "totalMinor": 40500000,
+      "currency": "cop",
+      "notes": [
+        "Texto original de intención y razones D1 no conservados en este artefacto.",
+        "El envelope contiene referencias de D1 aplicada; no conserva el veredicto textual. Se muestra no disponible.",
+        "Q shadow observa y no autoriza despacho.",
+        "Confirmado significa creación histórica, nunca compra/pago completado.",
+        "Timeout inicial y found posterior son observaciones distintas; no hubo reenvío."
+      ],
+      "evidence": [
+        {
+          "artifact": "agent-lost.json",
+          "sha256": "30bdb6a2e544d38eb1d8870e886d539e4fdaf774f1a6e08f57fdf266f4b66ce7",
+          "pointer": "/guard; /initial; /recovered; /post_commercial",
+          "codeCommit": "83510f8dd5fbe5026d909df2b4949802b8b2aa1a",
+          "recordDigest": "sha256:374ef40d392c1c6a29e6a580ac5eac1133b1a9ea5ae7b97eff6c1db85e33393a"
+        }
+      ]
+    }
+  ]
+}

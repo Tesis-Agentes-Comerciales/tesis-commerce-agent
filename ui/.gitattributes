@@ -1,0 +1,3 @@
+src/main.tsx -text
+governance-preview.config.mjs -text
+.gitattributes -text
