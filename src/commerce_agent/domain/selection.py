@@ -51,7 +51,7 @@ def _search_text(candidate: ProductCandidate) -> str:
     return _normalized(" ".join(values))
 
 
-def _rejection_reason(candidate: ProductCandidate, intent: PurchaseIntent) -> str | None:
+def rejection_reason(candidate: ProductCandidate, intent: PurchaseIntent) -> str | None:
     hard = intent.hard
     if not candidate.available:
         return "unavailable"
@@ -112,7 +112,7 @@ def rank_candidates(feed: ProductFeed, intent: PurchaseIntent) -> SelectionResul
     ranked: list[RankedCandidate] = []
     rejection_counts: Counter[str] = Counter()
     for candidate in feed.candidates:
-        rejection = _rejection_reason(candidate, intent)
+        rejection = rejection_reason(candidate, intent)
         if rejection is not None:
             rejection_counts[rejection] += 1
             continue
