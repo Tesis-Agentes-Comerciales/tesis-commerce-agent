@@ -56,7 +56,7 @@ Cualquier otra combinación, tipo o transporte se rechaza. La regla HNP de los e
 La corrida incluida es `hnp02-dry_run-20261020T044329Z-s20261022`: FakeTransport, `.env.example`, semilla 20261022 y `HNP_REPETITIONS=2` (19 casos × 2 repeticiones × 2 brazos = 76 episodios; 36 llamadas simuladas, 0 al proveedor; USD 0,0234 estimados). Sus `summary.json` y `traces.jsonl` están en `sources/hnp02/<run>/`; `evidence.jsonl` no se versiona. La proyección no copia razones del modelo, prompts, settings ni entorno: solo códigos, estados y conteos, y rechaza la corrida entera ante cadenas con forma de secreto, claves duplicadas o números no finitos. Para generar y proyectar otra corrida sin llamadas reales:
 
 ```sh
-env -u OPENAI_API_KEY HNP_REPETITIONS=2 uv run python scripts/run_hnp_llm_matrix.py --dry-run --env-file .env.example
+env -u OPENAI_API_KEY HNP_REPETITIONS=2 uv run hnp-matrix --dry-run --env-file .env.example
 # copiar summary.json y traces.jsonl de .local/.../<run> a docs/governance-monitor/sources/hnp02/<run>/
 uv run python scripts/export_governance_monitor.py --versioned-sources --hnp02-run docs/governance-monitor/sources/hnp02/<run>
 uv run python scripts/export_governance_monitor.py --versioned-sources --hnp02-run docs/governance-monitor/sources/hnp02/<run> --verify-only
