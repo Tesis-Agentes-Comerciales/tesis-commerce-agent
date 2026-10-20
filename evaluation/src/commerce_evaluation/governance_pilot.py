@@ -14,7 +14,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -62,6 +62,63 @@ class HttpResult:
     status: int
     body: dict[str, Any]
     elapsed_ms: int
+
+
+@dataclass(frozen=True)
+class PilotCondition:
+    name: str
+    governance_mode: str
+    hp_flow: str
+    # The Merchant seed only labels runs B0, B1 or B2.
+    merchant_variant: str
+
+
+B0_PRIME = PilotCondition("B0prime", "off", "blocked", merchant_variant="B0")
+# "B0" stays accepted: run on this commit it is B0', not the historical B0-2026-10-06.
+CONDITIONS = {
+    "B0prime": B0_PRIME,
+    "B2": PilotCondition("B2", "enforce", "governed", merchant_variant="B2"),
+    "B0": B0_PRIME,
+}
+# Stable D1 identifiers of the pilot (evaluation/README.md); only the keys change per run.
+D1_POLICY_SET_ID = "b2-pilot-v1"
+D1_POLICY_REVISION = "1"
+D1_KEY_ID = "b2-pilot-v1-run"
+
+
+@dataclass(frozen=True)
+class D1RunKeys:
+    """D1 keys of one pilot run: kept in memory and given only to the agent."""
+
+    hmac_hex: str = field(repr=False)
+    aes_hex: str = field(repr=False)
+
+    @classmethod
+    def generate(cls) -> D1RunKeys:
+        return cls(hmac_hex=secrets.token_hex(32), aes_hex=secrets.token_hex(32))
+
+
+def agent_environment(
+    condition: PilotCondition, merchant_origin: str, keys: D1RunKeys
+) -> dict[str, str]:
+    """Agent variables that define the condition.
+
+    All explicit, so the agent's local .env cannot change it: process variables take precedence.
+    """
+    environment = {
+        "AGENT_GOVERNANCE_MODE": condition.governance_mode,
+        "AGENT_HP_FLOW": condition.hp_flow,
+    }
+    if condition.governance_mode == "off":
+        return environment
+    return environment | {
+        "AGENT_D1_ALLOWED_MERCHANT_ORIGINS": merchant_origin,
+        "AGENT_D1_POLICY_SET_ID": D1_POLICY_SET_ID,
+        "AGENT_D1_POLICY_REVISION": D1_POLICY_REVISION,
+        "AGENT_D1_KEY_ID": D1_KEY_ID,
+        "AGENT_D1_HMAC_KEY_HEX": keys.hmac_hex,
+        "AGENT_D1_AES_KEY_HEX": keys.aes_hex,
+    }
 
 
 def _run(
@@ -403,7 +460,7 @@ def score_result(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
-    parser.add_argument("--condition", choices=("B0", "B2"), default="B0")
+    parser.add_argument("--condition", choices=tuple(CONDITIONS), default="B0prime")
     parser.add_argument("--repetitions", type=int)
     parser.add_argument("--scenario", action="append", dest="scenarios")
     parser.add_argument("--output", type=Path)
@@ -471,7 +528,8 @@ def _execute_repetition(
     *,
     scenario: dict[str, Any],
     repetition: int,
-    condition: str,
+    condition: PilotCondition,
+    condition_environment: dict[str, str],
     agent: Path,
     merchant: Path,
     environment: dict[str, str],
@@ -492,7 +550,7 @@ def _execute_repetition(
             "--actor-id",
             actor_id,
             "--variant",
-            condition,
+            condition.merchant_variant,
         ],
         cwd=merchant,
         env=environment,
@@ -546,7 +604,7 @@ def _execute_repetition(
 
     run_dir = temp / label
     agent_log = run_dir / "agent.log"
-    agent_environment = environment | {
+    agent_variables = environment | {
         "AGENT_DATABASE_PATH": str(run_dir / "agent.db"),
         "AGENT_FEED_SOURCE": "file",
         "AGENT_FEED_PATH": str(feed),
@@ -554,7 +612,7 @@ def _execute_repetition(
         "AGENT_AUTH_MODE": "jwt",
         "AGENT_AUTH_ISSUER": environment["BETTER_AUTH_URL"],
         "AGENT_UI_ORIGIN": environment["BETTER_AUTH_URL"],
-        "GOVERNANCE_MODE": "baseline" if condition == "B0" else "governed",
+        **condition_environment,
     }
     with agent_log.open("w", encoding="utf-8") as log:
         process = subprocess.Popen(
@@ -570,7 +628,7 @@ def _execute_repetition(
                 str(agent_port),
             ],
             cwd=agent,
-            env=agent_environment,
+            env=agent_variables,
             text=True,
             stdout=log,
             stderr=subprocess.STDOUT,
@@ -582,7 +640,7 @@ def _execute_repetition(
             turn = _execute_turn(
                 scenario=scenario,
                 repetition=repetition,
-                condition=condition,
+                condition=condition.name,
                 agent_origin=agent_origin,
                 token=token,
             )
@@ -649,7 +707,7 @@ def _execute_repetition(
             return {
                 "matrix_id": "governance-pilot-v1",
                 "baseline_id": "B0-2026-10-06",
-                "condition": condition,
+                "condition": condition.name,
                 "scenario_id": scenario["id"],
                 "scenario_name": scenario["name"],
                 "repetition": repetition,
@@ -724,6 +782,7 @@ def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _run_pilot() -> int:
     arguments = _parser().parse_args()
+    condition = CONDITIONS[arguments.condition]
     matrix = _load_matrix(arguments.matrix.resolve())
     repetitions = arguments.repetitions or int(matrix["repetitions_per_condition"])
     if repetitions < 1:
@@ -742,7 +801,9 @@ def _run_pilot() -> int:
         print(
             json.dumps(
                 {
-                    "condition": arguments.condition,
+                    "condition": condition.name,
+                    "governance_mode": condition.governance_mode,
+                    "hp_flow": condition.hp_flow,
                     "runs": len(plan),
                     "scenarios": [scenario["id"] for scenario in scenarios],
                     "repetitions": repetitions,
@@ -768,7 +829,7 @@ def _run_pilot() -> int:
     output = arguments.output
     if output is None:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        output = DEFAULT_RESULTS / f"{arguments.condition.lower()}-{stamp}.jsonl"
+        output = DEFAULT_RESULTS / f"{condition.name.lower()}-{stamp}.jsonl"
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     summary_path = output.with_suffix(".summary.json")
@@ -783,6 +844,8 @@ def _run_pilot() -> int:
     merchant_origin = f"http://127.0.0.1:{arguments.merchant_port}"
     payment_origin = f"http://127.0.0.1:{arguments.payment_port}"
     auth_origin = f"http://127.0.0.1:{arguments.auth_port}"
+    # Only the agent receives it, so the D1 keys never reach the other services or their logs.
+    condition_environment = agent_environment(condition, merchant_origin, D1RunKeys.generate())
     environment.update(
         {
             "ACP_API_BASE_URL": merchant_origin,
@@ -892,7 +955,7 @@ def _run_pilot() -> int:
             with output.open("w", encoding="utf-8") as result_file:
                 for index, (scenario, repetition) in enumerate(plan, start=1):
                     progress = (
-                        f"[{index}/{len(plan)}] {arguments.condition} "
+                        f"[{index}/{len(plan)}] {condition.name} "
                         f"{scenario['id']} repetition {repetition}"
                     )
                     print(
@@ -903,7 +966,8 @@ def _run_pilot() -> int:
                         record = _execute_repetition(
                             scenario=scenario,
                             repetition=repetition,
-                            condition=arguments.condition,
+                            condition=condition,
+                            condition_environment=condition_environment,
                             agent=agent,
                             merchant=merchant,
                             environment=environment,
@@ -916,7 +980,7 @@ def _run_pilot() -> int:
                         record = {
                             "matrix_id": matrix["matrix_id"],
                             "baseline_id": matrix["baseline_id"],
-                            "condition": arguments.condition,
+                            "condition": condition.name,
                             "scenario_id": scenario["id"],
                             "scenario_name": scenario["name"],
                             "repetition": repetition,
@@ -942,7 +1006,7 @@ def _run_pilot() -> int:
             summary = {
                 "matrix_id": matrix["matrix_id"],
                 "baseline_id": matrix["baseline_id"],
-                "condition": arguments.condition,
+                "condition": condition.name,
                 "created_at": datetime.now(UTC).isoformat(),
                 # Relative inside the checkout, so committed summaries carry no machine path.
                 "output": (
