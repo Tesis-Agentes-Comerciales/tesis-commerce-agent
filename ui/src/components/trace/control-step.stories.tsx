@@ -89,7 +89,7 @@ export const Canceled: Story = {
 export const Failed: Story = {
   args: { step: stepOf(TRACES.failed, "failed") },
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("El comercio rechazó el pago.")).toBeVisible()
+    await expect(canvas.getByText("El pago sandbox fue rechazado.")).toBeVisible()
     await expect(canvas.queryByText(/payment_declined/)).toBeNull()
   },
 }

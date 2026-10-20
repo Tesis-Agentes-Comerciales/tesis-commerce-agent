@@ -88,6 +88,22 @@ export const PolicyOff: Story = {
   },
 }
 
+/** Sin política y recién recibido el pedido: la fila desactivada espera a que haya elección. */
+export const PolicyOffBeforeSelection: Story = {
+  args: {
+    trace: {
+      ...TRACES.policyOff,
+      status: "in_progress",
+      total: null,
+      steps: TRACES.policyOff.steps.filter((step) => step.kind === "request"),
+    },
+  },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(timelineRows(canvasElement)).toHaveLength(1)
+    await expect(canvas.queryByText("Política desactivada")).toBeNull()
+  },
+}
+
 export const Canceled: Story = {
   args: { trace: TRACES.canceled },
 }

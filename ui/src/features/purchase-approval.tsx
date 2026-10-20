@@ -2,6 +2,7 @@ import { useAssistantTransportSendCommand, useAssistantTransportState } from "@a
 import { useRef } from "react"
 
 import { PurchaseApprovalCard, type ApprovalCardStatus } from "@/components/agent"
+import { FAILURE_COPY } from "@/components/trace/trace-copy"
 import { usePurchaseSession, type LocalPurchase } from "@/features/purchase-session"
 import type { AgentPurchase, ApprovalTerms, ProductCard } from "@/lib/agent-contract"
 import {
@@ -19,9 +20,8 @@ const KNOWN_ERRORS: Record<string, string> = {
   timeout:
     "El comercio tardó demasiado en responder. Consulta de nuevo antes de empezar otra compra.",
   INVALID_INPUT: "El ecommerce rechazó los datos del checkout. Revisa tus datos de entrega.",
-  payment_declined:
-    "El pago sandbox fue rechazado. Esta compra no se completó; inicia una nueva compra.",
-  out_of_stock: "El producto se agotó antes de completar la compra. Elige otro.",
+  payment_declined: `${FAILURE_COPY.payment_declined} Esta compra no se completó; inicia una nueva compra.`,
+  out_of_stock: `${FAILURE_COPY.out_of_stock} Elige otro.`,
   invalid_item: "El producto ya no está disponible en el comercio.",
   PROVIDER_UNAVAILABLE:
     "El proveedor de pagos del comercio no está disponible. Puedes reintentar más tarde.",

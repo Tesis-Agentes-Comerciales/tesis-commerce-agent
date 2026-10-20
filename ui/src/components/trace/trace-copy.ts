@@ -1,5 +1,6 @@
 import { formatElapsed, formatMoney, formatTime } from "@/components/agent/agent-format"
 import type { EvidenceRef } from "@/components/trace/evidence-refs"
+import type { PurchaseStage } from "@/lib/agent-contract"
 import type {
   PolicyDecision,
   PolicyRule,
@@ -132,10 +133,11 @@ const ORDER_EVENTS: Record<string, string> = {
   order_update: "El comercio actualizó la orden",
 }
 
-const FAILURES: Record<string, string> = {
-  payment_declined: "El comercio rechazó el pago.",
+/** Por qué no se completó; la tarjeta de aprobación añade qué hacer después. */
+export const FAILURE_COPY = {
+  payment_declined: "El pago sandbox fue rechazado.",
   out_of_stock: "El producto se agotó antes de completar la compra.",
-}
+} satisfies Record<string, string>
 
 const SCOPES = { checkout: "la compra", payment: "el pago" } as const
 
@@ -152,9 +154,14 @@ function controlTitle(kind: ControlKind, state: StepState) {
   return copy.running
 }
 
-/** La política no llegó a evaluar ninguna regla: se detuvo por precaución (fail closed). */
+/**
+ * La política respondió sin evaluar ninguna regla: se detuvo por precaución (fail closed). Sin
+ * reglas no hay de dónde saberlo, así que no cuenta como «no disponible».
+ */
 export function policyUnavailable(decision: PolicyDecision) {
-  return decision.rules.every((rule) => rule.result === "not_evaluated")
+  return (
+    decision.rules.length > 0 && decision.rules.every((rule) => rule.result === "not_evaluated")
+  )
 }
 
 function policyTitle(state: StepState, decision: PolicyDecision) {
@@ -217,7 +224,7 @@ export function stepDetail(step: TraceStep) {
       return scopes && `Recibos de ${scopes}`
     }
     case "failed":
-      return lookup(FAILURES, step.code)
+      return lookup(FAILURE_COPY, step.code)
     default:
       return null
   }
@@ -234,9 +241,11 @@ export function skippedDetail(control: SkippedControl) {
   return control.reason === "policy_off" ? "No se revisó esta compra" : null
 }
 
-const PURCHASE_SUMMARY: Record<Exclude<PurchaseStatus, "completed">, string> = {
+/** Cómo se nombra cada estado de la compra en el chat: la fila de actividad y el paso de seguimiento. */
+const PURCHASE_SUMMARY: Record<PurchaseStatus, string> = {
   in_progress: "Comprando…",
   awaiting_approval: "Esperando tu aprobación",
+  completed: "Compra completada",
   blocked: "Bloqueada por la política de compra",
   canceled: "Compra cancelada",
   failed: "La compra no se pudo completar",
@@ -251,7 +260,26 @@ export function purchaseSummary(trace: PurchaseTrace) {
   const elapsed = confirmedAt
     ? formatElapsed(Date.parse(confirmedAt) - Date.parse(trace.started_at))
     : null
-  return elapsed ? `Compra completada en ${elapsed}` : "Compra completada"
+  return elapsed ? `${PURCHASE_SUMMARY.completed} en ${elapsed}` : PURCHASE_SUMMARY.completed
+}
+
+// Etapas de SQLite (`state.purchase`, paso `purchase_update`). Las que coinciden con un estado de la
+// traza usan sus mismas palabras; las intermedias dicen qué paso de la compra ya ocurrió.
+const STAGE_LABEL: Record<PurchaseStage, string> = {
+  received: CONTROLS.request.done,
+  selected: CONTROLS.selection.done,
+  checkout_prepared: CONTROLS.checkout_created.done,
+  awaiting_confirmation: PURCHASE_SUMMARY.awaiting_approval,
+  approved: "Aprobación registrada",
+  completing: "Completando la compra",
+  uncertain: PURCHASE_SUMMARY.uncertain,
+  completed: PURCHASE_SUMMARY.completed,
+  canceled: PURCHASE_SUMMARY.canceled,
+  failed: PURCHASE_SUMMARY.failed,
+}
+
+export function purchaseStageLabel(stage: string) {
+  return Object.hasOwn(STAGE_LABEL, stage) ? STAGE_LABEL[stage as PurchaseStage] : stage
 }
 
 /** Identificadores de una decisión para el detalle técnico: aquí sí van los códigos internos. */

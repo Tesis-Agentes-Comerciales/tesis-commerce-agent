@@ -3,7 +3,6 @@ import type {
   HardConstraints,
   InterpretRequestResult,
   OptionConstraint,
-  PurchaseStage,
   SoftPreferences,
 } from "@/lib/agent-contract"
 
@@ -163,23 +162,6 @@ const CHECKOUT_STATUS_LABELS: Record<CheckoutStatus, string> = {
 
 export function checkoutStatusLabel(status: string) {
   return CHECKOUT_STATUS_LABELS[status as CheckoutStatus] ?? status
-}
-
-const PURCHASE_STAGE_LABELS: Record<PurchaseStage, string> = {
-  received: "Solicitud recibida",
-  selected: "Producto elegido",
-  checkout_prepared: "Checkout preparado",
-  awaiting_confirmation: "Esperando tu aprobación",
-  approved: "Aprobación registrada",
-  completing: "Completando la compra",
-  uncertain: "Resultado por confirmar",
-  completed: "Compra completada",
-  canceled: "Compra cancelada",
-  failed: "La compra falló",
-}
-
-export function purchaseStageLabel(stage: string) {
-  return PURCHASE_STAGE_LABELS[stage as PurchaseStage] ?? stage
 }
 
 export type IntentChip = {

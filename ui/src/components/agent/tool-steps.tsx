@@ -9,12 +9,12 @@ import {
   intentGroups,
   interpretActionLabel,
   pluralize,
-  purchaseStageLabel,
   summarizeRejections,
 } from "@/components/agent/agent-format"
 import { toolStepLabel, type StepStatus } from "@/components/agent/agent-steps"
 import { chip } from "@/components/agent/agent-styles"
 import { ReasoningText } from "@/components/agent/reasoning-text"
+import { purchaseStageLabel } from "@/components/trace/trace-copy"
 import type {
   InterpretRequestResult,
   PrepareCheckoutResult,

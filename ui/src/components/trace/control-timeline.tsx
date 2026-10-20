@@ -15,12 +15,14 @@ function controlIndex(kind: StepKind) {
 
 /**
  * La traza solo trae lo que pasó. Con la política apagada se intercala su control como desactivado,
- * y si la compra terminó antes de tiempo se agregan al final los controles que no alcanzó: así se ve
- * qué no ocurrió (ni checkout ni cobro). Una compra por confirmar no los agrega, porque no se sabe.
+ * una vez elegido el producto: antes, la fila quedaría delante de una elección que aún no ocurrió. Si
+ * la compra terminó antes de tiempo se agregan al final los controles que no alcanzó: así se ve qué
+ * no ocurrió (ni checkout ni cobro). Una compra por confirmar no los agrega, porque no se sabe.
  */
 function timelineRows(trace: PurchaseTrace): TimelineRow[] {
   const rows: TimelineRow[] = [...trace.steps]
-  if (trace.policy_mode === "off") {
+  const selected = rows.some((row) => controlIndex(row.kind) >= controlIndex("selection"))
+  if (trace.policy_mode === "off" && selected) {
     const policy = controlIndex("policy_decision")
     const after = rows.findIndex((row) => controlIndex(row.kind) > policy)
     rows.splice(after === -1 ? rows.length : after, 0, {
