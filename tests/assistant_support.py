@@ -152,9 +152,9 @@ class ScriptedRouter:
         return CatalogRecovery(action="clarify", assistant_message=NO_CANDIDATE_REPLY)
 
 
-def _checkout(status: str, *, with_details: bool) -> dict[str, Any]:
+def _checkout(status: str, *, with_details: bool, checkout_id: str = CHECKOUT_ID) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "id": CHECKOUT_ID,
+        "id": checkout_id,
         "protocol": {"version": "2026-04-17"},
         "status": status,
         "currency": "cop",
@@ -201,11 +201,20 @@ def _checkout(status: str, *, with_details: bool) -> dict[str, Any]:
 
 @dataclass
 class Merchant:
-    """In-memory ACP merchant served through httpx.MockTransport."""
+    """In-memory ACP merchant served through httpx.MockTransport.
+
+    Each creation opens a new session (`cs_storybook_1`, `cs_storybook_2`…), so a purchase asked
+    for again after canceling gets its own checkout, as with the real merchant.
+    """
 
     fail_checkout: bool = False
     requests: list[str] = field(default_factory=list)
     status: str = "ready_for_payment"
+    created: int = 0
+
+    @property
+    def checkout_id(self) -> str:
+        return CHECKOUT_ID if self.created <= 1 else f"cs_storybook_{self.created}"
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -233,9 +242,14 @@ class Merchant:
             )
         if self.fail_checkout:
             raise httpx.ConnectError("synthetic merchant outage", request=request)
-        checkout_path = f"/checkout_sessions/{CHECKOUT_ID}"
         if request.method == "POST" and path == "/checkout_sessions":
-            return httpx.Response(201, json=_checkout("not_ready_for_payment", with_details=False))
+            self.created += 1
+            self.status = "ready_for_payment"
+            created = _checkout(
+                "not_ready_for_payment", with_details=False, checkout_id=self.checkout_id
+            )
+            return httpx.Response(201, json=created)
+        checkout_path = f"/checkout_sessions/{self.checkout_id}"
         if path == checkout_path and request.method in {"GET", "POST"}:
             return httpx.Response(200, json=self._current())
         if path == f"{checkout_path}/cancel":
@@ -247,7 +261,7 @@ class Merchant:
             completed["order"] = {
                 "type": "order",
                 "id": ORDER_ID,
-                "checkout_session_id": CHECKOUT_ID,
+                "checkout_session_id": self.checkout_id,
                 "permalink_url": f"{MERCHANT_ORIGIN}/orders/{ORDER_ID}",
                 "status": "confirmed",
                 "line_items": [],
@@ -257,7 +271,7 @@ class Merchant:
         raise AssertionError(f"Unexpected request: {request.method} {path}")
 
     def _current(self) -> dict[str, Any]:
-        return deepcopy(_checkout(self.status, with_details=True))
+        return deepcopy(_checkout(self.status, with_details=True, checkout_id=self.checkout_id))
 
 
 def counter_ids() -> Callable[[str], str]:
@@ -518,13 +532,23 @@ def render_fixtures(workdir: Path) -> list[Fixture]:
         run_id = prepared["purchase"]["run_id"]
         canceled = client.post(f"/purchases/{run_id}/cancel")
         assert canceled.status_code == 200, canceled.text
-        record(
+        canceled_state = record(
             client,
             "purchase-canceled",
             "Seguimiento tras cancelar por REST: `purchase_update` y `purchase.stage = canceled`.",
             [purchase_updated(run_id)],
             state=prepared,
             starts_from="purchase",
+        )
+        record(
+            client,
+            "purchase-repeated",
+            "La misma compra pedida de nuevo después de cancelar (S04, términos que cambiaron): "
+            "un checkout nuevo con otro `run_id`, términos nuevos y `purchase` en "
+            "`awaiting_confirmation`.",
+            [add_message(PURCHASE_REQUEST)],
+            state=canceled_state,
+            starts_from="purchase-canceled",
         )
 
     with assistant_client(workdir / "no-candidate.db") as client:
