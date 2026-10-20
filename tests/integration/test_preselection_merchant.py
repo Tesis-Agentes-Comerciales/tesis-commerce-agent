@@ -1,7 +1,6 @@
 """Opt-in real Merchant/PG with controlled pipe→ASGI HTTP, not HTTP sockets."""
 
 import json
-import os
 import secrets
 import socket
 import subprocess
@@ -24,14 +23,18 @@ from commerce_agent.governance.models import ObjectRef
 from commerce_agent.governance.preselection import PreselectionAuthority, projected_candidate
 from commerce_agent.governance.remote_creation import SessionScope
 from commerce_agent.persistence.preselection_sqlite import SqlitePreselectionStore
-from tests.integration.gov06dc_harness import clean_environment
+from tests.integration.gov06dc_harness import (
+    clean_environment,
+    live_requirements,
+    merchant_python,
+    merchant_root,
+    pg_tool,
+)
 
-pytestmark = pytest.mark.skipif(
-    os.getenv("RUN_GOV07BP_REAL") != "1", reason="requires new isolated Merchant/PostgreSQL cluster"
+pytestmark = live_requirements(
+    "RUN_GOV07BP_REAL", "requires new isolated Merchant/PostgreSQL cluster"
 )
 ROOT = Path(__file__).resolve().parents[2]
-MERCHANT = Path("C:/ANDES/Tesis/tesis-commerce-merchant")
-PG = Path("C:/Program Files/PostgreSQL/17/bin")
 
 
 class PipeTransport(httpx.BaseTransport):
@@ -56,11 +59,14 @@ class PipeTransport(httpx.BaseTransport):
 
 class MerchantFixture:
     def __init__(self):
+        self.merchant = merchant_root()
         assert (
-            subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=MERCHANT, text=True).strip()
+            subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=self.merchant, text=True
+            ).strip()
             == "9743c9f179c7ad5413e8818766ef3dceb326a917"
         )
-        assert not subprocess.check_output(["git", "status", "--porcelain"], cwd=MERCHANT)
+        assert not subprocess.check_output(["git", "status", "--porcelain"], cwd=self.merchant)
         self.root = ROOT / ".local" / ("07bp-real-" + secrets.token_hex(6))
         self.root.mkdir(parents=True, exist_ok=False)
         self.data = self.root / "pgdata"
@@ -90,7 +96,7 @@ class MerchantFixture:
 
     def start(self):
         self.command(
-            PG / "initdb.exe",
+            pg_tool("initdb"),
             "-D",
             self.data,
             "-U",
@@ -107,7 +113,7 @@ class MerchantFixture:
             out.write("\ntimezone='UTC'\nlog_timezone='UTC'\n")
         self.started = True
         self.command(
-            PG / "pg_ctl.exe",
+            pg_tool("pg_ctl"),
             "-D",
             self.data,
             "-l",
@@ -120,7 +126,7 @@ class MerchantFixture:
 
         def psql(sql):
             return self.command(
-                PG / "psql.exe",
+                pg_tool("psql"),
                 "-X",
                 "-qAt",
                 "-h",
@@ -154,7 +160,7 @@ class MerchantFixture:
         self.env.update(
             DATABASE_URL=f"postgresql://p07_app:{secrets.token_hex(20)}@127.0.0.1:{self.port}/tesis_lab",
             ACP_API_BASE_URL=self.origin,
-            P07_MERCHANT=str(MERCHANT),
+            P07_MERCHANT=str(self.merchant),
             P07_PORT=str(self.port),
             P07_DATA=str(self.data),
             P07_OUTPUT=str(self.root),
@@ -162,7 +168,7 @@ class MerchantFixture:
         self.error_log = (self.root / "worker-stderr.txt").open("w")
         self.worker = subprocess.Popen(
             [
-                str(MERCHANT / ".venv/Scripts/python.exe"),
+                str(merchant_python()),
                 "-B",
                 str(Path(__file__).with_name("gov07bp_merchant_worker.py")),
             ],
@@ -234,7 +240,7 @@ class MerchantFixture:
         if self.error_log:
             self.error_log.close()
         if self.started:
-            self.command(PG / "pg_ctl.exe", "-D", self.data, "-m", "fast", "-w", "stop")
+            self.command(pg_tool("pg_ctl"), "-D", self.data, "-m", "fast", "-w", "stop")
             with socket.socket() as probe:
                 probe.settimeout(0.2)
                 assert probe.connect_ex(("127.0.0.1", self.port)) != 0

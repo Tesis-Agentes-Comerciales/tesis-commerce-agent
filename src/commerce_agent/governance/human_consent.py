@@ -21,6 +21,13 @@ class ConsentBlocked(RuntimeError):
     """Stable, sanitized code; never attach credentials or input payloads."""
 
 
+class TermsAlreadyDecided(ConsentBlocked):
+    """Another presentation of the same checkout terms holds the opposite terminal decision."""
+
+    def __init__(self):
+        super().__init__("TERMS_ALREADY_DECIDED")
+
+
 class HumanIdentity(EnvelopeModel):
     principal_id: Identity
     owner_id: Identity

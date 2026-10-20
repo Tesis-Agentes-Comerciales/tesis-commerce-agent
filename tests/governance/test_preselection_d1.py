@@ -82,10 +82,10 @@ def open_link(root, *, policy_bytes=None, policy_binding=None, bearer=BEARER):
     )
 
 
-def setup_case(tmp_path, **options):
+def setup_case(tmp_path, *, merchant=None, **options):
     registry = SqliteTestProvisioningRegistry(tmp_path / "registry.sqlite", REGISTRY_KEY)
     registry.initialize()
-    merchant = ControlledMerchant()
+    merchant = merchant or ControlledMerchant()
     old = merchant.binding
     session = registry.issue_test_session(
         CatalogSource(

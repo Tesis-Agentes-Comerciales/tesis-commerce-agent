@@ -39,6 +39,7 @@ from tests.integration.gov06dc_harness import (
     LiveEnvironment,
     NoEffectsGateway,
     connect,
+    live_requirements,
     port,
 )
 from tests.integration.test_live_creation_recovery import child_probe
@@ -48,9 +49,10 @@ HEAD = "9f15d20906f576b7d28138ff9f5708022b405ae8"
 ALLOWED = frozenset(
     {"src/commerce_agent/governance/enforce.py", "tests/integration/gov06dc_harness.py"}
 )
-pytestmark = pytest.mark.skipif(
-    os.environ.get("RUN_GOV07A_REAL") != "1",
-    reason="requires RUN_GOV07A_REAL=1 and a new isolated PostgreSQL/Merchant cluster",
+pytestmark = live_requirements(
+    "RUN_GOV07A_REAL",
+    "requires RUN_GOV07A_REAL=1 and a new isolated PostgreSQL/Merchant cluster",
+    windows_listener=True,
 )
 
 

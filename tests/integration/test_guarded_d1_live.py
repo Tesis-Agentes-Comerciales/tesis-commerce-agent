@@ -5,18 +5,18 @@ import os
 import secrets
 import socket
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
 
-from tests.integration.gov06dc_harness import port
-from tests.integration.test_preselection_merchant import MERCHANT, PG, MerchantFixture
+from tests.integration.gov06dc_harness import live_requirements, merchant_python, pg_tool, port
+from tests.integration.test_preselection_merchant import MerchantFixture
 
 ROOT = Path(__file__).resolve().parents[2]
-pytestmark = pytest.mark.skipif(
-    os.getenv("RUN_GOV07BB_REAL") != "1",
-    reason="requires new isolated 07B-B real HTTP/PG experiment",
+pytestmark = live_requirements(
+    "RUN_GOV07BB_REAL", "requires new isolated 07B-B real HTTP/PG experiment"
 )
 
 
@@ -34,7 +34,7 @@ class LiveMerchant(MerchantFixture):
         finally:
             super().close()
         status = subprocess.run(
-            [str(PG / "pg_ctl.exe"), "-D", str(self.data), "status"],
+            [str(pg_tool("pg_ctl")), "-D", str(self.data), "status"],
             capture_output=True,
             env=self.env,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -55,7 +55,7 @@ class LiveMerchant(MerchantFixture):
         assert self.http_port != self.port
         self.origin = f"http://127.0.0.1:{self.http_port}"
         self.command(
-            PG / "initdb.exe",
+            pg_tool("initdb"),
             "-D",
             self.data,
             "-U",
@@ -72,7 +72,7 @@ class LiveMerchant(MerchantFixture):
             output.write("\ntimezone='UTC'\nlog_timezone='UTC'\n")
         self.started = True
         self.command(
-            PG / "pg_ctl.exe",
+            pg_tool("pg_ctl"),
             "-D",
             self.data,
             "-l",
@@ -85,7 +85,7 @@ class LiveMerchant(MerchantFixture):
 
         def psql(sql):
             return self.command(
-                PG / "psql.exe",
+                pg_tool("psql"),
                 "-X",
                 "-qAt",
                 "-h",
@@ -116,7 +116,7 @@ class LiveMerchant(MerchantFixture):
         self.env.update(
             DATABASE_URL=f"postgresql://p07_app:{secrets.token_hex(20)}@127.0.0.1:{self.port}/tesis_lab",
             ACP_API_BASE_URL=self.origin,
-            P07_MERCHANT=str(MERCHANT),
+            P07_MERCHANT=str(self.merchant),
             P07_PORT=str(self.port),
             P07_DATA=str(self.data),
             P07_OUTPUT=str(self.root),
@@ -125,7 +125,7 @@ class LiveMerchant(MerchantFixture):
         self.error_log = (self.root / "merchant-stderr.txt").open("w")
         self.worker = subprocess.Popen(
             [
-                str(MERCHANT / ".venv/Scripts/python.exe"),
+                str(merchant_python()),
                 "-B",
                 str(Path(__file__).with_name("gov07bb_merchant_worker.py")),
             ],
@@ -152,7 +152,8 @@ class AgentProcess:
         self.log = (live.root / ("agent-" + secrets.token_hex(4) + ".log")).open("w")
         self.worker = subprocess.Popen(
             [
-                str(Path("C:/ANDES/Tesis/tesis-commerce-agent/.venv/Scripts/python.exe")),
+                # This Agent checkout's interpreter, as the 06D-C restart probe uses.
+                sys.executable,
                 "-B",
                 str(Path(__file__).with_name("gov07bb_agent_worker.py")),
             ],

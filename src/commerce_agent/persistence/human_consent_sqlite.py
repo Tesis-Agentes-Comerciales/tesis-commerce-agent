@@ -22,6 +22,7 @@ from commerce_agent.governance.human_consent import (
     HumanIdentity,
     Presentation,
     Presented,
+    TermsAlreadyDecided,
     timestamp,
 )
 from commerce_agent.governance.preselection import instant
@@ -34,24 +35,47 @@ class _StoredPresentation(EnvelopeModel):
     challenge_sha256: str
 
 
-_DDL = (
+def _immutable(*tables: str) -> tuple[str, ...]:
+    return tuple(
+        f"CREATE TRIGGER {table}_{action.lower()} BEFORE {action} ON {table} "
+        "BEGIN SELECT RAISE(ABORT,'immutable D2'); END"
+        for table in tables
+        for action in ("UPDATE", "DELETE")
+    ) + tuple(
+        f"CREATE TRIGGER {table}_replace BEFORE INSERT ON {table} "
+        f"WHEN EXISTS(SELECT 1 FROM {table} WHERE id=NEW.id) "
+        "BEGIN SELECT RAISE(ABORT,'immutable D2'); END"
+        for table in tables
+    )
+
+
+# Original 07C store. Recognized only to migrate it, never operated on directly.
+_LEGACY_SCHEMA = (
     "CREATE TABLE d2_meta(id INTEGER PRIMARY KEY CHECK(id=1),"
     "body BLOB NOT NULL,seal TEXT NOT NULL)",
     "CREATE TABLE d2_presentations(id TEXT PRIMARY KEY,body BLOB NOT NULL,seal TEXT NOT NULL)",
     "CREATE TABLE d2_decisions(id TEXT PRIMARY KEY REFERENCES d2_presentations(id),"
     "event_id TEXT UNIQUE NOT NULL,body BLOB NOT NULL,seal TEXT NOT NULL)",
+    *_immutable("d2_meta", "d2_presentations", "d2_decisions"),
 )
-_TRIGGERS = tuple(
-    f"CREATE TRIGGER {table}_{action.lower()} BEFORE {action} ON {table} "
-    "BEGIN SELECT RAISE(ABORT,'immutable D2'); END"
-    for table in ("d2_meta", "d2_presentations", "d2_decisions")
-    for action in ("UPDATE", "DELETE")
-) + tuple(
-    f"CREATE TRIGGER {table}_replace BEFORE INSERT ON {table} "
-    f"WHEN EXISTS(SELECT 1 FROM {table} WHERE id=NEW.id) "
-    "BEGIN SELECT RAISE(ABORT,'immutable D2'); END"
-    for table in ("d2_meta", "d2_presentations", "d2_decisions")
+# Additive: one terminal decision per checkout terms across presentations. Every receipt
+# is projected here in its own transaction; SQL rejects the opposite decision even if
+# a writer skips the domain check. The run scope is the store itself (d2_meta request).
+_TERMS_SCHEMA = (
+    "CREATE TABLE d2_terms_decisions(id TEXT PRIMARY KEY REFERENCES d2_decisions(id),"
+    "checkout_id TEXT NOT NULL,terms_fingerprint TEXT NOT NULL,"
+    "decision TEXT NOT NULL CHECK(decision IN ('accept','reject')))",
+    *_immutable("d2_terms_decisions"),
+    "CREATE TRIGGER d2_terms_decisions_terminal BEFORE INSERT ON d2_terms_decisions "
+    "WHEN EXISTS(SELECT 1 FROM d2_terms_decisions WHERE checkout_id=NEW.checkout_id "
+    "AND terms_fingerprint=NEW.terms_fingerprint AND decision IS NOT NEW.decision) "
+    "BEGIN SELECT RAISE(ABORT,'terminal D2 terms'); END",
 )
+_SCHEMA = (*_LEGACY_SCHEMA, *_TERMS_SCHEMA)
+
+
+def _layout(schema: tuple[str, ...]) -> list[tuple[str]]:
+    return [(sql,) for sql in sorted(schema)]
 
 
 class SqliteHumanConsent:
@@ -102,20 +126,22 @@ class SqliteHumanConsent:
 
     @staticmethod
     def _schema(db):
-        actual = db.execute(
+        return db.execute(
             "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL "
             "AND type IN ('table','trigger') ORDER BY sql"
         ).fetchall()
-        if actual != [(sql,) for sql in sorted((*_DDL, *_TRIGGERS))]:
-            raise ConsentBlocked("D2_SCHEMA_CONFLICT")
 
-    def _check(self, db):
-        self._schema(db)
+    def _custody(self, db):
         body = self._configuration()
         if db.execute("SELECT id,body,seal FROM d2_meta").fetchall() != [
             (1, body, self._mac("meta", body))
         ]:
             raise ConsentBlocked("D2_CUSTODY_CONFLICT")
+
+    def _check(self, db):
+        if self._schema(db) != _layout(_SCHEMA):
+            raise ConsentBlocked("D2_SCHEMA_CONFLICT")
+        self._custody(db)
 
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -123,11 +149,47 @@ class SqliteHumanConsent:
             db.execute("BEGIN IMMEDIATE")
             names = db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
             if not names:
-                for sql in (*_DDL, *_TRIGGERS):
+                for sql in _SCHEMA:
                     db.execute(sql)
                 body = self._configuration()
                 db.execute("INSERT INTO d2_meta VALUES(1,?,?)", (body, self._mac("meta", body)))
+            elif self._schema(db) == _layout(_LEGACY_SCHEMA):
+                self._migrate_terms(db)
             self._check(db)
+
+    def _migrate_terms(self, db):
+        """Project existing sealed receipts in the caller transaction; never rewrite them.
+
+        A historical accept and reject of the same terms cannot be projected. The
+        transaction rolls back, the legacy store stays intact, and it remains closed.
+        """
+        self._custody(db)
+        for sql in _TERMS_SCHEMA:
+            db.execute(sql)
+        for presentation_id, event_id, body, seal in db.execute(
+            "SELECT id,event_id,body,seal FROM d2_decisions ORDER BY rowid"
+        ).fetchall():
+            if not hmac.compare_digest(seal, self._mac("decision", body)):
+                raise ConsentBlocked("CONSENT_CUSTODY_CONFLICT")
+            receipt = parse_model(ConsentReceipt, body)
+            if (
+                canonical_bytes(receipt) != body
+                or receipt.presentation_id != presentation_id
+                or receipt.event_id != event_id
+            ):
+                raise ConsentBlocked("CONSENT_CONTEXT_CONFLICT")
+            try:
+                db.execute(
+                    "INSERT INTO d2_terms_decisions VALUES(?,?,?,?)",
+                    (
+                        presentation_id,
+                        receipt.checkout_id,
+                        receipt.terms_fingerprint,
+                        receipt.decision,
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                raise ConsentBlocked("D2_TERMS_HISTORY_CONFLICT") from None
 
     def _human(self, credential: SecretStr) -> HumanIdentity:
         try:
@@ -211,7 +273,9 @@ class SqliteHumanConsent:
     def _receipt(self, db, stored):
         view = stored.presentation
         row = db.execute(
-            "SELECT event_id,body,seal FROM d2_decisions WHERE id=?", (view.presentation_id,)
+            "SELECT d.event_id,d.body,d.seal,t.checkout_id,t.terms_fingerprint,t.decision "
+            "FROM d2_decisions d LEFT JOIN d2_terms_decisions t ON t.id=d.id WHERE d.id=?",
+            (view.presentation_id,),
         ).fetchone()
         if row is None:
             return None
@@ -221,6 +285,7 @@ class SqliteHumanConsent:
         if (
             canonical_bytes(receipt) != row[1]
             or receipt.event_id != row[0]
+            or row[3:] != (receipt.checkout_id, receipt.terms_fingerprint, receipt.decision)
             or receipt.presentation_id != view.presentation_id
             or receipt.presentation_digest != sha256_digest(canonical_bytes(view))
             or receipt.terms_fingerprint != view.terms_fingerprint
@@ -236,6 +301,29 @@ class SqliteHumanConsent:
         ):
             raise ConsentBlocked("CONSENT_CONTEXT_CONFLICT")
         return receipt
+
+    def _terminal(self, db, view):
+        """Sealed terminal decision of these checkout terms on any presentation, or None."""
+        decisions = set()
+        for presentation_id, decision, body, seal in db.execute(
+            "SELECT t.id,t.decision,d.body,d.seal FROM d2_terms_decisions t "
+            "JOIN d2_decisions d ON d.id=t.id WHERE t.checkout_id=? AND t.terms_fingerprint=?",
+            (view.terms.checkout_id, view.terms_fingerprint),
+        ):
+            if not hmac.compare_digest(seal, self._mac("decision", body)):
+                raise ConsentBlocked("CONSENT_CUSTODY_CONFLICT")
+            receipt = parse_model(ConsentReceipt, body)
+            if (
+                receipt.presentation_id,
+                receipt.checkout_id,
+                receipt.terms_fingerprint,
+                receipt.decision,
+            ) != (presentation_id, view.terms.checkout_id, view.terms_fingerprint, decision):
+                raise ConsentBlocked("CONSENT_CONTEXT_CONFLICT")
+            decisions.add(decision)
+        if len(decisions) > 1:
+            raise ConsentBlocked("CONSENT_CONTEXT_CONFLICT")
+        return next(iter(decisions), None)
 
     def decide(self, credential: SecretStr, command: ConsentCommand) -> ConsentReceipt:
         # Reparse: model_copy/model_construct are not validation boundaries.
@@ -274,6 +362,10 @@ class SqliteHumanConsent:
                 )
             ):
                 raise ConsentBlocked("CONSENT_TERMS_OR_CHALLENGE_CONFLICT")
+            # Each presentation still decides once. Across presentations, the same
+            # decision is an idempotent replay of the terms; the opposite one is blocked.
+            if self._terminal(db, view) not in {None, command.decision}:
+                raise TermsAlreadyDecided()
             receipt = ConsentReceipt(
                 event_id=str(uuid4()),
                 presentation_id=view.presentation_id,
@@ -289,6 +381,15 @@ class SqliteHumanConsent:
             db.execute(
                 "INSERT INTO d2_decisions VALUES(?,?,?,?)",
                 (view.presentation_id, receipt.event_id, body, self._mac("decision", body)),
+            )
+            db.execute(
+                "INSERT INTO d2_terms_decisions VALUES(?,?,?,?)",
+                (
+                    view.presentation_id,
+                    receipt.checkout_id,
+                    receipt.terms_fingerprint,
+                    receipt.decision,
+                ),
             )
         return receipt
 
