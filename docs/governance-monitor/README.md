@@ -4,7 +4,7 @@
 
 ## Reproducir en Windows PowerShell 5.1
 
-Requiere Git, Node.js 24 (probado con 24.15.0), npm y Python 3.12 para los cinco tests de artefactos. No se necesitan credenciales, servicios comerciales ni bases de datos. Ejecutar desde la raíz del clon:
+Requiere Git, Node.js 24 (probado con 24.15.0), npm y Python 3.12 para los ocho tests de artefactos. No se necesitan credenciales, servicios comerciales ni bases de datos. Ejecutar desde la raíz del clon:
 
 ```powershell
 git clone --branch codex/hnp-ui-readonly-monitor --single-branch https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent.git
@@ -54,7 +54,7 @@ Los valores locales viven solo en `ui/src/features/governance-monitor/demo-confi
 
 La UI valida también hash, tamaño y contrato. Distingue leído, desconectado, obsoleto e inconsistente; no cambia a offline automáticamente ni mezcla campos. Un error tras una lectura válida conserva el último snapshot completo marcado obsoleto; una inconsistencia oculta toda la evidencia de esa fuente. El retorno offline requiere selección explícita. La hora de lectura del navegador no es la hora del evento.
 
-## Verificación segura: 69 tests distintos
+## Verificación segura: 82 tests distintos
 
 ```powershell
 npm.cmd --prefix ui run test
@@ -68,7 +68,7 @@ npm.cmd --prefix ui run build
 if ($LASTEXITCODE -ne 0) { throw 'Build fallido' }
 ```
 
-30 adaptador/render + 26 snapshots + 8 routing hermético + 5 artefactos = 69. `npm run test` prepara la fixture en memoria desde la evidencia versionada (sin `.local`) y el CI lo ejecuta junto a lint y build; los cinco tests Python entran en `uv run pytest`. Los 26 incluyen transporte HTTP real limitado al servidor de fixtures de prueba y casos con dobles; no constituyen integración Agent–Merchant. Los POST negativos prueban 405 en ese servidor, no son POST comerciales. No ejecutar suites comerciales opt-in para esta demo. [RESULTS.md](RESULTS.md) detalla resultados y límites.
+33 adaptador/render/copy + 28 snapshots/configuración + 9 routing hermético con y sin flag + 4 puerta de sesión + 8 artefactos = 82. `npm run test` prepara la fixture en memoria desde la evidencia versionada (sin `.local`) y el CI lo ejecuta junto a lint y build; los ocho tests Python entran en `uv run pytest`. Los 28 incluyen transporte HTTP real limitado al servidor de fixtures de prueba y casos con dobles; no constituyen integración Agent–Merchant. Los POST negativos prueban 405 en ese servidor, no son POST comerciales. No ejecutar suites comerciales opt-in para esta demo. [RESULTS.md](RESULTS.md) detalla resultados y límites.
 
 ## Fuentes y trazabilidad
 
