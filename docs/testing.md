@@ -114,9 +114,9 @@ En macOS con OrbStack, 2026-10-20:
 
 | Selección | Pruebas | Tiempo |
 | --- | --- | --- |
-| `uv run pytest` (capas 1 y 5) | ~1270 (62 omitidas) | ~1 min |
-| `tests/integration` completa | 62 | ~12 min |
-| `tests/integration -m "not slow"` | 51 | ~2 min |
+| `uv run pytest` (capas 1 y 5) | ~1270 (63 omitidas) | ~1 min |
+| `tests/integration` completa | 63 | ~12 min |
+| `tests/integration -m "not slow"` | 52 | ~2 min |
 
 ## Al escribir una prueba
 
