@@ -36,6 +36,7 @@ export {
   PurchaseApprovalCardSkeleton,
   type ApprovalCardOrder,
   type ApprovalCardStatus,
+  type ApprovalReceipt,
   type PurchaseApprovalCardProps,
 } from "@/components/agent/purchase-approval-card"
 export { ReasoningText, type ReasoningTextProps } from "@/components/agent/reasoning-text"
