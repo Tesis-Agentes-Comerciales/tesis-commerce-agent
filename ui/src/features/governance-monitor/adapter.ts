@@ -155,6 +155,29 @@ export function scenarioIssue(s: Scenario): string | null {
 export const executionText = { not_started: "No iniciada", blocked: "Bloqueada antes del envío", started: "Iniciada (registro histórico)", unknown: "Desconocida" } as const
 export const creationText = { confirmed: "Confirmada históricamente", rejected: "Rechazada", uncertain: "Incierta", not_applicable: "No aplicable" } as const
 export const recoveryText = { confirmed: "Confirmada · found", not_found: "not_found · no autoriza reintento", uncertain: "Incierta", not_applicable: "No aplicable" } as const
+const sourceKindText = { historical_http_postgresql: "HTTP/PostgreSQL real histórico · replay", scripted_offline: "Scripted offline", unavailable: null } as const
+
+type ValidatorCopy = { title: string; note: string; checks: string; falsePass: string }
+/** Copy owned by each execution kind. Evidence with real LLMs (HNP-02) needs its own entry; it never inherits scripted wording. */
+const executionKindText: Record<Scenario["executionKind"], { llm: string | null; validator: ValidatorCopy | null }> = {
+  replay: { llm: null, validator: null },
+  "scripted offline": { llm: "sin LLM", validator: {
+    title: "Validador HNP · scripted offline", note: "Respuesta programada; cero LLM reales. El veredicto no concede autoridad.",
+    checks: "Declaraciones del validador guionado, no controles backend aprobados:", falsePass: "El pass es una declaración errónea del guion; no evidencia de autorización ni control superado.",
+  } },
+}
+// Only reachable when a kind bypassed the parser: states the facts without claiming how the verdict was produced.
+const neutralValidator: ValidatorCopy = {
+  title: "Validador HNP", note: "Tipo de ejecución sin texto revisado. El veredicto no concede autoridad.",
+  checks: "Declaraciones del validador, no controles backend aprobados:", falsePass: "El pass declarado por el validador no evidencia autorización ni control superado.",
+}
+const kindCopy = (s: Scenario) => Object.hasOwn(executionKindText, s.executionKind) ? executionKindText[s.executionKind] : { llm: null, validator: null }
+export const validatorText = (s: Scenario): ValidatorCopy => kindCopy(s).validator ?? neutralValidator
+export function sourceText(s: Scenario): string | null {
+  const source = Object.hasOwn(sourceKindText, s.sourceKind) ? sourceKindText[s.sourceKind] : null
+  const llm = kindCopy(s).llm
+  return source && llm ? `${source} · ${llm}` : source
+}
 
 export function scenarioBadge(s: Scenario): string {
   if (scenarioIssue(s)) return "Evidencia inconsistente"

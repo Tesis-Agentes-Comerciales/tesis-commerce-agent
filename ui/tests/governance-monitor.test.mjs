@@ -222,6 +222,19 @@ test("MON-02A no verdict is reconstructed from existing decision/evidence IDs", 
   assert.equal(s.enforce.outcome, null)
   assert.ok(htmlFor(s).includes("No disponible en la fuente"))
 })
+test("validator and LLM copy follow the execution kind; unknown kinds fail closed or stay neutral", () => {
+  const s = scenario("hnp-false-accept")
+  for (const text of ["Validador HNP · scripted offline", "cero LLM reales", "declaración errónea del guion"]) assert.ok(htmlFor(s).includes(text), text)
+  const unknown = structuredClone(s); unknown.executionKind = "live llm"
+  const html = htmlFor(unknown)
+  // Scenario notes are record data; only the monitor's own copy must stop asserting a scripted run.
+  for (const text of ["cero LLM reales", "validador guionado", "declaración errónea del guion", "· sin LLM", "Validador HNP · scripted offline"]) assert.ok(!html.includes(text), text)
+  for (const text of ["budget: pass (validador)", "BACKEND_DENIED", "no concede autoridad"]) assert.ok(html.includes(text), text)
+  const inherited = structuredClone(s); inherited.executionKind = "constructor"
+  assert.ok(!htmlFor(inherited).includes("cero LLM reales"))
+  const raw = copy(); raw.scenarios[2].executionKind = "live llm"
+  assert.throws(() => parseEvidence(raw), /Estado de evidencia desconocido/)
+})
 test("MON-02A real historical source and scripted source have explicit distinct labels", () => {
   assert.ok(htmlFor(scenario("hp-created")).includes("HTTP/PostgreSQL real histórico · replay"))
   assert.ok(htmlFor(scenario("hnp-false-accept")).includes("Scripted offline · sin LLM"))

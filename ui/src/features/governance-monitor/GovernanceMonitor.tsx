@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { unavailable, scenarioIssue, scenarioBadge, executionText, creationText, recoveryText, type EvidenceBundle, type PhaseEvidence, type Scenario } from "./adapter.ts"
+import { unavailable, scenarioIssue, scenarioBadge, executionText, creationText, recoveryText, sourceText, validatorText, type EvidenceBundle, type PhaseEvidence, type Scenario } from "./adapter.ts"
 
 function Fact({ label, value }: { label: string; value: string | null }) {
   return <div className="space-y-1"><dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt><dd className="break-words text-sm [overflow-wrap:anywhere]">{unavailable(value)}</dd></div>
@@ -22,12 +22,13 @@ export function ScenarioDetails({ scenario: s }: { scenario: Scenario }) {
   if (issue) return <section aria-label="Detalle del escenario"><h2>{s.label}</h2><p role="alert">Evidencia inconsistente: {issue}. No se presenta una creación confirmada.</p><p>PARTIAL · I10/D08/D09 parciales · AUDIT-MERCHANT-CANCEL-01 sin aprobar.</p></section>
   const confirmed = s.recovery === "confirmed" || (s.creation === "confirmed" && s.recovery === "not_applicable")
   const disagreement = s.validator?.checks.filter((c) => c.result === "pass" && s.backend.failures.includes(c.id)) ?? []
+  const validatorCopy = validatorText(s)
   return <section aria-label="Detalle del escenario" className="space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-semibold">{s.label}</h2><p className="mt-1 text-sm text-muted-foreground">{s.scope}</p></div><span className={`rounded-full px-4 py-2 text-sm font-semibold ${confirmed ? "bg-emerald-100 text-emerald-950" : "bg-amber-100 text-amber-950"}`}>{scenarioBadge(s)}</span></div>
     <div className="grid gap-4 md:grid-cols-3">
       <Card><CardHeader><CardTitle>Contexto y propuesta</CardTitle></CardHeader><CardContent className="space-y-4">
         <Fact label="Modo · ejecución" value={`${s.mode} · ${s.executionKind}`} />
-        <Fact label="Tipo de fuente" value={s.sourceKind === "historical_http_postgresql" ? "HTTP/PostgreSQL real histórico · replay" : s.sourceKind === "scripted_offline" ? "Scripted offline · sin LLM" : null} />
+        <Fact label="Tipo de fuente" value={sourceText(s)} />
         <Fact label="Intención original" value={s.intent} />
         <Fact label="Propuesta / variante" value={s.proposal} />
         <Fact label="Operación propuesta" value={s.proposedAction} />
@@ -37,12 +38,12 @@ export function ScenarioDetails({ scenario: s }: { scenario: Scenario }) {
       <Decision title="Q · shadow" value={s.shadow} explanation="Observa. Un allow shadow no autoriza despacho." />
       <Decision title="D1 · enforce" value={s.enforce} explanation={s.mode === "HNP" ? "No ejecutado por este harness HNP; controles experimentales debajo." : "Separada de Q. Una referencia no sustituye un veredicto ausente."} />
     </div>
-    {s.validator && <Card><CardHeader><CardTitle>Validador HNP · scripted offline</CardTitle><p className="text-sm text-muted-foreground">Respuesta programada; cero LLM reales. El veredicto no concede autoridad.</p></CardHeader><CardContent>
+    {s.validator && <Card><CardHeader><CardTitle>{validatorCopy.title}</CardTitle><p className="text-sm text-muted-foreground">{validatorCopy.note}</p></CardHeader><CardContent>
       <div className="flex flex-wrap gap-6"><Fact label="Veredicto del validador" value={s.validator.verdict} /><Fact label="Adaptador" value={s.validator.adapterId} /><Fact label="Decisión backend independiente" value={s.backend.code} /></div>
-      <p className="mt-4 text-sm">Declaraciones del validador guionado, no controles backend aprobados:</p>
+      <p className="mt-4 text-sm">{validatorCopy.checks}</p>
       <div className="mt-2 flex flex-wrap gap-2" aria-label="Declaraciones del validador">{s.validator.checks.map((c) => <span key={c.id} className={`rounded-md px-2 py-1 font-mono text-xs ${disagreement.some((x) => x.id === c.id) ? "bg-amber-100 text-amber-950" : "bg-muted"}`}>{c.id}: {c.result} (validador)</span>)}</div>
       <p className="mt-4 font-medium text-amber-900">{s.backend.failures.length ? `Control backend: ${s.backend.failures.join(", ")}. La evaluación del validador no superó el backend.` : "Sin fallos backend registrados."}</p>
-      {disagreement.length > 0 && <div role="note" className="mt-3 rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950"><strong>Discrepancia documentada entre validador y backend</strong><p>{disagreement.map((c) => `${c.id}: pass declarado por el validador; denegado por el backend`).join(". ")}. Se conservan ambas observaciones originales.</p>{s.totalMinor !== null && s.budgetLimitMinor !== null && <p>Total de la fuente: {s.totalMinor.toLocaleString("es-CO")}; límite de la fuente: {s.budgetLimitMinor.toLocaleString("es-CO")} unidades menores. {s.totalMinor > s.budgetLimitMinor ? "El total excede el límite." : "El total no excede el límite."}</p>}<p>El pass es una declaración errónea del guion; no evidencia de autorización ni control superado.</p></div>}
+      {disagreement.length > 0 && <div role="note" className="mt-3 rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950"><strong>Discrepancia documentada entre validador y backend</strong><p>{disagreement.map((c) => `${c.id}: pass declarado por el validador; denegado por el backend`).join(". ")}. Se conservan ambas observaciones originales.</p>{s.totalMinor !== null && s.budgetLimitMinor !== null && <p>Total de la fuente: {s.totalMinor.toLocaleString("es-CO")}; límite de la fuente: {s.budgetLimitMinor.toLocaleString("es-CO")} unidades menores. {s.totalMinor > s.budgetLimitMinor ? "El total excede el límite." : "El total no excede el límite."}</p>}<p>{validatorCopy.falsePass}</p></div>}
       <p className="mt-2 text-sm text-muted-foreground">PDP ejecutado: {s.backend.executedPolicyIds?.length === 0 ? "ninguno; executed_policy_ids=[]" : "no disponible"}. No equivale a POL-03–10 ni D2/D3 operativo.</p>
     </CardContent></Card>}
     <Card><CardHeader><CardTitle>Operación y resultado observado</CardTitle></CardHeader><CardContent className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
