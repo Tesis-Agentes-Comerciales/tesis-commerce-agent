@@ -45,7 +45,7 @@ export async function readAuthorizedSnapshot(directory = FIXTURES) {
   } finally { await handle.close(); }
 }
 
-// directory injection is for isolated fixture-file tests; the CLI has no path argument.
+// directory and origin injection is for isolated tests; the CLI takes both from demoConfig, never from arguments.
 export function createDemoServer({ fixtureDirectory = FIXTURES, origins = CONFIG.origins, audit = () => {} } = {}) {
   assertDevelopmentRuntime();
   const allowed = new Set(origins);

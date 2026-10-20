@@ -16,7 +16,7 @@ export function SourceView({ state, onOffline, onLocal }: { state: SourceState; 
         {state.mode === "local" && <Button type="button" variant="outline" onClick={onLocal}>Releer snapshot</Button>}
       </div>
       <p role={state.status === "inconsistent" || state.status === "disconnected" ? "alert" : "status"} className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{sourceDescription(state)}</p>
-      <p className="text-xs text-muted-foreground">Sin autenticación real: exclusivamente fixtures sanitizadas de demostración. Nunca evidencia de usuarios autenticados ni eventos en vivo; cada escenario declara según su tipo de ejecución si intervino un LLM.</p>
+      <p className="text-xs text-muted-foreground">Snapshot local sin autenticación real (la pantalla sí exige sesión): exclusivamente fixtures sanitizadas de demostración. Nunca evidencia de usuarios autenticados ni eventos en vivo; cada escenario declara según su tipo de ejecución si intervino un LLM.</p>
       {state.readAt && <p className="text-xs">Hora de lectura del navegador (no tiempo del evento): {state.readAt}</p>}
       {state.error && <p className="text-sm text-amber-900">{state.error}. No se mezclan datos ni se cambia de fuente automáticamente.</p>}
       {!state.bundle && <p className="text-sm">No hay evidencia mostrable de esta lectura. Puedes seleccionar Reproducción offline.</p>}

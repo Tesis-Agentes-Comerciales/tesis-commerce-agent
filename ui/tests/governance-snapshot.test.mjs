@@ -219,7 +219,7 @@ test('explicit offline selection restores exactly the original bundle', () => {
 test('both modes preserve limits and identify historical demo snapshots, never live events', () => {
   for (const state of [offlineSource(offline), acceptLocalRead(snapshot, 'TEST_READ_TIME_NOT_EVENT_TIME')]) {
     const html = render(state);
-    for (const label of ['Reproducción offline', 'Snapshot backend local', 'PARTIAL', 'I10/D08/D09', 'AUDIT-MERCHANT-CANCEL-01', 'Sin autenticación real']) assert.ok(html.includes(label), label);
+    for (const label of ['Reproducción offline', 'Snapshot backend local', 'PARTIAL', 'I10/D08/D09', 'AUDIT-MERCHANT-CANCEL-01', 'Snapshot local sin autenticación real']) assert.ok(html.includes(label), label);
   }
   const html = render(acceptLocalRead(snapshot, 'TEST_READ_TIME_NOT_EVENT_TIME'));
   assert.ok(html.includes('fixture histórica/obsoleta')); assert.ok(html.includes('no es un evento en vivo'));
