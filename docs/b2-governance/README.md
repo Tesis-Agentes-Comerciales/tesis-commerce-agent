@@ -41,7 +41,12 @@ con estado tipado y se evalúan mediante reglas deterministas fuera del modelo. 
 capa de autorización y evidencia de la transacción; la gobernanza B2 decide si el flujo puede llegar
 a esa capa.
 
-![Arquitectura B2](b2-architecture.svg)
+![Arquitectura B2 con gobernanza Human Present](../diagrams/architecture-b2-hp.svg)
+
+Arquitectura vigente al 20 de octubre, con lo hecho, lo que está en curso para el piloto y lo
+futuro. El índice de diagramas está en [docs/diagrams](../diagrams/README.md). El diagrama
+P1–P5 original (OPA, Trusted State) quedó como histórico en
+[`historico/b2-architecture-p1-p5.svg`](../diagrams/historico/b2-architecture-p1-p5.svg).
 
 ## Decisión principal
 
@@ -69,7 +74,7 @@ a esa capa.
 - [Panorama 2026 y pregunta de investigación](landscape-research-question.md)
 - [Síntesis de investigación](research-synthesis.md)
 - [Arquitectura y flujo](architecture.md)
-- [Diagrama B0 + B2](b2-architecture.svg)
+- [Diagramas B0, B2-HP, delta, secuencia gobernada, HNP y piloto](../diagrams/README.md)
 - [Convención visual](visual-style.md)
 - [Contrato de política](policy-contract.md)
 - [Modelo de amenazas](threat-model.md)
