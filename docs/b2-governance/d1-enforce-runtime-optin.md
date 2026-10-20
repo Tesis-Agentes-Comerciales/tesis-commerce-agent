@@ -5,9 +5,9 @@ Qué pasa después de un allow lo decide `AGENT_HP_FLOW`:
 
 - `blocked` (default): el allow termina en `d1_dispatch_blocked` con la reserva
   durable y sin POST al Merchant. Es el comportamiento anterior a B2.
-- `governed`: el allow crea el checkout y la compra sigue hasta la aprobación humana
-  (ver [Flujo gobernado](#flujo-gobernado)). Es la condición B2 del piloto
-  (`docs/design/b2-governed-pilot.md`).
+- `governed`: el allow crea el checkout y la compra sigue a la aprobación humana, la
+  cancelación y la finalización (ver [Flujo gobernado](#flujo-gobernado)). Es la
+  condición B2 del piloto (`docs/design/b2-governed-pilot.md`).
 
 ## Configuración
 
@@ -65,15 +65,35 @@ los puertos de `governance/runtime_dispatch.py`:
 - **Post-creación.** Datos del comprador, relectura y, si el total supera el presupuesto,
   cancelación: cada efecto queda en el diario `d1_post_create_events` y se ejecuta una vez.
   La compra termina en `awaiting_confirmation` con la operación `confirmed`.
+- **Continuación.** Desde ahí la compra sigue a la aprobación humana, la cancelación y la
+  finalización (ver abajo). Prueba live con comercio y PSP reales:
+  `test_b2_governed_purchase_completes_once_with_signed_receipts`.
 
 Un deny sigue sin tocar el Merchant: `d1_denied`, compra en `received` y cero POST.
+Esa compra no cuenta como pendiente, así que no impide la siguiente.
+
+### Continuación gobernada
+
+Con enforce, presentar los términos, aprobar, cancelar y completar responden
+`d1_continuation_blocked` para cualquier compra. En el flujo gobernado,
+`governance/hp_continuation.py` levanta ese bloqueo solo si se cumplen a la vez:
+
+1. hay un allow de D1 comprometido para la compra;
+2. la operación de despacho que ese allow autorizó quedó `confirmed` con el mismo
+   `checkout_id` que la compra;
+3. el diario de post-creación terminó en `awaiting_confirmation` con ese checkout.
+
+Si un hecho falta, no se puede leer o no coincide, la regla rechaza. Con
+`AGENT_HP_FLOW=blocked` la regla no existe y todo sigue bloqueado, también para una
+compra que se preparó antes en el flujo gobernado. La aprobación, la cancelación del
+comprador y la finalización usan los mismos servicios que B0 (`approval.py`,
+`completion.py`) y dejan su evidencia en las tablas de B0, no en el diario de D1.
 
 ## Límites
 
 - La guarda B0 `invalid_candidate` corre antes del gate: POL-01 nunca deniega en
   el flujo integrado. El deny demostrable es POL-02 (merchant no autorizado).
-- Presentar, aprobar, cancelar y completar una compra con D1 siguen respondiendo
-  `d1_continuation_blocked`, también en el flujo gobernado. La continuación gobernada
-  es el PR siguiente del plan (`docs/design/b2-governed-pilot.md`).
+- La cancelación del comprador y la finalización no se registran en
+  `d1_post_create_events`: ese diario termina en `awaiting_confirmation`.
 - Una compra `uncertain` cuenta como pendiente y bloquea compras nuevas del mismo
   comprador. No hay salida automática de ese estado: la demo usa una base limpia.
