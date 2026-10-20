@@ -1,5 +1,6 @@
 """Opt-in runtime D1 enforce through create_app/build_runtime; mock transports only."""
 
+import logging
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -21,7 +22,7 @@ from commerce_agent.governance.shadow import UnavailableShadowObserver, build_sh
 from commerce_agent.llm import CandidateDecision, CommerceDecision
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.runtime import build_runtime
-from tests.governance.test_shadow_integration import SpyGateway, configuration, start
+from tests.governance.test_shadow_integration import SpyGateway, configuration, service, start
 from tests.test_api import StubConversationRouter, checkout_details
 
 MERCHANT = Settings.model_fields["merchant_base_url"].default
@@ -199,7 +200,9 @@ def test_defaults_never_assemble_enforce(tmp_path: Path, monkeypatch: pytest.Mon
             built.close()
 
 
-def test_shadow_allowlist_only_observes(tmp_path: Path) -> None:
+def test_shadow_allowlist_only_observes_and_degradation_is_logged_per_purchase(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     settings = configuration(tmp_path / "shadow.db", agent_d1_allowed_merchant_origins=UNLISTED)
     built = runtime(settings, Merchant())
     try:
@@ -210,4 +213,10 @@ def test_shadow_allowlist_only_observes(tmp_path: Path) -> None:
     (record,) = decisions(settings.agent_database_path)
     assert record.decision.governance_mode == "shadow" and record.decision.outcome == "deny"
     invalid = configuration(tmp_path / "invalid.db", agent_d1_allowed_merchant_origins="ftp://x")
-    assert isinstance(build_shadow_observer(invalid, None), UnavailableShadowObserver)
+    observer = build_shadow_observer(invalid, None)
+    assert isinstance(observer, UnavailableShadowObserver)
+    purchase, _, _ = service(invalid, observer)
+    with caplog.at_level(logging.WARNING, logger="commerce_agent.governance.shadow"):
+        assert start(purchase).stage == "awaiting_confirmation"
+    assert "D1 shadow observation lost: GOV_FACTS_UNAVAILABLE" in caplog.text
+    assert observer.diagnostics.lost == 1

@@ -428,6 +428,10 @@ class UnavailableShadowObserver:
         ranking: Callable[[ProductFeed, PurchaseIntent], SelectionResult],
     ) -> object | None:
         self.diagnostics.lost += 1
+        # Once per purchase, not only at startup: a degraded run must not pass as shadow.
+        logging.getLogger(__name__).warning(
+            "D1 shadow observation lost: %s", self.diagnostics.reason
+        )
         return None
 
     def observe(
