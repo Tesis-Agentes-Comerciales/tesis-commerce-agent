@@ -94,9 +94,9 @@ La factoría requiere una instancia `SqliteHumanConsent` configurada por backend
 
 ## 7. Documentación de respaldo
 
-- [07B-P — preselección](ec-gov-07b-p-preselection-authority-results.md)
-- [07B-Q — shadow binding](ec-gov-07b-q-preselection-d1-binding-results.md)
-- [07B-B — D1 aplicado / D17](ec-gov-07b-b-d17-integration-results.md)
-- [07C — D2-HP acotado](ec-gov-07c-d2-hp-consent-results.md)
+- [07B-P — preselección](../archive/b2-governance/ec-gov-07b-p-preselection-authority-results.md)
+- [07B-Q — shadow binding](../archive/b2-governance/ec-gov-07b-q-preselection-d1-binding-results.md)
+- [07B-B — D1 aplicado / D17](../archive/b2-governance/ec-gov-07b-b-d17-integration-results.md)
+- [07C — D2-HP acotado](../archive/b2-governance/ec-gov-07c-d2-hp-consent-results.md)
 
 Este documento es un **handoff de integración**, no una afirmación de que la integración/UI real ya esté implementada. No habilita ninguna capacidad comercial.

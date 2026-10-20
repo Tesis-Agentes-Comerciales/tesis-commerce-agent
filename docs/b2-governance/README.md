@@ -76,11 +76,12 @@ a esa capa.
 - [Plan de evaluación](evaluation-plan.md)
 - [Plan de implementación](implementation-plan.md)
 - [Manifiesto legible por máquina](../../evaluation/b2-design.json)
+- [Reportes de ejecución EC-GOV (históricos)](../archive/b2-governance/README.md)
 
 Actualización 2026-10-19, posterior a la integración HP:
 
 - [D1 enforce opt-in en el runtime](d1-enforce-runtime-optin.md): configuración, deny en vivo (POL-02) y límites (PR #13).
-- [EC-GOV-06B, sección M: adenda de runtime, reintento y latencias](ec-gov-06b-d1-enforce-results.md): mediciones antes y después del PR #13 en la misma máquina. Conserva la tabla original.
+- [EC-GOV-06B, sección M: adenda de runtime, reintento y latencias](../archive/b2-governance/ec-gov-06b-d1-enforce-results.md): mediciones antes y después del PR #13 en la misma máquina. Conserva la tabla original.
 - [Handoff de integración HP del 17-oct](hp-integration-handoff-2026-10-17.md), con notas fechadas sobre enforce, D17, D2 y la reproducibilidad de la evidencia live.
 
 ## Qué cambia frente a B0
