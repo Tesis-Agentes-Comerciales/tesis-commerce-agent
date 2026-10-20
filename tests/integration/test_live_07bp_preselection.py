@@ -18,9 +18,7 @@ from commerce_agent.governance.models import ObjectRef
 from commerce_agent.governance.preselection import PreselectionAuthority, projected_candidate
 from commerce_agent.governance.remote_creation import LOOKUP_PATH, SessionScope
 from commerce_agent.persistence.preselection_sqlite import SqlitePreselectionStore
-from tests.integration.live_stack import live_stack_requirements
 
-pytestmark = live_stack_requirements()
 BOGOTA = DeliveryContext(country="CO", city="Bogota", postal_code="110111")
 # Observation only: the feed, the scope challenge and offer reads.
 READS = {("GET", "/feeds/current"), ("POST", LOOKUP_PATH), ("POST", "/lab/offers/get")}

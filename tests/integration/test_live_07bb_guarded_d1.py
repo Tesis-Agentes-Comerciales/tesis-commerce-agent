@@ -18,9 +18,10 @@ import pytest
 from pydantic import SecretStr
 
 from commerce_agent.governance.guarded_creation import CREATE_PATH, LOOKUP_PATH
-from tests.integration.live_stack import AgentProcess, live_stack_requirements
+from tests.integration.live_stack import AgentProcess
 
-pytestmark = live_stack_requirements()
+# About a minute per scenario: each one selects anew over the Merchant's full catalog.
+pytestmark = pytest.mark.slow
 UNCHANGED = ("orders", "checkout_mutations", "checkout_completion_attempts")
 EDITS = ("revision", "digest", "shipping", "expiry")
 

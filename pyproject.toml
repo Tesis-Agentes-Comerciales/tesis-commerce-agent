@@ -27,6 +27,7 @@ dev = [
   "playwright>=1.58,<2",
   "pyright>=1.1.405,<2",
   "pytest>=8.4,<10",
+  "pytest-cov>=7.1,<8",
   "ruff>=0.12,<1",
 ]
 
@@ -48,6 +49,19 @@ packages = ["src/commerce_agent"]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
 pythonpath = ["."]
+# tests/conftest.py applies live and evaluation by directory; see docs/testing.md.
+markers = [
+  "live: layer 4, real Merchant, payment provider and Docker PostgreSQL (tests/integration); skipped unless RUN_LIVE_STACK=1",
+  "slow: over ~20 s per test; deselect with -m 'not slow' for a quick live subset",
+  "evaluation: layer 5 in dry-run, the evaluation harnesses without models or network (tests/evaluation)",
+]
+
+[tool.coverage.run]
+source_pkgs = ["commerce_agent", "commerce_evaluation"]
+branch = true
+
+[tool.coverage.report]
+skip_empty = true
 
 [tool.pyright]
 include = ["src", "tests"]

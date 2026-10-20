@@ -22,10 +22,8 @@ from tests.integration.live_stack import (
     FIXED_CLOCK,
     JointCase,
     connect,
-    live_stack_requirements,
 )
 
-pytestmark = live_stack_requirements()
 UNCHANGED = ("orders", "checkout_mutations", "checkout_completion_attempts")
 
 
