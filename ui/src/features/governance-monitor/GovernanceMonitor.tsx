@@ -8,10 +8,12 @@ import { Fact } from "./Fact.tsx"
 
 function Decision({ title, value, explanation }: { title: string; value: PhaseEvidence | null; explanation: string }) {
   return <Card><CardHeader><CardTitle>{title}</CardTitle><p className="text-sm text-muted-foreground">{explanation}</p></CardHeader><CardContent className="space-y-4">
-    <Fact label="Decisión registrada" value={value?.outcome ?? null} />
-    <Fact label="Motivo registrado" value={value?.reason ?? null} />
-    <Fact label="Decision ID" value={value?.decisionId ?? null} />
-    <Fact label="Evidence ID" value={value?.evidenceId ?? null} />
+    <dl className="space-y-4">
+      <Fact label="Decisión registrada" value={value?.outcome ?? null} />
+      <Fact label="Motivo registrado" value={value?.reason ?? null} />
+      <Fact label="Decision ID" value={value?.decisionId ?? null} />
+      <Fact label="Evidence ID" value={value?.evidenceId ?? null} />
+    </dl>
     <details><summary className="cursor-pointer text-sm underline">Digest de evidencia</summary><p className="mt-2 break-all font-mono text-xs">{unavailable(value?.digest ?? null)}</p></details>
   </CardContent></Card>
 }
@@ -26,33 +28,35 @@ export function ScenarioDetails({ scenario: s }: { scenario: Scenario }) {
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-semibold">{s.label}</h2><p className="mt-1 text-sm text-muted-foreground">{s.scope}</p></div><span className={`rounded-full px-4 py-2 text-sm font-semibold ${confirmed ? "bg-emerald-100 text-emerald-950" : "bg-amber-100 text-amber-950"}`}>{scenarioBadge(s)}</span></div>
     <div className="grid gap-4 md:grid-cols-3">
       <Card><CardHeader><CardTitle>Contexto y propuesta</CardTitle></CardHeader><CardContent className="space-y-4">
-        <Fact label="Modo · ejecución" value={`${s.mode} · ${s.executionKind}`} />
-        <Fact label="Tipo de fuente" value={sourceText(s)} />
-        <Fact label="Intención original" value={s.intent} />
-        <Fact label="Propuesta / variante" value={s.proposal} />
-        <Fact label="Operación propuesta" value={s.proposedAction} />
-        <Fact label="Total de la fuente" value={s.totalMinor === null ? null : `${s.totalMinor.toLocaleString("es-CO")} unidades menores · ${s.currency}`} />
+        <dl className="space-y-4">
+          <Fact label="Modo · ejecución" value={`${s.mode} · ${s.executionKind}`} />
+          <Fact label="Tipo de fuente" value={sourceText(s)} />
+          <Fact label="Intención original" value={s.intent} />
+          <Fact label="Propuesta / variante" value={s.proposal} />
+          <Fact label="Operación propuesta" value={s.proposedAction} />
+          <Fact label="Total de la fuente" value={s.totalMinor === null ? null : `${s.totalMinor.toLocaleString("es-CO")} unidades menores · ${s.currency}`} />
+        </dl>
         <details><summary className="cursor-pointer text-sm underline">Restricciones conservadas</summary><p className="mt-2 break-words font-mono text-xs">{unavailable(s.constraints)}</p></details>
       </CardContent></Card>
       <Decision title="Q · shadow" value={s.shadow} explanation="Observa. Un allow shadow no autoriza despacho." />
       <Decision title="D1 · enforce" value={s.enforce} explanation={s.mode === "HNP" ? "No ejecutado por este harness HNP; controles experimentales debajo." : "Separada de Q. Una referencia no sustituye un veredicto ausente."} />
     </div>
     {s.validator && <Card><CardHeader><CardTitle>{validatorCopy.title}</CardTitle><p className="text-sm text-muted-foreground">{validatorCopy.note}</p></CardHeader><CardContent>
-      <div className="flex flex-wrap gap-6"><Fact label="Veredicto del validador" value={s.validator.verdict} /><Fact label="Adaptador" value={s.validator.adapterId} /><Fact label="Decisión backend independiente" value={s.backend.code} /></div>
+      <dl className="flex flex-wrap gap-6"><Fact label="Veredicto del validador" value={s.validator.verdict} /><Fact label="Adaptador" value={s.validator.adapterId} /><Fact label="Decisión backend independiente" value={s.backend.code} /></dl>
       <p className="mt-4 text-sm">{validatorCopy.checks}</p>
       <div className="mt-2 flex flex-wrap gap-2" aria-label="Declaraciones del validador">{s.validator.checks.map((c) => <span key={c.id} className={`rounded-md px-2 py-1 font-mono text-xs ${disagreement.some((x) => x.id === c.id) ? "bg-amber-100 text-amber-950" : "bg-muted"}`}>{c.id}: {c.result} (validador)</span>)}</div>
       <p className="mt-4 font-medium text-amber-900">{s.backend.failures.length ? `Control backend: ${s.backend.failures.join(", ")}. La evaluación del validador no superó el backend.` : "Sin fallos backend registrados."}</p>
       {disagreement.length > 0 && <div role="note" className="mt-3 rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950"><strong>Discrepancia documentada entre validador y backend</strong><p>{disagreement.map((c) => `${c.id}: pass declarado por el validador; denegado por el backend`).join(". ")}. Se conservan ambas observaciones originales.</p>{s.totalMinor !== null && s.budgetLimitMinor !== null && <p>Total de la fuente: {s.totalMinor.toLocaleString("es-CO")}; límite de la fuente: {s.budgetLimitMinor.toLocaleString("es-CO")} unidades menores. {s.totalMinor > s.budgetLimitMinor ? "El total excede el límite." : "El total no excede el límite."}</p>}<p>{validatorCopy.falsePass}</p></div>}
       <p className="mt-2 text-sm text-muted-foreground">PDP ejecutado: {s.backend.executedPolicyIds?.length === 0 ? "ninguno; executed_policy_ids=[]" : "no disponible"}. No equivale a POL-03–10 ni D2/D3 operativo.</p>
     </CardContent></Card>}
-    <Card><CardHeader><CardTitle>Operación y resultado observado</CardTitle></CardHeader><CardContent className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+    <Card><CardHeader><CardTitle>Operación y resultado observado</CardTitle></CardHeader><CardContent><dl className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
       <Fact label="Estado de ejecución" value={executionText[s.execution]} />
       <Fact label="Creación · observación inicial" value={creationText[s.creation]} />
       <Fact label="Estado de recuperación" value={recoveryText[s.recovery]} />
       <Fact label="POST comerciales históricos" value={s.commercialPosts === null ? null : String(s.commercialPosts)} />
       <Fact label={s.mode === "HNP" ? "Efecto en sink ficticio" : "Efecto checkout histórico"} value={s.effectOccurred === null ? null : s.effectOccurred ? "Observado" : "Ausencia de efectos observada en la fuente"} />
       <Fact label="Run / episodio" value={s.runId} /><Fact label="Operation ID" value={s.operationId} /><Fact label="Request ID" value={s.requestId} /><Fact label="Código backend registrado" value={s.backend.code} />
-    </CardContent></Card>
+    </dl></CardContent></Card>
     <Card><CardHeader><CardTitle>Fuente y límites</CardTitle></CardHeader><CardContent className="space-y-4">
       <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">{s.notes.map((note) => <li key={note}>{note}</li>)}</ul>
       {s.evidence.map((e) => <details key={e.artifact} className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">{e.artifact} · ver procedencia</summary><dl className="mt-3 grid gap-3 sm:grid-cols-2"><Fact label="Puntero en artefacto" value={e.pointer} /><Fact label="SHA-256 del archivo original" value={e.sha256} /><Fact label="Commit de código de la ejecución" value={e.codeCommit} /><Fact label="Digest registrado" value={e.recordDigest} /></dl></details>)}

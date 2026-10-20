@@ -19,14 +19,15 @@ const tally = (record: Partial<Record<string, number>>) => Object.entries(record
 
 /** Rows are recorded aggregates; a missing value reads as unavailable, never as zero. */
 function Table({ caption, head, rows }: { caption: string; head: string[]; rows: [string, ...(string | null)[]][] }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-max text-left text-sm"><caption className="sr-only">{caption}</caption>
+  // Focusable so a keyboard can scroll a table wider than the card.
+  return <div role="region" aria-label={caption} tabIndex={0} className="overflow-x-auto"><table className="w-full min-w-max text-left text-sm"><caption className="sr-only">{caption}</caption>
     <thead><tr>{head.map((h) => <th key={h} scope="col" className="border-b px-2 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{h}</th>)}</tr></thead>
     <tbody>{rows.map(([label, ...cells]) => <tr key={label} className="border-b last:border-0"><th scope="row" className="px-2 py-2 font-medium">{label}</th>{cells.map((cell, i) => <td key={head[i + 1]} className="px-2 py-2 font-mono text-xs">{unavailable(cell)}</td>)}</tr>)}</tbody>
   </table></div>
 }
 
 function Episode({ arm, episode: x }: { arm: keyof typeof armText; episode: ExperimentEpisode }) {
-  return <div className="space-y-3 rounded-lg border p-3"><h4 className="text-sm font-semibold">{armText[arm]}</h4><dl className="grid gap-3 sm:grid-cols-2">
+  return <div className="space-y-3 rounded-lg border p-3"><h3 className="text-sm font-semibold">{armText[arm]}</h3><dl className="grid gap-3 sm:grid-cols-2">
     <Fact label="Episodio" value={x.episodeId} />
     <Fact label="Código de admisión" value={x.admissionCode} />
     <Fact label="Efecto en sink ficticio" value={x.effect ? "Simulado; sin operación real" : "Sin efecto"} />
