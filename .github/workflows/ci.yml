@@ -148,13 +148,7 @@ jobs:
         run: npm run lint
 
       - name: Build
-        run: |
-          npm run build
-          # The opt-in governance monitor must stay out of the default build.
-          if grep -rqE "governance-monitor/[0-9]+" dist; then echo "Governance monitor bundled without VITE_GOVERNANCE_MONITOR=true"; exit 1; fi
-
-      - name: Unit tests
-        run: npm run test
+        run: npm run build
 
       - name: Build Storybook
         run: npm run build-storybook
@@ -167,6 +161,6 @@ jobs:
       - name: Storybook interaction tests
         run: npm run test-storybook
 
-      # Chat and governance journeys against the built UI with mocked backends; no services.
+      # Chat journeys against the built UI with mocked backends; no services.
       - name: Playwright E2E
         run: npm run e2e

@@ -7,7 +7,7 @@ import { defineConfig, mergeConfig } from "vitest/config"
 import viteConfig from "./vite.config.ts"
 
 // Cada historia es un test de Vitest en Chromium headless: render, `play` y a11y (addon-a11y).
-// `npm run test` sigue siendo `node --test`; este archivo solo define el proyecto `storybook`.
+// Este archivo solo define el proyecto `storybook`.
 export default mergeConfig(
   viteConfig,
   defineConfig({
