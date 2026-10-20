@@ -19,27 +19,37 @@ function controlIndex(kind: StepKind) {
   return (CONTROL_ORDER as StepKind[]).indexOf(kind)
 }
 
+const POLICY = controlIndex("policy_decision")
+
 /**
- * La traza solo trae lo que pasó. Con la política apagada se intercala su control como desactivado,
- * una vez elegido el producto: antes, la fila quedaría delante de una elección que aún no ocurrió. Si
- * la compra terminó antes de tiempo se agregan al final los controles que no alcanzó: así se ve qué
- * no ocurrió (ni checkout ni cobro). Una compra por confirmar no los agrega, porque no se sabe.
+ * Dónde va la política apagada: justo después de la elección, que es cuando se habría revisado. Lo
+ * que siga (el checkout o un fallo al crearlo) ocurrió después. Sin elección no tiene sitio aún,
+ * salvo que la traza ya traiga un control posterior.
+ */
+function policyOffSlot(rows: TimelineRow[]) {
+  const selection = rows.findLastIndex((row) => row.kind === "selection")
+  if (selection !== -1) return selection + 1
+  return rows.findIndex((row) => controlIndex(row.kind) > POLICY)
+}
+
+/**
+ * La traza solo trae lo que pasó. Con la política apagada se intercala su control como desactivado
+ * en el orden real (ver `policyOffSlot`). Si la compra terminó antes de tiempo se agregan al final
+ * los controles que no alcanzó: así se ve qué no ocurrió (ni checkout ni cobro); con la política
+ * apagada, la suya sigue diciendo «desactivada». Una compra por confirmar no los agrega, porque no se
+ * sabe.
  */
 function timelineRows(trace: PurchaseTrace): TimelineRow[] {
   const rows: TimelineRow[] = [...trace.steps]
-  const selected = rows.some((row) => controlIndex(row.kind) >= controlIndex("selection"))
-  if (trace.policy_mode === "off" && selected) {
-    const policy = controlIndex("policy_decision")
-    const after = rows.findIndex((row) => controlIndex(row.kind) > policy)
-    rows.splice(after === -1 ? rows.length : after, 0, {
-      kind: "policy_decision",
-      reason: "policy_off",
-    })
-  }
+  const policyOff = trace.policy_mode === "off"
+  const slot = policyOff ? policyOffSlot(rows) : -1
+  if (slot !== -1) rows.splice(slot, 0, { kind: "policy_decision", reason: "policy_off" })
   if (ENDED_EARLY.has(trace.status)) {
     const reached = new Set(rows.map((row) => row.kind))
     for (const kind of CONTROL_ORDER) {
-      if (!reached.has(kind)) rows.push({ kind, reason: "not_reached" })
+      if (reached.has(kind)) continue
+      const reason = policyOff && kind === "policy_decision" ? "policy_off" : "not_reached"
+      rows.push({ kind, reason })
     }
   }
   return rows
