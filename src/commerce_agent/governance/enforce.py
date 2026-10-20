@@ -53,7 +53,13 @@ from .evaluator import (
     ReferencePolicyEvaluator,
     measure_reference_engine,
 )
-from .evidence import ApplicationFailure, DecisionRecord, EvidenceApplication, EvidenceScope
+from .evidence import (
+    ApplicationFailure,
+    DecisionEvidence,
+    DecisionRecord,
+    EvidenceApplication,
+    EvidenceScope,
+)
 from .evidence_artifacts import capture_reference_sources
 from .models import (
     SCHEMA,
@@ -193,7 +199,7 @@ class SqliteD1EnforceGate:
         owner_id: str,
         selection: SelectionResult,
         candidate: ProductCandidate,
-    ) -> tuple[SelectionPolicyInput, ObjectRef, str, str, str, EvidenceScope, bytes]:
+    ) -> tuple[SelectionPolicyInput, ObjectRef, str, str, str, int, EvidenceScope, bytes]:
         vault = SqliteD1ProvenanceStore(connection, self._keys)
         ledger = SqliteGovernanceEvidenceStore(connection)
         with connection:
@@ -239,12 +245,14 @@ class SqliteD1EnforceGate:
                 "selected_variant_id": candidate.variant_id,
                 "merchant_ref": ctx.merchant_ref,
             }
+            history = ledger.for_run(run_id)
             previous = connection.execute(
-                "SELECT canonical_input,context_ref,operation_id,evidence_id,idempotency_key "
-                "FROM d1_enforce_inputs WHERE run_id=?",
+                "SELECT attempt,canonical_input,context_ref,operation_id,evidence_id,"
+                "idempotency_key FROM d1_enforce_inputs WHERE run_id=? "
+                "ORDER BY attempt DESC LIMIT 1",
                 (run_id,),
             ).fetchone()
-            if previous is None:
+            if previous is None or self._settled(history, previous[1]):
                 data = parse_model(
                     SelectionPolicyInput,
                     canonical_bytes(
@@ -261,9 +269,10 @@ class SqliteD1EnforceGate:
                 )
                 key = "agent_" + secrets.token_urlsafe(24)
                 connection.execute(
-                    "INSERT INTO d1_enforce_inputs VALUES (?,?,?,?,?,?)",
+                    "INSERT INTO d1_enforce_inputs VALUES (?,?,?,?,?,?,?)",
                     (
                         run_id,
+                        1 if previous is None else previous[0] + 1,
                         canonical_bytes(data),
                         canonical_bytes(context.ref),
                         operation_id,
@@ -272,14 +281,16 @@ class SqliteD1EnforceGate:
                     ),
                 )
             else:
-                data = parse_model(SelectionPolicyInput, previous[0])
+                data = parse_model(SelectionPolicyInput, previous[1])
                 if canonical_bytes(
                     data.model_dump(
                         mode="json", exclude={"decision_id", "authority_now", "commercial_now"}
                     )
-                ) != canonical_bytes(template) or previous[1] != canonical_bytes(context.ref):
+                ) != canonical_bytes(template) or previous[2] != canonical_bytes(context.ref):
                     raise GovernanceError("GOV_INPUT_INVALID")
-                operation_id, evidence_id, key = previous[2:]
+                operation_id, evidence_id, key = previous[3:6]
+            # Ledger sequences are contiguous per run; this attempt appends after them.
+            sequence = len(history) + 1
             refs = (
                 intent_ref,
                 feed_ref,
@@ -305,7 +316,28 @@ class SqliteD1EnforceGate:
             )
             policy = vault.public_source(run_id, owner_id, ctx.policy_artifact_ref, "policy")
             ledger.register_episode(scope, policy_bytes=policy, engine_bytes=self._engine_bytes)
-        return data, context.ref, operation_id, evidence_id, key, scope, policy
+        return data, context.ref, operation_id, evidence_id, key, sequence, scope, policy
+
+    @staticmethod
+    def _settled(history: tuple[DecisionEvidence, ...], canonical_input: bytes) -> bool:
+        """Only an attempt that ended without a reservation admits a new one.
+
+        Recorded deny/blocked/failure evidence is kept and a retry appends after it.
+        An attempt without evidence may be in flight or lost before commit, so it is
+        continued with its identities. A committed transition is never superseded.
+        """
+        if any(
+            isinstance(item, DecisionRecord)
+            and item.application.disposition == "transition_committed"
+            for item in history
+        ):
+            return False
+        decision_id = parse_model(SelectionPolicyInput, canonical_input).decision_id
+        return any(
+            (item.decision.decision_id if isinstance(item, DecisionRecord) else item.decision_id)
+            == decision_id
+            for item in history
+        )
 
     def create_checkout(
         self,
@@ -331,9 +363,16 @@ class SqliteD1EnforceGate:
             )
             with closing(self._connect()) as connection:
                 started = perf_counter_ns()
-                data, context_ref, operation_id, evidence_id, key, scope, policy = self._assemble(
-                    connection, capture, run_id, owner_id, selection, candidate
-                )
+                (
+                    data,
+                    context_ref,
+                    operation_id,
+                    evidence_id,
+                    key,
+                    sequence,
+                    scope,
+                    policy,
+                ) = self._assemble(connection, capture, run_id, owner_id, selection, candidate)
                 self.timings["snapshots_ms"] = (perf_counter_ns() - started) / 1e6
                 started = perf_counter_ns()
                 uow = SqliteD1UnitOfWork(
@@ -386,7 +425,7 @@ class SqliteD1EnforceGate:
                     schema_version=SCHEMA,
                     record_kind="decision_record",
                     evidence_id=evidence_id,
-                    sequence=1,
+                    sequence=sequence,
                     recorded_at=result.decided_at,
                     canonicalization_profile="commerce-canonical-json/1",
                     canonical_input_bytes=canonical_bytes(data).decode(),
@@ -559,7 +598,7 @@ class SqliteD1EnforceGate:
                     schema_version=SCHEMA,
                     record_kind="application_failure",
                     evidence_id="failure:" + sha256_digest(record.evidence_id.encode())[7:],
-                    sequence=2,
+                    sequence=record.sequence + 1,
                     recorded_at=utc_milliseconds(datetime.now(UTC)),
                     run_id=data.run_id,
                     trace_id=data.trace_id,

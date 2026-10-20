@@ -2,6 +2,7 @@
 
 The original 06A reservation and its triggers are unchanged. A claimed operation
 without a result is uncertain after restart; no method here authorizes resending.
+Each D1 attempt of a run appends one numbered input; earlier attempts stay intact.
 """
 
 import sqlite3
@@ -10,12 +11,20 @@ from typing import Literal
 from ..governance.evidence import EvidenceError
 
 _INPUT = """CREATE TABLE IF NOT EXISTS d1_enforce_inputs (
-    run_id TEXT PRIMARY KEY NOT NULL REFERENCES purchases(run_id),
+    run_id TEXT NOT NULL REFERENCES purchases(run_id),
+    attempt INTEGER NOT NULL CHECK(typeof(attempt)='integer' AND attempt>=1),
     canonical_input BLOB NOT NULL,
     context_ref BLOB NOT NULL,
     operation_id TEXT NOT NULL UNIQUE,
     evidence_id TEXT NOT NULL UNIQUE,
-    idempotency_key TEXT NOT NULL UNIQUE)"""
+    idempotency_key TEXT NOT NULL,
+    PRIMARY KEY(run_id, attempt))"""
+# Attempts are contiguous per run; a duplicate identity or gap is never inserted.
+_INPUT_CONFLICT = (
+    "NEW.attempt!=COALESCE((SELECT MAX(attempt)+1 FROM d1_enforce_inputs "
+    "WHERE run_id=NEW.run_id),1) OR EXISTS(SELECT 1 FROM d1_enforce_inputs "
+    "WHERE operation_id=NEW.operation_id OR evidence_id=NEW.evidence_id)"
+)
 _RESULT = """CREATE TABLE IF NOT EXISTS d1_checkout_results (
     operation_id TEXT PRIMARY KEY NOT NULL REFERENCES d1_checkout_operations(operation_id),
     state TEXT NOT NULL CHECK(state IN ('confirmed','uncertain','definitive_failure')),
@@ -47,11 +56,15 @@ class SqliteD1DispatchStore:
                         "BEGIN SELECT RAISE(ABORT,'d1_dispatch_immutable'); END",
                         name,
                     )
-                key = "run_id" if table == "d1_enforce_inputs" else "operation_id"
+                conflict = (
+                    _INPUT_CONFLICT
+                    if table == "d1_enforce_inputs"
+                    else f"EXISTS(SELECT 1 FROM {table} WHERE operation_id=NEW.operation_id)"
+                )
                 name = f"{table}_no_replace"
                 self._ddl(
                     f"CREATE TRIGGER IF NOT EXISTS {name} BEFORE INSERT ON {table} "
-                    f"WHEN EXISTS(SELECT 1 FROM {table} WHERE {key}=NEW.{key}) "
+                    f"WHEN {conflict} "
                     "BEGIN SELECT RAISE(ABORT,'d1_dispatch_immutable'); END",
                     name,
                 )

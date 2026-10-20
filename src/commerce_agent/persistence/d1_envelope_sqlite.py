@@ -58,7 +58,8 @@ class SqliteD1EnvelopeStore:
             "o.merchant_ref,o.variant_id,o.currency,o.quantity,o.idempotency_key,"
             "i.operation_id,i.evidence_id,i.idempotency_key,i.context_ref "
             "FROM d1_checkout_operations o JOIN purchases p ON p.run_id=o.run_id "
-            "JOIN d1_enforce_inputs i ON i.run_id=o.run_id WHERE o.operation_id=?",
+            "JOIN d1_enforce_inputs i ON i.run_id=o.run_id AND i.operation_id=o.operation_id "
+            "WHERE o.operation_id=?",
             (envelope.operation_id,),
         ).fetchone()
         body = envelope.body()
