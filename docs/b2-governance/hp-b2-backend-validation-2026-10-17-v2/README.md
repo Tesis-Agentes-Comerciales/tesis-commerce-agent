@@ -42,3 +42,13 @@ Derivada del candidato v2, que permanece intacto en custodia local.
 - SHA-256 manifiesto v2: `682a398929ef9a9229c6afd050f56b107c0b47695ab4c700d14707896bf4c1e6`.
 
 Se excluyen el plan local y las propuestas Notion. Los CSV y JSON conservan sus bytes. El README se adapta y se incorpora una regla de preservación de bytes limitada a este directorio. El manifiesto corresponde únicamente a esta selección Git. Los JSON de resultados e integridad siguen siendo registros históricos, no una nueva ejecución ni un cierre de gates.
+
+## Corrección/actualización 2026-10-19
+
+La [adenda del 19 de octubre](adenda-2026-10-19.md) hace tres correcciones:
+
+- I05/I06 se apoyó en una política deny inyectada en tests. En el runtime de esa fecha enforce no podía activarse, así que no se verificó D1 enforce en el flujo real.
+- La variante local de I10 no tenía test en el repositorio hasta el PR #15.
+- La evidencia live se ejecutó una vez en Windows, con un worker de inyección de fallos que no está en ningún repositorio. No es reproducible desde `main`.
+
+La adenda también registra los cambios posteriores de los PR #12–#15 del Agent y del PR #3 del Merchant, y el cierre con mitigación de `AUDIT-MERCHANT-CANCEL-01`. No cambian los archivos sellados, los inventarios, la matriz, los resultados ni los gates. El dictamen sigue **PARTIAL**. En esta revisión solo cambian este README y `hashes.sha256`, que se regenera y añade la adenda. La selección Git pasa a 37 archivos: 36 entradas y su manifiesto.
