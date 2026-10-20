@@ -215,11 +215,12 @@ const FRESHNESS_WHEN: Record<FreshnessStep["stage"], string> = {
   approve: "Antes de registrar tu aprobación",
 }
 
-/** Qué no pasó cuando la comprobación detuvo la compra. */
-const FRESHNESS_STOPPED: Record<FreshnessStep["stage"], string> = {
-  present: "No se mostraron los términos para aprobar.",
-  approve: "Tu aprobación no se registró y no se firmó ninguna autorización.",
-}
+/**
+ * Qué no pasó cuando un cambio detuvo la compra. Un solo texto para las dos etapas: al pulsar
+ * «Aprobar», el chat relee los términos (etapa `present`) antes de enviar la aprobación, así que una
+ * parada en `present` puede llegar después de mostrarlos. Lo que sí vale en las dos es esto.
+ */
+const FRESHNESS_STOPPED = "No se registró ninguna aprobación ni se firmó ninguna autorización."
 
 const FRESHNESS_PRECAUTION = "Por precaución, la compra se detuvo."
 
@@ -229,7 +230,7 @@ function freshnessTitle(step: FreshnessStep) {
 
 function freshnessDetail(step: FreshnessStep) {
   if (step.state === "blocked") {
-    return step.outcome === "unavailable" ? FRESHNESS_PRECAUTION : FRESHNESS_STOPPED[step.stage]
+    return step.outcome === "unavailable" ? FRESHNESS_PRECAUTION : FRESHNESS_STOPPED
   }
   // En modo observando un cambio no detiene nada: se dice, igual que en la política.
   if (step.mode === "shadow" && step.outcome !== "fresh") return POLICY_MODE_LABEL.shadow

@@ -113,14 +113,15 @@ export const FreshnessConfirmed: Story = {
   },
 }
 
+/** Lo que no ocurrió, igual en las dos etapas. */
+const STOPPED = "No se registró ninguna aprobación ni se firmó ninguna autorización."
+
 /** S04, al aprobar: el precio cambió y el control detuvo la aprobación antes de firmar. */
 export const FreshnessBlocked: Story = {
   args: { step: CHANGED },
   play: async ({ canvas, canvasElement }) => {
     await expect(canvas.getByText("Las condiciones del comercio cambiaron")).toBeVisible()
-    await expect(
-      canvas.getByText("Tu aprobación no se registró y no se firmó ninguna autorización."),
-    ).toBeVisible()
+    await expect(canvas.getByText(STOPPED)).toBeVisible()
     // Escudo ámbar como cualquier bloqueo, pero sin atribuirlo a la política.
     await expect(canvasElement.querySelector("li")).toHaveAttribute("data-state", "blocked")
     await expect(canvas.getByText("Detenido")).toHaveClass("sr-only")
@@ -137,11 +138,17 @@ export const FreshnessBlocked: Story = {
   },
 }
 
-/** Al presentar: la oferta cambió antes de que vieras los términos. */
-export const FreshnessBlockedWhenPresenting: Story = {
-  args: { step: { ...CHANGED, stage: "present" } },
+/**
+ * S04 en el chat: al pulsar «Aprobar» la UI relee los términos (etapa `present`) y la frescura los
+ * rechaza ahí, después de haberlos mostrado. El texto no dice que no se mostraron.
+ */
+export const FreshnessBlockedWhenRereading: Story = {
+  args: { step: lastStepOf(TRACES.staleTermsReread, "freshness_check") },
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("No se mostraron los términos para aprobar.")).toBeVisible()
+    await expect(canvas.getByText("Las condiciones del comercio cambiaron")).toBeVisible()
+    await expect(canvas.getByText(STOPPED)).toBeVisible()
+    await expect(canvas.queryByText(/No se mostraron/)).toBeNull()
+    await expect(canvas.getByRole("list", { name: "Qué cambió" })).toBeVisible()
   },
 }
 

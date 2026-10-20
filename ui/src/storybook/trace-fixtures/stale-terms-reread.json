@@ -1,0 +1,139 @@
+{
+  "run_id": "run_7c3e9a1d5b2f4e8a0c6d2b9f1e3a5c70",
+  "status": "stale_terms",
+  "policy_mode": "enforce",
+  "request": "Quiero audífonos negros por menos de 2 millones",
+  "merchant": "http://127.0.0.1:4120",
+  "total": {
+    "minor": 192400000,
+    "currency": "COP"
+  },
+  "started_at": "2026-10-20T16:10:20.412Z",
+  "updated_at": "2026-10-20T16:11:05.208Z",
+  "steps": [
+    {
+      "id": "request",
+      "at": "2026-10-20T16:10:20.412Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "request"
+    },
+    {
+      "id": "selection",
+      "at": "2026-10-20T16:10:29.130Z",
+      "duration_ms": 8718,
+      "actor": "agent",
+      "state": "done",
+      "kind": "selection",
+      "product": "Sony WH-1000XM6 negro",
+      "total_minor": 189900000,
+      "currency": "COP"
+    },
+    {
+      "id": "policy_decision",
+      "at": "2026-10-20T16:10:29.134Z",
+      "duration_ms": 4,
+      "actor": "policy",
+      "state": "done",
+      "kind": "policy_decision",
+      "decision": {
+        "mode": "enforce",
+        "outcome": "allow",
+        "effect": "continued",
+        "policy": {
+          "set_id": "d1-demo-policy",
+          "revision": 3
+        },
+        "rules": [
+          {
+            "id": "POL-01",
+            "result": "pass",
+            "observed": "SON-XM6-BLK",
+            "expected": "BOS-QCU-BLK, SON-XM6-BLK"
+          },
+          {
+            "id": "POL-02",
+            "result": "pass",
+            "observed": "http://127.0.0.1:4120",
+            "expected": "http://127.0.0.1:4120"
+          }
+        ],
+        "reason_codes": [
+          "ALL_APPLICABLE_POLICIES_SATISFIED"
+        ],
+        "latency_ms": 4,
+        "decision_id": "decision:5e2a8c1f9b7d4e03a6c8b1d2f4e6a809",
+        "evidence_id": "evidence:a809f4e6b1d2a6c84e039b7d5e2a8c1f"
+      }
+    },
+    {
+      "id": "checkout_created",
+      "at": null,
+      "duration_ms": null,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "checkout_created",
+      "checkout_id": "cs_5e2a8c1f9b7d"
+    },
+    {
+      "id": "freshness_check:1",
+      "at": "2026-10-20T16:10:31.020Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "freshness_check",
+      "stage": "present",
+      "mode": "enforce",
+      "outcome": "fresh",
+      "changes": [],
+      "currency": "COP",
+      "offer_revision": 1,
+      "read_error": null,
+      "evidence_digest": "sha256:7baaf83a0fe47b2e9aefcc0351ecda5396c389977dbda19bd51182c49c7f83ed"
+    },
+    {
+      "id": "approval",
+      "at": "2026-10-20T16:10:31.112Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "skipped",
+      "kind": "approval",
+      "fingerprint": "4d8b2e6f0a3c7e1d5b9f2a6c0e4d8b1f3a7c5e9d2b6f0a4c8e1d3b7f5a9c2e6d",
+      "expires_at": "2026-10-20T16:25:31.020Z",
+      "approved_at": null
+    },
+    {
+      "id": "freshness_check:2",
+      "at": "2026-10-20T16:11:05.208Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "blocked",
+      "kind": "freshness_check",
+      "stage": "present",
+      "mode": "enforce",
+      "outcome": "changed",
+      "changes": [
+        {
+          "field": "subtotal_minor",
+          "presented": 189900000,
+          "current": 199900000
+        },
+        {
+          "field": "total_minor",
+          "presented": 192400000,
+          "current": 202400000
+        },
+        {
+          "field": "expires_at",
+          "presented": "2027-10-20T16:10:12.000Z",
+          "current": "2027-10-20T16:10:48.000Z"
+        }
+      ],
+      "currency": "COP",
+      "offer_revision": 2,
+      "read_error": null,
+      "evidence_digest": "sha256:172f838d1bbce0b1a89675d8fd78ed9a75d191533e3c92c84c2d9d1e684c48c6"
+    }
+  ]
+}

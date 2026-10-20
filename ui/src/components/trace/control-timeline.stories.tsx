@@ -151,6 +151,34 @@ export const StaleTerms: Story = {
   },
 }
 
+/**
+ * S04 en el chat de la demo: la aprobación nunca se envió. Al pulsar «Aprobar», releer los términos
+ * los rechazó; la fila de frescura bloqueada es de la etapa `present`, después de la confirmada.
+ */
+export const StaleTermsOnReread: Story = {
+  args: { trace: TRACES.staleTermsReread },
+  play: async ({ canvas, canvasElement }) => {
+    const rows = timelineRows(canvasElement)
+    const titles = rows.map((row) => row.querySelector("p")?.textContent)
+    await expect(titles.slice(4)).toEqual([
+      "Condiciones confirmadas con el comercio",
+      "Tu aprobación",
+      "Las condiciones del comercio cambiaron",
+      "Firmar la autorización",
+      "Autorizar el pago",
+      "Confirmar la orden",
+    ])
+    await expect(rows[4]).toHaveTextContent("Antes de mostrarte los términos")
+    await expect(rows[5]).toHaveTextContent("No se ejecutó")
+    await expect(rows[6]).toHaveAttribute("data-state", "blocked")
+    await expect(rows[6]).toHaveTextContent(
+      "No se registró ninguna aprobación ni se firmó ninguna autorización.",
+    )
+    await expect(canvas.queryByText(/No se mostraron/)).toBeNull()
+    await expect(canvas.queryByText("La política detuvo la compra")).toBeNull()
+  },
+}
+
 /** S02: el checkout se canceló por presupuesto y el agente explicó por qué, sin error técnico. */
 export const GovernedRecovery: Story = {
   args: { trace: TRACES.governedRecovery },
