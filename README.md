@@ -77,8 +77,9 @@ uv build
 ```
 
 Las pruebas E2E quedan omitidas en la suite normal. Las unitarias y de contrato no requieren red,
-modelo ni merchant. Las de integración real con PostgreSQL y Merchant son opt-in; sus variables y
-el procedimiento en macOS, Linux y Windows están en [tests/integration](tests/integration/README.md).
+modelo ni merchant. Las de integración real con PostgreSQL en Docker y el Merchant son opt-in
+(`RUN_LIVE_STACK=1` y `MERCHANT_REPO`); el procedimiento en macOS y Linux está en
+[tests/integration](tests/integration/README.md).
 
 ## Inspección con LangGraph Studio
 
