@@ -6,6 +6,7 @@ import path from 'node:path';
 import { parseEvidence } from '../ui/src/features/governance-monitor/adapter.ts';
 import { parseDemoSnapshot } from '../ui/src/features/governance-monitor/snapshot-contract.ts';
 import { DEMO_SNAPSHOT_SHA256 } from '../ui/src/features/governance-monitor/snapshot-pin.ts';
+import { demoConfig } from '../ui/src/features/governance-monitor/demo-config.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -22,7 +23,7 @@ export async function preparedFixtureBytes() {
 async function main() {
   if (process.env.NODE_ENV === 'production' || process.argv.slice(2).join(' ') !== '--demo-fixtures-only') throw Error('DEMO_ONLY');
   const bytes = await preparedFixtureBytes();
-  const directory = path.join(root, '.local/mon-02b-2026-10-18/fixtures');
+  const directory = path.resolve(root, demoConfig(process.env).directory, 'fixtures');
   await mkdir(directory, { recursive: true });
   const destination = path.join(directory, 'hp-hnp-demo-v1.json');
   try { await writeFile(destination, bytes, { flag: 'wx' }); }

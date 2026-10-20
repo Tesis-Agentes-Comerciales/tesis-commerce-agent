@@ -6,11 +6,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDemoSnapshot, MAX_SNAPSHOT_BYTES, DEMO_SNAPSHOT_ID } from '../ui/src/features/governance-monitor/snapshot-contract.ts';
 import { DEMO_SNAPSHOT_SHA256 } from '../ui/src/features/governance-monitor/snapshot-pin.ts';
+import { DEMO_HOST, demoConfig } from '../ui/src/features/governance-monitor/demo-config.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const FIXTURES = path.join(ROOT, '.local/mon-02b-2026-10-18/fixtures');
+const CONFIG = demoConfig(process.env);
+const FIXTURES = path.resolve(ROOT, CONFIG.directory, 'fixtures');
 const CATALOG = Object.freeze({ [DEMO_SNAPSHOT_ID]: Object.freeze({ file: 'hp-hnp-demo-v1.json', sha256: DEMO_SNAPSHOT_SHA256 }) });
-const ORIGINS = new Set(['http://127.0.0.1:5182', 'http://127.0.0.1:5179']);
 
 export function assertDevelopmentRuntime() {
   if (process.env.NODE_ENV === 'production') throw Error('DEMO_DISABLED_IN_PRODUCTION');
@@ -45,8 +46,9 @@ export async function readAuthorizedSnapshot(directory = FIXTURES) {
 }
 
 // directory injection is for isolated fixture-file tests; the CLI has no path argument.
-export function createDemoServer({ fixtureDirectory = FIXTURES, audit = () => {} } = {}) {
+export function createDemoServer({ fixtureDirectory = FIXTURES, origins = CONFIG.origins, audit = () => {} } = {}) {
   assertDevelopmentRuntime();
+  const allowed = new Set(origins);
   const counters = { requests: 0, served: 0, invalid_id_or_path: 0, methods_rejected: 0, origins_rejected: 0, snapshots_rejected: 0 };
   const server = http.createServer(async (req, res) => {
     counters.requests++;
@@ -55,12 +57,12 @@ export function createDemoServer({ fixtureDirectory = FIXTURES, audit = () => {}
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Vary', 'Origin');
     const origin = req.headers.origin;
-    if (origin && ORIGINS.has(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
+    if (origin && allowed.has(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
     const reply = (status, code) => {
       res.writeHead(status, { 'Content-Type': 'application/json', Connection: 'close' });
       res.end(JSON.stringify({ code, classification: 'sanitized_demo_fixture', authenticated: false }));
     };
-    if (req.headers.authorization || req.headers.cookie || (origin && !ORIGINS.has(origin)) || req.headers.host !== `127.0.0.1:${server.address().port}`) {
+    if (req.headers.authorization || req.headers.cookie || (origin && !allowed.has(origin)) || req.headers.host !== `${DEMO_HOST}:${server.address().port}`) {
       counters.origins_rejected++; reply(403, 'DEMO_ORIGIN_REJECTED'); return;
     }
     if (req.method !== 'GET') {
@@ -85,12 +87,18 @@ export function createDemoServer({ fixtureDirectory = FIXTURES, audit = () => {}
 }
 
 async function main() {
+  const flag = process.argv.slice(2).join(' ');
+  // The PowerShell launcher reads host, port and directory here instead of repeating the defaults.
+  if (flag === '--print-config') {
+    console.log(JSON.stringify({ host: DEMO_HOST, port: CONFIG.port, url: CONFIG.snapshotUrl, directory: path.resolve(ROOT, CONFIG.directory) }));
+    return;
+  }
   assertDevelopmentRuntime();
-  if (process.argv.slice(2).join(' ') !== '--demo-fixtures-only') throw Error('EXPLICIT_DEMO_FLAG_REQUIRED');
+  if (flag !== '--demo-fixtures-only') throw Error('EXPLICIT_DEMO_FLAG_REQUIRED');
   await readAuthorizedSnapshot();
   const { server, counters } = createDemoServer({ audit: (entry) => console.log(JSON.stringify(entry)) });
-  server.listen({ host: '127.0.0.1', port: 5183, exclusive: true }, () => {
-    console.log(JSON.stringify({ event: 'demo_started', host: '127.0.0.1', port: 5183, snapshot: DEMO_SNAPSHOT_ID, sha256: DEMO_SNAPSHOT_SHA256, authentication: 'none; sanitized demo fixtures only', live_events: false }));
+  server.listen({ host: DEMO_HOST, port: CONFIG.port, exclusive: true }, () => {
+    console.log(JSON.stringify({ event: 'demo_started', host: DEMO_HOST, port: CONFIG.port, snapshot: DEMO_SNAPSHOT_ID, sha256: DEMO_SNAPSHOT_SHA256, authentication: 'none; sanitized demo fixtures only', live_events: false }));
   });
   server.on('error', () => { console.error('DEMO_LISTEN_FAILED'); process.exitCode = 1; });
   const stop = () => server.close(() => { console.log(JSON.stringify({ event: 'demo_stopped', counters })); });

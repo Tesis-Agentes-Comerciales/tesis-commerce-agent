@@ -49,6 +49,7 @@ formulario de acceso y nunca la evidencia. No importa el runtime comercial ni el
 VITE_GOVERNANCE_MONITOR=true npm run dev
 ```
 
+`VITE_GOVERNANCE_SNAPSHOT_PORT` (5183 por defecto) fija el puerto del snapshot local que lee el monitor.
 La reproducción, el servidor local de snapshots y sus variables están en
 [`docs/governance-monitor/README.md`](../docs/governance-monitor/README.md).
 

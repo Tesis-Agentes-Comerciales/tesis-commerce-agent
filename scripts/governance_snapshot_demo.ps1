@@ -1,8 +1,12 @@
 param([ValidateSet('Start','Stop')][string]$Action='Start')
 $ErrorActionPreference='Stop'
 $demoRoot=Split-Path -Parent $PSScriptRoot
-$demoDirectory=Join-Path $demoRoot '.local\mon-02b-2026-10-18'
 $demoScript=Join-Path $PSScriptRoot 'governance_snapshot_server.mjs'
+$demoNode=(Get-Command node -ErrorAction Stop).Source
+# Host, port and directory come from the shared demo configuration, environment overrides included.
+$demoConfig=& $demoNode $demoScript --print-config | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or -not $demoConfig) { throw 'Demo configuration rejected.' }
+$demoDirectory=$demoConfig.directory
 $demoPidFile=Join-Path $demoDirectory 'server.pid.json'
 
 if ($Action -eq 'Stop') {
@@ -30,13 +34,12 @@ if (Test-Path -LiteralPath $demoPidFile) {
     }
 }
 New-Item -ItemType Directory -Force -Path $demoDirectory | Out-Null
-$demoNode=(Get-Command node -ErrorAction Stop).Source
 $demoStamp=[DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff')
 $demoLog=Join-Path $demoDirectory ('server-'+$demoStamp+'.jsonl')
 $demoErrorLog=Join-Path $demoDirectory ('server-'+$demoStamp+'.stderr.log')
 $demoProcess=Start-Process -FilePath $demoNode -ArgumentList @(('"{0}"' -f $demoScript),'--demo-fixtures-only') -WorkingDirectory $demoRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $demoLog -RedirectStandardError $demoErrorLog
 Start-Sleep -Milliseconds 500
 if ($demoProcess.HasExited) { throw 'Demo failed to start. Inspect its local sanitized stderr log.' }
-@{pid=$demoProcess.Id;start_ticks=$demoProcess.StartTime.ToUniversalTime().Ticks.ToString();stdout=$demoLog;stderr=$demoErrorLog;classification='sanitized_demo_fixture';host='127.0.0.1';port=5183} | ConvertTo-Json | Set-Content -LiteralPath $demoPidFile -Encoding UTF8
-Write-Output 'Fixture-only snapshot server: http://127.0.0.1:5183/snapshots/hp-hnp-demo-v1'
+@{pid=$demoProcess.Id;start_ticks=$demoProcess.StartTime.ToUniversalTime().Ticks.ToString();stdout=$demoLog;stderr=$demoErrorLog;classification='sanitized_demo_fixture';host=$demoConfig.host;port=$demoConfig.port} | ConvertTo-Json | Set-Content -LiteralPath $demoPidFile -Encoding UTF8
+Write-Output ('Fixture-only snapshot server: {0}' -f $demoConfig.url)
 Write-Output 'No user authentication, commercial runtime or live events. Use -Action Stop to stop this exact process.'

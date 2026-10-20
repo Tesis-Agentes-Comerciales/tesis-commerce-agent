@@ -1,5 +1,9 @@
-import { DEMO_SNAPSHOT_URL, MAX_SNAPSHOT_BYTES, parseDemoSnapshot, type DemoSnapshot } from "./snapshot-contract.ts"
+import { demoConfig } from "./demo-config.ts"
+import { MAX_SNAPSHOT_BYTES, parseDemoSnapshot, type DemoSnapshot } from "./snapshot-contract.ts"
 import { DEMO_SNAPSHOT_SHA256 } from "./snapshot-pin.ts"
+
+// Vite inlines the build-time port; outside Vite (Node tests) the defaults apply.
+export const DEMO_SNAPSHOT_URL = demoConfig(import.meta.env ?? {}).snapshotUrl
 
 export class SnapshotReadError extends Error {
   kind: "timeout" | "disconnected" | "inconsistent"

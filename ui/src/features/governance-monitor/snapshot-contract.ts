@@ -2,7 +2,6 @@ import { parseEvidence, type EvidenceBundle } from "./adapter.ts"
 
 export const MAX_SNAPSHOT_BYTES = 65_536
 export const DEMO_SNAPSHOT_ID = "hp-hnp-demo-v1"
-export const DEMO_SNAPSHOT_URL = `http://127.0.0.1:5183/snapshots/${DEMO_SNAPSHOT_ID}`
 
 export type DemoSnapshot = {
   schema: "governance-demo-snapshot/1"

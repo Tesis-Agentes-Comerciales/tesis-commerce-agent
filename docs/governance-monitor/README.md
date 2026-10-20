@@ -31,7 +31,7 @@ Para detener: Ctrl+C en la terminal de la UI y, desde otra terminal en la raíz 
 powershell.exe -NoProfile -File scripts/governance_snapshot_demo.ps1 -Action Stop
 ```
 
-Stop comprueba la identidad del proceso registrado; no detiene todos los procesos Node. Los puertos 5182/5183 deben estar libres. No usar NODE_ENV=production: el servicio lo rechaza. La preparación genera únicamente una caché descartable en `.local`; no vuelve a ejecutar los escenarios.
+Stop comprueba la identidad del proceso registrado; no detiene todos los procesos Node. Los puertos 5182/5183 (o los configurados, ver abajo) deben estar libres. No usar NODE_ENV=production: el servicio lo rechaza. La preparación genera únicamente una caché descartable en `.local`; no vuelve a ejecutar los escenarios.
 
 ## Cuatro recorridos
 
@@ -46,7 +46,9 @@ Se separan ejecución, creación, recuperación y efecto observado; ausencia de 
 
 ## GET de demostración
 
-CLI separado, `127.0.0.1:5183`, lista fija con un único ID `hp-hnp-demo-v1`; máximo 65536 bytes, contrato `governance-demo-snapshot/1`, hash fijado, validación de redacción y consistencia antes de servir. Rechaza rutas desconocidas, traversal, query strings, métodos distintos de GET, credenciales entrantes, Host y Origin ajenos. No importa runtime, SDKs ni bases de datos. La CLI requiere `--demo-fixtures-only`; no se habilita en producción.
+CLI separado, `127.0.0.1:5183` por defecto, lista fija con un único ID `hp-hnp-demo-v1`; máximo 65536 bytes, contrato `governance-demo-snapshot/1`, hash fijado, validación de redacción y consistencia antes de servir. Rechaza rutas desconocidas, traversal, query strings, métodos distintos de GET, credenciales entrantes, Host y Origin ajenos. No importa runtime, SDKs ni bases de datos. La CLI requiere `--demo-fixtures-only`; no se habilita en producción.
+
+Los valores locales viven solo en `ui/src/features/governance-monitor/demo-config.ts` y cada uno se cambia por entorno: `VITE_GOVERNANCE_SNAPSHOT_PORT` (5183; lo leen el build de la UI y el servidor, así que debe coincidir en ambos), `GOVERNANCE_SNAPSHOT_ORIGINS` (orígenes CORS loopback separados por comas; por defecto `http://127.0.0.1:5182,http://127.0.0.1:5179`) y `GOVERNANCE_DEMO_DIR` (`.local/mon-02b-2026-10-18`, relativo a la raíz). Un puerto u origen inválido, o un origen no loopback, detiene el arranque. El host 127.0.0.1 no es configurable. `governance_snapshot_demo.ps1` obtiene esos valores con `--print-config`. El hash del snapshot tampoco es una variable: es el ancla de integridad que la UI compara con los bytes servidos, vive en `snapshot-pin.ts` y `npm run test` lo contrasta con la preparación determinista; el hash del bundle fuente se toma de `provenance.json`.
 
 **El GET no tiene autenticación real** (la pantalla sí exige sesión): solo fixtures sanitizadas, nunca evidencia de usuarios autenticados. Loopback y CORS no sustituyen autenticación ni protegen frente a un proceso local hostil. Los patrones de redacción tampoco son una garantía general para nuevos datos: la lista fija y los hashes limitan esta demo a los artefactos revisados.
 

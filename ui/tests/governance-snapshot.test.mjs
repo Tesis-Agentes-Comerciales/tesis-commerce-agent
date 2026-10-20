@@ -10,10 +10,11 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createDemoServer, validateSnapshotBytes, assertDevelopmentRuntime } from '../../scripts/governance_snapshot_server.mjs';
 import { preparedFixtureBytes } from '../../scripts/prepare_governance_snapshot.mjs';
-import { parseDemoSnapshot, MAX_SNAPSHOT_BYTES, DEMO_SNAPSHOT_URL } from '../src/features/governance-monitor/snapshot-contract.ts';
+import { parseDemoSnapshot, MAX_SNAPSHOT_BYTES } from '../src/features/governance-monitor/snapshot-contract.ts';
+import { demoConfig } from '../src/features/governance-monitor/demo-config.ts';
 import { DEMO_SNAPSHOT_SHA256 } from '../src/features/governance-monitor/snapshot-pin.ts';
 import { parseEvidence } from '../src/features/governance-monitor/adapter.ts';
-import { loadLocalSnapshot, SnapshotReadError } from '../src/features/governance-monitor/snapshot-reader.ts';
+import { loadLocalSnapshot, SnapshotReadError, DEMO_SNAPSHOT_URL } from '../src/features/governance-monitor/snapshot-reader.ts';
 import { offlineSource, beginLocalRead, acceptLocalRead, rejectLocalRead } from '../src/features/governance-monitor/source-state.ts';
 const { SourceView } = await import('../src/features/governance-monitor/SourceMonitor.tsx');
 
@@ -27,10 +28,11 @@ const response = (b = bytes) => new Response(b, { status: 200, headers: { 'Conte
 const wire = { loopback_requests: 0, methods_rejected: 0, snapshots_rejected: 0, commercial_requests: 0, remote_requests: 0 };
 const wireRecords = [];
 const scratch = tmpdir();
-async function withServer(work) {
+const [allowedOrigin] = demoConfig(process.env).origins;
+async function withServer(work, options = {}) {
   const directory = await mkdtemp(path.join(scratch, 'governance-fixture-'));
   await writeFile(path.join(directory, 'hp-hnp-demo-v1.json'), bytes);
-  const { server, counters } = createDemoServer({ fixtureDirectory: directory });
+  const { server, counters } = createDemoServer({ fixtureDirectory: directory, ...options });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const port = server.address().port;
   const request = (method = 'GET', pathname = '/snapshots/hp-hnp-demo-v1', headers = {}) => new Promise((resolve, reject) => {
@@ -67,13 +69,32 @@ test('snapshot preparation is deterministic from the unchanged closed source and
 test('HTTP GET serves exactly the pinned four-scenario offline bundle, no new events', async () => {
   assert.deepEqual(snapshot.bundle, offline);
   await withServer(async ({ request, counters }) => {
-    const r = await request('GET', undefined, { Origin: 'http://127.0.0.1:5182' });
+    const r = await request('GET', undefined, { Origin: allowedOrigin });
     assert.equal(r.status, 200);
     assert.equal(digest(r.bytes), digest(bytes));
-    assert.equal(r.headers['access-control-allow-origin'], 'http://127.0.0.1:5182');
+    assert.equal(r.headers['access-control-allow-origin'], allowedOrigin);
     assert.equal(counters.served, 1);
     assert.equal(parseDemoSnapshot(JSON.parse(r.bytes)).liveEvents, false);
   });
+});
+test('demo settings keep the reviewed defaults and are overridable only by the environment', () => {
+  const defaults = demoConfig({});
+  assert.deepEqual(defaults, { port: 5183, snapshotUrl: 'http://127.0.0.1:5183/snapshots/hp-hnp-demo-v1', origins: ['http://127.0.0.1:5182', 'http://127.0.0.1:5179'], directory: '.local/mon-02b-2026-10-18' });
+  assert.equal(DEMO_SNAPSHOT_URL, defaults.snapshotUrl);
+  const custom = demoConfig({ VITE_GOVERNANCE_SNAPSHOT_PORT: '6200', GOVERNANCE_SNAPSHOT_ORIGINS: ' http://localhost:5173 ,', GOVERNANCE_DEMO_DIR: '.local/other-run' });
+  assert.deepEqual(custom, { port: 6200, snapshotUrl: 'http://127.0.0.1:6200/snapshots/hp-hnp-demo-v1', origins: ['http://localhost:5173'], directory: '.local/other-run' });
+  for (const env of [{ VITE_GOVERNANCE_SNAPSHOT_PORT: '0' }, { VITE_GOVERNANCE_SNAPSHOT_PORT: '5183abc' }, { GOVERNANCE_SNAPSHOT_ORIGINS: 'https://example.invalid' }, { GOVERNANCE_SNAPSHOT_ORIGINS: 'http://127.0.0.1:5182/path' }]) {
+    assert.throws(() => demoConfig(env), /inválido/, JSON.stringify(env));
+  }
+});
+test('HTTP CORS follows the configured loopback origins only', async () => {
+  const { origins } = demoConfig({ GOVERNANCE_SNAPSHOT_ORIGINS: 'http://localhost:5173' });
+  await withServer(async ({ request }) => {
+    const r = await request('GET', undefined, { Origin: 'http://localhost:5173' });
+    assert.equal(r.status, 200);
+    assert.equal(r.headers['access-control-allow-origin'], 'http://localhost:5173');
+    assert.equal((await request('GET', undefined, { Origin: 'http://127.0.0.1:5182' })).status, 403);
+  }, { origins });
 });
 test('HTTP unknown ID, traversal, encoded paths and query strings are rejected', async () => {
   await withServer(async ({ request, counters }) => {
