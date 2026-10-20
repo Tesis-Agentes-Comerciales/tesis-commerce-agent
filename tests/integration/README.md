@@ -21,7 +21,8 @@ Hay cuatro grupos sobre el mismo PostgreSQL:
   al E2E conjunto de septiembre ([equivalencias](#equivalencia-con-el-e2e-conjunto)).
 - B2 gobernado (`test_live_b2_governed_purchase.py`): sobre el carril `b0`, la compra con
   `AGENT_GOVERNANCE_MODE=enforce` y `AGENT_HP_FLOW=governed`. El gate sale del bootstrap de
-  producción y crea el checkout con un solo POST.
+  producción y crea el checkout con un solo POST; la segunda prueba arma el runtime como el
+  piloto y llega a la orden con los recibos AP2.
 - Navegador (`test_live_browser.py`): sobre el carril `b0`, Chromium se registra en `auth/`,
   pide la compra en la UI servida por Vite, la aprueba en la tarjeta y ve la orden confirmada;
   el Agent atiende en este mismo proceso con el router guionado y guarda ambos recibos AP2.
@@ -73,11 +74,11 @@ Un módulo o un escenario: pase su archivo, o filtre por el identificador que ll
 (`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`, `-k b0`, `-k b2`, `-k acp`, `-k browser`). Con
 `--basetemp=<dir>` la evidencia queda en un lugar conocido.
 
-La suite completa (63 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B
+La suite completa (64 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B
 (marker `slow`): cada escenario hace una selección nueva sobre el catálogo completo del Merchant
 (cientos de lecturas de Offer por fase) y el Merchant reconstruye el catálogo en cada lectura.
-`-m "not slow"` deja 52 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
-la gobernada B2 y la del navegador) en unos 2 minutos.
+`-m "not slow"` deja 53 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
+las dos gobernadas B2 y la del navegador) en unos 2 minutos.
 
 ## Evidencia y limpieza
 

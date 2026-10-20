@@ -7,6 +7,7 @@ human approval; the blocked default keeps stopping at the durable reservation.
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -16,28 +17,61 @@ from commerce_agent.config import Settings
 from commerce_agent.runtime import AgentRuntime, build_runtime
 from tests.governance.test_shadow_integration import configuration, start
 from tests.test_api import checkout
+from tests.test_client import lab_offer
 
 UNLISTED = "https://otro-comercio.example"
 CREATE = ("POST", "/checkout_sessions")
+OFFER_READ = ("POST", "/lab/offers/get")
+# The live offer behind SON-01, unchanged since the checkout: the freshness guard reads it.
+LIVE_OFFER = {
+    **lab_offer(
+        price=72_000,
+        shipping=2_000,
+        observed_at="2026-09-20T11:00:00Z",
+        expires_at="2099-09-20T13:00:00Z",
+    ),
+    "id": "SON-01",
+    "product_id": "SON",
+    "name": "Sonora",
+}
+
+
+def acp_checkout(status: str, *, with_details: bool) -> dict[str, Any]:
+    """test_api's checkout as the merchant projects it: itemized totals, delivery in whole days."""
+    payload = checkout(status, with_details=with_details)
+    payload["totals"] = [
+        {"type": "subtotal", "display_text": "Producto", "amount": 72_000},
+        {"type": "fulfillment", "display_text": "Envio", "amount": 2_000},
+        *payload["totals"],
+    ]
+    for option in payload["fulfillment_options"]:
+        option["earliest_delivery_time"] = option["latest_delivery_time"] = "2026-09-22T11:00:00Z"
+    return payload
 
 
 class Merchant:
-    """ACP checkout double: one session, the same body on POST and on the next GET."""
+    """ACP checkout double: one session, the same body on POST and on the next GET.
+
+    It also serves the live offer, so the governed freshness check sees unchanged terms.
+    """
 
     def __init__(self, fault: str | None = None) -> None:
         self.fault = fault
         self.requests: list[tuple[str, str]] = []
         self.create_keys: list[str | None] = []
-        self.current = checkout("not_ready_for_payment", with_details=False)
+        self.current = acp_checkout("not_ready_for_payment", with_details=False)
+        self.offer = dict(LIVE_OFFER)
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append((request.method, request.url.path))
         if (request.method, request.url.path) == CREATE:
             self.create_keys.append(request.headers.get("Idempotency-Key"))
             return self._created(request)
+        if (request.method, request.url.path) == OFFER_READ:
+            return httpx.Response(200, json={"ok": True, "data": self.offer})
         if request.url.path == "/checkout_sessions/cs_api_1":
             if request.method == "POST":
-                self.current = checkout("ready_for_payment", with_details=True)
+                self.current = acp_checkout("ready_for_payment", with_details=True)
             return httpx.Response(200, json=self.current)
         raise AssertionError(f"Unexpected request: {request.method} {request.url.path}")
 
@@ -83,16 +117,15 @@ def test_governed_allow_creates_the_checkout_once_and_awaits_confirmation(tmp_pa
         assert built.d1_gate is not None
         status = built.d1_gate.recovery_status("run-real")
         assert status is not None and status[0:2] == ("confirmed", "cs_api_1")
-        # Dispatch alone grants no continuation: approval still needs its own rule.
-        with pytest.raises(PurchaseServiceError) as continuation:
-            built.purchases.approval_terms("run-real")
-        assert continuation.value.code == "d1_continuation_blocked"
+        dispatched = list(merchant.requests)
+        # The governed continuation presents the terms of the checkout D1 created.
+        assert built.purchases.approval_terms("run-real").checkout_id == "cs_api_1"
     finally:
         built.close()
     assert merchant.creations() == 1
     # The POST carries the idempotency key sealed in the D1 envelope, not a B0 key.
     assert merchant.create_keys == [operation_key(settings.agent_database_path)]
-    assert merchant.requests == [
+    assert dispatched == [
         CREATE,
         ("GET", "/checkout_sessions/cs_api_1"),
         ("POST", "/checkout_sessions/cs_api_1"),

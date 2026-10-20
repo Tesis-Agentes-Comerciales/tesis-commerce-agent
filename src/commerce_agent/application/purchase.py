@@ -108,6 +108,12 @@ class D1EnforceGate(Protocol):
     def post_create_flow(self, run_id: str, owner_id: str) -> PostCreateFlow: ...
 
 
+class D1Continuation(Protocol):
+    """Whether a purchase with D1 history may continue past checkout preparation."""
+
+    def admits(self, run_id: str) -> bool: ...
+
+
 class PurchaseServiceError(RuntimeError):
     def __init__(self, message: str, *, code: str) -> None:
         super().__init__(message)
@@ -148,6 +154,7 @@ class PurchaseService:
         offer_freshness: OfferFreshnessGuard | None = None,
         d1_observer: D1SelectionObserver | None = None,
         d1_gate: D1EnforceGate | None = None,
+        d1_continuation: D1Continuation | None = None,
     ) -> None:
         self._feed = feed
         self._checkout = checkout
@@ -158,6 +165,9 @@ class PurchaseService:
         if d1_gate is not None and d1_observer is not None:
             raise ValueError("D1 enforce and shadow must be configured separately")
         self._d1_gate = d1_gate
+        if d1_continuation is not None and d1_gate is None:
+            raise ValueError("Governed continuation requires the D1 enforce gate")
+        self._d1_continuation = d1_continuation
 
     def start(
         self,
@@ -503,7 +513,10 @@ class PurchaseService:
         return self._checkout.get_checkout(checkout_id)
 
     def _block_d1_continuation(self, run_id: str) -> None:
-        if self._d1_gate is not None or self._store.has_d1_operation(run_id):
+        if self._d1_gate is None and not self._store.has_d1_operation(run_id):
+            return
+        # Enforce refuses every later step unless the governed flow admits this purchase.
+        if self._d1_continuation is None or not self._d1_continuation.admits(run_id):
             raise PurchaseServiceError(
                 "D1 continuation requires independent authorization", code="d1_continuation_blocked"
             )
