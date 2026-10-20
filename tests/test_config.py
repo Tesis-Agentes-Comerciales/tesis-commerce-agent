@@ -46,3 +46,16 @@ def test_sandbox_clock_requires_an_explicit_timezone() -> None:
 def test_local_feed_requires_an_explicit_path() -> None:
     with pytest.raises(ValidationError, match="AGENT_FEED_PATH"):
         Settings(agent_feed_source="file", agent_feed_path=None)
+
+
+def test_hp_flow_defaults_to_blocked_and_reads_its_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert Settings(_env_file=None).agent_hp_flow == "blocked"  # type: ignore[call-arg]
+
+    monkeypatch.setenv("AGENT_HP_FLOW", "governed")
+    assert Settings(_env_file=None).agent_hp_flow == "governed"  # type: ignore[call-arg]
+
+    monkeypatch.setenv("AGENT_HP_FLOW", "anything")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # type: ignore[call-arg]

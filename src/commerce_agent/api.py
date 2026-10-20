@@ -196,7 +196,12 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok"}
+        # Evaluation runners check the condition they started before each repetition.
+        return {
+            "status": "ok",
+            "governance_mode": configuration.agent_governance_mode,
+            "hp_flow": configuration.agent_hp_flow,
+        }
 
     @app.get("/.well-known/ap2/jwks.json")
     def ap2_jwks() -> dict[str, object]:
