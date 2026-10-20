@@ -117,7 +117,7 @@ validada del feed de solo lectura y no puede preparar checkout ni ejecutar pagos
 | `interpret_request` | Cada `add-message` | `{}` | `{"action": "respond" \| "clarify" \| "purchase", "constraints": HardConstraints \| null, "preferences": SoftPreferences \| null}` |
 | `search_catalog` | `action == "purchase"` | `{"constraints", "preferences"}` | `{"matches": int, "rejections": {motivo: int}, "products": [ProductCard] (máx. 6)}` |
 | `select_product` | Hay candidatos | `{"candidate_variant_ids": [str]}` | `{"decision": "select" \| "clarify", "product": ProductCard \| null, "rationale": str}` |
-| `prepare_checkout` | Producto elegido | `{"variant_id": str}` | `{"run_id", "checkout_id", "checkout_status", "price_changed": bool, "total_minor": int, "currency": str}` |
+| `prepare_checkout` | Producto elegido | `{"variant_id": str, "run_id": str}` | `{"run_id", "checkout_id", "checkout_status", "price_changed": bool, "total_minor": int, "currency": str}` |
 | `request_approval` | Checkout listo | `{"run_id": str}` | `{"run_id", "stage", "terms": ApprovalTerms}` (igual a `GET /purchases/{run_id}/approval`) |
 | `purchase_update` | Comando `purchase-updated` | `{"run_id": str}` | `{"run_id", "stage", "order_id": str \| null}` |
 
@@ -192,7 +192,9 @@ Detalles que el contrato no fijaba y que el backend implementa así (`src/commer
 - El texto final de un turno de compra es la explicación del modelo (más la nota de precio si
   cambió). La invitación a aprobar la pone la tarjeta, que sabe si la compra sigue abierta.
 - Un paso que falla o se cancela recibe `result: {"error": {"code", "message"}}` con
-  `isError: true`, para que la UI no lo muestre en curso indefinidamente. Un `purchase-updated` con
+  `isError: true`, para que la UI no lo muestre en curso indefinidamente. Por eso `prepare_checkout`
+  lleva el `run_id` en sus `args`: si la política de compra lo detiene (`d1_denied`), la UI lee de ahí
+  la compra para pedir su traza. Un `purchase-updated` con
   un `run_id` desconocido produce el tool `purchase_update` con error y estado `incomplete`/`error`
   ("No encontré esa compra.").
 - Las partes `reasoning` se agregan donde llega el primer delta, es decir, después del tool call del
