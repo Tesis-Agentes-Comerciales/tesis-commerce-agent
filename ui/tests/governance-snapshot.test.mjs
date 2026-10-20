@@ -3,22 +3,22 @@ import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import http from 'node:http';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { readFile, writeFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createDemoServer, validateSnapshotBytes, assertDevelopmentRuntime } from '../../scripts/governance_snapshot_server.mjs';
 import { preparedFixtureBytes } from '../../scripts/prepare_governance_snapshot.mjs';
 import { parseDemoSnapshot, MAX_SNAPSHOT_BYTES, DEMO_SNAPSHOT_URL } from '../src/features/governance-monitor/snapshot-contract.ts';
+import { DEMO_SNAPSHOT_SHA256 } from '../src/features/governance-monitor/snapshot-pin.ts';
 import { parseHistoricalEvidence } from '../src/features/governance-monitor/historical.ts';
 import { loadLocalSnapshot, SnapshotReadError } from '../src/features/governance-monitor/snapshot-reader.ts';
 import { offlineSource, beginLocalRead, acceptLocalRead, rejectLocalRead } from '../src/features/governance-monitor/source-state.ts';
 const { SourceView } = await import('../src/features/governance-monitor/SourceMonitor.tsx');
 
-const run = new URL('../../.local/mon-02b-2026-10-18/', import.meta.url);
-const fixture = new URL('fixtures/hp-hnp-demo-v1.json', run);
-const bytes = await readFile(fixture);
+// Prepared from the versioned evidence on every run: no `.local` cache or earlier preparation step.
+const bytes = await preparedFixtureBytes();
 const snapshot = parseDemoSnapshot(JSON.parse(bytes));
 const legacy = JSON.parse(await readFile(new URL('../src/features/governance-monitor/evidence.json', import.meta.url), 'utf8'));
 const offline = parseHistoricalEvidence(legacy);
@@ -27,11 +27,10 @@ const encode = (value) => Buffer.from(JSON.stringify(value));
 const response = (b = bytes) => new Response(b, { status: 200, headers: { 'Content-Type': 'application/json' } });
 const wire = { loopback_requests: 0, methods_rejected: 0, snapshots_rejected: 0, commercial_requests: 0, remote_requests: 0 };
 const wireRecords = [];
-const reportId = `${process.pid}-${Date.now()}`;
-await mkdir(new URL('tmp/', run), { recursive: true });
+const scratch = tmpdir();
 async function withServer(work) {
-  const directory = await mkdtemp(new URL('tmp/fixture-', run));
-  await writeFile(new URL('hp-hnp-demo-v1.json', new URL('file:///' + directory.replaceAll('\\', '/') + '/')), bytes);
+  const directory = await mkdtemp(path.join(scratch, 'governance-fixture-'));
+  await writeFile(path.join(directory, 'hp-hnp-demo-v1.json'), bytes);
   const { server, counters } = createDemoServer({ fixtureDirectory: directory });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const port = server.address().port;
@@ -54,15 +53,16 @@ async function withServer(work) {
     wire.methods_rejected += counters.methods_rejected;
     wire.snapshots_rejected += counters.snapshots_rejected;
     await new Promise((resolve) => server.close(resolve));
-    const relative = path.relative(fileURLToPath(new URL('tmp/', run)), path.resolve(directory));
-    assert.ok(relative.startsWith('fixture-') && !relative.includes(path.sep) && !path.isAbsolute(relative));
+    const relative = path.relative(scratch, directory);
+    assert.ok(relative.startsWith('governance-fixture-') && !relative.includes(path.sep) && !path.isAbsolute(relative));
     await rm(directory, { recursive: true });
   }
 }
 const render = (state) => renderToStaticMarkup(createElement(SourceView, { state, onOffline() {}, onLocal() {} }));
 
-test('snapshot preparation is deterministic from the unchanged closed source', async () => {
+test('snapshot preparation is deterministic from the unchanged closed source and matches its pin', async () => {
   assert.deepEqual(await preparedFixtureBytes(), bytes);
+  assert.equal(digest(bytes), DEMO_SNAPSHOT_SHA256);
 });
 
 test('HTTP GET serves exactly the pinned four-scenario offline bundle, no new events', async () => {
@@ -102,7 +102,7 @@ test('HTTP altered file is detected on every read, without changing original fix
     assert.equal(r.status, 422);
     assert.equal(JSON.parse(r.bytes).code, 'DEMO_SNAPSHOT_INVALID');
   });
-  assert.deepEqual(await readFile(fixture), bytes);
+  assert.deepEqual(await preparedFixtureBytes(), bytes);
 });
 test('HTTP oversized fixture is rejected before serving any snapshot', async () => {
   await withServer(async ({ request, directory }) => {
@@ -205,11 +205,10 @@ test('both modes preserve limits and identify historical demo snapshots, never l
   assert.ok(html.includes('fixture histórica/obsoleta')); assert.ok(html.includes('no es un evento en vivo'));
   assert.ok(html.includes('no tiempo del evento'));
 });
-after(async () => {
+after(() => {
   assert.equal(wire.commercial_requests, 0); assert.equal(wire.remote_requests, 0);
-  await writeFile(new URL(`http-${reportId}-counters.json`, run), JSON.stringify({ ...wire, scope: 'all actual HTTP transports in this test file; not a host-wide packet capture' }, null, 2) + '\n');
   assert.equal(wireRecords.length, wire.loopback_requests);
   assert.ok(wireRecords.every((r) => r.host === '127.0.0.1' && r.target === 'test_fixture_server'));
-  await writeFile(new URL(`http-${reportId}-transport.json`, run), JSON.stringify(wireRecords, null, 2) + '\n');
-  console.log(`HTTP_REPORT_ID=${reportId}`);
+  // Printed rather than written under `.local`, so a clean checkout stays clean.
+  console.log(`HTTP_TRANSPORT_REPORT=${JSON.stringify({ ...wire, scope: 'all actual HTTP transports in this test file; not a host-wide packet capture', records: wireRecords })}`);
 });

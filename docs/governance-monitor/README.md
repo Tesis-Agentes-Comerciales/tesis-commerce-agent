@@ -54,8 +54,7 @@ La UI valida también hash, tamaño y contrato. Distingue leído, desconectado, 
 ## Verificación segura: 69 tests distintos
 
 ```powershell
-node scripts/prepare_governance_snapshot.mjs --demo-fixtures-only
-node --test ui/tests/governance-monitor.test.mjs ui/tests/governance-snapshot.test.mjs ui/tests/governance-routes.test.cjs
+npm.cmd --prefix ui run test
 if ($LASTEXITCODE -ne 0) { throw 'Tests Node fallidos' }
 $env:PYTHONDONTWRITEBYTECODE='1'
 python -m unittest discover -s tests/governance_monitor -v
@@ -66,7 +65,7 @@ npm.cmd --prefix ui run build
 if ($LASTEXITCODE -ne 0) { throw 'Build fallido' }
 ```
 
-30 adaptador/render + 26 snapshots + 8 routing hermético + 5 artefactos = 69. Los 26 incluyen transporte HTTP real limitado al servidor de fixtures de prueba y casos con dobles; no constituyen integración Agent–Merchant. Los POST negativos prueban 405 en ese servidor, no son POST comerciales. No ejecutar suites comerciales opt-in para esta demo. [RESULTS.md](RESULTS.md) detalla resultados y límites.
+30 adaptador/render + 26 snapshots + 8 routing hermético + 5 artefactos = 69. `npm run test` prepara la fixture en memoria desde la evidencia versionada (sin `.local`) y el CI lo ejecuta junto a lint y build; los cinco tests Python entran en `uv run pytest`. Los 26 incluyen transporte HTTP real limitado al servidor de fixtures de prueba y casos con dobles; no constituyen integración Agent–Merchant. Los POST negativos prueban 405 en ese servidor, no son POST comerciales. No ejecutar suites comerciales opt-in para esta demo. [RESULTS.md](RESULTS.md) detalla resultados y límites.
 
 ## Fuentes y trazabilidad
 
