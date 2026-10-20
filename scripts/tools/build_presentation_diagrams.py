@@ -5,7 +5,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parents[1] / "docs" / "diagrams"
+OUT = Path(__file__).resolve().parents[2] / "docs" / "diagrams"
 INK = "#333333"
 MUTED = "#686868"
 LINE = "#767676"
