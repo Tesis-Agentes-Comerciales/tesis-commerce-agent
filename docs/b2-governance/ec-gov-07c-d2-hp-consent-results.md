@@ -141,6 +141,16 @@ o confirmar no entrega éxito. La decisión usa `BEGIN IMMEDIATE`, lectura verif
 estado y unicidad terminal: dos aceptaciones concurrentes producen un ganador y un bloqueo.
 Un rechazo consume la presentación igual que una aceptación.
 
+> **Actualización 2026-10-19 (PR #15).** La unicidad terminal pasó de ser por presentación a ser
+> por términos: una sola decisión final por (`checkout_id`, `terms_fingerprint`).
+>
+> - Un trigger sobre `d2_terms_decisions` rechaza la decisión opuesta, y `decide()` responde
+>   409 `TERMS_ALREADY_DECIDED`.
+> - La misma decisión sobre otra presentación sigue siendo un replay idempotente.
+> - Los stores 07C que ya tienen aceptación y rechazo de los mismos términos fallan cerrados
+>   al migrar, con `D2_TERMS_HISTORY_CONFLICT`. Es el caso del store enlazado de la evidencia
+>   HP/B2 v2.
+
 `recover` verifica fuente, snapshot, identidad, MAC, índices, digest, scope y tiempos del
 evento, y devuelve propuesta + pendiente/recibo. No recupera el nonce en claro, no vuelve
 a decidir y no ejecuta comercio. Un recibo vencido permanece histórico; no revive permisos.
