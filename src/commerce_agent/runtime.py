@@ -9,18 +9,25 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from commerce_agent.acp import ACPClient, load_product_feed
+from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.acp.published_feed import PublishedFeedClient
 from commerce_agent.ap2 import AgentMandateSigner
 from commerce_agent.application import PurchaseService
 from commerce_agent.application.conversation import ConversationService
 from commerce_agent.application.governed_recovery import build_governed_recovery
 from commerce_agent.application.offer_freshness import build_offer_freshness
+from commerce_agent.application.stage_timing import (
+    TimedCheckoutGateway,
+    TimedConversationRouter,
+    TimedD1Gate,
+)
 from commerce_agent.approval import ApprovalService
 from commerce_agent.completion import CompletionService
 from commerce_agent.config import Settings
 from commerce_agent.delegated_payment import DelegatedPaymentClient
 from commerce_agent.llm import ConversationRouter, OpenAIConversationRouter
 from commerce_agent.persistence import SqliteAgentStore
+from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 
 if TYPE_CHECKING:
     from commerce_agent.governance.enforce import SqliteD1EnforceGate
@@ -76,6 +83,8 @@ def build_runtime(
 
     store = SqliteAgentStore(configuration.agent_database_path)
     store.initialize()
+    timings = SqliteStageTimings(configuration.agent_database_path)
+    timings.initialize()
     checkpoint_path = configuration.agent_database_path.with_name(
         f"{configuration.agent_database_path.stem}.graph.db"
     )
@@ -144,16 +153,16 @@ def build_runtime(
         d1_shadow = build_shadow_observer(configuration, clock)
     purchases = PurchaseService(
         feed=feed,
-        checkout=client,
+        checkout=TimedCheckoutGateway(client, timings),
         store=store,
         approvals=approvals,
         offer_freshness=build_offer_freshness(configuration, client, clock),
         d1_observer=d1_shadow,
-        d1_gate=d1_gate,
+        d1_gate=TimedD1Gate(d1_gate, timings) if d1_gate is not None else None,
         d1_continuation=d1_continuation,
     )
     owned_router = None
-    router_factory = None
+    router_factory: Callable[[ProductFeed], ConversationRouter] | None = None
     if (
         configuration.openai_api_key is not None
         and configuration.openai_model is not None
@@ -162,7 +171,7 @@ def build_runtime(
         api_key = configuration.openai_api_key
         model = configuration.openai_model
 
-        def make_router(current_feed):
+        def make_router(current_feed: ProductFeed) -> OpenAIConversationRouter:
             return OpenAIConversationRouter(
                 api_key=api_key,
                 model=model,
@@ -176,14 +185,22 @@ def build_runtime(
             owned_router = make_router(feed)
             conversation_router = owned_router
         else:
-            router_factory = make_router
+
+            def timed_router(current_feed: ProductFeed) -> ConversationRouter:
+                return TimedConversationRouter(make_router(current_feed), timings)
+
+            router_factory = timed_router
     conversation = ConversationService(
         feed=feed,
         store=store,
         purchases=purchases,
         completion=completion,
         discover=client.discover,
-        router=conversation_router,
+        router=(
+            TimedConversationRouter(conversation_router, timings)
+            if conversation_router is not None
+            else None
+        ),
         checkpointer=checkpointer,
         feed_provider=published_feed.get if published_feed is not None else None,
         router_factory=router_factory,

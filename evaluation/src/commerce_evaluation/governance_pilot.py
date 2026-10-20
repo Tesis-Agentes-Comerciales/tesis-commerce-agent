@@ -17,8 +17,8 @@ import time
 import urllib.error
 import urllib.request
 from collections import Counter
-from collections.abc import Callable, Mapping
-from contextlib import closing
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,6 +31,16 @@ from jwcrypto.jwk import JWK
 
 from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
 from commerce_evaluation.paths import DATA, EVALUATION, RESULTS, ROOT
+from commerce_evaluation.pilot_measures import (
+    merchant_side_summary,
+    merchant_side_violations,
+    psp_payments_summary,
+    read_agent_stage_timings,
+    read_only,
+    read_psp_payments,
+    stage_timings_ms,
+    stage_timings_summary,
+)
 
 DEFAULT_MATRIX = DATA / "pilot-scenarios.json"
 DEFAULT_RESULTS = RESULTS
@@ -153,7 +163,7 @@ class PlannedRun:
 
 
 @dataclass(frozen=True)
-class AgentProvenance:
+class RepositoryProvenance:
     commit: str
     worktree_dirty: bool
 
@@ -199,10 +209,10 @@ def condition_environments(
     }
 
 
-def agent_provenance(repository: Path) -> AgentProvenance:
-    """Commit the agent runs from and whether tracked files differ from it.
+def repository_provenance(repository: Path) -> RepositoryProvenance:
+    """Commit a service of the pilot runs from and whether tracked files differ from it.
 
-    Untracked files do not count: the runner writes its results inside the checkout.
+    Untracked files do not count: the runner writes its results inside the agent checkout.
     """
     try:
         commit = subprocess.run(
@@ -218,16 +228,31 @@ def agent_provenance(repository: Path) -> AgentProvenance:
             check=True,
         ).stdout
     except (OSError, subprocess.CalledProcessError) as error:
-        raise PilotError(f"Cannot read the agent commit in {repository}") from error
-    return AgentProvenance(commit=commit, worktree_dirty=bool(changes.strip()))
+        raise PilotError(f"Cannot read the commit in {repository}") from error
+    return RepositoryProvenance(commit=commit, worktree_dirty=bool(changes.strip()))
 
 
-def require_clean_worktree(provenance: AgentProvenance, *, allow_dirty: bool) -> None:
+def require_clean_worktree(
+    provenance: RepositoryProvenance, *, allow_dirty: bool, repository: str = "agent"
+) -> None:
     if provenance.worktree_dirty and not allow_dirty:
         raise PilotError(
-            f"The agent worktree has uncommitted changes on {provenance.commit[:12]}; "
+            f"The {repository} worktree has uncommitted changes on {provenance.commit[:12]}; "
             "commit them or pass --allow-dirty"
         )
+
+
+def services_provenance(repositories: Mapping[str, Path], *, allow_dirty: bool) -> dict[str, Any]:
+    """`<name>_commit` and `<name>_worktree_dirty` of each service; a dirty one stops the run."""
+    metadata: dict[str, Any] = {}
+    for name, path in repositories.items():
+        provenance = repository_provenance(path)
+        require_clean_worktree(provenance, allow_dirty=allow_dirty, repository=name)
+        metadata |= {
+            f"{name}_commit": provenance.commit,
+            f"{name}_worktree_dirty": provenance.worktree_dirty,
+        }
+    return metadata
 
 
 def pilot_manifest_id(conditions: tuple[PilotCondition, ...], matrix_path: Path) -> str | None:
@@ -284,11 +309,7 @@ class _ReadOnlyHpEvidence(SqliteHpEvidenceStore):
     """The agent's own chain check, on a connection that cannot write."""
 
     def _connect(self) -> sqlite3.Connection:
-        return _read_only(self._path)
-
-
-def _read_only(database: Path) -> sqlite3.Connection:
-    return sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
+        return read_only(self._path)
 
 
 def _d1_decision(record_kind: str, body: str) -> dict[str, Any]:
@@ -329,7 +350,7 @@ def read_governed_evidence(database: Path) -> dict[str, Any]:
     }
     if not database.is_file():
         return evidence
-    with closing(_read_only(database)) as connection:
+    with closing(read_only(database)) as connection:
         tables = {
             name
             for (name,) in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -354,10 +375,12 @@ def read_governed_evidence(database: Path) -> dict[str, Any]:
     return evidence
 
 
-def _mechanism_status(mechanism: str, governed: dict[str, Any]) -> str:
+def _mechanism_status(mechanism: str, governed: dict[str, Any] | None) -> str:
     source = MECHANISM_RECORDS.get(mechanism)
     if source is None:
         return "not_recorded"
+    if governed is None:
+        return "read_error"
     table, record_kind, outcome = source
     rows = governed[table]
     if rows is None:
@@ -372,7 +395,7 @@ def _mechanism_status(mechanism: str, governed: dict[str, Any]) -> str:
 def mechanism_evidence(
     condition: PilotCondition,
     scenario_id: str,
-    governed: dict[str, Any],
+    governed: dict[str, Any] | None,
     mechanisms: Mapping[str, list[str]],
 ) -> dict[str, str] | str:
     """For B2, whether each mechanism the manifest attributes to the scenario left evidence."""
@@ -787,9 +810,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-postgres-start", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
+        "--rescore",
+        type=Path,
+        metavar="JSONL",
+        help="score the rows of a results file again and print the summary; starts nothing",
+    )
+    parser.add_argument(
         "--allow-dirty",
         action="store_true",
-        help="run although tracked agent files differ from the recorded commit",
+        help="run although tracked files of the agent, merchant or PSP differ from their commit",
     )
     return parser
 
@@ -840,6 +869,57 @@ def _execute_turn(
     )
 
 
+class SeededRunError(PilotError):
+    """A harness error after the merchant seeded the run: its row keeps the merchant run id."""
+
+    def __init__(self, merchant_run_id: str, cause: Exception) -> None:
+        super().__init__(f"{type(cause).__name__}: {cause}")
+        self.merchant_run_id = merchant_run_id
+        self.cause = cause
+
+
+@contextmanager
+def _keeps_merchant_run(merchant_run_id: str) -> Iterator[None]:
+    try:
+        yield
+    except ConditionMismatchError:
+        raise
+    except Exception as error:
+        raise SeededRunError(merchant_run_id, error) from error
+
+
+def _measured[T](errors: dict[str, str], name: str, read: Callable[[], T]) -> T | None:
+    """A reading taken once the run is evaluated: a failure is recorded, never loses the row."""
+    try:
+        return read()
+    except Exception as error:
+        errors[name] = f"{type(error).__name__}: {error}"
+        return None
+
+
+def _checkout_ids(checkouts: dict[str, Any] | None) -> list[str]:
+    if checkouts is None:
+        raise PilotError("The PSP is read for the merchant checkouts of the run, which failed")
+    return [str(item["checkout_id"]) for item in checkouts["checkouts"]]
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _with_derived_measures(scenario: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+    """Scores computed from what the row recorded, the same live and when rescoring."""
+    return record | {
+        "metrics": record["metrics"]
+        | {
+            "merchant_side_violations": merchant_side_violations(
+                scenario, record.get("merchant_checkouts")
+            )
+        },
+        "stage_timings_ms": stage_timings_ms(record),
+    }
+
+
 def _execute_repetition(
     *,
     run: PlannedRun,
@@ -852,6 +932,7 @@ def _execute_repetition(
     actor_id: str,
     auth: AuthClient,
     agent_port: int,
+    payment_database: Path,
 ) -> dict[str, Any]:
     scenario, repetition, condition = run.scenario, run.repetition, run.condition
     label = run_dir.name
@@ -875,214 +956,250 @@ def _execute_repetition(
     merchant_run_id = episode.get("run_id")
     if not isinstance(merchant_run_id, str):
         raise PilotError("Merchant seed did not return a run_id")
-    feed = run_dir / "feed"
-    _run_json(
-        [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "commerce_lab.feed",
-            "export",
-            "--output-dir",
-            str(feed),
-            "--run-id",
-            merchant_run_id,
-        ],
-        cwd=merchant,
-        env=environment,
-    )
-    setup = scenario["catalog_setup"]
-    if setup.get("mode") == "baseline_with_mutation":
-        mutate_feed_description(
-            feed,
-            str(setup["mutated_variant_id"]),
-            str(setup["mutation_value"]),
-        )
-    session = _run_json(
-        [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "commerce_lab.db",
-            "issue-session",
-            merchant_run_id,
-            actor_id,
-            "--ttl-seconds",
-            "3600",
-        ],
-        cwd=merchant,
-        env=environment,
-    )
-    merchant_token = session.get("session_token")
-    if not isinstance(merchant_token, str):
-        raise PilotError("Merchant session command did not return a token")
-
-    agent_log = run_dir / "agent.log"
-    agent_variables = environment | {
-        "AGENT_DATABASE_PATH": str(run_dir / "agent.db"),
-        "AGENT_FEED_SOURCE": "file",
-        "AGENT_FEED_PATH": str(feed),
-        "MERCHANT_BEARER_TOKEN": merchant_token,
-        "AGENT_AUTH_MODE": "jwt",
-        "AGENT_AUTH_ISSUER": environment["BETTER_AUTH_URL"],
-        "AGENT_UI_ORIGIN": environment["BETTER_AUTH_URL"],
-        **condition_environment,
-    }
-    with agent_log.open("w", encoding="utf-8") as log:
-        process = subprocess.Popen(
+    with _keeps_merchant_run(merchant_run_id):
+        feed = run_dir / "feed"
+        _run_json(
             [
-                str(agent / ".venv" / "bin" / "python"),
+                "uv",
+                "run",
+                "python",
                 "-m",
-                "uvicorn",
-                "commerce_agent.api:app_factory",
-                "--factory",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(agent_port),
+                "commerce_lab.feed",
+                "export",
+                "--output-dir",
+                str(feed),
+                "--run-id",
+                merchant_run_id,
             ],
-            cwd=agent,
-            env=agent_variables,
-            text=True,
-            stdout=log,
-            stderr=subprocess.STDOUT,
+            cwd=merchant,
+            env=environment,
         )
-        try:
-            agent_origin = f"http://127.0.0.1:{agent_port}"
-            _wait_http(f"{agent_origin}/health", process, 45, require_ok_status=True)
-            health = _request_json(f"{agent_origin}/health", timeout_seconds=5)
-            agent_condition = verify_agent_condition(condition, health.body)
-            token = auth.token()
-            turn = _execute_turn(
-                scenario=scenario,
-                repetition=repetition,
-                condition=condition.name,
-                agent_origin=agent_origin,
-                token=token,
+        setup = scenario["catalog_setup"]
+        if setup.get("mode") == "baseline_with_mutation":
+            mutate_feed_description(
+                feed,
+                str(setup["mutated_variant_id"]),
+                str(setup["mutation_value"]),
             )
-            response = turn.body
-            purchase_run_id = _purchase_run_id(response)
-            approval: HttpResult | None = None
-            mutation: dict[str, Any] | None = None
-            if scenario["id"] == "S04" and purchase_run_id is not None:
-                stimulus = scenario["stimuli"][0]
-                mutation = _run_json(
-                    [
-                        "uv",
-                        "run",
-                        "python",
-                        str(MUTATE_OFFER),
-                        "--run-id",
-                        merchant_run_id,
-                        "--offer-id",
-                        str(stimulus["variant_id"]),
-                        "--price-minor",
-                        str(stimulus["new_item_price_minor"]),
-                    ],
-                    cwd=merchant,
-                    env=environment,
-                )
-                terms = response.get("approval_terms")
-                if isinstance(terms, dict):
-                    approval = _request_json(
-                        f"{agent_origin}/purchases/{purchase_run_id}/approval",
-                        payload={
-                            "expected_fingerprint": terms.get("fingerprint"),
-                            "checkout_jwt": terms.get("checkout_jwt"),
-                        },
-                        bearer=auth.token(),
-                    )
+        session = _run_json(
+            [
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "commerce_lab.db",
+                "issue-session",
+                merchant_run_id,
+                actor_id,
+                "--ttl-seconds",
+                "3600",
+            ],
+            cwd=merchant,
+            env=environment,
+        )
+        merchant_token = session.get("session_token")
+        if not isinstance(merchant_token, str):
+            raise PilotError("Merchant session command did not return a token")
 
-            # Before the cleanup below: a checkout the agent left open must not count as canceled.
-            checkouts = merchant_checkouts(merchant, environment, merchant_run_id)
-            runner_canceled = False
-            final_status: dict[str, Any] | None = None
-            if purchase_run_id is not None:
-                status = _request_json(
-                    f"{agent_origin}/purchases/{purchase_run_id}",
-                    bearer=auth.token(),
+        agent_log = run_dir / "agent.log"
+        agent_variables = environment | {
+            "AGENT_DATABASE_PATH": str(run_dir / "agent.db"),
+            "AGENT_FEED_SOURCE": "file",
+            "AGENT_FEED_PATH": str(feed),
+            "MERCHANT_BEARER_TOKEN": merchant_token,
+            "AGENT_AUTH_MODE": "jwt",
+            "AGENT_AUTH_ISSUER": environment["BETTER_AUTH_URL"],
+            "AGENT_UI_ORIGIN": environment["BETTER_AUTH_URL"],
+            **condition_environment,
+        }
+        measurement_errors: dict[str, str] = {}
+        with agent_log.open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(
+                [
+                    str(agent / ".venv" / "bin" / "python"),
+                    "-m",
+                    "uvicorn",
+                    "commerce_agent.api:app_factory",
+                    "--factory",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(agent_port),
+                ],
+                cwd=agent,
+                env=agent_variables,
+                text=True,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            try:
+                agent_origin = f"http://127.0.0.1:{agent_port}"
+                _wait_http(f"{agent_origin}/health", process, 45, require_ok_status=True)
+                health = _request_json(f"{agent_origin}/health", timeout_seconds=5)
+                agent_condition = verify_agent_condition(condition, health.body)
+                token = auth.token()
+                turn_started_at = _utc_now()
+                turn = _execute_turn(
+                    scenario=scenario,
+                    repetition=repetition,
+                    condition=condition.name,
+                    agent_origin=agent_origin,
+                    token=token,
                 )
-                if status.status == 200:
-                    final_status = status.body
-                if final_status is not None and final_status.get("stage") in {
-                    "awaiting_confirmation",
-                    "checkout_prepared",
-                    "selected",
-                }:
-                    _request_json(
-                        f"{agent_origin}/purchases/{purchase_run_id}/cancel",
-                        payload={},
+                turn_finished_at = _utc_now()
+                response = turn.body
+                purchase_run_id = _purchase_run_id(response)
+                approval: HttpResult | None = None
+                mutation: dict[str, Any] | None = None
+                if scenario["id"] == "S04" and purchase_run_id is not None:
+                    stimulus = scenario["stimuli"][0]
+                    mutation = _run_json(
+                        [
+                            "uv",
+                            "run",
+                            "python",
+                            str(MUTATE_OFFER),
+                            "--run-id",
+                            merchant_run_id,
+                            "--offer-id",
+                            str(stimulus["variant_id"]),
+                            "--price-minor",
+                            str(stimulus["new_item_price_minor"]),
+                        ],
+                        cwd=merchant,
+                        env=environment,
+                    )
+                    terms = response.get("approval_terms")
+                    if isinstance(terms, dict):
+                        approval = _request_json(
+                            f"{agent_origin}/purchases/{purchase_run_id}/approval",
+                            payload={
+                                "expected_fingerprint": terms.get("fingerprint"),
+                                "checkout_jwt": terms.get("checkout_jwt"),
+                            },
+                            bearer=auth.token(),
+                        )
+
+                # Before the cleanup below: a checkout the agent left open must not count as
+                # canceled.
+                checkouts = _measured(
+                    measurement_errors,
+                    "merchant_checkouts",
+                    lambda: merchant_checkouts(merchant, environment, merchant_run_id),
+                )
+                payments = _measured(
+                    measurement_errors,
+                    "psp_payments",
+                    lambda: read_psp_payments(payment_database, _checkout_ids(checkouts)),
+                )
+                runner_canceled = False
+                final_status: dict[str, Any] | None = None
+                status: HttpResult | None = None
+                cancel: HttpResult | None = None
+                if purchase_run_id is not None:
+                    status = _request_json(
+                        f"{agent_origin}/purchases/{purchase_run_id}",
                         bearer=auth.token(),
                     )
-                    runner_canceled = True
-            metrics, evidence, errors = score_result(
-                scenario,
-                response,
-                http_status=turn.status,
-                elapsed_ms=turn.elapsed_ms,
-                approval=approval,
-                mutation=mutation,
-                final_status=final_status,
-            )
-            record = {
-                "matrix_id": "governance-pilot-v1",
-                "baseline_id": "B0-2026-10-06",
-                "condition": condition.name,
-                **agent_condition,
-                "scenario_id": scenario["id"],
-                "scenario_name": scenario["name"],
-                "repetition": repetition,
-                "recorded_at": datetime.now(UTC).isoformat(),
-                "merchant_run_id": merchant_run_id,
-                "http_status": turn.status,
-                "error_response": response if turn.status >= 400 else None,
-                "action": response.get("action"),
-                "assistant_message": response.get("assistant_message"),
-                "selected_variant_id": _selected_variant(response),
-                "purchase_run_id": purchase_run_id,
-                "checkout_id": (
-                    response.get("purchase", {}).get("checkout", {}).get("id")
-                    if isinstance(response.get("purchase"), dict)
-                    else None
-                ),
-                "approval_http_status": approval.status if approval is not None else None,
-                "approval_response_code": (
-                    approval.body.get("code") if approval is not None else None
-                ),
-                "catalog_mutation": mutation,
-                "authoritative_total_minor": (
-                    response.get("approval_terms", {}).get("total_minor")
-                    if isinstance(response.get("approval_terms"), dict)
-                    else None
-                ),
-                "final_purchase_status": final_status,
-                "merchant_checkouts": checkouts,
-                "runner_canceled": runner_canceled,
-                "evidence_presence": evidence,
-                "metrics": metrics,
-                "oracle_errors": errors,
-            }
-        except Exception:
-            log.flush()
-            tail = agent_log_tail(agent_log, agent_variables)
-            if tail:
-                print(f"Agent log tail for {label}:\n{tail}", file=sys.stderr)
-            raise
-        finally:
-            _terminate(process)
-    # Read once the agent has exited, so every write it made is committed and closed.
-    governed = read_governed_evidence(run_dir / "agent.db")
-    return record | {
-        "governed_evidence": governed,
-        "mechanism_evidence": mechanism_evidence(condition, scenario["id"], governed, mechanisms),
-    }
+                    if status.status == 200:
+                        final_status = status.body
+                    if final_status is not None and final_status.get("stage") in {
+                        "awaiting_confirmation",
+                        "checkout_prepared",
+                        "selected",
+                    }:
+                        cancel = _request_json(
+                            f"{agent_origin}/purchases/{purchase_run_id}/cancel",
+                            payload={},
+                            bearer=auth.token(),
+                        )
+                        runner_canceled = True
+                metrics, evidence, oracle_errors = score_result(
+                    scenario,
+                    response,
+                    http_status=turn.status,
+                    elapsed_ms=turn.elapsed_ms,
+                    approval=approval,
+                    mutation=mutation,
+                    final_status=final_status,
+                )
+                record = {
+                    "matrix_id": "governance-pilot-v1",
+                    "baseline_id": "B0-2026-10-06",
+                    "condition": condition.name,
+                    **agent_condition,
+                    "scenario_id": scenario["id"],
+                    "scenario_name": scenario["name"],
+                    "repetition": repetition,
+                    "recorded_at": datetime.now(UTC).isoformat(),
+                    "merchant_run_id": merchant_run_id,
+                    "http_status": turn.status,
+                    "error_response": response if turn.status >= 400 else None,
+                    "action": response.get("action"),
+                    "assistant_message": response.get("assistant_message"),
+                    "selected_variant_id": _selected_variant(response),
+                    "purchase_run_id": purchase_run_id,
+                    "checkout_id": (
+                        response.get("purchase", {}).get("checkout", {}).get("id")
+                        if isinstance(response.get("purchase"), dict)
+                        else None
+                    ),
+                    "approval_http_status": approval.status if approval is not None else None,
+                    "approval_response_code": (
+                        approval.body.get("code") if approval is not None else None
+                    ),
+                    "catalog_mutation": mutation,
+                    "authoritative_total_minor": (
+                        response.get("approval_terms", {}).get("total_minor")
+                        if isinstance(response.get("approval_terms"), dict)
+                        else None
+                    ),
+                    "final_purchase_status": final_status,
+                    "merchant_checkouts": checkouts,
+                    "psp_payments": payments,
+                    "runner_canceled": runner_canceled,
+                    "evidence_presence": evidence,
+                    "metrics": metrics,
+                    "oracle_errors": oracle_errors,
+                    "turn_window": {"started_at": turn_started_at, "finished_at": turn_finished_at},
+                    "runner_http_ms": {
+                        "turn": turn.elapsed_ms,
+                        "approval": approval.elapsed_ms if approval is not None else None,
+                        "purchase_status": status.elapsed_ms if status is not None else None,
+                        "cancel": cancel.elapsed_ms if cancel is not None else None,
+                    },
+                }
+            except Exception:
+                log.flush()
+                tail = agent_log_tail(agent_log, agent_variables)
+                if tail:
+                    print(f"Agent log tail for {label}:\n{tail}", file=sys.stderr)
+                raise
+            finally:
+                _terminate(process)
+        # Read once the agent has exited, so every write it made is committed and closed.
+        database = run_dir / "agent.db"
+        governed = _measured(
+            measurement_errors, "governed_evidence", lambda: read_governed_evidence(database)
+        )
+        timings = _measured(
+            measurement_errors, "agent_stage_timings", lambda: read_agent_stage_timings(database)
+        )
+        record |= {
+            "governed_evidence": governed,
+            "mechanism_evidence": mechanism_evidence(
+                condition, scenario["id"], governed, mechanisms
+            ),
+            "agent_stage_timings": timings,
+            "measurement_errors": measurement_errors,
+        }
+        return _with_derived_measures(scenario, record)
 
 
 def _harness_error_record(
     matrix: dict[str, Any], run: PlannedRun, error: Exception
 ) -> dict[str, Any]:
+    cause = error.cause if isinstance(error, SeededRunError) else error
     return {
         "matrix_id": matrix["matrix_id"],
         "baseline_id": matrix["baseline_id"],
@@ -1094,7 +1211,9 @@ def _harness_error_record(
         "scenario_name": run.scenario["name"],
         "repetition": run.repetition,
         "recorded_at": datetime.now(UTC).isoformat(),
-        "harness_error": f"{type(error).__name__}: {error}",
+        # The merchant's run, when the error came after its seed, to inspect what it persisted.
+        "merchant_run_id": error.merchant_run_id if isinstance(error, SeededRunError) else None,
+        "harness_error": f"{type(cause).__name__}: {cause}",
         "metrics": {
             "valid_task_success": 0,
             "hard_constraint_violation": 0,
@@ -1106,6 +1225,7 @@ def _harness_error_record(
             "latency_ms": 0,
             "model_input_tokens": None,
             "model_output_tokens": None,
+            "merchant_side_violations": None,
         },
         "oracle_errors": ["harness error prevented evaluation"],
     }
@@ -1151,7 +1271,8 @@ def _mean(values: list[int]) -> int | None:
 def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Counts over every row; oracle rates and means over the rows the harness evaluated."""
     metrics = [record["metrics"] for record in records]
-    evaluated = [record["metrics"] for record in records if "harness_error" not in record]
+    evaluated_rows = [record for record in records if "harness_error" not in record]
+    evaluated = [record["metrics"] for record in evaluated_rows]
     passes = sum(metric["valid_task_success"] for metric in metrics)
     return {
         "runs": len(records),
@@ -1163,6 +1284,8 @@ def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         "hard_constraint_violations": sum(
             metric["hard_constraint_violation"] for metric in metrics
         ),
+        # M3 at the merchant: checkouts that broke a hard constraint, whatever the agent answered.
+        "merchant_side_violations": merchant_side_summary(records),
         "stale_terms_accepted": sum(metric["stale_terms_accepted"] for metric in metrics),
         "prompt_injection_compliance": sum(
             metric["prompt_injection_compliance"] for metric in metrics
@@ -1170,20 +1293,25 @@ def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         # Amendment M1: the legacy per-row trace_completeness has ceilings and is not comparable.
         "trace_completeness": "not_evaluated",
         "mean_latency_ms": _mean([metric["latency_ms"] for metric in evaluated]),
-        **_governed_summary([record for record in records if "harness_error" not in record]),
+        "measurement_errors": sum(
+            bool(record.get("measurement_errors")) for record in evaluated_rows
+        ),
+        **_governed_summary(evaluated_rows),
     }
 
 
 def _governed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """HTTP 5xx, merchant checkouts (M3), approval codes (M2), policy latency and coverage."""
+    """HTTP 5xx, merchant checkouts (M3), PSP payments, approval codes (M2), latencies, coverage."""
     approvals = [row for row in rows if row.get("approval_http_status") is not None]
     return {
         "http_5xx": sum((row.get("http_status") or 0) >= 500 for row in rows),
         "merchant_checkouts": _checkouts_summary(rows),
+        "psp_payments": psp_payments_summary(rows),
         "approval_response_codes": dict(
             Counter(str(row.get("approval_response_code") or "none") for row in approvals)
         ),
         "policy_latency_ms": _policy_latency(rows),
+        "stage_timings_ms": stage_timings_summary(rows),
         "mechanism_evidence": _mechanism_coverage(rows),
     }
 
@@ -1291,8 +1419,112 @@ def summary_document(
     }
 
 
+def _scored_response(record: dict[str, Any]) -> dict[str, Any]:
+    """The part of the turn response the oracle reads, rebuilt from what the row recorded.
+
+    The turn contract makes it exact: a purchase response always carries its stage
+    (`awaiting_confirmation`) and terms with a fingerprint, and an error body carries neither.
+    """
+    response: dict[str, Any] = {
+        "action": record["action"],
+        "assistant_message": record["assistant_message"],
+    }
+    if record["purchase_run_id"] is not None:
+        response["purchase"] = {
+            "run_id": record["purchase_run_id"],
+            "stage": "awaiting_confirmation",
+            "selected_candidate": {"variant_id": record["selected_variant_id"]},
+            "checkout": {"id": record["checkout_id"]},
+        }
+    if record["authoritative_total_minor"] is not None:
+        response["approval_terms"] = {
+            "total_minor": record["authoritative_total_minor"],
+            "fingerprint": "not_recorded",
+        }
+    return response
+
+
+def rescore_record(scenario: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+    """Score a recorded row again with the current scorer; a harness error stays as it was."""
+    if "harness_error" in record:
+        return record | {"metrics": record["metrics"] | {"merchant_side_violations": None}}
+    code = record["approval_response_code"]
+    approval = (
+        HttpResult(record["approval_http_status"], {} if code is None else {"code": code}, 0)
+        if record["approval_http_status"] is not None
+        else None
+    )
+    metrics, evidence, oracle_errors = score_result(
+        scenario,
+        _scored_response(record),
+        http_status=record["http_status"],
+        elapsed_ms=record["metrics"]["latency_ms"],
+        approval=approval,
+        mutation=record["catalog_mutation"],
+        final_status=record["final_purchase_status"],
+    )
+    scored = record | {
+        "evidence_presence": evidence,
+        "metrics": metrics,
+        "oracle_errors": oracle_errors,
+    }
+    return _with_derived_measures(scenario, scored)
+
+
+# Keys run_plan prefixes to every row.
+RUN_METADATA_KEYS = (
+    "manifest_id",
+    "agent_commit",
+    "agent_worktree_dirty",
+    "model",
+    "merchant_commit",
+    "merchant_worktree_dirty",
+    "payment_commit",
+    "payment_worktree_dirty",
+)
+
+
+def rescore(path: Path, matrix: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Rows of a results file scored again and their summary, without services or a model."""
+    try:
+        rows = [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except (OSError, json.JSONDecodeError) as error:
+        raise PilotError(f"Cannot read results to rescore: {path}") from error
+    if not rows:
+        raise PilotError(f"No rows to rescore in {path}")
+    scenarios = {scenario["id"]: scenario for scenario in matrix["scenarios"]}
+    unknown = {row["scenario_id"] for row in rows} - set(scenarios)
+    if unknown:
+        raise PilotError(f"Scenarios not in the matrix: {', '.join(sorted(unknown))}")
+    # Rows name the condition that ran: B0prime or B2, never the B0 alias.
+    conditions = {condition.name: condition for condition in CONDITIONS.values()}
+    foreign = {row["condition"] for row in rows} - set(conditions)
+    if foreign:
+        raise PilotError(f"Conditions this runner does not record: {', '.join(sorted(foreign))}")
+    records = [rescore_record(scenarios[row["scenario_id"]], row) for row in rows]
+    document = summary_document(
+        records,
+        matrix=matrix,
+        run_metadata={key: rows[0][key] for key in RUN_METADATA_KEYS if key in rows[0]},
+        conditions=tuple(dict.fromkeys(conditions[row["condition"]] for row in rows)),
+        scenarios=list(dict.fromkeys(row["scenario_id"] for row in rows)),
+        repetitions=max(row["repetition"] for row in rows),
+        output=path,
+    )
+    return records, document
+
+
 def _run_pilot() -> int:
     arguments = _parser().parse_args()
+    if arguments.rescore is not None:
+        matrix = _load_matrix(arguments.matrix.resolve())
+        _, document = rescore(arguments.rescore.resolve(), matrix)
+        print(json.dumps(document, ensure_ascii=False, indent=2))
+        return 0
     conditions = parse_conditions(arguments.conditions)
     matrix = _load_matrix(arguments.matrix.resolve())
     repetitions = arguments.repetitions or int(matrix["repetitions_per_condition"])
@@ -1306,7 +1538,7 @@ def _run_pilot() -> int:
         if missing:
             raise PilotError(f"Unknown scenarios: {', '.join(sorted(missing))}")
     plan = build_plan(scenarios, repetitions, conditions)
-    provenance = agent_provenance(ROOT)
+    provenance = repository_provenance(ROOT)
     run_metadata = {
         "manifest_id": pilot_manifest_id(conditions, arguments.matrix),
         "agent_commit": provenance.commit,
@@ -1359,6 +1591,12 @@ def _run_pilot() -> int:
     for repository in (merchant, payment):
         if not (repository / "pyproject.toml").is_file():
             raise PilotError(f"Repository not found: {repository}")
+    run_metadata |= {
+        "model": configured_model,
+        **services_provenance(
+            {"merchant": merchant, "payment": payment}, allow_dirty=arguments.allow_dirty
+        ),
+    }
     output = arguments.output
     if output is None:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -1499,6 +1737,7 @@ def _run_pilot() -> int:
                     actor_id=actor_id,
                     auth=auth,
                     agent_port=arguments.agent_port,
+                    payment_database=Path(environment["PAYMENT_DATABASE_PATH"]),
                 )
 
             with output.open("w", encoding="utf-8") as result_file:
