@@ -4,7 +4,12 @@ import argparse
 import json
 from pathlib import Path
 
-from commerce_agent.hnp_experiment.evaluation import load_oracles, score, verify_expected
+from commerce_agent.hnp_experiment.evaluation import (
+    expectation_deviations,
+    load_oracles,
+    score,
+    verify_expected,
+)
 from commerce_agent.hnp_experiment.evidence import (
     ExperimentalEvidence,
     load_entries,
@@ -17,7 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests/hnp_experiment/fixtures"
 
 
-def run(output: Path) -> dict:
+def run(output: Path, strict: bool = True) -> dict:
+    """Strict (default) aborts on any oracle deviation; otherwise deviations are recorded."""
     output = output.resolve()
     if not output.is_relative_to((ROOT / ".local").resolve()):
         raise ValueError("Experimental evidence must stay under this worktree's .local directory")
@@ -61,11 +67,15 @@ def run(output: Path) -> dict:
             )
     # Labels are loaded only after all role invocations have completed.
     oracles = load_oracles(FIXTURES / "oracle.json")
-    verify_expected(results, oracles)
+    if strict:
+        verify_expected(results, oracles)
+    else:
+        for deviation in expectation_deviations(results, oracles):
+            print(json.dumps({"deviation": deviation.model_dump(mode="json")}))
     verify_entries(evidence.entries)
     if evidence.path is None or load_entries(evidence.path) != evidence.entries:
         raise ValueError("Durable evidence readback mismatch")
-    summary = score(results, oracles)
+    summary = score(results, oracles, strict=strict)
     import platform
     import sys
     from datetime import UTC, datetime
@@ -94,5 +104,11 @@ def run(output: Path) -> dict:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / ".local/hnp01/demo")
+    parser.add_argument(
+        "--strict",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="abort on any oracle deviation (scripted reproducibility); --no-strict records them",
+    )
     args = parser.parse_args()
-    run(args.output)
+    run(args.output, args.strict)

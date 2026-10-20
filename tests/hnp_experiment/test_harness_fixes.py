@@ -216,3 +216,61 @@ def test_hidden_hard_constraint_makes_scripted_selection_unresolved():
     assessment = independent_assessment(proposal, hidden)
     assert assessment.verdict == "abstain"
     assert [c.check_id for c in assessment.checks if c.result == "unresolved"] == ["selection"]
+
+
+@pytest.fixture(scope="module")
+def scripted_results():
+    from commerce_agent.hnp_experiment.evaluation import load_oracles
+
+    evidence = ExperimentalEvidence()
+    results = [run_case(case, arm, evidence)[0] for case in CASES for arm in ("A", "B")]
+    return results, load_oracles(FIXTURES / "oracle.json")
+
+
+def test_evaluation_records_every_deviation_and_strict_mode_aborts(scripted_results):
+    from commerce_agent.hnp_experiment.evaluation import (
+        expectation_deviations,
+        score,
+        verify_expected,
+    )
+
+    results, oracles = scripted_results
+    assert expectation_deviations(results, oracles) == ()
+    changed = dict(oracles)
+    changed["valid"] = oracles["valid"].model_copy(
+        update={"expected_code_b": "VALIDATOR_REJECTED", "expected_effect_b": False}
+    )
+    changed["expired"] = oracles["expired"].model_copy(update={"failure_checks": ("usage",)})
+    found = expectation_deviations(results, changed)
+    assert {(d.case_id, d.condition, d.field) for d in found} == {
+        ("valid", "B", "admission_code"),
+        ("valid", "B", "effect"),
+        ("expired", "A", "backend_failures"),
+        ("expired", "B", "backend_failures"),
+    }
+    with pytest.raises(ValueError, match="differs from separate oracle"):
+        verify_expected(results, changed)
+    summary = score(results, changed, strict=False)
+    assert len(summary["deviations"]) == 4
+
+
+def test_lenient_scoring_records_unpaired_cases_instead_of_aborting(scripted_results):
+    from commerce_agent.hnp_experiment.evaluation import score
+
+    results, oracles = scripted_results
+    partial = {k: v for k, v in oracles.items() if k != "valid"}
+    with pytest.raises(ValueError, match="pairing"):
+        score(results, partial)
+    summary = score(results, partial, strict=False)
+    assert summary["conditions"]["A"]["cases"] == len(partial)
+    assert {(d["case_id"], d["field"]) for d in summary["deviations"]} == {("valid", "oracle")}
+
+
+def test_scripted_summary_separates_timeouts_and_infrastructure(scripted_results):
+    from commerce_agent.hnp_experiment.evaluation import score
+
+    results, oracles = scripted_results
+    b = score(results, oracles)["conditions"]["B"]
+    # validator-timeout is a timeout result; validator-unavailable is an infrastructure fault.
+    assert b["validator_unavailable"] == 2
+    assert b["validator_timeouts"] == 1 and b["infrastructure_errors"] == 1
