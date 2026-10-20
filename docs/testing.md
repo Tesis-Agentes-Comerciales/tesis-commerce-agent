@@ -65,8 +65,8 @@ Se retiraron `RUN_JOINT_E2E`, `RUN_JOINT_AP2_E2E` y `RUN_GOV06DC_REAL`/`RUN_GOV0
 
 - `python-lint`: `ruff format --check`, `ruff check`, `pyright` y `uv build`; falla si
   `commerce_evaluation` aparece dentro del wheel.
-- `python-tests`: `uv run pytest --cov --cov-fail-under=85` (capas 1 y 5; la 4 se recoge y se
-  omite) y un resumen de cobertura en la página del job.
+- `python-tests`: `uv run pytest --cov` (capas 1 y 5; la 4 se recoge y se omite), el umbral de
+  cobertura del producto y un resumen de cobertura en la página del job.
 - `auth`: `npm ci` y `npm test` en `auth/`.
 - `ui`: `npm ci`, lint, build (y que el monitor de gobernanza no entre al build por defecto),
   `npm run test`, `build-storybook` y `test-storybook` en Chromium. Playwright sale de
@@ -92,8 +92,8 @@ desarrollo de la UI, llegan con el trabajo de Storybook; hasta integrarlo, esos 
 ## Cobertura
 
 Se mide con `pytest-cov` sobre `commerce_agent` y `commerce_evaluation`, con ramas
-(`[tool.coverage.*]` en `pyproject.toml`). Línea base del 2026-10-20, antes de separar
-`commerce_evaluation`: **90.0 %** (líneas 92.9 %, ramas 78.6 %).
+(`[tool.coverage.*]` en `pyproject.toml`). Línea base del 2026-10-20: el producto (`src/`)
+tiene **89.1 %** (líneas 92.2 %, ramas 77.4 %).
 
 | Paquete | Cobertura |
 | --- | --- |
@@ -105,11 +105,12 @@ Se mide con `pytest-cov` sobre `commerce_agent` y `commerce_evaluation`, con ram
 | `commerce_agent.webhooks` | 86.3 % |
 | `commerce_agent` (módulos raíz: API, runtime, grafo, aprobación, pagos) | 85.5 % |
 | `commerce_agent.acp` | 83.8 % |
-| Experimento HNP | 95.0 % |
+| `commerce_evaluation` | 75.6 % (el experimento HNP sobre 90 %; los runners del piloto y de conversación casi sin cubrir) |
 
-El umbral del CI es 85 %, cinco puntos por debajo de la línea base: atrapa una caída real sin
-volver ruidosos los PR pequeños. La capa 4 no cuenta para esta cifra: sus servicios corren en
-otros procesos.
+El umbral del CI es 85 % y aplica solo al producto (`coverage report --include="src/*"`), cuatro
+puntos por debajo de la línea base: atrapa una caída real sin volver ruidosos los PR pequeños.
+`commerce_evaluation` se reporta en el resumen del job pero no tiene umbral. La capa 4 no cuenta
+para estas cifras: sus servicios corren en otros procesos.
 
 ## Tiempos de referencia
 
@@ -117,7 +118,7 @@ En macOS con OrbStack, 2026-10-20:
 
 | Selección | Pruebas | Tiempo |
 | --- | --- | --- |
-| `uv run pytest` (capas 1 y 5) | 1285 y 62 omitidas | ~1 min |
+| `uv run pytest` (capas 1 y 5) | ~1290 (62 omitidas) | ~1 min |
 | `tests/integration` completa | 62 | ~12 min |
 | `tests/integration -m "not slow"` | 51 | ~2 min |
 

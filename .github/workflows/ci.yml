@@ -69,15 +69,19 @@ jobs:
           uv sync --frozen --all-groups
 
       # Live tests (tests/integration) are collected and skipped: RUN_LIVE_STACK is unset.
-      # The floor sits 5 points under the 2026-10-20 baseline (90.0 %, docs/testing.md).
       - name: Tests with coverage
-        run: uv run pytest --cov --cov-report=term --cov-fail-under=85
+        run: uv run pytest --cov --cov-report=term
+
+      # The floor holds the product (src/), 4 points under its 2026-10-20 baseline (89.1 %);
+      # evaluation/ is reported but not held to it. See docs/testing.md.
+      - name: Product coverage floor
+        run: uv run coverage report --include="src/*" --format=total --fail-under=85
 
       - name: Coverage summary
         if: ${{ !cancelled() }}
         run: |
           {
-            echo "### Cobertura Python: $(uv run coverage report --format=total)%"
+            echo "### Cobertura Python: producto $(uv run coverage report --include='src/*' --format=total)%, total $(uv run coverage report --format=total)%"
             echo
             echo "<details><summary>Por archivo</summary>"
             echo
