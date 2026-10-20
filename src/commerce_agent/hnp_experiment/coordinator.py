@@ -18,6 +18,7 @@ from .models import (
     BuyerDraft,
     Condition,
     DemoResult,
+    ExecutionKind,
     ProposalEnvelope,
     ReviewRecord,
     SourceRef,
@@ -43,6 +44,7 @@ class ReviewCoordinator:
         condition: Condition,
         validator_budget_ns: int = 100_000_000,
         case_configuration_ref: SourceRef | None = None,
+        execution_kind: ExecutionKind = "scripted_offline",
     ):
         if condition not in ("A", "B") or (condition == "A" and validator is not None):
             raise ValueError("Invalid isolated experiment condition")
@@ -53,6 +55,7 @@ class ReviewCoordinator:
         self.condition: Condition = condition
         self.budget = validator_budget_ns
         self.case_configuration_ref = case_configuration_ref
+        self.execution_kind: ExecutionKind = execution_kind
         self._issuer = object()
         sink._bind(self._issuer)
         self._used = False
@@ -154,6 +157,7 @@ class ReviewCoordinator:
         record = ReviewRecord(
             experiment_id=experiment_id,
             condition=self.condition,
+            execution_kind=self.execution_kind,
             original_context=context,
             proposal=proposal,
             assessment=assessment,

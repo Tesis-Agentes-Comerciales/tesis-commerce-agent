@@ -81,6 +81,9 @@ REASONS: dict[CheckId, Reason] = dict(
     )
 )
 Condition = Literal["A", "B"]
+# scripted_offline: HNP-01 scripted roles. llm_dry_run: model adapters over FakeTransport.
+# llm_live: a provider was called. The sink stays fictitious in every kind.
+ExecutionKind = Literal["scripted_offline", "llm_dry_run", "llm_live"]
 Currency = Annotated[str, Field(pattern=r"^[A-Z]{3}$")]
 
 
@@ -338,7 +341,7 @@ class Admission(ExperimentalModel):
 class ReviewRecord(ExperimentalModel):
     experiment_id: Id
     condition: Condition
-    execution_kind: Literal["scripted_offline"] = "scripted_offline"
+    execution_kind: ExecutionKind = "scripted_offline"
     original_context: TrustedReviewContext | None
     proposal: ProposalEnvelope | None
     assessment: ValidatorAssessment | None
