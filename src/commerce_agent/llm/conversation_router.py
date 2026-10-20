@@ -19,6 +19,18 @@ class IntentInterpretationError(RuntimeError):
     code = "intent_model_error"
 
 
+class UnknownVariantSelection(IntentInterpretationError):
+    """The model chose a variant outside the deterministic shortlist.
+
+    Same code and message as the generic error, so B0 keeps its 502; the governed flow
+    explains the choice instead.
+    """
+
+    def __init__(self, variant_id: str) -> None:
+        super().__init__("The candidate model selected an unknown variant")
+        self.variant_id = variant_id
+
+
 _INSTRUCTIONS = """You are the conversation router for a commerce agent.
 
 Read the conversation and choose exactly one action:
@@ -451,7 +463,7 @@ class OpenAIConversationRouter:
             ) from error
         allowed = {item.candidate.variant_id for item in candidates}
         if decision.selected_variant_id is not None and decision.selected_variant_id not in allowed:
-            raise IntentInterpretationError("The candidate model selected an unknown variant")
+            raise UnknownVariantSelection(decision.selected_variant_id)
         return decision
 
     def recover_no_candidate(

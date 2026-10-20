@@ -22,6 +22,7 @@ import {
 } from "@/components/agent/agent-format"
 import { chip, focusRing, pillButton } from "@/components/agent/agent-styles"
 import { ProductImage } from "@/components/agent/product-card"
+import { approvalReceiptText } from "@/components/trace/trace-copy"
 import type { ApprovalTerms, ProductCard } from "@/lib/agent-contract"
 import type { CompletedCheckout } from "@/lib/commerce-types"
 
@@ -38,6 +39,14 @@ export type ApprovalCardStatus =
 
 export type ApprovalCardOrder = Pick<CompletedCheckout["order"], "id"> &
   Partial<Pick<CompletedCheckout["order"], "order_number" | "status" | "permalink_url">>
+
+/** Lo que queda de la decisión una vez registrada; sale de la traza de la compra. */
+export type ApprovalReceipt = {
+  /** `approved_at` del paso `approval`. */
+  approvedAt: string
+  /** La traza tiene el paso `authorization_signed`. */
+  authorizationSigned: boolean
+}
 
 export type PurchaseApprovalCardProps = {
   /** Términos autoritativos de `request_approval`; el total sale solo de aquí. */
@@ -56,6 +65,8 @@ export type PurchaseApprovalCardProps = {
   /** `prepare_checkout.price_changed`: el precio difiere del observado en el catálogo. */
   priceChanged?: boolean
   order?: ApprovalCardOrder | null
+  /** Recibo de la aprobación; solo se muestra si ya quedó registrada. */
+  receipt?: ApprovalReceipt | null
   /** Aprueba y completa; con `approvalRecorded` solo debe completar. */
   onApprove?: () => void
   onCancel?: () => void
@@ -250,6 +261,7 @@ export function PurchaseApprovalCard({
   error,
   priceChanged = false,
   order,
+  receipt,
   onApprove,
   onCancel,
   onNewPurchase,
@@ -386,11 +398,26 @@ export function PurchaseApprovalCard({
           onNewPurchase={onNewPurchase}
         />
 
+        {receipt && (recorded || status === "completed") && <ReceiptLine receipt={receipt} />}
+
         {copy.footer && (
           <p className="text-center text-xs leading-5 text-[#6b6b6b]">{copy.footer}</p>
         )}
       </div>
     </section>
+  )
+}
+
+/** «Aprobado por ti · 10:42 · autorización firmada». */
+function ReceiptLine({ receipt }: { receipt: ApprovalReceipt }) {
+  return (
+    <p
+      className="flex items-center justify-center gap-1.5 text-xs leading-5 text-[#6b6b6b]"
+      data-testid="approval-receipt"
+    >
+      <ShieldCheckIcon className="size-3.5 shrink-0" aria-hidden />
+      {approvalReceiptText(receipt.approvedAt, receipt.authorizationSigned)}
+    </p>
   )
 }
 

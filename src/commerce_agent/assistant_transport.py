@@ -367,6 +367,10 @@ class AssistantMessageRecorder:
         del step
         self._close_step(result, is_error=False)
 
+    def step_failed(self, step: StepName, error: dict[str, str]) -> None:
+        del step
+        self._close_step({"error": error}, is_error=True)
+
     def _close_step(self, result: dict[str, Any], *, is_error: bool) -> None:
         position = self._open_step
         if position is None:

@@ -22,12 +22,21 @@ export {
   ProductImage,
   type ProductCardProps,
 } from "@/components/agent/product-card"
+export {
+  PolicyBlockedCard,
+  type PolicyBlockedCardProps,
+} from "@/components/agent/policy-blocked-card"
 export { ProductCarousel, type ProductCarouselProps } from "@/components/agent/product-carousel"
+export {
+  PurchaseActivity,
+  type PurchaseActivityProps,
+} from "@/components/agent/purchase-activity"
 export {
   PurchaseApprovalCard,
   PurchaseApprovalCardSkeleton,
   type ApprovalCardOrder,
   type ApprovalCardStatus,
+  type ApprovalReceipt,
   type PurchaseApprovalCardProps,
 } from "@/components/agent/purchase-approval-card"
 export { ReasoningText, type ReasoningTextProps } from "@/components/agent/reasoning-text"

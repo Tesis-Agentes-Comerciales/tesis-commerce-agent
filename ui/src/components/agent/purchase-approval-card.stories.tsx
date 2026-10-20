@@ -18,8 +18,18 @@ import {
   TERMS_PRICE_CHANGED,
 } from "@/storybook/agent-fixtures"
 import { TERMS } from "@/storybook/fixtures"
+import { stepOf, TRACES } from "@/storybook/trace-fixtures"
 
-type CardState = Pick<PurchaseApprovalCardProps, "status" | "approvalRecorded" | "error" | "order">
+type CardState = Pick<
+  PurchaseApprovalCardProps,
+  "status" | "approvalRecorded" | "error" | "order" | "receipt"
+>
+
+/** Recibo de la fixture completada: aprobada a las 15:42 UTC (10:42 en Bogotá), con firma. */
+const RECEIPT = {
+  approvedAt: stepOf(TRACES.completedShadow, "approval").approved_at ?? "",
+  authorizationSigned: true,
+}
 
 /**
  * Simula la secuencia REST con temporizadores locales: aprobar pasa por "approving" y
@@ -31,6 +41,7 @@ function InteractiveApprovalCard(props: PurchaseApprovalCardProps) {
     approvalRecorded: props.approvalRecorded,
     error: props.error,
     order: props.order,
+    receipt: props.receipt,
   })
   const timers = useRef<number[]>([])
   useEffect(() => () => timers.current.forEach((timer) => clearTimeout(timer)), [])
@@ -47,7 +58,12 @@ function InteractiveApprovalCard(props: PurchaseApprovalCardProps) {
         props.onApprove?.()
         const start = state.approvalRecorded ? 0 : 700
         if (!state.approvalRecorded) setState((current) => ({ ...current, status: "approving" }))
-        later(start, { status: "completing", approvalRecorded: true, error: null })
+        later(start, {
+          status: "completing",
+          approvalRecorded: true,
+          error: null,
+          receipt: { approvedAt: new Date().toISOString(), authorizationSigned: true },
+        })
         later(start + 900, { status: "completed", order: ORDER })
       }}
       onCancel={() => {
@@ -57,7 +73,13 @@ function InteractiveApprovalCard(props: PurchaseApprovalCardProps) {
       }}
       onNewPurchase={() => {
         props.onNewPurchase?.()
-        setState({ status: "awaiting_approval", approvalRecorded: false, error: null, order: null })
+        setState({
+          status: "awaiting_approval",
+          approvalRecorded: false,
+          error: null,
+          order: null,
+          receipt: null,
+        })
       }}
     />
   )
@@ -204,6 +226,52 @@ export const Completed: Story = {
   play: async ({ canvas }) => {
     const link = canvas.getByRole("link", { name: /Ver orden/ })
     await expect(link).toHaveAttribute("rel", "noopener noreferrer")
+  },
+}
+
+/** Al decidir, la tarjeta se convierte en recibo: quién aprobó, a qué hora y con qué firma. */
+export const ApprovalBecomesReceipt: Story = {
+  play: async ({ canvas, userEvent }) => {
+    await expect(canvas.queryByTestId("approval-receipt")).toBeNull()
+    await userEvent.click(canvas.getByRole("button", { name: "Aprobar y comprar" }))
+    await waitFor(() => expect(canvas.getByText("Compra completada")).toBeVisible(), SETTLE)
+    await expect(canvas.getByTestId("approval-receipt")).toHaveTextContent(
+      /^Aprobado por ti · \d{2}:\d{2} · autorización firmada$/,
+    )
+  },
+}
+
+export const CompletedWithReceipt: Story = {
+  args: { status: "completed", approvalRecorded: true, order: ORDER, receipt: RECEIPT },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByTestId("approval-receipt")).toHaveTextContent(
+      /^Aprobado por ti · \d{2}:\d{2} · autorización firmada$/,
+    )
+  },
+}
+
+export const CompletingWithReceipt: Story = {
+  args: { status: "completing", approvalRecorded: true, receipt: RECEIPT },
+}
+
+/** Sin el paso de firma en la traza, el recibo no la menciona. */
+export const ReceiptWithoutSignature: Story = {
+  args: {
+    status: "completed",
+    approvalRecorded: true,
+    order: ORDER,
+    receipt: { ...RECEIPT, authorizationSigned: false },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByTestId("approval-receipt")).not.toHaveTextContent(/firmada/)
+  },
+}
+
+/** Un recibo antes de aprobar sería falso: no se muestra. */
+export const ReceiptHiddenBeforeApproval: Story = {
+  args: { receipt: RECEIPT },
+  play: async ({ canvas }) => {
+    await expect(canvas.queryByTestId("approval-receipt")).toBeNull()
   },
 }
 

@@ -1,0 +1,68 @@
+{
+  "run_id": "9e3b6c27-1f4a-4d85-9c0e-2b7a5f8d3c16",
+  "status": "blocked",
+  "policy_mode": "enforce",
+  "request": "Quiero audífonos negros por menos de 2 millones",
+  "merchant": "http://127.0.0.1:4120",
+  "total": null,
+  "started_at": "2026-10-20T16:26:20.412Z",
+  "updated_at": "2026-10-20T16:26:29.130Z",
+  "steps": [
+    {
+      "id": "request",
+      "at": "2026-10-20T16:26:20.412Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "request"
+    },
+    {
+      "id": "selection",
+      "at": "2026-10-20T16:26:29.130Z",
+      "duration_ms": 8718,
+      "actor": "agent",
+      "state": "done",
+      "kind": "selection",
+      "product": "Sony WH-1000XM6 negro",
+      "total_minor": 164990000,
+      "currency": "COP"
+    },
+    {
+      "id": "policy_decision",
+      "at": "2026-10-20T16:26:29.130Z",
+      "duration_ms": null,
+      "actor": "policy",
+      "state": "blocked",
+      "kind": "policy_decision",
+      "decision": {
+        "mode": "enforce",
+        "outcome": "deny",
+        "effect": "blocked",
+        "policy": {
+          "set_id": "d1-demo-policy",
+          "revision": 3
+        },
+        "rules": [
+          {
+            "id": "POL-01",
+            "result": "not_evaluated",
+            "observed": null,
+            "expected": null
+          },
+          {
+            "id": "POL-02",
+            "result": "not_evaluated",
+            "observed": null,
+            "expected": null
+          }
+        ],
+        "reason_codes": [
+          "GOV_ENGINE_UNAVAILABLE"
+        ],
+        "latency_ms": null,
+        "decision_id": "decision:70a4c2e8f6b1d9357e0c4a8f2b6d1e93",
+        "evidence_id": "evidence:39e1d6b2f8a4c0e7539d1b6f8e2c4a07"
+      }
+    }
+  ]
+}

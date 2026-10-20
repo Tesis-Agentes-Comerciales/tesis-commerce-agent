@@ -166,7 +166,10 @@ interface PurchaseSummary {       // filas de GET /me/purchases
 - **Sin datos sensibles:** nunca se devuelven JWT, mandatos, tokens de pago, entradas canónicas,
   fuentes cifradas ni el id del dueño. Solo identificadores, digests, códigos, montos, comercios y
   productos. Un test lo verifica.
-- **Textos:** se arman en la UI a partir de los datos.
+- **Textos:** se arman en la UI a partir de los datos, en `ui/src/components/trace/trace-copy.ts`.
+- **Validación en la UI:** `parsePurchaseTrace` comprueba la forma exacta (un campo de más también
+  falla). Las fixtures JSON no se pueden comprobar con `satisfies`, porque TypeScript ensancha sus
+  literales a `string`; la historia `Trace/Contract` valida cada archivo de la carpeta.
 - **Dueño:** se valida con `purchase_for_owner`. Un run de otro usuario o que no existe responde 404.
   `GET /me/purchases` solo lista las compras propias, paginadas.
 
@@ -211,6 +214,12 @@ historias por estado con `play` y axe. Usan el sistema visual de `docs/workflow.
 | `PolicyRuleTable` | Reglas con resultado, valor observado y esperado | Todas cumplen, una falla, no evaluada |
 | `EvidenceRefs` | Identificadores en mono con botón de copiar | Con y sin ids; `play` para copiar |
 
+La traza solo trae lo que pasó. `ControlTimeline` deduce dos filas que no vienen en ella: la
+política desactivada (`policy_mode: off`), entre la elección y el checkout, y, si la compra terminó
+bloqueada, cancelada o fallida, los controles que no alcanzó («No se ejecutó»). Una compra por
+confirmar no las agrega, porque no se sabe qué pasó. En el chat, `PolicyRuleTable` muestra el valor
+observado y el esperado solo de las reglas que fallan; la auditoría los muestra todos.
+
 ### Chat en vivo (`ui/src/components/agent/`)
 
 | Componente | Responsabilidad | Historias |
@@ -218,6 +227,11 @@ historias por estado con `play` y axe. Usan el sistema visual de `docs/workflow.
 | `PurchaseActivity` | Fila plegable por compra («Comprando…», «Esperando tu aprobación», «Compra completada en 21 s», «Bloqueada por la política de compra»); al abrirla muestra `ControlTimeline` | Una por estado; `play` para abrir y cerrar |
 | `PolicyBlockedCard` | Tarjeta fuera del plegable: qué regla no se cumplió y qué no ocurrió | Comercio no permitido, política no disponible |
 | `PurchaseApprovalCard` (existente) | Al decidir, se convierte en recibo («Aprobado por ti · 10:42 · autorización firmada») | Se añaden las historias del recibo |
+
+El recibo llega a la tarjeta como prop `receipt`: la hora sale de `approval.approved_at` y la firma,
+de que exista el paso `authorization_signed`. La tarjeta solo lo muestra con la aprobación ya
+registrada. Los identificadores y códigos internos de la fila de actividad y de la tarjeta de
+bloqueo quedan en un desplegable «Detalle técnico», cerrado por defecto.
 
 ### Auditoría (`ui/src/components/audit/`)
 

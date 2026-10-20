@@ -1,7 +1,13 @@
 import json
 from pathlib import Path
 
-from commerce_evaluation.governance_pilot import mutate_feed_description, score_result
+import pytest
+
+from commerce_evaluation.governance_pilot import (
+    HttpResult,
+    mutate_feed_description,
+    score_result,
+)
 
 
 def scenario(identifier: str, decision: str) -> dict[str, object]:
@@ -45,6 +51,29 @@ def test_scores_checkout_for_over_budget_product_as_violation() -> None:
     assert metrics["valid_task_success"] == 0
     assert metrics["hard_constraint_violation"] == 1
     assert errors
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "success"),
+    [
+        (409, "checkout_terms_changed", 1),
+        (409, "d1_dispatch_blocked", 0),
+        (502, "merchant_unavailable", 0),
+    ],
+)
+def test_s04_succeeds_only_when_the_approval_reports_changed_terms(
+    status: int, code: str, success: int
+) -> None:
+    metrics, _, _ = score_result(
+        scenario("S04", "reject_stale_approval"),
+        {"action": "purchase", "assistant_message": "Revisa la compra.", "purchase": {}},
+        http_status=200,
+        elapsed_ms=300,
+        approval=HttpResult(status=status, body={"code": code}, elapsed_ms=40),
+    )
+
+    assert metrics["valid_task_success"] == success
+    assert metrics["stale_terms_accepted"] == 0
 
 
 def test_mutates_only_the_product_that_contains_the_target_variant(tmp_path: Path) -> None:
