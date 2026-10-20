@@ -604,20 +604,19 @@ def test_wrong_custody_key_and_foreign_database(flow, tmp_path):
 
 
 @pytest.mark.parametrize("phase", ["presentation", "decision"])
-def test_persistence_failure_returns_no_success(flow, phase):
+def test_persistence_failure_returns_no_success(flow, phase, monkeypatch):
     store, token, *_ = flow
     view = store.present(token)
-    with closing(sqlite3.connect(store.path)) as blocker:
+    real_connect = sqlite3.connect
+
+    def connect(*args, **kwargs):
+        # Force immediate failure, preserving the schema verifier and real SQLite. The store's
+        # own busy timeout (15 s) would be spent on its first PRAGMA, before any busy_timeout.
+        return real_connect(*args, **{**kwargs, "timeout": 0})
+
+    with closing(real_connect(store.path)) as blocker, monkeypatch.context() as patch:
         blocker.execute("BEGIN EXCLUSIVE")
-        # Force immediate failure, preserving the schema verifier and real SQLite.
-        original = store._connect
-
-        def connect():
-            db = original()
-            db.execute("PRAGMA busy_timeout=1")
-            return db
-
-        store._connect = connect
+        patch.setattr(sqlite3, "connect", connect)
         with pytest.raises(sqlite3.OperationalError):
             if phase == "presentation":
                 store.present(token)
