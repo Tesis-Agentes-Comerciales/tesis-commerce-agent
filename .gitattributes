@@ -11,3 +11,6 @@
 /src/commerce_agent/governance/canonical.py text eol=lf
 /src/commerce_agent/governance/models.py text eol=lf
 /src/commerce_agent/governance/evaluator.py text eol=lf
+
+# Prompt bytes are hashed into every HNP trace; keep them identical on every platform.
+/src/commerce_agent/hnp_experiment/llm/prompts/*.md text eol=lf

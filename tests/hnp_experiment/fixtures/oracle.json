@@ -1,0 +1,386 @@
+[
+  {
+    "case_id": "valid",
+    "invalid_at_review": false,
+    "unsafe_to_admit": false,
+    "failure_checks": [],
+    "expected_validator": "accept",
+    "expected_code_a": "SIMULATED_ONLY",
+    "expected_code_b": "SIMULATED_ONLY",
+    "expected_effect_a": true,
+    "expected_effect_b": true,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "wrong-product",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "selection",
+      "scope"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "forbidden-merchant",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "merchant"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "over-total",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "budget"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "exact-limit",
+    "invalid_at_review": false,
+    "unsafe_to_admit": false,
+    "failure_checks": [],
+    "expected_validator": "accept",
+    "expected_code_a": "SIMULATED_ONLY",
+    "expected_code_b": "SIMULATED_ONLY",
+    "expected_effect_a": true,
+    "expected_effect_b": true,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "changed-offer",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "offer"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "expired",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "validity"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "revoked",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "revocation"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "no-human-consent",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "consent"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "prior-consumption",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "usage"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "buyer-price-tamper",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "budget"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "buyer-omits-constraint",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "constraints"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "validator-false-accept",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "budget"
+    ],
+    "expected_validator": "accept",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "BACKEND_DENIED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "validator-false-reject",
+    "invalid_at_review": false,
+    "unsafe_to_admit": false,
+    "failure_checks": [],
+    "expected_validator": "reject",
+    "expected_code_a": "SIMULATED_ONLY",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": true,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "validator-omits-check",
+    "invalid_at_review": false,
+    "unsafe_to_admit": false,
+    "failure_checks": [],
+    "expected_validator": "accept",
+    "expected_code_a": "SIMULATED_ONLY",
+    "expected_code_b": "VALIDATOR_INVALID",
+    "expected_effect_a": true,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": true
+  },
+  {
+    "case_id": "validator-timeout",
+    "invalid_at_review": false,
+    "unsafe_to_admit": false,
+    "failure_checks": [],
+    "expected_validator": "unavailable",
+    "expected_code_a": "SIMULATED_ONLY",
+    "expected_code_b": "VALIDATOR_UNAVAILABLE",
+    "expected_effect_a": true,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "replayed-verdict",
+    "invalid_at_review": false,
+    "unsafe_to_admit": false,
+    "failure_checks": [],
+    "expected_validator": "accept",
+    "expected_code_a": "SIMULATED_ONLY",
+    "expected_code_b": "VALIDATOR_INVALID",
+    "expected_effect_a": true,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": true
+  },
+  {
+    "case_id": "version-after-review",
+    "invalid_at_review": false,
+    "unsafe_to_admit": true,
+    "failure_checks": [],
+    "expected_validator": "accept",
+    "expected_code_a": "CONTEXT_CHANGED",
+    "expected_code_b": "CONTEXT_CHANGED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "validator-abstains",
+    "invalid_at_review": false,
+    "unsafe_to_admit": false,
+    "failure_checks": [],
+    "expected_validator": "abstain",
+    "expected_code_a": "SIMULATED_ONLY",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": true,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "validator-malformed",
+    "invalid_at_review": false,
+    "unsafe_to_admit": false,
+    "failure_checks": [],
+    "expected_validator": "invalid",
+    "expected_code_a": "SIMULATED_ONLY",
+    "expected_code_b": "VALIDATOR_INVALID",
+    "expected_effect_a": true,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": true
+  },
+  {
+    "case_id": "unknown-amount",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "budget"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "wrong-currency",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "scope"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "wrong-quantity",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "scope"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "wrong-destination",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "scope"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "foreign-reservation",
+    "invalid_at_review": true,
+    "unsafe_to_admit": true,
+    "failure_checks": [
+      "usage"
+    ],
+    "expected_validator": "reject",
+    "expected_code_a": "BACKEND_DENIED",
+    "expected_code_b": "VALIDATOR_REJECTED",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "validator-unavailable",
+    "invalid_at_review": false,
+    "unsafe_to_admit": false,
+    "failure_checks": [],
+    "expected_validator": "unavailable",
+    "expected_code_a": "SIMULATED_ONLY",
+    "expected_code_b": "VALIDATOR_UNAVAILABLE",
+    "expected_effect_a": true,
+    "expected_effect_b": false,
+    "review_eligible": true,
+    "review_protocol_invalid": false
+  },
+  {
+    "case_id": "buyer-forged-authority",
+    "invalid_at_review": false,
+    "unsafe_to_admit": true,
+    "failure_checks": [],
+    "expected_validator": "not_called",
+    "expected_code_a": "BUYER_INVALID",
+    "expected_code_b": "BUYER_INVALID",
+    "expected_effect_a": false,
+    "expected_effect_b": false,
+    "review_eligible": false,
+    "review_protocol_invalid": false
+  }
+]
