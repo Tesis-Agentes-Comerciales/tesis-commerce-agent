@@ -2,21 +2,28 @@
 
 import json
 import os
+import secrets
 from pathlib import Path
 
+import httpx
 import pytest
+from fastapi.testclient import TestClient
 
+from commerce_agent.api import create_app
 from commerce_agent.config import Settings
 from commerce_agent.governance.bootstrap import build_enforce_gate
 from commerce_evaluation.governance_pilot import (
     CONDITIONS,
+    ConditionMismatchError,
     D1RunKeys,
     PilotCondition,
     agent_environment,
+    verify_agent_condition,
 )
 from commerce_evaluation.paths import DATA
 
 MERCHANT = "http://127.0.0.1:4120"
+FEED = Path(__file__).parents[1] / "fixtures" / "feed"
 KEYS = D1RunKeys.generate()
 B0_PRIME, B2 = CONDITIONS["B0prime"], CONDITIONS["B2"]
 
@@ -78,3 +85,58 @@ def test_b0_prime_stays_off_even_when_a_local_env_file_enables_governance(
     assert condition.name == "B0prime"
     assert (settings.agent_governance_mode, settings.agent_hp_flow) == ("off", "blocked")
     assert not any(name.startswith("AGENT_D1_") for name in environment)
+
+
+@pytest.mark.parametrize("condition", [B0_PRIME, B2], ids=["B0prime", "B2"])
+def test_agent_started_with_the_condition_passes_the_health_check(
+    condition: PilotCondition, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner_secrets = {
+        name: secrets.token_urlsafe(32)
+        for name in (
+            "MERCHANT_BEARER_TOKEN",
+            "MERCHANT_WEBHOOK_SECRET",
+            "AGENT_APPROVAL_SECRET",
+            "PAYMENT_AGENT_BEARER_TOKEN",
+        )
+    }
+    runner_variables = {
+        "MERCHANT_BASE_URL": MERCHANT,
+        "AGENT_DATABASE_PATH": str(tmp_path / "agent.db"),
+        "AGENT_FEED_SOURCE": "file",
+        "AGENT_FEED_PATH": str(FEED),
+    }
+    start_with(
+        agent_environment(condition, MERCHANT, KEYS) | runner_secrets | runner_variables,
+        monkeypatch,
+    )
+
+    def no_network(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"/health must not call {request.url}")
+
+    app = create_app(
+        settings=Settings(_env_file=None),  # type: ignore[call-arg]
+        transport=httpx.MockTransport(no_network),
+        payment_transport=httpx.MockTransport(no_network),
+    )
+    with TestClient(app) as client:
+        health = client.get("/health").json()
+
+    assert verify_agent_condition(condition, health) == {
+        "governance_mode": condition.governance_mode,
+        "hp_flow": condition.hp_flow,
+    }
+
+
+@pytest.mark.parametrize(
+    "health",
+    [
+        {"status": "ok", "governance_mode": "off", "hp_flow": "blocked"},
+        {"status": "ok", "governance_mode": "enforce", "hp_flow": "blocked"},
+        {"status": "ok"},
+    ],
+    ids=["b0-prime-agent", "blocked-flow", "agent-without-condition"],
+)
+def test_runner_aborts_when_health_reports_another_condition(health: dict[str, str]) -> None:
+    with pytest.raises(ConditionMismatchError, match="condition B2 requires"):
+        verify_agent_condition(B2, health)

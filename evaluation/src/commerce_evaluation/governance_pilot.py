@@ -57,6 +57,10 @@ class PilotError(RuntimeError):
     pass
 
 
+class ConditionMismatchError(PilotError):
+    """The agent runs another condition: the pilot stops instead of recording the row."""
+
+
 @dataclass(frozen=True)
 class HttpResult:
     status: int
@@ -119,6 +123,17 @@ def agent_environment(
         "AGENT_D1_HMAC_KEY_HEX": keys.hmac_hex,
         "AGENT_D1_AES_KEY_HEX": keys.aes_hex,
     }
+
+
+def verify_agent_condition(condition: PilotCondition, health: dict[str, Any]) -> dict[str, str]:
+    """Return the condition /health reports; stop the pilot if it is not the requested one."""
+    expected = {"governance_mode": condition.governance_mode, "hp_flow": condition.hp_flow}
+    reported = {name: health.get(name) for name in expected}
+    if reported != expected:
+        raise ConditionMismatchError(
+            f"Agent /health reports {reported}, but condition {condition.name} requires {expected}"
+        )
+    return expected
 
 
 def _run(
@@ -636,6 +651,8 @@ def _execute_repetition(
         try:
             agent_origin = f"http://127.0.0.1:{agent_port}"
             _wait_http(f"{agent_origin}/health", process, 45, require_ok_status=True)
+            health = _request_json(f"{agent_origin}/health", timeout_seconds=5)
+            agent_condition = verify_agent_condition(condition, health.body)
             token = auth.token()
             turn = _execute_turn(
                 scenario=scenario,
@@ -708,6 +725,7 @@ def _execute_repetition(
                 "matrix_id": "governance-pilot-v1",
                 "baseline_id": "B0-2026-10-06",
                 "condition": condition.name,
+                **agent_condition,
                 "scenario_id": scenario["id"],
                 "scenario_name": scenario["name"],
                 "repetition": repetition,
@@ -976,11 +994,16 @@ def _run_pilot() -> int:
                             auth=auth,
                             agent_port=arguments.agent_port,
                         )
+                    except ConditionMismatchError:
+                        raise
                     except Exception as error:
                         record = {
                             "matrix_id": matrix["matrix_id"],
                             "baseline_id": matrix["baseline_id"],
                             "condition": condition.name,
+                            # A failed repetition records no verified condition.
+                            "governance_mode": None,
+                            "hp_flow": None,
                             "scenario_id": scenario["id"],
                             "scenario_name": scenario["name"],
                             "repetition": repetition,
