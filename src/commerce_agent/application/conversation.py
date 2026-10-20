@@ -661,13 +661,15 @@ class ConversationService:
         if selected is None:
             raise IntentInterpretationError("Candidate selection is incomplete")
         observer = _observer.get()
-        _started(observer, "prepare_checkout", lambda: {"variant_id": selected})
+        run_id = turn_run_id(state["turn_id"])
+        # The run goes in the args: a governance stop fails the step without a result, and the
+        # chat still needs the run to read its trace.
+        _started(observer, "prepare_checkout", lambda: {"variant_id": selected, "run_id": run_id})
         self._discover()
         decision = CommerceDecision.model_validate_json(json.dumps(state["decision"]))
         details = runtime.context.details
         if details is None:
             raise IntentInterpretationError("Checkout details are required")
-        run_id = turn_run_id(state["turn_id"])
         try:
             purchase = self._purchases.start(
                 run_id=run_id,

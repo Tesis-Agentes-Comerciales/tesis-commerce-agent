@@ -175,6 +175,32 @@ Sin candidatos: `search_catalog` devuelve `products: []` y el texto final es la 
 ]
 ```
 
+## `purchase-blocked.sse`
+
+Bloqueo de la política de compra en modo activo: la lista de comercios no incluye la tienda, `prepare_checkout` queda con `isError` y el código `d1_denied`, y el mensaje termina en `incomplete`/`error`. Los `args` del paso traen el `run_id` de la compra.
+
+- Estado enviado: `{messages: [], purchase: null}`.
+- Comandos:
+
+```json
+[
+  {
+    "type": "add-message",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Quiero audífonos negros por menos de 2 millones"
+        }
+      ]
+    },
+    "parentId": null,
+    "sourceId": null
+  }
+]
+```
+
 ## `error.sse`
 
 Error saneado: el comercio no responde durante `prepare_checkout`; el paso queda con `isError` y el mensaje con estado `incomplete`/`error`.

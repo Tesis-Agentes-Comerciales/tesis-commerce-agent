@@ -192,7 +192,7 @@ def test_purchase_stream_rebuilds_every_step_with_results(tmp_path: Path) -> Non
     }
 
     prepare = calls["prepare_checkout"]
-    assert prepare["args"] == {"variant_id": "SON-XM6-BLK"}
+    assert prepare["args"] == {"variant_id": "SON-XM6-BLK", "run_id": run_id}
     assert prepare["result"] == {
         "run_id": run_id,
         "checkout_id": "cs_storybook_1",

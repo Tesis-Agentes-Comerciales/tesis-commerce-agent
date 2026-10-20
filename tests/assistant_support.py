@@ -283,15 +283,29 @@ def settings(database: Path) -> Settings:
     )
 
 
+# Active policy (D1) whose merchant list leaves out the test merchant, with fixed synthetic keys
+# so the blocked stream is reproducible.
+POLICY_BLOCKS_MERCHANT: dict[str, Any] = {
+    "agent_governance_mode": "enforce",
+    "agent_d1_key_id": "fixture-key",
+    "agent_d1_policy_set_id": "d1-demo-policy",
+    "agent_d1_policy_revision": "3",
+    "agent_d1_hmac_key_hex": SecretStr("1" * 64),
+    "agent_d1_aes_key_hex": SecretStr("2" * 64),
+    "agent_d1_allowed_merchant_origins": "https://tienda-aliada.example.test",
+}
+
+
 def build_app(
     database: Path,
     *,
     router: Any | None = None,
     merchant: Merchant | None = None,
     buyer_authenticator: BuyerAuthenticator | None = None,
+    governance: dict[str, Any] | None = None,
 ) -> FastAPI:
     return create_app(
-        settings=settings(database),
+        settings=settings(database).model_copy(update=governance or {}),
         transport=(merchant or Merchant()).transport(),
         payment_transport=httpx.MockTransport(
             lambda request: httpx.Response(201, json={"id": "vt_" + "a" * 64})
@@ -308,8 +322,10 @@ def assistant_client(
     *,
     router: Any | None = None,
     merchant: Merchant | None = None,
+    governance: dict[str, Any] | None = None,
 ) -> Iterator[TestClient]:
-    with TestClient(build_app(database, router=router, merchant=merchant)) as client:
+    app = build_app(database, router=router, merchant=merchant, governance=governance)
+    with TestClient(app) as client:
         yield client
 
 
@@ -518,6 +534,16 @@ def render_fixtures(workdir: Path) -> list[Fixture]:
             "Sin candidatos: `search_catalog` devuelve `products: []` y el texto final es la "
             "recuperación conversacional.",
             [add_message(NO_CANDIDATE_REQUEST)],
+        )
+
+    with assistant_client(workdir / "blocked.db", governance=POLICY_BLOCKS_MERCHANT) as client:
+        record(
+            client,
+            "purchase-blocked",
+            "Bloqueo de la política de compra en modo activo: la lista de comercios no incluye la "
+            "tienda, `prepare_checkout` queda con `isError` y el código `d1_denied`, y el mensaje "
+            "termina en `incomplete`/`error`. Los `args` del paso traen el `run_id` de la compra.",
+            [add_message(PURCHASE_REQUEST)],
         )
 
     with assistant_client(workdir / "error.db", merchant=Merchant(fail_checkout=True)) as client:
