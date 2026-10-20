@@ -1,0 +1,160 @@
+name: Nightly system tests
+
+# Layer 4 (docs/testing.md): the live suite across Agent, Merchant and payment provider, and
+# the browser E2E of the UI. Replaces live-stack.yml and joint-e2e.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      merchant_ref:
+        description: Merchant branch or commit (empty uses its default branch)
+        required: false
+        type: string
+      payment_ref:
+        description: Payment-provider branch or commit (empty uses its default branch)
+        required: false
+        type: string
+  schedule:
+    - cron: "23 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sibling-access:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      available: ${{ steps.token.outputs.available }}
+    steps:
+      # Merchant and payment provider are private repositories; GITHUB_TOKEN cannot read them.
+      # Without a read-only token for both, the live job is skipped with a notice.
+      - name: Check sibling read token
+        id: token
+        env:
+          MERCHANT_REPO_TOKEN: ${{ secrets.MERCHANT_REPO_TOKEN }}
+        run: |
+          if [ -n "$MERCHANT_REPO_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Live stack skipped::Secret MERCHANT_REPO_TOKEN is not configured. Add a read-only token (contents: read) for Tesis-Agentes-Comerciales/tesis-commerce-merchant and Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox to run tests/integration."
+          fi
+
+  live-stack:
+    needs: sibling-access
+    if: needs.sibling-access.outputs.available == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout buyer agent
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: agent
+          persist-credentials: false
+
+      - name: Checkout merchant
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Tesis-Agentes-Comerciales/tesis-commerce-merchant
+          ref: ${{ inputs.merchant_ref }}
+          token: ${{ secrets.MERCHANT_REPO_TOKEN }}
+          path: merchant
+          persist-credentials: false
+
+      - name: Checkout payment provider
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox
+          ref: ${{ inputs.payment_ref }}
+          token: ${{ secrets.MERCHANT_REPO_TOKEN }}
+          path: payment
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.12.15"
+          enable-cache: true
+
+      - name: Install Python and locked dependencies
+        run: |
+          (cd agent && uv python install && uv sync --frozen --all-groups)
+          (cd merchant && uv python install && uv sync --frozen --all-groups)
+          (cd payment && uv python install && uv sync --frozen --all-groups)
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            agent/auth/package-lock.json
+            agent/ui/package-lock.json
+
+      # The browser test drives auth/ and ui/ with the Agent's own pinned Playwright.
+      - name: Install auth, UI and Chromium
+        working-directory: agent
+        run: |
+          (cd auth && npm ci)
+          (cd ui && npm ci)
+          uv run playwright install --with-deps --only-shell chromium
+
+      # Disposable PostgreSQL in Docker, the real Merchant and payment provider, and the
+      # Agent with its UI; see docs/testing.md and tests/integration/README.md.
+      - name: Run live suite
+        working-directory: agent
+        env:
+          RUN_LIVE_STACK: "1"
+          MERCHANT_REPO: ${{ github.workspace }}/merchant
+          PAYMENT_REPO: ${{ github.workspace }}/payment
+        run: >-
+          uv run pytest tests/integration -rs -p no:cacheprovider
+          --basetemp="$RUNNER_TEMP/live-stack"
+          --junitxml="$RUNNER_TEMP/live-junit.xml"
+
+      # Evidence, service logs, the browser screenshot and the JUnit report; workers never
+      # log tokens or bodies.
+      - name: Upload live evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-stack-evidence
+          path: |
+            ${{ runner.temp }}/live-stack/**/*.jsonl
+            ${{ runner.temp }}/live-stack/**/*.log
+            ${{ runner.temp }}/live-stack/**/*.png
+            ${{ runner.temp }}/live-junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  ui-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI dependencies
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Playwright E2E
+        run: npm run e2e

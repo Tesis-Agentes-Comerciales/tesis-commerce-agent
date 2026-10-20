@@ -2,6 +2,7 @@
 
 Opt-in only (RUN_LIVE_STACK=1 plus MERCHANT_REPO; see tests/integration/README.md). The
 Merchant runs from its own checkout through `uv run --project`; no Agent process imports it.
+live_purchase.py adds the payment provider and the purchase lanes on top of this stack.
 Every Agent request crosses FaultProxy, which stays transparent unless a test arms a
 labelled fault. Nothing here depends on fixed commits, machine paths or ports.
 """
@@ -28,7 +29,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import pytest
 from pydantic import SecretBytes, SecretStr
 
 from commerce_agent.acp.creation_lookup import BackendLookupSession, CreationLookupClient
@@ -55,7 +55,6 @@ from commerce_agent.persistence.remote_creation_sqlite import RemoteCreationVeri
 from tests.test_purchase_service import FakeCheckoutGateway, details
 
 AGENT = Path(__file__).resolve().parents[2]
-OPT_IN = "RUN_LIVE_STACK"
 MERCHANT_REPO = "MERCHANT_REPO"
 # Same image and digest as the Merchant CI and the joint E2E workflow.
 POSTGRES_IMAGE = (
@@ -67,7 +66,8 @@ CONTAINER_PREFIX = "tesis-live-"
 CONTROL = Path(__file__).with_name("live_merchant_control.py")
 AGENT_WORKER = Path(__file__).with_name("live_agent_worker.py")
 CREATE_PATH = "/checkout_sessions"
-# Routes the suite exercises; FaultProxy answers 405 to anything else, by construction.
+# Routes the governance suites exercise; FaultProxy answers 405 to anything else, by
+# construction. `*` in a route stands for exactly one path segment.
 ROUTES = frozenset(
     {
         ("GET", "/feeds/current"),
@@ -94,15 +94,14 @@ def missing_requirements() -> list[str]:
     return problems
 
 
-def live_stack_requirements():
-    # Opting in and then lacking a requirement is a configuration error: the stack fixture
-    # fails with the reason instead of reporting a quiet skip.
-    return [
-        pytest.mark.skipif(
-            os.environ.get(OPT_IN) != "1",
-            reason=f"requires {OPT_IN}=1 and {MERCHANT_REPO} (tests/integration/README.md)",
-        )
-    ]
+def route_allowed(routes: frozenset[tuple[str, str]], method: str, path: str) -> bool:
+    segments = path.split("/")
+    return any(
+        method == allowed
+        and len(template := pattern.split("/")) == len(segments)
+        and all(part in {"*", segment} for part, segment in zip(template, segments, strict=True))
+        for allowed, pattern in routes
+    )
 
 
 def free_port() -> int:
@@ -254,20 +253,36 @@ class PostgresContainer:
             self.created = self.running = False
 
 
-def uv_run(merchant: Path) -> list[str]:
-    return ["uv", "run", "--frozen", "--project", str(merchant)]
+def uv_run(project: Path) -> list[str]:
+    return ["uv", "run", "--frozen", "--project", str(project)]
 
 
-class MerchantServer:
-    """`uvicorn commerce_lab.api:app` from the Merchant checkout, on a listener made here.
+class ServiceServer:
+    """`uvicorn <app>` from another checkout (Merchant or PSP), on a listener made here.
 
     The listener is bound in this process and inherited (pass_fds + `uvicorn --fd`), so no
     other process can take the port between choosing and serving it. The parent closes its
-    copy at once: a stopped Merchant refuses connections instead of queueing them.
+    copy at once: a stopped service refuses connections instead of queueing them. With a
+    proxy, the proxy is the service's public origin and follows it across restarts.
     """
 
-    def __init__(self, stack: "LiveStack"):
-        self.stack = stack
+    def __init__(
+        self,
+        root: Path,
+        name: str,
+        project: Path,
+        app: tuple[str, ...],
+        env: dict[str, str],
+        ready: str,
+        proxy: "FaultProxy | None" = None,
+    ):
+        self.root = root
+        self.name = name
+        self.project = project
+        self.app = app
+        self.env = env
+        self.ready = ready
+        self.proxy = proxy
         self.process: subprocess.Popen[bytes] | None = None
         self.port: int | None = None
         self.pids: list[int] = []
@@ -279,7 +294,7 @@ class MerchantServer:
     def start(self) -> None:
         assert self.process is None
         listener = socket.socket()
-        log = (self.stack.root / "merchant.log").open("ab")
+        log = (self.root / f"{self.name}.log").open("ab")
         try:
             listener.bind(("127.0.0.1", 0))
             listener.listen(128)
@@ -287,9 +302,9 @@ class MerchantServer:
             descriptor = listener.fileno()
             self.process = subprocess.Popen(
                 [
-                    *uv_run(self.stack.merchant),
+                    *uv_run(self.project),
                     "uvicorn",
-                    "commerce_lab.api:app",
+                    *self.app,
                     "--fd",
                     str(descriptor),
                     "--log-level",
@@ -297,8 +312,9 @@ class MerchantServer:
                     "--no-access-log",
                 ],
                 pass_fds=(descriptor,),
-                cwd=self.stack.root,
-                env=self.stack.merchant_env,
+                # The run directory, never the checkout: no service reads a developer .env.
+                cwd=self.root,
+                env=self.env,
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=log,
@@ -312,11 +328,12 @@ class MerchantServer:
         def ready():
             assert self.process is not None and self.process.poll() is None
             with httpx.Client(trust_env=False, timeout=2) as client:
-                response = client.get(self.origin + "/health/ready")
+                response = client.get(self.origin + self.ready)
             assert response.status_code == 200 and response.json()["status"] == "ok"
 
-        wait_until(ready, "merchant")
-        self.stack.proxy.upstream = self.origin
+        wait_until(ready, self.name)
+        if self.proxy is not None:
+            self.proxy.upstream = self.origin
 
     def stop(self) -> None:
         if self.process is None:
@@ -333,7 +350,7 @@ class MerchantServer:
         self.process = None
         port = self.port
         assert port is not None
-        wait_until(lambda: closed(port), "merchant listener closed", timeout=15)
+        wait_until(lambda: closed(port), f"{self.name} listener closed", timeout=15)
 
 
 def closed(number: int) -> bool:
@@ -347,12 +364,12 @@ def closed(number: int) -> bool:
 class MerchantControl:
     """live_merchant_control.py under the Merchant's interpreter; JSON lines, private pipe."""
 
-    def __init__(self, stack: "LiveStack"):
-        self.log = (stack.root / "merchant-control.log").open("ab")
+    def __init__(self, root: Path, merchant: Path, env: dict[str, str]):
+        self.log = (root / "merchant-control.log").open("ab")
         self.process = subprocess.Popen(
-            [*uv_run(stack.merchant), "python", "-B", str(CONTROL)],
-            cwd=stack.root,
-            env=stack.merchant_env,
+            [*uv_run(merchant), "python", "-B", str(CONTROL)],
+            cwd=root,
+            env=env,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self.log,
@@ -413,7 +430,8 @@ class FaultProxy:
         {"pass", "drop", "reset", "delay", "status_503", "scope", "digest", "profile", "malformed"}
     )
 
-    def __init__(self):
+    def __init__(self, routes: frozenset[tuple[str, str]] = ROUTES):
+        self.routes = routes
         self.upstream: str | None = None
         self.calls: list[Call] = []
         self.faults: dict[str, str] = {}
@@ -473,7 +491,7 @@ class FaultProxy:
         fault = self.faults.get(path, "pass")
         call = Call(method, path, fault, body)
         self.calls.append(call)
-        if (method, path) not in ROUTES:
+        if not route_allowed(self.routes, method, path):
             call.fault = "blocked"
             self._respond(handler, call, 405, {}, b"")
             return
@@ -605,7 +623,15 @@ class LiveStack:
             LIVE_STACK_CLUSTER=self.postgres.name,
             PGCONNECT_TIMEOUT="5",
         )
-        self.server = MerchantServer(self)
+        self.server = ServiceServer(
+            root,
+            "merchant",
+            self.merchant,
+            ("commerce_lab.api:app",),
+            self.merchant_env,
+            "/health/ready",
+            self.proxy,
+        )
         self.control: MerchantControl | None = None
         self.evidence: list[dict[str, Any]] = []
         self._catalog: dict[str, Any] | None = None
@@ -620,7 +646,7 @@ class LiveStack:
 
     def start(self) -> None:
         self.postgres.start()
-        self.control = MerchantControl(self)
+        self.control = MerchantControl(self.root, self.merchant, self.merchant_env)
         identity = wait_until(lambda: self.rpc("identity"), "merchant control")
         assert identity["database"] == "tesis_lab"
         assert identity["user"] == self.postgres.app_user
