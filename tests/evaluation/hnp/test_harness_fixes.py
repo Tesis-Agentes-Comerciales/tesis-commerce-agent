@@ -6,27 +6,27 @@ from time import perf_counter
 
 import pytest
 
-from commerce_agent.hnp_experiment.adapters import (
+from commerce_evaluation.hnp.adapters import (
     ScriptedBuyerAgent,
     ScriptedValidatorAgent,
     independent_assessment,
 )
-from commerce_agent.hnp_experiment.backend import mandatory_failures
-from commerce_agent.hnp_experiment.context import FixtureContextResolver
-from commerce_agent.hnp_experiment.coordinator import ReviewCoordinator
-from commerce_agent.hnp_experiment.deadline import DeadlineExceeded, call_with_deadline
-from commerce_agent.hnp_experiment.evidence import ExperimentalEvidence
-from commerce_agent.hnp_experiment.harness import load_cases, run_case
-from commerce_agent.hnp_experiment.ports import InfrastructureError, RoleOutputError
+from commerce_evaluation.hnp.backend import mandatory_failures
+from commerce_evaluation.hnp.context import FixtureContextResolver
+from commerce_evaluation.hnp.coordinator import ReviewCoordinator
+from commerce_evaluation.hnp.deadline import DeadlineExceeded, call_with_deadline
+from commerce_evaluation.hnp.evidence import ExperimentalEvidence
+from commerce_evaluation.hnp.harness import load_cases, run_case
+from commerce_evaluation.hnp.ports import InfrastructureError, RoleOutputError
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).resolve().parents[3] / "evaluation/data/hnp"
 CASES = load_cases(FIXTURES / "cases.json")
 BY_ID = {c.case_id: c for c in CASES}
 VALID = BY_ID["valid"]
 
 
 def coordinator(validator=None, buyer=None, budget_ns: int = 100_000_000):
-    from commerce_agent.hnp_experiment.sink import SimulatedEffectSink
+    from commerce_evaluation.hnp.sink import SimulatedEffectSink
 
     sink = SimulatedEffectSink()
     return (
@@ -135,7 +135,7 @@ def test_buyer_output_errors_are_separated_from_infrastructure(error, code):
 
 
 def test_backend_fault_blocks_as_unavailable_not_as_denial(monkeypatch):
-    import commerce_agent.hnp_experiment.coordinator as module
+    import commerce_evaluation.hnp.coordinator as module
 
     def broken(*_):
         raise KeyError("harness bug")
@@ -161,7 +161,7 @@ def test_binding_is_enforced_by_version_admission_not_by_unreachable_check():
 
 
 def test_validator_receives_public_reviewer_facts_without_leaks():
-    from commerce_agent.hnp_experiment.models import (
+    from commerce_evaluation.hnp.models import (
         ProposalView,
         ReviewerContext,
         TrustedReviewContext,
@@ -188,8 +188,8 @@ def test_validator_receives_public_reviewer_facts_without_leaks():
 
 
 def test_scripted_reviewer_derives_eligibility_like_the_backend_on_every_fixture():
-    from commerce_agent.hnp_experiment.adapters import reviewer_eligible_variants
-    from commerce_agent.hnp_experiment.context import assemble, reviewer_context
+    from commerce_evaluation.hnp.adapters import reviewer_eligible_variants
+    from commerce_evaluation.hnp.context import assemble, reviewer_context
 
     for case in CASES:
         context = assemble(case.source)
@@ -200,13 +200,13 @@ def test_scripted_reviewer_derives_eligibility_like_the_backend_on_every_fixture
 
 def test_hidden_hard_constraint_makes_scripted_selection_unresolved():
     from commerce_agent.governance.canonical import parse_model
-    from commerce_agent.hnp_experiment.context import (
+    from commerce_evaluation.hnp.context import (
         assemble,
         proposal_envelope,
         proposal_view,
         reviewer_context,
     )
-    from commerce_agent.hnp_experiment.models import BuyerDraft, wire_bytes
+    from commerce_evaluation.hnp.models import BuyerDraft, wire_bytes
 
     context = reviewer_context(assemble(VALID.source))
     hard = context.intent.hard.model_copy(update={"categories": ("phone",)})
@@ -220,7 +220,7 @@ def test_hidden_hard_constraint_makes_scripted_selection_unresolved():
 
 @pytest.fixture(scope="module")
 def scripted_results():
-    from commerce_agent.hnp_experiment.evaluation import load_oracles
+    from commerce_evaluation.hnp.evaluation import load_oracles
 
     evidence = ExperimentalEvidence()
     results = [run_case(case, arm, evidence)[0] for case in CASES for arm in ("A", "B")]
@@ -228,7 +228,7 @@ def scripted_results():
 
 
 def test_evaluation_records_every_deviation_and_strict_mode_aborts(scripted_results):
-    from commerce_agent.hnp_experiment.evaluation import (
+    from commerce_evaluation.hnp.evaluation import (
         expectation_deviations,
         score,
         verify_expected,
@@ -255,7 +255,7 @@ def test_evaluation_records_every_deviation_and_strict_mode_aborts(scripted_resu
 
 
 def test_lenient_scoring_records_unpaired_cases_instead_of_aborting(scripted_results):
-    from commerce_agent.hnp_experiment.evaluation import score
+    from commerce_evaluation.hnp.evaluation import score
 
     results, oracles = scripted_results
     partial = {k: v for k, v in oracles.items() if k != "valid"}
@@ -267,7 +267,7 @@ def test_lenient_scoring_records_unpaired_cases_instead_of_aborting(scripted_res
 
 
 def test_scripted_summary_separates_timeouts_and_infrastructure(scripted_results):
-    from commerce_agent.hnp_experiment.evaluation import score
+    from commerce_evaluation.hnp.evaluation import score
 
     results, oracles = scripted_results
     b = score(results, oracles)["conditions"]["B"]
@@ -277,8 +277,8 @@ def test_scripted_summary_separates_timeouts_and_infrastructure(scripted_results
 
 
 def test_scripted_score_counts_model_calls_instead_of_fixing_zero(scripted_results):
-    from commerce_agent.hnp_experiment.evaluation import score
-    from commerce_agent.hnp_experiment.llm.trace import CallRecord, TokenUsage
+    from commerce_evaluation.hnp.evaluation import score
+    from commerce_evaluation.hnp.llm.trace import CallRecord, TokenUsage
 
     results, oracles = scripted_results
     assert score(results, oracles)["llm_calls"] == 0

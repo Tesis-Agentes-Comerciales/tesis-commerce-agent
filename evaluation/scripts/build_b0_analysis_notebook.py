@@ -8,7 +8,7 @@ from textwrap import dedent
 
 import nbformat as nbf
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "evaluation" / "results" / "b0-pilot-v1-analysis.ipynb"
 
 

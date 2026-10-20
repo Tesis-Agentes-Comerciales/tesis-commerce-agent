@@ -7,8 +7,8 @@ No son resultados B2 ni una validación AP2/HNP. Fuente normativa propuesta:
 [ADR](adr-policy-engine-v1.md). Trazabilidad original:
 [roadmap](system-design-v1/roadmap.md), [decisiones](system-design-v1/decisions.json),
 [amenazas](threat-model.md), [evaluación anterior](evaluation-plan.md),
-[matriz piloto histórica](../../evaluation/pilot-matrix.md) y
-[escenarios congelados](../../evaluation/pilot-scenarios.json).
+[matriz piloto histórica](../../evaluation/data/pilot-matrix.md) y
+[escenarios congelados](../../evaluation/data/pilot-scenarios.json).
 
 ## 1. Oráculos, fixture de referencia y observación
 

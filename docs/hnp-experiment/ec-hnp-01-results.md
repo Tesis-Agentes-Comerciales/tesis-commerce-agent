@@ -12,6 +12,11 @@ BuyerAgent.propose devuelve BuyerDraft; ValidatorAgent.review devuelve Validator
 Los dos Scripted adapters reciben entradas y respuestas inyectables, sin SDK de LLM,
 credenciales ni herramientas comerciales. El resolver y el coordinador son backend.
 
+> **Nota 2026-10-20.** El paquete pasó a `evaluation/src/commerce_evaluation/hnp/`, fuera del
+> wheel y de la imagen del agente; el corpus a `evaluation/data/hnp/`, las pruebas a
+> `tests/evaluation/hnp/` y el script a `uv run hnp-review-demo`. Las rutas de este informe
+> son las de su fecha.
+
 Se reutilizan PurchaseIntent, ProductFeed, rank_candidates, tipos primitivos y la
 canonicalización existente. El resolver proyecta candidatos y calcula elegibles desde
 el feed/intención originales. El validador no recibe el feed libre, oráculos, el caso
@@ -161,7 +166,7 @@ sobre propuestas válidas; no se debe presentar como una ventaja.
 >
 > El PR #16 corrige el arnés: vistas públicas para el validador, deadline real y fallas de
 > infraestructura separadas. Conserva los códigos, efectos y checks de los 54 episodios. La
-> Fase 1 de EC-HNP-02 ([README](../../src/commerce_agent/hnp_experiment/llm/README.md)) declara
+> Fase 1 de EC-HNP-02 ([README](../../evaluation/src/commerce_evaluation/hnp/llm/README.md)) declara
 > estas amenazas: B ⊆ A, y `unique_captures` como única fuente posible de ganancia.
 
 Latencia medida en Windows 11/Python 3.12.6; una pasada, orden A luego B por caso,

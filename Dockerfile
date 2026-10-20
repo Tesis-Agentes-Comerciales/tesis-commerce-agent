@@ -12,6 +12,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
+# El miembro evaluation del workspace es dependencia dev: --no-dev deja los experimentos fuera.
 RUN uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
