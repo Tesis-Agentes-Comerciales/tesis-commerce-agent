@@ -5,7 +5,7 @@
   "request": "Quiero audífonos negros por menos de 2 millones",
   "merchant": "http://127.0.0.1:4120",
   "total": {
-    "minor": 164990000,
+    "minor": 192400000,
     "currency": "COP"
   },
   "started_at": "2026-10-20T16:33:20.412Z",
@@ -27,7 +27,7 @@
       "state": "done",
       "kind": "selection",
       "product": "Sony WH-1000XM6 negro",
-      "total_minor": 164990000,
+      "total_minor": 189900000,
       "currency": "COP"
     },
     {
@@ -69,7 +69,7 @@
       "actor": "payment",
       "state": "done",
       "kind": "payment_authorized",
-      "max_minor": 164990000,
+      "max_minor": 192400000,
       "currency": "COP"
     },
     {

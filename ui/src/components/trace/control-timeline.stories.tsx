@@ -112,6 +112,62 @@ export const Failed: Story = {
   args: { trace: TRACES.failed },
 }
 
+/**
+ * S04: la política permitió la compra; la frescura confirmó los términos al mostrarlos y detuvo la
+ * aprobación cuando el precio cambió. Después: ni firma, ni pago, ni orden.
+ */
+export const StaleTerms: Story = {
+  args: { trace: TRACES.staleTerms },
+  play: async ({ canvas, canvasElement }) => {
+    const rows = timelineRows(canvasElement)
+    const titles = rows.map((row) => row.querySelector("p")?.textContent)
+    await expect(titles).toEqual([
+      "Pedido recibido",
+      "Producto elegido",
+      "Política de compra: permitida",
+      "Checkout creado en el comercio",
+      "Condiciones confirmadas con el comercio",
+      "Tu aprobación",
+      "Las condiciones del comercio cambiaron",
+      "Firmar la autorización",
+      "Autorizar el pago",
+      "Confirmar la orden",
+    ])
+    await expect(rows.map((row) => row.getAttribute("data-state"))).toEqual([
+      "done",
+      "done",
+      "done",
+      "done",
+      "done",
+      "skipped",
+      "blocked",
+      "skipped",
+      "skipped",
+      "skipped",
+    ])
+    await expect(canvas.getByRole("list", { name: "Qué cambió" })).toBeVisible()
+    // El único bloqueo es de un control de la aplicación: nada lo atribuye a la política.
+    await expect(canvas.queryByText("La política detuvo la compra")).toBeNull()
+  },
+}
+
+/** S02: el checkout se canceló por presupuesto y el agente explicó por qué, sin error técnico. */
+export const GovernedRecovery: Story = {
+  args: { trace: TRACES.governedRecovery },
+  play: async ({ canvas, canvasElement }) => {
+    const titles = timelineRows(canvasElement).map((row) => row.querySelector("p")?.textContent)
+    const recovery = titles.indexOf("El agente explicó por qué no siguió")
+    await expect(titles[recovery - 1]).toBe("Compra cancelada: superaba tu presupuesto")
+    await expect(titles.slice(recovery + 1)).toEqual([
+      "Tu aprobación",
+      "Firmar la autorización",
+      "Autorizar el pago",
+      "Confirmar la orden",
+    ])
+    await expect(canvas.queryByText(/error/i)).toBeNull()
+  },
+}
+
 /** No se sabe si la orden se creó: no se agregan controles omitidos. */
 export const Uncertain: Story = {
   args: { trace: TRACES.uncertain },

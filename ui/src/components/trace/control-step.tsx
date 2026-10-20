@@ -1,6 +1,7 @@
 import { cn } from "cn"
 
 import { formatDuration } from "@/components/agent/agent-format"
+import { FreshnessChanges } from "@/components/trace/freshness-changes"
 import { PolicyRuleTable } from "@/components/trace/policy-rule-table"
 import { StepStatusIcon } from "@/components/trace/step-status-icon"
 import {
@@ -74,6 +75,7 @@ export function ControlStep({ step, className }: ControlStepProps) {
         {"decision" in step && (
           <PolicyRuleTable rules={step.decision.rules} values="failed" className="mt-2" />
         )}
+        {"changes" in step && <FreshnessChanges step={step} className="mt-2" />}
       </div>
     </li>
   )

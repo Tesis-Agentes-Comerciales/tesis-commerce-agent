@@ -1,0 +1,101 @@
+{
+  "run_id": "run_8b3f6d1a2c9e4f70b5d8a1c3e6f9b204",
+  "status": "canceled",
+  "policy_mode": "enforce",
+  "request": "Quiero exactamente el Google Pixel 8 de 128 GB negro, pero no puedo gastar más de 1.000.000 COP y no acepto otro modelo.",
+  "merchant": "http://127.0.0.1:4120",
+  "total": null,
+  "started_at": "2026-10-20T17:20:10.000Z",
+  "updated_at": "2026-10-20T17:20:19.902Z",
+  "steps": [
+    {
+      "id": "request",
+      "at": "2026-10-20T17:20:10.000Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "request"
+    },
+    {
+      "id": "selection",
+      "at": "2026-10-20T17:20:18.420Z",
+      "duration_ms": 8420,
+      "actor": "agent",
+      "state": "done",
+      "kind": "selection",
+      "product": "Google Pixel 8 128 GB negro",
+      "total_minor": 154000000,
+      "currency": "COP"
+    },
+    {
+      "id": "policy_decision",
+      "at": "2026-10-20T17:20:18.424Z",
+      "duration_ms": 4,
+      "actor": "policy",
+      "state": "done",
+      "kind": "policy_decision",
+      "decision": {
+        "mode": "enforce",
+        "outcome": "allow",
+        "effect": "continued",
+        "policy": {
+          "set_id": "d1-demo-policy",
+          "revision": 3
+        },
+        "rules": [
+          {
+            "id": "POL-01",
+            "result": "pass",
+            "observed": "BBGooglePixel8-128GB",
+            "expected": "BBGooglePixel8-128GB"
+          },
+          {
+            "id": "POL-02",
+            "result": "pass",
+            "observed": "http://127.0.0.1:4120",
+            "expected": "http://127.0.0.1:4120"
+          }
+        ],
+        "reason_codes": [
+          "ALL_APPLICABLE_POLICIES_SATISFIED"
+        ],
+        "latency_ms": 4,
+        "decision_id": "decision:8b3f6d1a2c9e4f70b5d8a1c3e6f9b204",
+        "evidence_id": "evidence:b2048b3f6d1a2c9e4f70b5d8a1c3e6f9"
+      }
+    },
+    {
+      "id": "checkout_created",
+      "at": null,
+      "duration_ms": null,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "checkout_created",
+      "checkout_id": "cs_pixel_1"
+    },
+    {
+      "id": "canceled",
+      "at": "2026-10-20T17:20:19.902Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "canceled",
+      "by": "budget"
+    },
+    {
+      "id": "governed_recovery:1",
+      "at": null,
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "governed_recovery",
+      "recovery": "budget_exceeded_after_checkout",
+      "cause": "budget",
+      "variant_id": "BBGooglePixel8-128GB",
+      "budget_minor": 100000000,
+      "observed_minor": 154000000,
+      "currency": "COP",
+      "evidence_digest": "sha256:cb7f7b5570fa985a75165784a7d0e7b23d985e92cb3c3181b656c15ea8c0384c"
+    }
+  ]
+}

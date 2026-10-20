@@ -25,7 +25,14 @@ UtcTime = Annotated[str, Field(pattern=UTC_TIME_PATTERN), AfterValidator(_real_d
 
 TraceActor = Literal["user", "agent", "policy", "merchant", "payment"]
 PurchaseStatus = Literal[
-    "in_progress", "awaiting_approval", "completed", "blocked", "canceled", "failed", "uncertain"
+    "in_progress",
+    "awaiting_approval",
+    "completed",
+    "blocked",
+    "stale_terms",
+    "canceled",
+    "failed",
+    "uncertain",
 ]
 StepState = Literal["done", "running", "waiting", "blocked", "error", "skipped"]
 PolicyMode = Literal["off", "shadow", "enforce"]
@@ -133,6 +140,76 @@ class FailedStep(StepBase):
     code: Text
 
 
+# Application controls of the governed Human Present flow (docs/design/b2-governed-pilot.md):
+# they come from hp_evidence, never from the D1 policy decision.
+
+
+class AmountChange(TraceModel):
+    field: Literal["subtotal_minor", "shipping_minor", "total_minor", "delivery_days", "stock"]
+    presented: Count | None
+    current: Count | None
+
+
+class CurrencyChange(TraceModel):
+    field: Literal["currency"]
+    presented: Currency | None
+    current: Currency | None
+
+
+class ExpiryChange(TraceModel):
+    field: Literal["expires_at"]
+    presented: UtcTime | None
+    current: UtcTime | None
+
+
+FreshnessChange = Annotated[
+    AmountChange | CurrencyChange | ExpiryChange, Field(discriminator="field")
+]
+
+
+class FreshnessCheckStep(StepBase):
+    """Live-offer freshness; `state` is `blocked` when the check stopped the purchase."""
+
+    kind: Literal["freshness_check"]
+    stage: Literal["present", "approve"]
+    mode: Literal["shadow", "enforce"]
+    outcome: Literal["fresh", "changed", "unavailable"]
+    changes: tuple[FreshnessChange, ...]
+    currency: Currency | None
+    offer_revision: Count | None
+    read_error: Text | None
+    evidence_digest: Text
+
+
+RecoveryCause = Literal[
+    "budget",
+    "unavailable",
+    "currency",
+    "category",
+    "condition",
+    "option",
+    "term",
+    "not_shortlisted",
+    "not_in_catalog",
+    "no_match",
+]
+
+
+class GovernedRecoveryStep(StepBase):
+    """The agent explained why a selection could not proceed instead of a technical error."""
+
+    kind: Literal["governed_recovery"]
+    recovery: Literal[
+        "no_candidate", "selection_outside_shortlist", "budget_exceeded_after_checkout"
+    ]
+    cause: RecoveryCause
+    variant_id: Text | None
+    budget_minor: Count | None
+    observed_minor: Count | None
+    currency: Currency | None
+    evidence_digest: Text
+
+
 TraceStep = Annotated[
     RequestStep
     | SelectionStep
@@ -144,7 +221,9 @@ TraceStep = Annotated[
     | OrderConfirmedStep
     | OrderEventStep
     | CanceledStep
-    | FailedStep,
+    | FailedStep
+    | FreshnessCheckStep
+    | GovernedRecoveryStep,
     Field(discriminator="kind"),
 ]
 

@@ -83,33 +83,42 @@ class SqliteHpEvidenceStore:
 
     def for_run(self, run_id: str) -> tuple[HpEvidence, ...]:
         with closing(self._connect()) as connection:
-            rows = connection.execute(
-                "SELECT run_id, sequence, record_kind, body, previous_digest, digest "
-                "FROM hp_evidence WHERE run_id = ? ORDER BY sequence",
-                (run_id,),
-            ).fetchall()
-        return tuple(
-            HpEvidence(row[0], row[1], row[2], json.loads(row[3]), row[4], row[5]) for row in rows
-        )
+            return read_run(connection, run_id)
 
     def verify_chain(self, run_id: str) -> bool:
-        previous = None
-        for expected, record in enumerate(self.for_run(run_id), start=1):
-            text = canonical_bytes(record.body).decode()
-            if (
-                record.sequence != expected
-                or record.previous_digest != previous
-                or record.digest
-                != _digest(run_id, record.sequence, record.record_kind, text, previous)
-            ):
-                return False
-            previous = record.digest
-        return True
+        return chain_is_valid(run_id, self.for_run(run_id))
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._path, timeout=5)
         connection.execute("PRAGMA busy_timeout = 5000")
         return connection
+
+
+def read_run(connection: sqlite3.Connection, run_id: str) -> tuple[HpEvidence, ...]:
+    """A run's records in order, from any connection: the purchase trace reads read-only."""
+    rows = connection.execute(
+        "SELECT run_id, sequence, record_kind, body, previous_digest, digest "
+        "FROM hp_evidence WHERE run_id = ? ORDER BY sequence",
+        (run_id,),
+    ).fetchall()
+    return tuple(
+        HpEvidence(row[0], row[1], row[2], json.loads(row[3]), row[4], row[5]) for row in rows
+    )
+
+
+def chain_is_valid(run_id: str, records: tuple[HpEvidence, ...]) -> bool:
+    previous = None
+    for expected, record in enumerate(records, start=1):
+        text = canonical_bytes(record.body).decode()
+        if (
+            record.run_id != run_id
+            or record.sequence != expected
+            or record.previous_digest != previous
+            or record.digest != _digest(run_id, record.sequence, record.record_kind, text, previous)
+        ):
+            return False
+        previous = record.digest
+    return True
 
 
 def _digest(run_id: str, sequence: int, record_kind: str, body: str, previous: str | None) -> str:

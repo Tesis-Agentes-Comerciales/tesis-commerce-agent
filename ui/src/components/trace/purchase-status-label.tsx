@@ -7,6 +7,7 @@ import {
   CircleHelpIcon,
   ClockIcon,
   LoaderCircleIcon,
+  RefreshCwIcon,
   ShieldXIcon,
   type LucideIcon,
 } from "lucide-react"
@@ -23,6 +24,8 @@ const STATUS_VIEW: Record<PurchaseStatus, { tone: ChipTone; Icon: LucideIcon }> 
   awaiting_approval: { tone: "outline", Icon: ClockIcon },
   completed: { tone: "success", Icon: CheckIcon },
   blocked: { tone: "warning", Icon: ShieldXIcon },
+  // El mismo icono de la tarjeta de términos que ya no valen (StaleTermsCard).
+  stale_terms: { tone: "warning", Icon: RefreshCwIcon },
   canceled: { tone: "neutral", Icon: BanIcon },
   failed: { tone: "danger", Icon: CircleAlertIcon },
   uncertain: { tone: "warning", Icon: CircleHelpIcon },

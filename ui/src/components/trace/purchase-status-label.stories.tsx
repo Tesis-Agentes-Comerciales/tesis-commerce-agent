@@ -29,6 +29,8 @@ export const InProgress = statusStory("in_progress")
 export const AwaitingApproval = statusStory("awaiting_approval")
 export const Completed = statusStory("completed")
 export const Blocked = statusStory("blocked")
+/** La frescura de la oferta detuvo la compra: control de la aplicación, no de la política. */
+export const StaleTerms = statusStory("stale_terms")
 export const Canceled = statusStory("canceled")
 export const Failed = statusStory("failed")
 export const Uncertain = statusStory("uncertain")

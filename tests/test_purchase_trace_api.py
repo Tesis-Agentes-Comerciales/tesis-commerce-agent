@@ -32,10 +32,28 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from commerce_agent.api import create_app
+from commerce_agent.application.purchase import CheckoutDetails
 from commerce_agent.buyer_auth import BuyerPrincipal
 from commerce_agent.config import Settings
+from commerce_agent.llm import ConversationMessage
 from commerce_agent.persistence import ApprovalRecord, SqliteAgentStore
+from commerce_agent.trace import PurchaseTraces
 from commerce_agent.trace.models import PurchaseHistory, PurchaseTrace
+from tests.governance.test_hp_continuation import StoreMerchant, ask
+from tests.governance.test_hp_continuation import app_client as governed_client
+from tests.governance.test_runtime_dispatch import governed as governed_settings
+from tests.test_governed_recovery import (
+    PIXEL_8,
+    S02_REQUEST,
+    S02_RUN_ID,
+    PhoneMerchant,
+    S02Router,
+    conversation,
+    hp_recovery_evidence,
+    pick_pixel_8,
+    recorded_recoveries,
+    s02_intent,
+)
 
 BUYER = "buyer-a-owner@example.test"
 OTHER = "buyer-b-owner@example.test"
@@ -205,6 +223,8 @@ def test_completed_shadow_purchase_has_every_control_in_order(tmp_path: Path) ->
         "selection",
         "policy_decision",
         "checkout_created",
+        "freshness_check",
+        "freshness_check",
         "approval",
         "payment_authorized",
         "order_confirmed",
@@ -212,6 +232,14 @@ def test_completed_shadow_purchase_has_every_control_in_order(tmp_path: Path) ->
     ]
     assert_chronological(trace)
     assert trace["status"] == "completed" and trace["policy_mode"] == "shadow"
+    # Shadow freshness only records: this merchant double serves no live offer to compare.
+    assert [
+        (item["stage"], item["mode"], item["outcome"], item["state"], item["read_error"])
+        for item in freshness(trace)
+    ] == [
+        ("present", "shadow", "unavailable", "done", "freshness_check_failed"),
+        ("approve", "shadow", "unavailable", "done", "freshness_check_failed"),
+    ]
     assert trace["request"] == PURCHASE_REQUEST
     assert trace["merchant"] == MERCHANT_ORIGIN
     assert trace["total"] == {"minor": 1_924_000_00, "currency": "COP"}
@@ -556,3 +584,187 @@ def test_responses_never_expose_secrets_tokens_or_owner(tmp_path: Path) -> None:
         assert not JWT.search(text), text
         leaked = [value for value in forbidden if value in text]
         assert not leaked, (text, leaked)
+
+
+# Application controls of the governed HP flow (b2-governed-pilot): they come from hp_evidence,
+# are attributed to the agent and never appear as policy rules.
+
+
+def freshness(trace: dict[str, Any]) -> list[dict[str, Any]]:
+    return [item for item in trace["steps"] if item["kind"] == "freshness_check"]
+
+
+def governed_trace(client: TestClient, run_id: str) -> dict[str, Any]:
+    response = client.get(f"/purchases/{run_id}/trace")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert PurchaseTrace.model_validate_json(response.text).model_dump(mode="json") == body
+    return body
+
+
+def reprice(merchant: StoreMerchant) -> None:
+    """S04 stimulus: the merchant reprices the live offer after the terms were presented."""
+    pricing = merchant.offer["pricing"]
+    merchant.offer = {
+        **merchant.offer,
+        "revision": 2,
+        "pricing": {**pricing, "items_total_minor": 80_000, "total_minor": 82_000},
+    }
+
+
+def test_s04_trace_shows_the_freshness_block_and_what_changed(tmp_path: Path) -> None:
+    settings = governed_settings(tmp_path / "agent.db")
+    merchant = StoreMerchant()
+    with governed_client(settings, merchant) as client:
+        turn = ask(client, "turn-s04")
+        assert turn.status_code == 200, turn.text
+        run_id = turn.json()["purchase"]["run_id"]
+        fresh = governed_trace(client, run_id)
+        reprice(merchant)
+        approval = client.post(
+            f"/purchases/{run_id}/approval",
+            json={"expected_fingerprint": turn.json()["approval_terms"]["fingerprint"]},
+        )
+        assert approval.status_code == 409 and approval.json()["code"] == "checkout_terms_changed"
+        trace = governed_trace(client, run_id)
+        row = client.get("/me/purchases").json()["purchases"][0]
+
+    assert fresh["status"] == "awaiting_approval"
+    assert [item["stage"] for item in freshness(fresh)] == ["present"]
+    assert step(fresh, "approval")["state"] == "waiting"
+
+    assert trace["status"] == "stale_terms" and trace["policy_mode"] == "enforce"
+    assert kinds(trace) == [
+        "request",
+        "selection",
+        "policy_decision",
+        "checkout_created",
+        "freshness_check",
+        "approval",
+        "freshness_check",
+    ]
+    assert_chronological(trace)
+    # The PDP allowed the purchase; the stop belongs to the application control.
+    assert step(trace, "policy_decision")["decision"]["outcome"] == "allow"
+    assert step(trace, "approval")["state"] == "skipped"
+    presented, approved = freshness(trace)
+    assert {key: presented[key] for key in ("stage", "mode", "outcome", "state", "actor")} == {
+        "stage": "present",
+        "mode": "enforce",
+        "outcome": "fresh",
+        "state": "done",
+        "actor": "agent",
+    }
+    assert presented["changes"] == [] and presented["offer_revision"] == 1
+    assert {key: approved[key] for key in ("stage", "outcome", "state", "actor")} == {
+        "stage": "approve",
+        "outcome": "changed",
+        "state": "blocked",
+        "actor": "agent",
+    }
+    assert approved["changes"] == [
+        {"field": "subtotal_minor", "presented": 72_000, "current": 80_000},
+        {"field": "total_minor", "presented": 74_000, "current": 82_000},
+    ]
+    assert (approved["currency"], approved["offer_revision"], approved["read_error"]) == (
+        "COP",
+        2,
+        None,
+    )
+    assert approved["id"] == "freshness_check:2" and approved["duration_ms"] is None
+    assert approved["evidence_digest"].startswith("sha256:")
+    assert row["status"] == "stale_terms"
+    assert row["policy"] == {"outcome": "allow", "failed_rules": []}
+
+
+def test_a_repeated_blocked_check_is_one_row_and_canceling_keeps_the_checks(
+    tmp_path: Path,
+) -> None:
+    settings = governed_settings(tmp_path / "agent.db")
+    merchant = StoreMerchant()
+    with governed_client(settings, merchant) as client:
+        turn = ask(client, "turn-retry")
+        run_id = turn.json()["purchase"]["run_id"]
+        fingerprint = turn.json()["approval_terms"]["fingerprint"]
+        reprice(merchant)
+        # Each attempt checks again and records it; the same blocked result is one row.
+        for _ in range(3):
+            approval = client.post(
+                f"/purchases/{run_id}/approval", json={"expected_fingerprint": fingerprint}
+            )
+            assert approval.status_code == 409, approval.text
+        stale = governed_trace(client, run_id)
+        canceled = client.post(f"/purchases/{run_id}/cancel")
+        assert canceled.status_code == 200, canceled.text
+        trace = governed_trace(client, run_id)
+
+    assert stale["status"] == "stale_terms"
+    assert [(item["stage"], item["outcome"], item["state"]) for item in freshness(stale)] == [
+        ("present", "fresh", "done"),
+        ("approve", "changed", "blocked"),
+    ]
+    assert trace["status"] == "canceled"
+    assert kinds(trace)[-4:] == ["freshness_check", "approval", "freshness_check", "canceled"]
+    assert step(trace, "approval")["state"] == "skipped"
+    assert_chronological(trace)
+
+
+def test_s02_budget_recovery_appears_after_the_cancellation(tmp_path: Path) -> None:
+    merchant = PhoneMerchant()
+    router = S02Router(s02_intent(max_total=100_000_000), pick_pixel_8())
+    with conversation(tmp_path, router, merchant, hp_recovery_evidence(tmp_path)) as service:
+        response = service.execute(
+            (ConversationMessage(role="user", content=S02_REQUEST),),
+            CheckoutDetails.model_validate_json(json.dumps(checkout_details())),
+            turn_id="turn-s02",
+            conversation_id="conversation-s02",
+        )
+    assert response.action == "respond"
+    traces = PurchaseTraces(governed(tmp_path / "agent.db", "off"))
+    trace = traces.trace(S02_RUN_ID).model_dump(mode="json")
+
+    assert trace["status"] == "canceled"
+    assert kinds(trace) == [
+        "request",
+        "selection",
+        "checkout_created",
+        "canceled",
+        "governed_recovery",
+    ]
+    assert step(trace, "canceled")["by"] == "budget"
+    recovery = step(trace, "governed_recovery")
+    assert recovery == {
+        "id": "governed_recovery:1",
+        "at": None,
+        "duration_ms": None,
+        "actor": "agent",
+        "state": "done",
+        "kind": "governed_recovery",
+        "recovery": "budget_exceeded_after_checkout",
+        "cause": "budget",
+        "variant_id": PIXEL_8,
+        "budget_minor": 100_000_000,
+        "observed_minor": 154_000_000,
+        "currency": "COP",
+        "evidence_digest": recovery["evidence_digest"],
+    }
+    assert recovery["evidence_digest"].startswith("sha256:")
+    # Neither the buyer's text nor the explanation, not even as the evidence's digests.
+    recorded = recorded_recoveries(tmp_path)[0]
+    leaked = {recorded["intent_sha256"], recorded["explanation_sha256"], response.assistant_message}
+    assert not leaked & set(strings(trace))
+
+
+def test_a_tampered_hp_evidence_chain_makes_the_trace_unavailable(tmp_path: Path) -> None:
+    settings = governed_settings(tmp_path / "agent.db")
+    with governed_client(settings, StoreMerchant()) as client:
+        run_id = ask(client, "turn-tamper").json()["purchase"]["run_id"]
+        with closing(sqlite3.connect(settings.agent_database_path)) as connection, connection:
+            connection.execute("DROP TRIGGER hp_evidence_no_update")
+            connection.execute(
+                "UPDATE hp_evidence SET body = json_set(body, '$.outcome', 'changed')"
+            )
+        trace = client.get(f"/purchases/{run_id}/trace")
+        history = client.get("/me/purchases")
+
+    assert trace.status_code == history.status_code == 503

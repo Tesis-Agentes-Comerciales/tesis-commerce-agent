@@ -9,6 +9,8 @@ export type PurchaseStatus =
   | "awaiting_approval"
   | "completed"
   | "blocked"
+  /** La frescura de la oferta bloqueó los términos: solo queda cancelar. */
+  | "stale_terms"
   | "canceled"
   | "failed"
   | "uncertain"
@@ -49,9 +51,65 @@ export type TraceStep = {
   | { kind: "order_event"; event_type: string }
   | { kind: "canceled"; by: "user" | "budget" }
   | { kind: "failed"; code: string }
+  | ({ kind: "freshness_check" } & FreshnessCheck)
+  | ({ kind: "governed_recovery" } & GovernedRecovery)
 )
 
 export type StepKind = TraceStep["kind"]
+
+// Controles de la aplicación del flujo HP gobernado (docs/design/b2-governed-pilot.md). Salen de
+// `hp_evidence`, no de la política de compra: la UI nunca los presenta como reglas.
+
+/** Frescura de la oferta: `state` es `blocked` cuando la comprobación detuvo la compra. */
+export interface FreshnessCheck {
+  stage: "present" | "approve"
+  mode: "shadow" | "enforce"
+  outcome: "fresh" | "changed" | "unavailable"
+  /** Solo los campos que cambiaron: el valor del checkout frente al de la oferta viva. */
+  changes: FreshnessChange[]
+  /** Moneda de los términos del checkout, para los montos. */
+  currency: string | null
+  offer_revision: number | null
+  /** Código si no se pudo leer la oferta (`outcome: "unavailable"`). */
+  read_error: string | null
+  evidence_digest: string
+}
+
+export type FreshnessChange =
+  | {
+      field: "subtotal_minor" | "shipping_minor" | "total_minor" | "delivery_days" | "stock"
+      presented: number | null
+      current: number | null
+    }
+  | { field: "currency"; presented: string | null; current: string | null }
+  /** ISO-8601 UTC. */
+  | { field: "expires_at"; presented: string | null; current: string | null }
+
+export type FreshnessField = FreshnessChange["field"]
+
+export type RecoveryCause =
+  | "budget"
+  | "unavailable"
+  | "currency"
+  | "category"
+  | "condition"
+  | "option"
+  | "term"
+  | "not_shortlisted"
+  | "not_in_catalog"
+  | "no_match"
+
+/** El agente explicó por qué la elección no podía seguir, en vez de un error técnico. */
+export interface GovernedRecovery {
+  recovery: "no_candidate" | "selection_outside_shortlist" | "budget_exceeded_after_checkout"
+  cause: RecoveryCause
+  variant_id: string | null
+  budget_minor: number | null
+  /** Precio del catálogo, no el total del comercio. */
+  observed_minor: number | null
+  currency: string | null
+  evidence_digest: string
+}
 
 export interface PolicyDecision {
   mode: "shadow" | "enforce"
@@ -177,6 +235,22 @@ const STEP_BASE: Fields<StepBase> = {
   state: oneOf<StepState>("done", "running", "waiting", "blocked", "error", "skipped"),
 }
 
+const AMOUNT_FIELDS = ["subtotal_minor", "shipping_minor", "total_minor", "delivery_days", "stock"]
+
+/** Cada campo con su tipo de valor, como la unión discriminada del modelo Pydantic. */
+const changeValue = (field: unknown): Check | null => {
+  if (AMOUNT_FIELDS.includes(field as string)) return nullable(count)
+  if (field === "currency") return nullable(currency)
+  if (field === "expires_at") return nullable(utc)
+  return null
+}
+
+const freshnessChange: Check = (value, path) => {
+  const valueCheck = isRecord(value) ? changeValue(value.field) : null
+  if (valueCheck === null) return `${path}.field`
+  return shape({ field: text, presented: valueCheck, current: valueCheck })(value, path)
+}
+
 const STEP_FIELDS: { [K in StepKind]: StepFields<K> } = {
   request: {},
   selection: { product: text, total_minor: count, currency },
@@ -189,6 +263,40 @@ const STEP_FIELDS: { [K in StepKind]: StepFields<K> } = {
   order_event: { event_type: text },
   canceled: { by: oneOf("user", "budget") },
   failed: { code: text },
+  freshness_check: {
+    stage: oneOf<FreshnessCheck["stage"]>("present", "approve"),
+    mode: oneOf<FreshnessCheck["mode"]>("shadow", "enforce"),
+    outcome: oneOf<FreshnessCheck["outcome"]>("fresh", "changed", "unavailable"),
+    changes: listOf(freshnessChange),
+    currency: nullable(currency),
+    offer_revision: nullable(count),
+    read_error: nullable(text),
+    evidence_digest: text,
+  },
+  governed_recovery: {
+    recovery: oneOf<GovernedRecovery["recovery"]>(
+      "no_candidate",
+      "selection_outside_shortlist",
+      "budget_exceeded_after_checkout",
+    ),
+    cause: oneOf<RecoveryCause>(
+      "budget",
+      "unavailable",
+      "currency",
+      "category",
+      "condition",
+      "option",
+      "term",
+      "not_shortlisted",
+      "not_in_catalog",
+      "no_match",
+    ),
+    variant_id: nullable(text),
+    budget_minor: nullable(count),
+    observed_minor: nullable(count),
+    currency: nullable(currency),
+    evidence_digest: text,
+  },
 }
 
 const step: Check = (value, path) => {
@@ -204,6 +312,7 @@ const purchaseTrace = shape({
     "awaiting_approval",
     "completed",
     "blocked",
+    "stale_terms",
     "canceled",
     "failed",
     "uncertain",

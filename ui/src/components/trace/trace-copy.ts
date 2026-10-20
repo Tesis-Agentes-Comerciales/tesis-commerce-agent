@@ -1,11 +1,20 @@
-import { formatElapsed, formatMoney, formatTime } from "@/components/agent/agent-format"
+import {
+  formatDateTime,
+  formatElapsed,
+  formatMoney,
+  formatTime,
+} from "@/components/agent/agent-format"
 import type { EvidenceRef } from "@/components/trace/evidence-refs"
 import type { PurchaseStage } from "@/lib/agent-contract"
 import type {
+  FreshnessChange,
+  FreshnessField,
+  GovernedRecovery,
   PolicyDecision,
   PolicyRule,
   PurchaseStatus,
   PurchaseTrace,
+  RecoveryCause,
   StepKind,
   StepState,
   TraceStep,
@@ -18,7 +27,8 @@ export const STEP_STATE_LABEL: Record<StepState, string> = {
   done: "Hecho",
   running: "En curso",
   waiting: "Esperando",
-  blocked: "Detenido por la política",
+  // Sin atribuir: lo detiene la política o un control de la aplicación; el título dice cuál.
+  blocked: "Detenido",
   error: "Falló",
   skipped: "No se ejecutó",
 }
@@ -28,6 +38,7 @@ export const PURCHASE_STATUS_LABEL: Record<PurchaseStatus, string> = {
   awaiting_approval: "Esperando tu aprobación",
   completed: "Completada",
   blocked: "Bloqueada por la política",
+  stale_terms: "Detenida: condiciones del comercio",
   canceled: "Cancelada",
   failed: "No se completó",
   uncertain: "Por confirmar",
@@ -70,8 +81,15 @@ export function ruleCopy(ruleId: string) {
   return Object.hasOwn(RULES, ruleId) ? RULES[ruleId] : OTHER_RULE
 }
 
-/** Controles del recorrido normal de una compra, en orden; los eventos sueltos no cuentan. */
-export type ControlKind = Exclude<StepKind, "order_event" | "canceled" | "failed">
+/**
+ * Controles del recorrido normal de una compra, en orden; los eventos sueltos no cuentan. Tampoco
+ * la frescura ni la recuperación: solo existen en el flujo gobernado, y una fila «No se ejecutó»
+ * suya mentiría con la gobernanza apagada.
+ */
+export type ControlKind = Exclude<
+  StepKind,
+  "order_event" | "canceled" | "failed" | "freshness_check" | "governed_recovery"
+>
 
 type ControlCopy = { todo: string; running: string; done: string; error: string }
 
@@ -180,8 +198,129 @@ function lookup(table: Record<string, string>, key: string) {
   return Object.hasOwn(table, key) ? table[key] : null
 }
 
+// Controles de la aplicación del flujo HP gobernado. Nunca se nombran como política ni como regla.
+
+type FreshnessStep = Extract<TraceStep, { kind: "freshness_check" }>
+
+const FRESHNESS_TITLE: Record<FreshnessStep["outcome"], string> = {
+  fresh: "Condiciones confirmadas con el comercio",
+  changed: "Las condiciones del comercio cambiaron",
+  unavailable: "No se pudieron confirmar las condiciones con el comercio",
+}
+
+const FRESHNESS_RUNNING = "Confirmando las condiciones con el comercio…"
+
+const FRESHNESS_WHEN: Record<FreshnessStep["stage"], string> = {
+  present: "Antes de mostrarte los términos",
+  approve: "Antes de registrar tu aprobación",
+}
+
+/** Qué no pasó cuando la comprobación detuvo la compra. */
+const FRESHNESS_STOPPED: Record<FreshnessStep["stage"], string> = {
+  present: "No se mostraron los términos para aprobar.",
+  approve: "Tu aprobación no se registró y no se firmó ninguna autorización.",
+}
+
+const FRESHNESS_PRECAUTION = "Por precaución, la compra se detuvo."
+
+function freshnessTitle(step: FreshnessStep) {
+  return step.state === "running" ? FRESHNESS_RUNNING : FRESHNESS_TITLE[step.outcome]
+}
+
+function freshnessDetail(step: FreshnessStep) {
+  if (step.state === "blocked") {
+    return step.outcome === "unavailable" ? FRESHNESS_PRECAUTION : FRESHNESS_STOPPED[step.stage]
+  }
+  // En modo observando un cambio no detiene nada: se dice, igual que en la política.
+  if (step.mode === "shadow" && step.outcome !== "fresh") return POLICY_MODE_LABEL.shadow
+  return step.state === "done" ? FRESHNESS_WHEN[step.stage] : null
+}
+
+export const FRESHNESS_CHANGES_LABEL = "Qué cambió"
+
+export const FRESHNESS_VALUE_LABEL = { presented: "En el checkout", current: "Oferta actual" }
+
+const FRESHNESS_FIELD: Record<FreshnessField, string> = {
+  subtotal_minor: "Precio del producto",
+  shipping_minor: "Envío",
+  total_minor: "Total",
+  currency: "Moneda",
+  expires_at: "Vigencia de la oferta",
+  delivery_days: "Días de entrega",
+  stock: "Unidades disponibles",
+}
+
+const MONEY_FIELDS: ReadonlySet<FreshnessField> = new Set([
+  "subtotal_minor",
+  "shipping_minor",
+  "total_minor",
+])
+
+const UNKNOWN_VALUE = "Sin dato"
+
+function changeValue(change: FreshnessChange, side: "presented" | "current", currency: string | null) {
+  const value = change[side]
+  if (value === null) return UNKNOWN_VALUE
+  if (typeof value === "string") {
+    return change.field === "expires_at" ? (formatDateTime(value) ?? value) : value
+  }
+  if (MONEY_FIELDS.has(change.field) && currency) return formatMoney(value, currency)
+  if (change.field === "delivery_days") return value === 1 ? "1 día" : `${value} días`
+  return String(value)
+}
+
+/** Cada cambio con su nombre y los dos valores ya escritos, para la lista de la fila. */
+export function freshnessChanges(step: FreshnessStep) {
+  // Los montos de la oferta actual van en su moneda si también cambió.
+  const currencyChange = step.changes.find((change) => change.field === "currency")
+  const current =
+    typeof currencyChange?.current === "string" ? currencyChange.current : step.currency
+  return step.changes.map((change) => ({
+    field: change.field,
+    name: FRESHNESS_FIELD[change.field],
+    presented: changeValue(change, "presented", step.currency),
+    current: changeValue(change, "current", current),
+  }))
+}
+
+type RecoveryStep = Extract<TraceStep, { kind: "governed_recovery" }>
+
+const RECOVERY_TITLE = "El agente explicó por qué no siguió"
+
+const RECOVERY_CAUSE: Record<RecoveryCause, string> = {
+  budget: "Superaba tu presupuesto",
+  unavailable: "El producto no estaba disponible",
+  currency: "El producto no se vende en la moneda que pediste",
+  category: "El producto no es de la categoría que pediste",
+  condition: "El producto no está en la condición que pediste",
+  option: "El producto no tiene las características que pediste",
+  term: "El producto no coincide con lo que buscas",
+  not_shortlisted: "La opción elegida no estaba entre las verificadas para tu pedido",
+  not_in_catalog: "La opción elegida no está en el catálogo del comercio",
+  no_match: "Ningún producto del catálogo cumple todo lo que pediste",
+}
+
+/** Lo que no ocurrió: con el checkout ya creado, el agente lo canceló. */
+const RECOVERY_OUTCOME: Record<GovernedRecovery["recovery"], string> = {
+  no_candidate: "No se creó ningún checkout.",
+  selection_outside_shortlist: "No se creó ningún checkout.",
+  budget_exceeded_after_checkout: "Se canceló el checkout antes de cobrar.",
+}
+
+function recoveryDetail(step: RecoveryStep) {
+  const budget =
+    step.cause === "budget" && step.budget_minor !== null && step.currency
+      ? ` de ${formatMoney(step.budget_minor, step.currency)}`
+      : ""
+  return `${RECOVERY_CAUSE[step.cause]}${budget}. ${RECOVERY_OUTCOME[step.recovery]}`
+}
+
 export function stepTitle(step: TraceStep) {
   switch (step.kind) {
+    case "freshness_check":
+      return freshnessTitle(step)
+    case "governed_recovery":
+      return RECOVERY_TITLE
     case "policy_decision":
       return policyTitle(step.state, step.decision)
     case "order_event":
@@ -225,6 +364,10 @@ export function stepDetail(step: TraceStep) {
     }
     case "failed":
       return lookup(FAILURE_COPY, step.code)
+    case "freshness_check":
+      return freshnessDetail(step)
+    case "governed_recovery":
+      return recoveryDetail(step)
     default:
       return null
   }
@@ -247,13 +390,23 @@ const PURCHASE_SUMMARY: Record<PurchaseStatus, string> = {
   awaiting_approval: "Esperando tu aprobación",
   completed: "Compra completada",
   blocked: "Bloqueada por la política de compra",
+  stale_terms: "Detenida: cambiaron las condiciones",
   canceled: "Compra cancelada",
   failed: "La compra no se pudo completar",
   uncertain: "Compra por confirmar con el comercio",
 }
 
+// Cortas: en un teléfono de 375 px el resumen no se recorta (historia Phone375).
+const STALE_UNAVAILABLE_SUMMARY = "Detenida: condiciones sin confirmar"
+
 /** Línea de la fila de actividad en el chat. */
 export function purchaseSummary(trace: PurchaseTrace) {
+  if (trace.status === "stale_terms") {
+    const check = trace.steps.findLast((step) => step.kind === "freshness_check")
+    return check?.kind === "freshness_check" && check.outcome === "unavailable"
+      ? STALE_UNAVAILABLE_SUMMARY
+      : PURCHASE_SUMMARY.stale_terms
+  }
   if (trace.status !== "completed") return PURCHASE_SUMMARY[trace.status]
   // Hasta la orden confirmada: un aviso del comercio que llega después mueve `updated_at`.
   const confirmedAt = trace.steps.find((step) => step.kind === "order_confirmed")?.at
@@ -298,8 +451,29 @@ function listRef(label: string, values: string[]): EvidenceRef[] {
   return values.length > 0 ? [{ label, value: values.join(", ") }] : []
 }
 
+const FRESHNESS_STAGE_REF: Record<FreshnessStep["stage"], string> = {
+  present: "al presentar",
+  approve: "al aprobar",
+}
+
 function stepRefs(step: TraceStep): EvidenceRef[] {
   switch (step.kind) {
+    case "freshness_check": {
+      // Aquí sí van los códigos: etapa, resultado, modo y, si la hay, la revisión de la oferta.
+      const codes = [step.stage, step.outcome, step.mode, step.read_error]
+      const revision = step.offer_revision === null ? [] : [`revisión ${step.offer_revision}`]
+      const label = `Frescura ${FRESHNESS_STAGE_REF[step.stage]}`
+      return [
+        { label, value: [...codes.filter(Boolean), ...revision].join(" · ") },
+        { label: `Evidencia de frescura ${FRESHNESS_STAGE_REF[step.stage]}`, value: step.evidence_digest },
+      ]
+    }
+    case "governed_recovery":
+      return [
+        { label: "Recuperación", value: `${step.recovery} · ${step.cause}` },
+        ...(step.variant_id ? [{ label: "Variante", value: step.variant_id }] : []),
+        { label: "Evidencia de recuperación", value: step.evidence_digest },
+      ]
     case "checkout_created":
       return [{ label: "Checkout", value: step.checkout_id }]
     case "order_confirmed":
