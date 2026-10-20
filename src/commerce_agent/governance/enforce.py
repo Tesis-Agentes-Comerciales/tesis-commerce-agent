@@ -337,11 +337,7 @@ class SqliteD1EnforceGate:
         An attempt without evidence may be in flight or lost before commit, so it is
         continued with its identities. A committed transition is never superseded.
         """
-        if any(
-            isinstance(item, DecisionRecord)
-            and item.application.disposition == "transition_committed"
-            for item in history
-        ):
+        if _committed_transition(history) is not None:
             return False
         decision_id = parse_model(SelectionPolicyInput, canonical_input).decision_id
         return any(
@@ -759,6 +755,16 @@ class SqliteD1EnforceGate:
             self.lost_diagnostics += 1
             logging.getLogger(__name__).warning("D1 dispatch observation unavailable")
 
+    def committed_allow(self, run_id: str) -> str | None:
+        """Operation a committed D1 allow authorized for this run, if any. Read only."""
+        with closing(self._connect()) as connection:
+            record = _committed_transition(
+                SqliteGovernanceEvidenceStore(connection).for_run(run_id)
+            )
+        if record is None or record.decision.outcome != "allow":
+            return None
+        return record.application.transition_ref
+
     def recovery_status(self, run_id: str) -> tuple[str, str | None, str] | None:
         """Read only, backend-only. No resend and no idempotency key export."""
         with closing(self._connect()) as connection:
@@ -768,3 +774,16 @@ class SqliteD1EnforceGate:
         return PostCreateFlow(
             self._connect, self._keys, run_id, owner_id, self._post_create_dispatch
         )
+
+
+def _committed_transition(history: tuple[DecisionEvidence, ...]) -> DecisionRecord | None:
+    """The run's committed D1 transition; at most one exists and none supersedes it."""
+    return next(
+        (
+            item
+            for item in history
+            if isinstance(item, DecisionRecord)
+            and item.application.disposition == "transition_committed"
+        ),
+        None,
+    )

@@ -83,16 +83,15 @@ def test_governed_allow_creates_the_checkout_once_and_awaits_confirmation(tmp_pa
         assert built.d1_gate is not None
         status = built.d1_gate.recovery_status("run-real")
         assert status is not None and status[0:2] == ("confirmed", "cs_api_1")
-        # Dispatch alone grants no continuation: approval still needs its own rule.
-        with pytest.raises(PurchaseServiceError) as continuation:
-            built.purchases.approval_terms("run-real")
-        assert continuation.value.code == "d1_continuation_blocked"
+        dispatched = list(merchant.requests)
+        # The governed continuation presents the terms of the checkout D1 created.
+        assert built.purchases.approval_terms("run-real").checkout_id == "cs_api_1"
     finally:
         built.close()
     assert merchant.creations() == 1
     # The POST carries the idempotency key sealed in the D1 envelope, not a B0 key.
     assert merchant.create_keys == [operation_key(settings.agent_database_path)]
-    assert merchant.requests == [
+    assert dispatched == [
         CREATE,
         ("GET", "/checkout_sessions/cs_api_1"),
         ("POST", "/checkout_sessions/cs_api_1"),

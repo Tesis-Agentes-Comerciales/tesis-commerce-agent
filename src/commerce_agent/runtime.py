@@ -135,7 +135,12 @@ def build_runtime(
         configuration.payment_agent_bearer_token,
         transport=payment_transport,
     )
-    completion = CompletionService(client, approvals, payments, store)
+    d1_continuation = None
+    if d1_gate is not None:
+        from commerce_agent.governance.hp_continuation import governed_continuation
+
+        d1_continuation = governed_continuation(configuration, d1_gate, store)
+    completion = CompletionService(client, approvals, payments, store, d1_continuation)
     d1_shadow = None
     if configuration.agent_governance_mode == "shadow":
         from commerce_agent.governance.shadow import build_shadow_observer
@@ -149,6 +154,7 @@ def build_runtime(
         offer_freshness=build_offer_freshness(configuration, client, clock),
         d1_observer=d1_shadow,
         d1_gate=d1_gate,
+        d1_continuation=d1_continuation,
     )
     owned_router = None
     router_factory = None

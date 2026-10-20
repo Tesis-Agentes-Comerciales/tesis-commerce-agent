@@ -8,6 +8,7 @@ from commerce_agent.acp.models import (
     CheckoutSessionWithOrder,
     SandboxPaymentData,
 )
+from commerce_agent.application.purchase import D1Continuation
 from commerce_agent.approval import ApprovalService
 from commerce_agent.delegated_payment import DelegatedPaymentClient, DelegationError
 from commerce_agent.persistence import SqliteAgentStore
@@ -47,14 +48,16 @@ class CompletionService:
         approvals: ApprovalService,
         payments: DelegatedPaymentClient,
         store: SqliteAgentStore,
+        d1_continuation: D1Continuation | None = None,
     ) -> None:
         self._gateway = gateway
         self._approvals = approvals
         self._payments = payments
         self._store = store
+        self._d1_continuation = d1_continuation
 
     def complete(self, *, run_id: str) -> CheckoutSessionWithOrder:
-        if self._store.has_d1_operation(run_id):
+        if self._store.has_d1_operation(run_id) and not self._continues(run_id):
             raise CompletionError(
                 "D1 continuation requires independent authorization", code="d1_continuation_blocked"
             )
@@ -188,3 +191,6 @@ class CompletionService:
             self._store.release_completion(run_id, stage="uncertain")
             raise
         return completed
+
+    def _continues(self, run_id: str) -> bool:
+        return self._d1_continuation is not None and self._d1_continuation.admits(run_id)
