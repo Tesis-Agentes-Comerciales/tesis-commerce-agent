@@ -272,8 +272,6 @@ function listRef(label: string, values: string[]): EvidenceRef[] {
 
 function stepRefs(step: TraceStep): EvidenceRef[] {
   switch (step.kind) {
-    case "policy_decision":
-      return decisionRefs(step.decision)
     case "checkout_created":
       return [{ label: "Checkout", value: step.checkout_id }]
     case "order_confirmed":
@@ -286,5 +284,11 @@ function stepRefs(step: TraceStep): EvidenceRef[] {
 }
 
 export function traceRefs(trace: PurchaseTrace): EvidenceRef[] {
-  return [{ label: "Compra", value: trace.run_id }, ...trace.steps.flatMap(stepRefs)]
+  // Si la compra pasó más de una vez por la política, la que cuenta es la última decisión.
+  const last = trace.steps.findLast((step) => step.kind === "policy_decision")
+  return [
+    { label: "Compra", value: trace.run_id },
+    ...(last?.kind === "policy_decision" ? decisionRefs(last.decision) : []),
+    ...trace.steps.flatMap(stepRefs),
+  ]
 }

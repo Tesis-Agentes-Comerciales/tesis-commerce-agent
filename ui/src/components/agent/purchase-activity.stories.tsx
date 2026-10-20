@@ -3,7 +3,8 @@ import { expect, waitFor } from "storybook/test"
 
 import { PolicyBlockedCard } from "@/components/agent/policy-blocked-card"
 import { PurchaseActivity } from "@/components/agent/purchase-activity"
-import { decisionOf, TRACES } from "@/storybook/trace-fixtures"
+import type { TraceStep } from "@/lib/trace-contract"
+import { decisionOf, stepOf, TRACES } from "@/storybook/trace-fixtures"
 
 const meta = {
   title: "Agent/PurchaseActivity",
@@ -149,6 +150,41 @@ export const Failed: Story = {
 
 export const Uncertain: Story = {
   args: { trace: TRACES.uncertain },
+}
+
+const SHADOW_DECISION = stepOf(TRACES.completedShadow, "policy_decision")
+const FIRST_DECISION_ID = "decision:0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+
+/** La compra pasó dos veces por la política: el detalle técnico solo lista la última decisión. */
+export const RepeatedPolicyDecision: Story = {
+  args: {
+    defaultOpen: true,
+    trace: {
+      ...TRACES.completedShadow,
+      steps: TRACES.completedShadow.steps.flatMap((step): TraceStep[] =>
+        step.kind === "policy_decision"
+          ? [
+              {
+                ...SHADOW_DECISION,
+                id: "policy_decision:1",
+                decision: {
+                  ...SHADOW_DECISION.decision,
+                  decision_id: FIRST_DECISION_ID,
+                  evidence_id: "evidence:0f1e2d3c4b5a69788796a5b4c3d2e1f1",
+                },
+              },
+              step,
+            ]
+          : [step],
+      ),
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByText("Detalle técnico"))
+    await expect(canvas.getByText(SHADOW_DECISION.decision.decision_id)).toBeVisible()
+    await expect(canvas.queryByText(FIRST_DECISION_ID)).toBeNull()
+    await expect(canvas.getAllByText("Decisión")).toHaveLength(1)
+  },
 }
 
 /** Los identificadores internos quedan en el detalle técnico, cerrado por defecto. */

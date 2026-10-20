@@ -26,8 +26,11 @@ export function EvidenceRefs({ refs, className }: EvidenceRefsProps) {
   }
   return (
     <dl className={cn("space-y-0.5", className)}>
-      {refs.map((ref) => (
-        <div key={ref.label} className="flex min-h-10 items-center justify-between gap-3 sm:min-h-8">
+      {refs.map((ref, index) => (
+        <div
+          key={`${index}:${ref.label}`}
+          className="flex min-h-10 items-center justify-between gap-3 sm:min-h-8"
+        >
           <dt className="shrink-0 text-xs text-[#6b6b6b]">{ref.label}</dt>
           <dd className="flex min-w-0 items-center gap-1">
             <span className="truncate font-mono text-xs" title={ref.value}>
