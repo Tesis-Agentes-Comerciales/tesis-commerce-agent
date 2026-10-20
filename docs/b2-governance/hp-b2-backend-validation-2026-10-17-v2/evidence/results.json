@@ -1,0 +1,96 @@
+{
+  "captured_utc": "2026-10-18T03:37:53.515767+00:00",
+  "timezone": "America/Bogota",
+  "previous_package_verified": 64,
+  "merchant_collected": 393,
+  "merchant_previously_executed_unique": 115,
+  "merchant_new_passed_unique": 134,
+  "merchant_union_executed_unique": 249,
+  "merchant_previous_boundary_incident_unique": 1,
+  "merchant_policy_held_not_executed": 144,
+  "merchant_new_phases": [
+    {
+      "phase": "fresh_migrations",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "warnings": [],
+      "failures": [],
+      "duration_s": 0.7455742000020109,
+      "exit_code": 0
+    },
+    {
+      "phase": "full",
+      "passed": 135,
+      "failed": 0,
+      "skipped": 1,
+      "warnings": [
+        {
+          "category": "StarletteDeprecationWarning",
+          "file": "testclient.py",
+          "line": 1
+        },
+        {
+          "category": "DeprecationWarning",
+          "file": "testclient.py",
+          "line": 53
+        }
+      ],
+      "failures": [],
+      "duration_s": 13.51700929999788,
+      "exit_code": 0
+    }
+  ],
+  "merchant_snapshots": 138,
+  "merchant_current_product_failures": 0,
+  "merchant_setup_helper_attempts_without_tests": 2,
+  "merchant_warnings": [
+    {
+      "session": 2,
+      "category": "StarletteDeprecationWarning",
+      "file": "testclient.py",
+      "line": 1
+    },
+    {
+      "session": 2,
+      "category": "DeprecationWarning",
+      "file": "testclient.py",
+      "line": 53
+    }
+  ],
+  "new_http_cases": {
+    "classification": "PASS_REAL_INTEGRATION",
+    "cases": 3,
+    "covered_ids": [
+      "I05",
+      "I06",
+      "I09",
+      "I10"
+    ],
+    "new_d17_posts": 0,
+    "lookups": 4,
+    "all_effect_counts_zero": true,
+    "limits": [
+      "I05 and I06 share one case",
+      "I10 local HMAC corruption only, not all historical failures",
+      "I09 crash before send, distinct from earlier lost response scenario"
+    ]
+  },
+  "previous_agent_http_cases": 6,
+  "previous_linked_d17_d2_cases": 2,
+  "previous_d2_component_passed": 54,
+  "gates": {
+    "A_preflight": "APPROVED_FOR_BOUNDED_RUN",
+    "B_merchant_compatible": "APPROVED_FOR_CURRENT_134_NEW_TESTS_AND_BOOTSTRAP",
+    "B_merchant_unrestricted": "NOT_EXECUTED_RESTRICTIONS_144_PENDING",
+    "C_http_backend": "DEFINED_CASES_PASSED; I05_I06_I09_CLOSED_REAL; BROAD_I10_PARTIAL_LOCAL_VARIANT_PASSED",
+    "D_synthetic_consent": "APPROVED_REAL_D17_SOURCE_SYNTHETIC_ASGI_HUMAN_ONLY; D08_D09_VARIANTS_PARTIAL",
+    "E_current_integrity_and_effects": "APPROVED",
+    "E_historical_campaign_conformance": "NOT_APPROVED_CANCEL_INCIDENT_REQUIRES_HUMAN_REVIEW",
+    "overall": "PARTIAL",
+    "backend_functional_demonstration": "SUPPORTED_BY_LINKED_EVIDENCE",
+    "formal_backend_validation": "NOT_DECLARED_UNTIL_HISTORICAL_BOUNDARY_INCIDENT_AND_COVERAGE_LIMITS_REVIEWED",
+    "full_governed_purchase": "NOT_VALIDATED",
+    "real_human_UI": "NOT_VALIDATED"
+  }
+}

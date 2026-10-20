@@ -1,0 +1,37 @@
+{
+  "UNIT_FROZEN_CONTRACT": {
+    "executed": 24,
+    "held": 0,
+    "total": 24
+  },
+  "POSTGRESQL_REAL_API_ASGI_OR_DIRECT_SERVICE": {
+    "executed": 86,
+    "held": 133,
+    "total": 219
+  },
+  "REAL_HTTP_TCP_POSTGRESQL_MERCHANT_ONLY": {
+    "executed": 2,
+    "held": 0,
+    "total": 2
+  },
+  "UNIT_CHECKSUM": {
+    "executed": 1,
+    "held": 0,
+    "total": 1
+  },
+  "UNIT_PURE_OR_MODEL_CONTRACT": {
+    "executed": 122,
+    "held": 0,
+    "total": 122
+  },
+  "SYNTHETIC_ASGI_IN_MEMORY": {
+    "executed": 12,
+    "held": 8,
+    "total": 20
+  },
+  "UNIT_MOCK_TRANSPORT": {
+    "executed": 2,
+    "held": 3,
+    "total": 5
+  }
+}

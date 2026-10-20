@@ -1,0 +1,15 @@
+{
+  "original_64": {
+    "files": 64,
+    "manifest_sha256": "084650bda43de00f2df50fd7969293c5202a6844aa8a0c4e22ae97f4e99fc6ef",
+    "verified": true
+  },
+  "consolidated_124": {
+    "files": 124,
+    "manifest_sha256": "a52051571d8753c1b2d2cd633fc03ee9bdbcdbe020ac2cdce2c68ebe14adefc8",
+    "verified": true
+  },
+  "note": "Originales locales inmutables; el candidato es una selección derivada, no la copia completa.",
+  "protected_entries_rechecked": 29555,
+  "git_roots_rechecked": 12
+}

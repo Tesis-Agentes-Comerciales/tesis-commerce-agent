@@ -1,0 +1,131 @@
+{
+  "test_results": {
+    "captured_utc": "2026-10-18T03:03:21.523761+00:00",
+    "merchant": {
+      "classification": "PASS_REAL_INTEGRATION",
+      "gate": "PARTIAL: subset D17 seguro; no suite completa",
+      "phases": [
+        {
+          "phase": "fresh_migrations",
+          "passed": 2,
+          "failed": 0,
+          "skipped": 0,
+          "warnings": [],
+          "failures": [],
+          "duration_s": 1.0556184000015492,
+          "exit_code": 0
+        },
+        {
+          "phase": "guard_lookup_new",
+          "passed": 60,
+          "failed": 0,
+          "skipped": 0,
+          "warnings": [
+            {
+              "category": "StarletteDeprecationWarning",
+              "file": "testclient.py",
+              "line": 1
+            },
+            {
+              "category": "DeprecationWarning",
+              "file": "testclient.py",
+              "line": 53
+            }
+          ],
+          "failures": [],
+          "duration_s": 54.11946069999976,
+          "exit_code": 0
+        },
+        {
+          "phase": "new_and_acp_regressions",
+          "passed": 53,
+          "failed": 0,
+          "skipped": 0,
+          "warnings": [],
+          "failures": [],
+          "duration_s": 31.118213900001138,
+          "exit_code": 0
+        },
+        {
+          "phase": "full",
+          "passed": 114,
+          "failed": 0,
+          "skipped": 1,
+          "warnings": [],
+          "failures": [],
+          "duration_s": 142.66611569999804,
+          "exit_code": 0
+        }
+      ],
+      "unique_selected": 115,
+      "selected_inventory": "merchant-selected-unique.json",
+      "skip": "fresh migration test requiere volumen virgen en última fase; pasó en fresh_migrations",
+      "full_label_is_filtered": true
+    },
+    "agent": {
+      "classification": "PASS_REAL_INTEGRATION",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "warnings": [],
+      "exit_code": 0,
+      "duration_s": 1082.4009584000014
+    },
+    "d2_component": {
+      "passed": 54,
+      "failed": 0,
+      "skipped": 0,
+      "warnings": [],
+      "failures": [],
+      "exit_code": 0,
+      "duration_s": 120.7269352000003,
+      "classification": "PASS_COMPONENT_ONLY",
+      "scope": "synthetic_fixture_not_same_real_D17_history",
+      "pytest_argv": [
+        "-ra",
+        "--strict-config",
+        "--strict-markers",
+        "-q",
+        "--assert=plain",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "-o",
+        "log_file=<VALIDATION_ROOT>\\d2-component-delivery\\pytest.log",
+        "-c",
+        "<VALIDATION_ROOT>\\sources\\agent\\pyproject.toml",
+        "--basetemp=<VALIDATION_ROOT>\\d2-component-delivery\\temp",
+        "<VALIDATION_ROOT>\\sources\\agent\\tests\\governance\\test_human_consent.py"
+      ]
+    },
+    "linked": {
+      "classification": "PASS_REAL_INTEGRATION",
+      "scope": "real HTTP/PG D17 followed by same-chain synthetic-human ASGI D2",
+      "new_posts": 2,
+      "distinct_operations": true,
+      "scenarios": [
+        "positive",
+        "rejected"
+      ],
+      "completion_orders_psp": false
+    },
+    "integrity": {
+      "classification": "PASS_REAL_INTEGRATION",
+      "passed": true
+    },
+    "overall": "PARTIAL",
+    "milestone": "NO se declara INTEGRACIÓN HP/B2 VALIDADA: faltan I05/I06/I09/I10 con Agent HTTP real; Merchant ejecutó subset de seguridad",
+    "counts_not_summed_across_repeated_phases": true
+  },
+  "linked_results": {
+    "classification": "PASS_REAL_INTEGRATION",
+    "scope": "real HTTP/PG D17 followed by same-chain synthetic-human ASGI D2",
+    "new_posts": 2,
+    "distinct_operations": true,
+    "scenarios": [
+      "positive",
+      "rejected"
+    ],
+    "completion_orders_psp": false
+  }
+}

@@ -1,0 +1,219 @@
+{
+  "new_http": {
+    "classification": "PASS_REAL_INTEGRATION",
+    "cases": 3,
+    "covered_ids": [
+      "I05",
+      "I06",
+      "I09",
+      "I10"
+    ],
+    "new_d17_posts": 0,
+    "lookups": 4,
+    "all_effect_counts_zero": true,
+    "limits": [
+      "I05 and I06 share one case",
+      "I10 local HMAC corruption only, not all historical failures",
+      "I09 crash before send, distinct from earlier lost response scenario"
+    ]
+  },
+  "new_merchant": {
+    "snapshots": 138,
+    "checkout_sessions": 0,
+    "checkout_mutations": 0,
+    "orders": 0,
+    "completion_attempts": 0,
+    "D17_creations": 0,
+    "scope": "observed counts after each selected test; immutable safe selection"
+  },
+  "previous_merchant_incident": [
+    {
+      "id": "AUDIT-MERCHANT-CANCEL-01",
+      "severity": "authorization_boundary_incident",
+      "nodeid": "tests/integration/test_guarded_lookup.py::test_catalog_and_current_checkout_changes_preserve_history",
+      "observed_increases": [
+        {
+          "nodeid": "tests/integration/test_guarded_lookup.py::test_catalog_and_current_checkout_changes_preserve_history",
+          "previous": 0,
+          "current": 1,
+          "session": 2
+        },
+        {
+          "nodeid": "tests/integration/test_guarded_lookup.py::test_catalog_and_current_checkout_changes_preserve_history",
+          "previous": 1,
+          "current": 2,
+          "session": 4
+        }
+      ],
+      "max_checkout_mutations": 2,
+      "orders": 0,
+      "completion_attempts": 0,
+      "scope": "previous disposable Merchant-only cluster, not six Agent scenarios or two linked cases",
+      "action": "preserve historical evidence; exclude from further runs; do not claim previous Merchant selection had no cancel/update effects"
+    }
+  ],
+  "previous_core_chain": {
+    "agent_six_scenarios": {
+      "posts": 6,
+      "lookups": 12,
+      "deltas": {
+        "checkout_sessions": 2,
+        "checkout_mutations": 0,
+        "orders": 0,
+        "checkout_completion_attempts": 0,
+        "guarded_checkout_creations": 2,
+        "rejected_guarded_checkout_attempts": 4
+      },
+      "prohibited_resends": 0,
+      "duplicate_creations": 0,
+      "timeout_initial_uncertain": 1,
+      "recovered_found": 2,
+      "recovered_rejected": 4
+    },
+    "linked": {
+      "posts": 2,
+      "deltas": {
+        "checkout_sessions": 1,
+        "checkout_mutations": 0,
+        "orders": 0,
+        "checkout_completion_attempts": 0,
+        "guarded_checkout_creations": 1,
+        "rejected_guarded_checkout_attempts": 1
+      },
+      "terminal_receipts": 2,
+      "d2_posts_to_merchant": 0,
+      "d2_pg_rows_unchanged": true
+    },
+    "merchant": {
+      "readonly_snapshots": 230,
+      "observation_errors": 0,
+      "max_orders": 0,
+      "scope": "counts at each teardown, independent cases; not additive transaction total"
+    },
+    "not_measured": {
+      "global_packet_capture": null,
+      "distributed_exactly_once": null,
+      "sql_claim_instruction_count": null,
+      "real_human_ui_interaction": null
+    },
+    "protection": "worker socket/SQL/path interlocks; no external LLM credentials in children; no PSP route enabled",
+    "cleanup": [
+      {
+        "root": "<VALIDATION_ROOT>\\sources\\merchant\\.local\\mer07a2-283ec644204b",
+        "data_directory": "<VALIDATION_ROOT>\\sources\\merchant\\.local\\mer07a2-283ec644204b\\pgdata",
+        "postgres_port": 53190,
+        "pg_ctl_status_exit": 3,
+        "postmaster_pid_absent": true,
+        "postgres_port_closed": true
+      },
+      {
+        "root": "<VALIDATION_ROOT>\\sources\\agent\\.local\\07bp-real-86f8b916438a",
+        "data_directory": "<VALIDATION_ROOT>\\sources\\agent\\.local\\07bp-real-86f8b916438a\\pgdata",
+        "postgres_port": 50279,
+        "pg_ctl_status_exit": 3,
+        "postmaster_pid_absent": true,
+        "postgres_port_closed": true
+      },
+      {
+        "root": "<VALIDATION_ROOT>\\sources\\agent\\.local\\07bp-real-f53fac8afaa8",
+        "data_directory": "<VALIDATION_ROOT>\\sources\\agent\\.local\\07bp-real-f53fac8afaa8\\pgdata",
+        "postgres_port": 57060,
+        "pg_ctl_status_exit": 3,
+        "postmaster_pid_absent": true,
+        "postgres_port_closed": true
+      }
+    ],
+    "test_processes_remaining": []
+  },
+  "source_integrity": {
+    "captured_utc": "2026-10-18T03:36:31.887201+00:00",
+    "entries_checked": 29555,
+    "unique_files_checked": 29555,
+    "changed": [],
+    "missing": [],
+    "git_differences": [],
+    "git_roots": 12,
+    "clusters": [
+      {
+        "root": "<VALIDATION_ROOT>\\sources\\merchant\\.local\\mer07-18f675d224a0",
+        "data_directory": "<VALIDATION_ROOT>\\sources\\merchant\\.local\\mer07-18f675d224a0\\pgdata",
+        "postgres_port": 56814,
+        "pg_ctl_status_exit": 3,
+        "postmaster_pid_absent": true,
+        "postgres_port_closed": true
+      },
+      {
+        "root": "<VALIDATION_ROOT>\\sources\\merchant\\.local\\mer07-39c421feed0d",
+        "data_directory": "<VALIDATION_ROOT>\\sources\\merchant\\.local\\mer07-39c421feed0d\\pgdata",
+        "postgres_port": 49675,
+        "pg_ctl_status_exit": 3,
+        "postmaster_pid_absent": true,
+        "postgres_port_closed": true
+      },
+      {
+        "root": "<VALIDATION_ROOT>\\sources\\merchant\\.local\\mer07-e0e24a0abfb9",
+        "data_directory": "<VALIDATION_ROOT>\\sources\\merchant\\.local\\mer07-e0e24a0abfb9\\pgdata",
+        "postgres_port": 56794,
+        "pg_ctl_status_exit": 3,
+        "postmaster_pid_absent": true,
+        "postgres_port_closed": true
+      },
+      {
+        "root": "<VALIDATION_ROOT>\\sources\\merchant\\.local\\mer07a2-283ec644204b",
+        "data_directory": "<VALIDATION_ROOT>\\sources\\merchant\\.local\\mer07a2-283ec644204b\\pgdata",
+        "postgres_port": 53190,
+        "pg_ctl_status_exit": 3,
+        "postmaster_pid_absent": true,
+        "postgres_port_closed": true
+      },
+      {
+        "root": "<VALIDATION_ROOT>\\sources\\agent\\.local\\07bp-real-86f8b916438a",
+        "data_directory": "<VALIDATION_ROOT>\\sources\\agent\\.local\\07bp-real-86f8b916438a\\pgdata",
+        "postgres_port": 50279,
+        "pg_ctl_status_exit": 3,
+        "postmaster_pid_absent": true,
+        "postgres_port_closed": true
+      },
+      {
+        "root": "<VALIDATION_ROOT>\\sources\\agent\\.local\\07bp-real-a88921b84a91",
+        "data_directory": "<VALIDATION_ROOT>\\sources\\agent\\.local\\07bp-real-a88921b84a91\\pgdata",
+        "postgres_port": 63375,
+        "pg_ctl_status_exit": 3,
+        "postmaster_pid_absent": true,
+        "postgres_port_closed": true
+      },
+      {
+        "root": "<VALIDATION_ROOT>\\sources\\agent\\.local\\07bp-real-f53fac8afaa8",
+        "data_directory": "<VALIDATION_ROOT>\\sources\\agent\\.local\\07bp-real-f53fac8afaa8\\pgdata",
+        "postgres_port": 57060,
+        "pg_ctl_status_exit": 3,
+        "postmaster_pid_absent": true,
+        "postgres_port_closed": true
+      }
+    ],
+    "http_ports": [
+      {
+        "port": 50280,
+        "closed": true
+      },
+      {
+        "port": 57061,
+        "closed": true
+      },
+      {
+        "port": 63376,
+        "closed": true
+      }
+    ],
+    "scope": "tracked/untracked baseline plus selected ignored historical bytes; excludes .env, dependency caches and raw historical PG files",
+    "temporary_files_scope": "<VALIDATION_ROOT>",
+    "destructive_cleanup": false,
+    "passed": true
+  },
+  "not_measured": {
+    "global_host_packet_capture": null,
+    "distributed_exactly_once": null,
+    "actual_SQL_claim_instruction_count": null,
+    "real_human_interaction": null
+  }
+}

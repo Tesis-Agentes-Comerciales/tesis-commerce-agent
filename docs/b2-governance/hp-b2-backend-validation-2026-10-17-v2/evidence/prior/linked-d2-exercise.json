@@ -1,0 +1,162 @@
+{
+  "ok": true,
+  "result": {
+    "pid": 26504,
+    "mode": "exercise",
+    "classification": "PASS_REAL_INTEGRATION",
+    "d17_transport": "real_loopback_HTTP_PostgreSQL",
+    "d2_transport": "ASGI_in_memory_synthetic_human",
+    "statuses": [
+      {
+        "method": "POST",
+        "path": "presentations",
+        "status": 201,
+        "expected": 201
+      },
+      {
+        "method": "POST",
+        "path": "decisions",
+        "status": 409,
+        "expected": 409
+      },
+      {
+        "method": "POST",
+        "path": "decisions",
+        "status": 409,
+        "expected": 409
+      },
+      {
+        "method": "POST",
+        "path": "decisions",
+        "status": 401,
+        "expected": 401
+      },
+      {
+        "method": "POST",
+        "path": "decisions",
+        "status": 201,
+        "expected": 201
+      },
+      {
+        "method": "POST",
+        "path": "decisions",
+        "status": 409,
+        "expected": 409
+      },
+      {
+        "method": "POST",
+        "path": "presentations",
+        "status": 422,
+        "expected": 422
+      },
+      {
+        "method": "POST",
+        "path": "presentations",
+        "status": 201,
+        "expected": 201
+      },
+      {
+        "method": "POST",
+        "path": "decisions",
+        "status": 201,
+        "expected": 201
+      },
+      {
+        "method": "POST",
+        "path": "decisions",
+        "status": 409,
+        "expected": 409
+      },
+      {
+        "method": "POST",
+        "path": "presentations",
+        "status": 201,
+        "expected": 201
+      },
+      {
+        "method": "POST",
+        "path": "decisions",
+        "status": 409,
+        "expected": 409
+      },
+      {
+        "method": "GET",
+        "path": "presentations/a8c398bd-33ed-4de8-a63e-55039981e39e",
+        "status": 200,
+        "expected": 200
+      },
+      {
+        "method": "GET",
+        "path": "presentations/88bdd467-02c3-4a5b-bdba-9f8e91628498",
+        "status": 200,
+        "expected": 200
+      }
+    ],
+    "receipts": {
+      "a8c398bd-33ed-4de8-a63e-55039981e39e": {
+        "schema_version": "commerce-d2-hp-consent/1",
+        "event_id": "93284faa-20c4-4d11-9af9-de8514c8bd10",
+        "presentation_id": "a8c398bd-33ed-4de8-a63e-55039981e39e",
+        "presentation_digest": "sha256:f2a647ef1d9bd0a51a1560e67b3767195489eec7f4f557bee573d2716f5bb166",
+        "terms_fingerprint": "sha256:06a8d2d86fddb9431bd9f51c115ac1f1a45a398eb44a1fd2fa99752ffadd5464",
+        "checkout_id": "chk_3e71ac8ad8844d2180d4d50b51d7e841",
+        "future_action": "request_checkout_preparation_review",
+        "identity": {
+          "principal_id": "linked-synthetic-human",
+          "owner_id": "b-experimental-owner",
+          "run_id": "6e55b8ab-2b5c-41b5-b005-9cdbbcde7297",
+          "kind": "human",
+          "issuer": "d2-synthetic-test-issuer",
+          "authentication_id": "9bdeceeede6aeed6deb2bca4431a0455ca38eeba6e46dfca",
+          "authenticated_at": "2026-10-18T02:52:31.097054Z",
+          "expires_at": "2026-10-18T04:52:32.097054Z",
+          "assurance": "synthetic_test_human/1"
+        },
+        "decision": "accept",
+        "affirmative": true,
+        "decided_at": "2026-10-18T02:52:32.097054Z",
+        "continuation_allowed": false
+      },
+      "88bdd467-02c3-4a5b-bdba-9f8e91628498": {
+        "schema_version": "commerce-d2-hp-consent/1",
+        "event_id": "4249d822-128f-4dce-a636-5ea8248ec946",
+        "presentation_id": "88bdd467-02c3-4a5b-bdba-9f8e91628498",
+        "presentation_digest": "sha256:6990f3b114f3c4331e20479da9aa6699cabc2ef6350152a89c62cdbcd4418175",
+        "terms_fingerprint": "sha256:06a8d2d86fddb9431bd9f51c115ac1f1a45a398eb44a1fd2fa99752ffadd5464",
+        "checkout_id": "chk_3e71ac8ad8844d2180d4d50b51d7e841",
+        "future_action": "request_checkout_preparation_review",
+        "identity": {
+          "principal_id": "linked-synthetic-human",
+          "owner_id": "b-experimental-owner",
+          "run_id": "6e55b8ab-2b5c-41b5-b005-9cdbbcde7297",
+          "kind": "human",
+          "issuer": "d2-synthetic-test-issuer",
+          "authentication_id": "9bdeceeede6aeed6deb2bca4431a0455ca38eeba6e46dfca",
+          "authenticated_at": "2026-10-18T02:52:31.097054Z",
+          "expires_at": "2026-10-18T04:52:32.097054Z",
+          "assurance": "synthetic_test_human/1"
+        },
+        "decision": "reject",
+        "affirmative": false,
+        "decided_at": "2026-10-18T02:52:32.097054Z",
+        "continuation_allowed": false
+      }
+    },
+    "counts": {
+      "d2_presentations": 3,
+      "d2_decisions": 2
+    },
+    "source_hashes": {
+      "source.sqlite": "3835df68919cba9c3f5beaefbf367023a159585ffe2e7820ff71e25c6bd0165c",
+      "registry.sqlite": "3ba80dce74814e04a4263e1b28d5a55e084a738954e773dcf208f1914af624b1",
+      "shadow.sqlite": "9b5b907dd79300223dbd5a6cb9ded2c011e4598cada88f6497d4da927eba90f9",
+      "applied.sqlite": "d85a0d47440533a8a8d4d4384d5dd2dcd230f5f677d422dd35250d9e03537d14"
+    },
+    "source_unchanged": true,
+    "plaintext_secrets_absent": true,
+    "continuation_allowed": false,
+    "expiry_clock": "injected_boundary_not_elapsed",
+    "delivery_assurance": "backend_issued_not_ui_seen"
+  },
+  "duration_s": 173.3014600000024
+}
