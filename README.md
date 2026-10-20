@@ -22,7 +22,8 @@ cd ui && npm ci && npm run lint && npm run build
 
 Sin más servicios se pueden lanzar las [corridas de evaluación en dry-run](#evaluación) y abrir
 Storybook (`cd ui && npm run storybook`). Para conversar con el agente hacen falta el Merchant y
-el proveedor de pagos: ver [Stack con el Merchant](#stack-con-el-merchant).
+el proveedor de pagos: en un comando con la [Demo local](#demo-local), o a mano según
+[Stack con el Merchant](#stack-con-el-merchant).
 
 ## Mapa del repositorio
 
@@ -37,7 +38,7 @@ y `tests/` es la verificación de ambos.
 | `ui/` | Interfaz React + Vite con `assistant-ui`, Storybook con pruebas de interacción y axe, y E2E de Playwright (`ui/e2e/`). Ver [ui/README.md](ui/README.md). |
 | `auth/` | Servicio Better Auth (correo y contraseña) que emite los JWT del comprador; pruebas en `auth/test/`. |
 | `scripts/` | Exportador de los fixtures SSE de Storybook, medición offline de D1 y herramientas puntuales en `scripts/tools/`. |
-| `docs/` | Estrategia de pruebas, contrato UI–agente, perfil AP2, matriz de compatibilidad, despliegue, diseño B2 (`b2-governance/`), evidencia histórica HP/HNP (`governance-monitor/`), HNP-01 (`hnp-experiment/`), diagramas y reportes históricos (`archive/`). |
+| `docs/` | Estrategia de pruebas, contrato UI–agente, perfil AP2, matriz de compatibilidad, despliegue, guion de la demo (`demo/`), diseño B2 (`b2-governance/`), evidencia histórica HP/HNP (`governance-monitor/`), HNP-01 (`hnp-experiment/`), diagramas y reportes históricos (`archive/`). |
 
 ## Alcance implementado
 
@@ -150,6 +151,16 @@ Solo HNP-02 tiene tope de costo propio. Datos, resultados y protocolo en
 [evaluation/src/commerce_evaluation/hnp/llm/README.md](evaluation/src/commerce_evaluation/hnp/llm/README.md).
 La evidencia histórica HP/HNP del 17 al 20 de octubre de 2026, con sus hashes, está en
 [docs/governance-monitor/](docs/governance-monitor/README.md).
+
+## Demo local
+
+`uv run demo-stack` levanta en un comando lo necesario para comprar por chat en la UI: PostgreSQL
+del Merchant (sin apagarlo ni borrar volúmenes), migraciones, catálogo administrado, proveedor de
+pagos, Merchant, `auth/`, agente y UI. Los secretos y las claves AP2 y D1 son nuevos en cada
+arranque y no se imprimen ni se escriben; del `.env` solo lee las variables `OPENAI_*`, y solo para
+el agente. Arranca en B2; `--mode b0` y `--mode pol02-deny` cambian la condición, `--dry-run` revisa
+requisitos y puertos, y `uv run demo-stack s04` cambia el precio del escenario S04. Requisitos,
+pedidos y plan B en el [guion del 23 de octubre](docs/demo/guion-2026-10-23.md).
 
 ## Stack con el Merchant
 
