@@ -287,11 +287,13 @@ class Admission(ExperimentalModel):
     code: Literal[
         "SIMULATED_ONLY",
         "BUYER_INVALID",
+        "BUYER_UNAVAILABLE",
         "CONTEXT_UNAVAILABLE",
         "VALIDATOR_UNAVAILABLE",
         "VALIDATOR_INVALID",
         "VALIDATOR_REJECTED",
         "BACKEND_DENIED",
+        "BACKEND_UNAVAILABLE",
         "CONTEXT_CHANGED",
         "EVIDENCE_UNAVAILABLE",
         "SINK_UNAVAILABLE",
@@ -307,7 +309,9 @@ class ReviewRecord(ExperimentalModel):
     original_context: TrustedReviewContext | None
     proposal: ProposalEnvelope | None
     assessment: ValidatorAssessment | None
-    assessment_status: Literal["not_called", "admitted", "invalid", "unavailable"]
+    # timeout: no answer before the deadline (experimental, fail closed);
+    # unavailable: adapter/provider/harness failure (infrastructure, fail closed).
+    assessment_status: Literal["not_called", "admitted", "invalid", "timeout", "unavailable"]
     configuration_ref: SourceRef | None
     admission: Admission
     configuration_digest: Digest

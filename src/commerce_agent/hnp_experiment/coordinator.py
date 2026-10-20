@@ -9,6 +9,7 @@ from commerce_agent.governance.canonical import parse_model
 
 from .backend import mandatory_failures
 from .context import buyer_context, check_refs
+from .deadline import call_with_deadline
 from .evidence import ExperimentalEvidence
 from .models import (
     CHECKS,
@@ -88,6 +89,7 @@ class ReviewCoordinator:
             started = perf_counter_ns()
             try:
                 raw = self.buyer.propose(buyer_context(context))
+                # Wire errors and RoleOutputError are ValueError: the buyer's own output.
                 draft = parse_model(BuyerDraft, wire_bytes(raw))
                 body = dict(
                     schema_version=SCHEMA,
@@ -107,24 +109,31 @@ class ReviewCoordinator:
                         }
                     ),
                 )
-            except Exception:
+            except ValueError:
                 code = "BUYER_INVALID"
+            except Exception:
+                # Provider or harness failure: blocked, but not a buyer observation.
+                code = "BUYER_UNAVAILABLE"
             times.append(Timing(component="buyer", elapsed_ns=perf_counter_ns() - started))
         if context is not None and proposal is not None:
             if self.condition == "B":
                 started = perf_counter_ns()
+                validator = self.validator
                 try:
-                    if self.validator is None:
-                        raise TimeoutError("No validator")
-                    raw = self.validator.review(
+                    if validator is None:
+                        raise RuntimeError("No validator")
+                    reviewed = (
                         parse_model(ProposalEnvelope, wire_bytes(proposal)),
                         parse_model(TrustedReviewContext, wire_bytes(context)),
                     )
-                    if perf_counter_ns() - started > self.budget:
-                        raise TimeoutError("Scripted deadline exceeded")
+                    # The deadline is enforced while waiting, not measured after the fact.
+                    raw = call_with_deadline(lambda: validator.review(*reviewed), self.budget)
                 except RoleOutputError:
                     code = "VALIDATOR_INVALID"
                     assessment_status = "invalid"
+                except TimeoutError:
+                    code = "VALIDATOR_UNAVAILABLE"
+                    assessment_status = "timeout"
                 except Exception:
                     code = "VALIDATOR_UNAVAILABLE"
                     assessment_status = "unavailable"
@@ -135,7 +144,7 @@ class ReviewCoordinator:
                             assessment.coverage != CHECKS
                             or assessment.proposal_digest != proposal.proposal_digest
                             or assessment.context_ref != context.context_ref
-                            or assessment.validator_adapter_id != self.validator.adapter_id
+                            or assessment.validator_adapter_id != validator.adapter_id
                             or any(
                                 c.fact_refs != check_refs(c.check_id, context)
                                 for c in assessment.checks
@@ -156,7 +165,8 @@ class ReviewCoordinator:
                 if failures and code == "SIMULATED_ONLY":
                     code = "BACKEND_DENIED"
             except Exception:
-                code = "BACKEND_DENIED"
+                # Controls that cannot run never admit; this is a harness fault, not a denial.
+                code = "BACKEND_UNAVAILABLE"
             times.append(Timing(component="backend", elapsed_ns=perf_counter_ns() - started))
 
         admitted = code == "SIMULATED_ONLY"

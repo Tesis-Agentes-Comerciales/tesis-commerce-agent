@@ -35,3 +35,11 @@ class TrustedContextResolver(Protocol):
 
 class RoleOutputError(ValueError):
     """Malformed adapter output, without retaining its payload or exception text."""
+
+
+class InfrastructureError(RuntimeError):
+    """Provider, network or harness failure: not an observation of role behaviour.
+
+    Episodes that end with this error stay blocked (fail closed) but are reported apart from
+    experimental results and excluded from their denominators.
+    """

@@ -1,6 +1,11 @@
 """Mandatory experimental controls, independent of scripted validator code.
 
 No POL-03--10 evaluation, signatures, grant reservation or commercial I/O occurs.
+
+Binding is not checked here: the coordinator builds the proposal from the resolved context,
+so its episode/intent refs cannot differ at this point. The binding control that can fail is
+the version admission in ``commit_if_current`` (CONTEXT_CHANGED with ``("binding",)``),
+plus the coordinator's exact proposal/context binding of every validator assessment.
 """
 
 from .models import CheckId, ProposalEnvelope, TrustedReviewContext
@@ -56,6 +61,4 @@ def mandatory_failures(
         or t.destination_ref != g.destination_ref
     ):
         failed.append("scope")
-    if proposal.episode_ref != context.episode_ref or proposal.intent_ref != context.intent_ref:
-        failed.append("binding")
     return tuple(failed)
