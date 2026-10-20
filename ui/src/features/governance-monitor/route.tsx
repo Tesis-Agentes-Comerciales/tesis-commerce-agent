@@ -1,10 +1,10 @@
 import evidence from "./evidence.json"
-import { parseHistoricalEvidence } from "./historical.ts"
+import { parseEvidence } from "./adapter.ts"
 import { SourceMonitor } from "./SourceMonitor.tsx"
 
 function readEvidence() {
   try {
-    return parseHistoricalEvidence(evidence)
+    return parseEvidence(evidence)
   } catch {
     return null
   }

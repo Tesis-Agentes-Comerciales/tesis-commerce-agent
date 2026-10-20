@@ -41,7 +41,7 @@ Stop comprueba la identidad del proceso registrado; no detiene todos los proceso
 | HNP accept erróneo contenido | sources/hnp-false-accept-selected.json y ledger | HNP-01 scripted offline; accept/budget pass guionado frente a BACKEND_DENIED/budget, 13000 > 12500, sin efecto ficticio. No ejecutó PDP D1. |
 | HP respuesta perdida | sources/agent-lost.json | Timeout inicial, creación incierta, recuperación found posterior; un POST histórico, sin reenvío. |
 
-Se separan ejecución, creación, recuperación y efecto observado; ausencia de dato no significa éxito. El adaptador rechaza contradicciones, incluido deny con efecto o confirmación sin inicio. La compatibilidad v1 conserva los JSON originales y traduce la antigua observación de bloqueo confirmado a creación/recuperación no aplicables; no modifica una decisión histórica. El validador HNP y el backend se muestran separadamente.
+Se separan ejecución, creación, recuperación y efecto observado; ausencia de dato no significa éxito. El adaptador rechaza contradicciones, incluido deny con efecto o confirmación sin inicio. El exportador emite directamente `governance-monitor/2`: bloqueo y no inicio quedan como creación/recuperación no aplicables sin traducción en el navegador, y la UI solo acepta v2. Los JSON originales de `sources/` no cambian; un test Python comprueba que reproducen byte a byte el bundle incluido. El validador HNP y el backend se muestran separadamente.
 
 ## GET de demostración
 
@@ -73,9 +73,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Build fallido' }
 
 HP procede del candidato documental v2 cerrado, evidencia `prior/agent-received.json`, `prior/agent-lost.json` y `http-deny.json`, ejecutada sobre Agent `83510f8dd5fbe5026d909df2b4949802b8b2aa1a`. HNP procede del programa [HNP-01 a633a04](https://github.com/Maldinho18/tesis-commerce-agent/commit/a633a043337286406f9a3e859809556ce46bcba1), condición B / validator-false-accept, sink ficticio y roles programados. No se portó ni ejecutó el harness original.
 
-El bundle histórico incluido conserva SHA-256 `3b56e16b0708052c0b90beecce0cbd38ce068e6d4df3dfecf1d981f42e981415`; el snapshot determinista tiene SHA-256 `0bd9db8178117b780a8867b78e1ad785e88d4cf466a9c862c3cb05341cfa88d7`. Los atributos Git limitados a los archivos del monitor conservan sus bytes (incluido JSON/JSONL) al clonar en Windows, sin cambiar reglas de otros componentes. [PUBLICATION-SHA256SUMS](PUBLICATION-SHA256SUMS) cubre los archivos publicados salvo el propio manifiesto.
+El bundle v2 incluido tiene el SHA-256 que registra `provenance.json` (`projection_sha256`, hoy `722b589628b871ec723241f308cecc2f088f63f6d44e3df37022495033886086`); el snapshot determinista tiene SHA-256 `0bd9db8178117b780a8867b78e1ad785e88d4cf466a9c862c3cb05341cfa88d7`. Los atributos Git limitados a los archivos del monitor conservan sus bytes (incluido JSON/JSONL) al clonar en Windows, sin cambiar reglas de otros componentes. [PUBLICATION-SHA256SUMS](PUBLICATION-SHA256SUMS) cubre los archivos publicados salvo el propio manifiesto.
 
-El exportador Python se conserva para auditoría opcional con `--hp-root <directorio-evidence> --hnp-root <directorio-hnp> --verify-only`. Requiere originales fijados, no necesarios para ejecutar la demo. No regenerar ni modificar la evidencia para adaptar resultados. No se incluyen DB, logs, ZIP, capturas, credenciales ni cachés.
+El exportador Python se conserva para auditoría opcional con `--hp-root <directorio-evidence> --hnp-root <directorio-hnp> --verify-only`. Requiere originales fijados, no necesarios para ejecutar la demo; sin ellos, `tests/governance_monitor` reproduce el bundle desde las copias de `sources/`. No regenerar ni modificar la evidencia para adaptar resultados. No se incluyen DB, logs, ZIP, capturas, credenciales ni cachés.
 
 ## Integración pendiente
 

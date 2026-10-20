@@ -1,5 +1,6 @@
 """Safe artifact checks only; no harness, merchant, databases or model execution."""
 
+import hashlib
 import importlib.util
 import json
 import tempfile
@@ -44,6 +45,22 @@ class ArtifactProjectionTests(unittest.TestCase):
             source.write_bytes(b"{}")
             with self.assertRaisesRegex(ValueError, "hash mismatch"):
                 module.read_pinned(source, "agent-received.json")
+
+    def test_versioned_sources_reproduce_the_bundled_v2_projection(self):
+        values = {
+            name: module.read_pinned(SOURCES / name, name)
+            for name in ("agent-received.json", "agent-lost.json", "http-deny.json")
+        }
+        selected = json.loads((SOURCES / "hnp-false-accept-selected.json").read_text())
+        entries = module.verify_hnp([selected], SOURCES / "hnp-evidence.jsonl")
+        output = module.render(module.project(values, selected, entries))
+        self.assertEqual(output, module.DATA.read_bytes())
+        self.assertEqual(json.loads(output)["schema"], "governance-monitor/2")
+
+    def test_provenance_pins_the_bundled_projection(self):
+        provenance = json.loads((SOURCES.parent / "provenance.json").read_text())
+        digest = hashlib.sha256(module.DATA.read_bytes()).hexdigest()
+        self.assertEqual(provenance["projection_sha256"], digest)
 
     def test_projection_does_not_execute_network(self):
         with patch("socket.socket", side_effect=AssertionError("Network forbidden")):

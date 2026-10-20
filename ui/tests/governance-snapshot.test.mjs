@@ -12,7 +12,7 @@ import { createDemoServer, validateSnapshotBytes, assertDevelopmentRuntime } fro
 import { preparedFixtureBytes } from '../../scripts/prepare_governance_snapshot.mjs';
 import { parseDemoSnapshot, MAX_SNAPSHOT_BYTES, DEMO_SNAPSHOT_URL } from '../src/features/governance-monitor/snapshot-contract.ts';
 import { DEMO_SNAPSHOT_SHA256 } from '../src/features/governance-monitor/snapshot-pin.ts';
-import { parseHistoricalEvidence } from '../src/features/governance-monitor/historical.ts';
+import { parseEvidence } from '../src/features/governance-monitor/adapter.ts';
 import { loadLocalSnapshot, SnapshotReadError } from '../src/features/governance-monitor/snapshot-reader.ts';
 import { offlineSource, beginLocalRead, acceptLocalRead, rejectLocalRead } from '../src/features/governance-monitor/source-state.ts';
 const { SourceView } = await import('../src/features/governance-monitor/SourceMonitor.tsx');
@@ -20,8 +20,7 @@ const { SourceView } = await import('../src/features/governance-monitor/SourceMo
 // Prepared from the versioned evidence on every run: no `.local` cache or earlier preparation step.
 const bytes = await preparedFixtureBytes();
 const snapshot = parseDemoSnapshot(JSON.parse(bytes));
-const legacy = JSON.parse(await readFile(new URL('../src/features/governance-monitor/evidence.json', import.meta.url), 'utf8'));
-const offline = parseHistoricalEvidence(legacy);
+const offline = parseEvidence(JSON.parse(await readFile(new URL('../src/features/governance-monitor/evidence.json', import.meta.url), 'utf8')));
 const digest = (b) => createHash('sha256').update(b).digest('hex');
 const encode = (value) => Buffer.from(JSON.stringify(value));
 const response = (b = bytes) => new Response(b, { status: 200, headers: { 'Content-Type': 'application/json' } });

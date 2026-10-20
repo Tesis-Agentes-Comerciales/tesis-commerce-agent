@@ -116,6 +116,7 @@ def hp(value: dict[str, Any], uncertain: bool = False) -> dict[str, Any]:
     creation = proof["creation"]
     response = creation["original_response"]
     assert value["post_commercial"] == 1 and value["recovered"]["result"] == "found"
+    assert (value["initial"]["result"] == "found") != uncertain
     assert shadow["governance_mode"] == "shadow" and shadow["dispatch_capability"] is False
     total = next(x["amount"] for x in response["totals"] if x["type"] == "total")
     name = "agent-lost.json" if uncertain else "agent-received.json"
@@ -147,9 +148,11 @@ def hp(value: dict[str, Any], uncertain: bool = False) -> dict[str, Any]:
             "failures": [],
             "executedPolicyIds": None,
         },
-        "execution": "recorded",
-        "initialResult": "uncertain" if uncertain else "confirmed",
-        "result": "confirmed",
+        "execution": "started",
+        "creation": "uncertain" if uncertain else "confirmed",
+        "recovery": "confirmed",
+        "sourceKind": "historical_http_postgresql",
+        "budgetLimitMinor": None,
         "commercialPosts": value["post_commercial"],
         "effectOccurred": True,
         "totalMinor": total,
@@ -200,8 +203,10 @@ def denied(value: dict[str, Any]) -> dict[str, Any]:
         "validator": None,
         "backend": {"code": applied[4], "failures": [], "executedPolicyIds": None},
         "execution": "blocked",
-        "initialResult": "confirmed",
-        "result": "confirmed",
+        "creation": "not_applicable",
+        "recovery": "not_applicable",
+        "sourceKind": "historical_http_postgresql",
+        "budgetLimitMinor": None,
         "commercialPosts": 0,
         "effectOccurred": False,
         "totalMinor": None,
@@ -264,8 +269,10 @@ def hnp(result: dict[str, Any]) -> dict[str, Any]:
             "executedPolicyIds": record["executed_policy_ids"],
         },
         "execution": "blocked",
-        "initialResult": "confirmed",
-        "result": "confirmed",
+        "creation": "not_applicable",
+        "recovery": "not_applicable",
+        "sourceKind": "scripted_offline",
+        "budgetLimitMinor": context["intent"]["hard"]["max_total_amount_minor"],
         "commercialPosts": 0,
         "effectOccurred": result["effect_occurred"],
         "totalMinor": context["terms"]["total_minor"],
@@ -295,6 +302,26 @@ def hnp(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def project(values: dict[str, Any], selected: dict[str, Any], entries: int) -> dict[str, Any]:
+    """Emit the monitor schema the UI parses directly; no browser-side translation."""
+    return {
+        "schema": "governance-monitor/2",
+        "status": "PARTIAL",
+        "sourcePins": PINS,
+        "hnpLedgerEntriesVerified": entries,
+        "scenarios": [
+            hp(values["agent-received.json"]),
+            denied(values["http-deny.json"]),
+            hnp(selected),
+            hp(values["agent-lost.json"], True),
+        ],
+    }
+
+
+def render(bundle: dict[str, Any]) -> bytes:
+    return json.dumps(bundle, ensure_ascii=False, indent=2, allow_nan=False).encode("utf-8") + b"\n"
+
+
 def export(hp_root: Path, hnp_root: Path, verify_only: bool = False) -> dict[str, Any]:
     values = {
         name: read_pinned(hp_root / path, name)
@@ -313,21 +340,8 @@ def export(hp_root: Path, hnp_root: Path, verify_only: bool = False) -> dict[str
         if x["record"]["experiment_id"] == "validator-false-accept"
         and x["record"]["condition"] == "B"
     )
-    bundle = {
-        "schema": "governance-monitor/1",
-        "status": "PARTIAL",
-        "sourcePins": PINS,
-        "hnpLedgerEntriesVerified": entries,
-        "scenarios": [
-            hp(values["agent-received.json"]),
-            denied(values["http-deny.json"]),
-            hnp(selected),
-            hp(values["agent-lost.json"], True),
-        ],
-    }
-    output = (
-        json.dumps(bundle, ensure_ascii=False, indent=2, allow_nan=False).encode("utf-8") + b"\n"
-    )
+    bundle = project(values, selected, entries)
+    output = render(bundle)
     if verify_only:
         if DATA.read_bytes() != output:
             raise ValueError("Bundled projection differs from historical sources")

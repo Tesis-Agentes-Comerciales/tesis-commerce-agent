@@ -5,8 +5,7 @@ import test from "node:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 
-const { parseHistoricalEvidence: parseEvidence } = await import("../src/features/governance-monitor/historical.ts")
-const { parseEvidence: parseStrictEvidence, scenarioBadge } = await import("../src/features/governance-monitor/adapter.ts")
+const { parseEvidence, scenarioBadge } = await import("../src/features/governance-monitor/adapter.ts")
 const { GovernanceMonitor, ScenarioDetails } = await import("../src/features/governance-monitor/GovernanceMonitor.tsx")
 const raw = JSON.parse(readFileSync(new URL("../src/features/governance-monitor/evidence.json", import.meta.url), "utf8"))
 const bundle = parseEvidence(raw)
@@ -38,7 +37,7 @@ test("erroneous HNP accept does not overwrite actual backend denial", () => {
 test("unknown fields, secret-bearing payloads and missing fields fail closed", () => {
   const extra = copy(); extra.scenarios[0].bearer_token = "unit-test-only"
   assert.throws(() => parseEvidence(extra))
-  const missing = copy(); delete missing.scenarios[0].result
+  const missing = copy(); delete missing.scenarios[0].recovery
   assert.throws(() => parseEvidence(missing))
 })
 test("live labels and non-PARTIAL status are not silently promoted", () => {
@@ -111,7 +110,7 @@ test("MON-02A confirmed historical creation has separate creation and recovery f
   assert.ok(htmlFor(s).includes("Creación · observación inicial"))
   assert.ok(htmlFor(s).includes("Estado de recuperación"))
 })
-test("MON-02A D1 deny has no creation or recovery despite legacy confirmed observation", () => {
+test("MON-02A D1 deny has no creation or recovery", () => {
   const s = scenario("hp-denied")
   assert.equal(s.execution, "blocked")
   assert.equal(s.creation, "not_applicable")
@@ -133,26 +132,26 @@ test("MON-02A HNP accept and deny never become confirmed creation", () => {
 test("MON-02A denied execution and effect contradictions reject the entire snapshot", () => {
   for (const patch of [{ execution: "started" }, { effectOccurred: true }, { commercialPosts: 1 }, { creation: "confirmed" }, { recovery: "confirmed" }]) {
     const x = strictCopy(); Object.assign(x.scenarios[2], patch)
-    assert.throws(() => parseStrictEvidence(x), /Evidencia inconsistente/)
+    assert.throws(() => parseEvidence(x), /Evidencia inconsistente/)
   }
 })
 test("MON-02A HNP without validator rejects instead of omitting the conflict", () => {
   const x = strictCopy(); x.scenarios[2].validator = null
-  assert.throws(() => parseStrictEvidence(x), /HNP sin evaluación/)
+  assert.throws(() => parseEvidence(x), /HNP sin evaluación/)
 })
-test("MON-02A not-started confirmed creation is rejected in legacy and strict inputs", () => {
-  const old = copy(); Object.assign(old.scenarios[0], { execution: "not_started", commercialPosts: 0, effectOccurred: false })
-  assert.throws(() => parseEvidence(old), /Evidencia inconsistente/)
+test("MON-02A not-started confirmed creation is rejected in exported and parsed inputs", () => {
+  const raw = copy(); Object.assign(raw.scenarios[0], { execution: "not_started", commercialPosts: 0, effectOccurred: false, recovery: "not_applicable" })
+  assert.throws(() => parseEvidence(raw), /Evidencia inconsistente/)
   const x = strictCopy(); Object.assign(x.scenarios[0], { execution: "not_started", commercialPosts: 0, effectOccurred: false, recovery: "not_applicable" })
-  assert.throws(() => parseStrictEvidence(x), /Evidencia inconsistente/)
+  assert.throws(() => parseEvidence(x), /Evidencia inconsistente/)
 })
 test("MON-02A not-started and unknown never get a favorable badge", () => {
   const x = strictCopy()
   Object.assign(x.scenarios[0], { execution: "not_started", creation: "not_applicable", recovery: "not_applicable", commercialPosts: 0, effectOccurred: false })
-  let s = parseStrictEvidence(x).scenarios[0]
+  let s = parseEvidence(x).scenarios[0]
   assert.equal(scenarioBadge(s), "Operación no iniciada")
   Object.assign(x.scenarios[0], { execution: "unknown", creation: "uncertain", commercialPosts: null, effectOccurred: null, sourceKind: "unavailable", totalMinor: null, currency: null, shadow: null, enforce: null })
-  s = parseStrictEvidence(x).scenarios[0]
+  s = parseEvidence(x).scenarios[0]
   assert.ok(scenarioBadge(s).includes("desconocida"))
   assert.ok(htmlFor(s).includes("No disponible en la fuente"))
   assert.ok(!htmlFor(s).includes("Creación histórica confirmada"))
@@ -160,25 +159,25 @@ test("MON-02A not-started and unknown never get a favorable badge", () => {
 test("MON-02A pending creation and explicitly inapplicable recovery stay distinct", () => {
   const x = strictCopy()
   Object.assign(x.scenarios[0], { creation: "uncertain", recovery: "not_applicable", effectOccurred: null })
-  const s = parseStrictEvidence(x).scenarios[0]
+  const s = parseEvidence(x).scenarios[0]
   assert.equal(scenarioBadge(s), "Creación incierta")
   assert.ok(htmlFor(s).includes("No aplicable"))
   const missing = strictCopy(); delete missing.scenarios[0].recovery
-  assert.throws(() => parseStrictEvidence(missing))
+  assert.throws(() => parseEvidence(missing))
 })
 test("MON-02A not_found preserves uncertainty and cannot authorize retry or imply absence", () => {
   const x = strictCopy()
   Object.assign(x.scenarios[0], { creation: "uncertain", recovery: "not_found", effectOccurred: null })
-  const s = parseStrictEvidence(x).scenarios[0]
+  const s = parseEvidence(x).scenarios[0]
   assert.ok(htmlFor(s).includes("no autoriza reintento"))
   assert.equal(s.effectOccurred, null)
   x.scenarios[0].effectOccurred = true
-  assert.throws(() => parseStrictEvidence(x), /Evidencia inconsistente/)
+  assert.throws(() => parseEvidence(x), /Evidencia inconsistente/)
 })
 test("MON-02A rejected creation is distinct from a pre-send block", () => {
   const x = strictCopy()
   Object.assign(x.scenarios[0], { creation: "rejected", recovery: "not_applicable", effectOccurred: false })
-  const s = parseStrictEvidence(x).scenarios[0]
+  const s = parseEvidence(x).scenarios[0]
   assert.equal(s.execution, "started")
   assert.equal(scenarioBadge(s), "Creación rechazada")
 })
@@ -218,13 +217,13 @@ test("MON-02A real historical source and scripted source have explicit distinct 
 })
 test("MON-02A contradictory recovery found versus rejected creation is rejected", () => {
   const x = strictCopy(); x.scenarios[0].creation = "rejected"
-  assert.throws(() => parseStrictEvidence(x), /Evidencia inconsistente/)
+  assert.throws(() => parseEvidence(x), /Evidencia inconsistente/)
   const y = strictCopy(); y.scenarios[0].recovery = "not_found"
-  assert.throws(() => parseStrictEvidence(y), /Evidencia inconsistente/)
+  assert.throws(() => parseEvidence(y), /Evidencia inconsistente/)
 })
-test("MON-02A missing legacy observations cannot be silently confirmed", () => {
+test("MON-02A unobserved creation and recovery stay uncertain, never confirmed", () => {
   const x = copy()
-  Object.assign(x.scenarios[0], { initialResult: "not_available", result: "not_available", effectOccurred: false })
+  Object.assign(x.scenarios[0], { creation: "uncertain", recovery: "uncertain", effectOccurred: false })
   const s = parseEvidence(x).scenarios[0]
   assert.equal(s.creation, "uncertain")
   assert.equal(s.recovery, "uncertain")
@@ -232,12 +231,12 @@ test("MON-02A missing legacy observations cannot be silently confirmed", () => {
 })
 test("MON-02A uncertain recovery does not receive favorable confirmation badge", () => {
   const x = strictCopy(); x.scenarios[0].recovery = "uncertain"
-  const s = parseStrictEvidence(x).scenarios[0]
+  const s = parseEvidence(x).scenarios[0]
   assert.equal(s.creation, "confirmed")
   assert.equal(scenarioBadge(s), "Recuperación incierta")
   assert.ok(htmlFor(s).includes("bg-amber-100"))
 })
 test("MON-02A an observed HP POST cannot make creation not applicable", () => {
   const x = strictCopy(); Object.assign(x.scenarios[0], { creation: "not_applicable", recovery: "not_applicable", effectOccurred: false })
-  assert.throws(() => parseStrictEvidence(x), /Evidencia inconsistente/)
+  assert.throws(() => parseEvidence(x), /Evidencia inconsistente/)
 })

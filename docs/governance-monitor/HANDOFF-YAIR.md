@@ -20,7 +20,7 @@ HNP-01 es guionado con roles programados; backend experimental, executed_policy_
 
 Crear una rama propia desde el SHA revisado. Se puede continuar accesibilidad, adaptación visual y tests herméticos del monitor sin tocar contratos ni evidencias. Coordinar cambios al punto de entrada ui/src/main.tsx; el runtime SSE y App no se modificaron. No usar Lab #19 ni ramas históricas como base ni hacer cherry-pick automático de HNP-01.
 
-Antes de fusionar: revisar tipos/compatibilidad v1, semántica de incertidumbre, procedencia de las cinco fuentes, atributos de bytes, exclusión del servicio en producción, lista fija de IDs y CI ordinario. Las pruebas de navegación usan dobles y la revisión del preview no equivale a una prueba comercial completa.
+Antes de fusionar: revisar tipos del esquema v2, semántica de incertidumbre, procedencia de las cinco fuentes, atributos de bytes, exclusión del servicio en producción, lista fija de IDs y CI ordinario. Las pruebas de navegación usan dobles y la revisión del preview no equivale a una prueba comercial completa.
 
 MON-02C requiere diseño separado: autenticación real, ownership por ejecución/operación, permisos de lectura, contrato de eventos con cursores, redacción del servidor y pruebas de ausencia de mutación. No conectar el SSE comercial por conveniencia ni implementar este incremento sin autorización.
 
