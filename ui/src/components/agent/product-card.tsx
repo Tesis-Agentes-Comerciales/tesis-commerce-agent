@@ -399,6 +399,7 @@ export function ProductCardSkeleton({
       )}
       role="status"
       aria-label="Cargando la recomendación"
+      aria-busy="true"
     >
       <div className="grid @lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
         <div className="agent-skeleton aspect-[4/3] @lg:aspect-auto @lg:min-h-72" />

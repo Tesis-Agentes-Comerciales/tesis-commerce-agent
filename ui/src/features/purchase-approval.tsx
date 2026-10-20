@@ -192,6 +192,8 @@ export function StaleTermsApproval({ runId, terms, product }: StaleTermsApproval
       productTitle={product?.title ?? null}
       error={status === "stale" && local?.status === "error" ? (local.error ?? null) : null}
       onCancel={cancel}
+      // Llegó al aprobar en esta sesión: reemplaza a la tarjeta de aprobación, que tenía el foco.
+      autoFocus={local?.termsStatus !== undefined}
     />
   )
 }

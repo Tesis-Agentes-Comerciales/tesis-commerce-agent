@@ -401,12 +401,14 @@ test.describe("términos que ya no valen", () => {
       })
       await page.goto("/")
       const card = await preparePurchase(page)
-      await card.getByTestId("approve-purchase").click()
+      // Con el teclado: el foco sigue a la tarjeta y nunca cae al <body>.
+      await card.getByTestId("approve-purchase").press("Enter")
 
       // La tarjeta de aprobación cede su lugar: sin cobro y con una sola salida.
       const staleCard = page.getByTestId("stale-terms-card")
       await expect(staleCard).toHaveAttribute("data-status", "stale")
       await expect(staleCard.getByRole("heading", { name: stale.title })).toBeVisible()
+      await expect(staleCard.getByRole("heading", { name: stale.title })).toBeFocused()
       await expect(staleCard.getByText("No se hizo ningún cobro.", { exact: true })).toBeVisible()
       await expect(staleCard.getByRole("button")).toHaveText(["Cancelar compra"])
       await expect(page.getByTestId("purchase-approval-card")).toHaveCount(0)
@@ -415,9 +417,13 @@ test.describe("términos que ya no valen", () => {
       // Ni el plan ni la actividad siguen esperando una aprobación que ya no es posible.
       await expect(page.getByText("Esperando tu aprobación")).toHaveCount(0)
 
-      await staleCard.getByRole("button", { name: "Cancelar compra" }).click()
+      await page.keyboard.press("Tab")
+      await expect(staleCard.getByRole("button", { name: "Cancelar compra" })).toBeFocused()
+      await page.keyboard.press("Enter")
       await expect(staleCard).toHaveAttribute("data-status", "canceled")
       await expect(page.getByText(/Cancelé la compra pendiente/)).toBeVisible()
+      // El turno de `purchase-updated` no le pasa el foco al compositor: sigue en la tarjeta.
+      await expect(staleCard.getByRole("heading", { name: "Compra cancelada" })).toBeFocused()
       expect(callIndex(calls, "POST", `/purchases/${APPROVAL.run_id}/cancel`)).toBeGreaterThanOrEqual(0)
       expect(callIndex(calls, "POST", "/complete")).toBe(-1)
 

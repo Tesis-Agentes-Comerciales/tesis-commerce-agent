@@ -22,6 +22,7 @@ import {
 } from "@/components/agent/agent-format"
 import { chip, focusRing, pillButton } from "@/components/agent/agent-styles"
 import { ProductImage } from "@/components/agent/product-card"
+import { useCardFocus } from "@/components/agent/use-card-focus"
 import { approvalReceiptText } from "@/components/trace/trace-copy"
 import type { ApprovalTerms, ProductCard } from "@/lib/agent-contract"
 import type { CompletedCheckout } from "@/lib/commerce-types"
@@ -171,6 +172,26 @@ function statusCopy(status: ApprovalCardStatus, approvalRecorded: boolean, termi
   }
 }
 
+/**
+ * Lo que oye un lector de pantalla cuando la tarjeta cambia: lo que está haciendo y en qué terminó.
+ * Un error no va aquí: lo anuncia su aviso (`role="alert"`).
+ */
+function liveStatus(status: ApprovalCardStatus, copy: ReturnType<typeof statusCopy>) {
+  switch (status) {
+    case "approving":
+      return "Registrando aprobación…"
+    case "completing":
+      return "Completando compra…"
+    case "canceling":
+      return "Cancelando la compra…"
+    case "completed":
+    case "canceled":
+      return `${copy.title}. ${copy.subtitle}`
+    default:
+      return ""
+  }
+}
+
 function HeaderIcon({ status }: { status: ApprovalCardStatus }) {
   if (status === "completed") {
     return (
@@ -277,134 +298,143 @@ export function PurchaseApprovalCard({
   const lineSum = terms.lines.reduce((sum, line) => sum + line.quantity * line.unit_amount_minor, 0)
   const extra = terms.total_minor - lineSum
   const orderUrl = safeLinkUrl(order?.permalink_url)
-  const liveStatus =
-    status === "approving"
-      ? "Registrando aprobación…"
-      : status === "completing"
-        ? "Completando compra…"
-        : status === "canceling"
-          ? "Cancelando la compra…"
-          : ""
+  // Sin «Aprobar» ni «Cancelar»: el botón que se pulsó ya no está y el foco pasa al título.
+  const controlsGone = settled || !onApprove
+  const { cardRef, titleRef, announce } = useCardFocus<HTMLElement>(
+    `${status}:${controlsGone}`,
+    controlsGone,
+  )
 
   return (
-    <section
-      aria-labelledby={titleId}
-      aria-busy={busy || undefined}
-      data-status={status}
-      data-testid="purchase-approval-card"
-      className={cn(
-        "@container w-full max-w-[30rem] overflow-hidden rounded-[24px] border border-[#ececec] bg-white text-[#0d0d0d] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_32px_-18px_rgba(0,0,0,0.18)]",
-        className,
-      )}
-    >
+    <>
+      {/*
+        Fuera de la sección: mientras esta lleva `aria-busy`, un lector puede callar lo que cambia
+        dentro. La tarjeta es la única que anuncia su compra (la fila de actividad calla).
+      */}
       <p role="status" className="sr-only">
-        {liveStatus}
+        {announce ? liveStatus(status, copy) : ""}
       </p>
-
-      <div className="flex items-start gap-3 p-5 pb-0">
-        <HeaderIcon status={status} />
-        <div className="min-w-0 pt-0.5">
-          <h3 id={titleId} className="text-base leading-6 font-semibold tracking-[-0.01em]">
-            {copy.title}
-          </h3>
-          <p className="text-sm text-[#6b6b6b]">{copy.subtitle}</p>
-        </div>
-      </div>
-
-      <div className="space-y-5 p-5">
-        <div className="flex items-center gap-3">
-          <ProductImage
-            image={product?.image}
-            fallbackAlt={productTitle}
-            seed={product?.product_id ?? terms.checkout_id}
-            caption={false}
-            className="size-14 shrink-0 rounded-[12px]"
-          />
-          <div className="min-w-0">
-            <p className="line-clamp-2 text-sm leading-5 font-medium wrap-break-word">
-              {productTitle}
-            </p>
-            {product?.variant_title && (
-              <p className="truncate text-xs text-[#6b6b6b]">{product.variant_title}</p>
-            )}
+      <section
+        ref={cardRef}
+        aria-labelledby={titleId}
+        aria-busy={busy || undefined}
+        data-status={status}
+        data-testid="purchase-approval-card"
+        className={cn(
+          "@container w-full max-w-[30rem] overflow-hidden rounded-[24px] border border-[#ececec] bg-white text-[#0d0d0d] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_32px_-18px_rgba(0,0,0,0.18)]",
+          className,
+        )}
+      >
+        <div className="flex items-start gap-3 p-5 pb-0">
+          <HeaderIcon status={status} />
+          <div className="min-w-0 pt-0.5">
+            <h3
+              ref={titleRef}
+              id={titleId}
+              tabIndex={-1}
+              className="text-base leading-6 font-semibold tracking-[-0.01em] outline-none"
+            >
+              {copy.title}
+            </h3>
+            <p className="text-sm text-[#6b6b6b]">{copy.subtitle}</p>
           </div>
         </div>
 
-        <div>
-          <p className="text-xs font-medium text-[#6b6b6b]">{copy.total}</p>
-          <p className="mt-0.5 flex items-baseline gap-1.5">
-            <span
-              className={cn(
-                "text-[2rem] leading-10 font-semibold tracking-[-0.04em] tabular-nums",
-                status === "canceled" && "text-[#6b6b6b] line-through decoration-2",
+        <div className="space-y-5 p-5">
+          <div className="flex items-center gap-3">
+            <ProductImage
+              image={product?.image}
+              fallbackAlt={productTitle}
+              seed={product?.product_id ?? terms.checkout_id}
+              caption={false}
+              className="size-14 shrink-0 rounded-[12px]"
+            />
+            <div className="min-w-0">
+              <p className="line-clamp-2 text-sm leading-5 font-medium wrap-break-word">
+                {productTitle}
+              </p>
+              {product?.variant_title && (
+                <p className="truncate text-xs text-[#6b6b6b]">{product.variant_title}</p>
               )}
-            >
-              {total.amount}
-            </span>
-            <span className="text-sm font-medium text-[#6b6b6b]">{total.code}</span>
-          </p>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-medium text-[#6b6b6b]">{copy.total}</p>
+            <p className="mt-0.5 flex items-baseline gap-1.5">
+              <span
+                className={cn(
+                  "text-[2rem] leading-10 font-semibold tracking-[-0.04em] tabular-nums",
+                  status === "canceled" && "text-[#6b6b6b] line-through decoration-2",
+                )}
+              >
+                {total.amount}
+              </span>
+              <span className="text-sm font-medium text-[#6b6b6b]">{total.code}</span>
+            </p>
+          </div>
+
+          {priceChanged && !settled && (
+            <Notice tone="warning">
+              El precio cambió desde que consulté el catálogo. Este total es el vigente en el
+              checkout.
+            </Notice>
+          )}
+
+          {status === "completed" && order ? (
+            <Rows className="border-t border-[#ececec] pt-4">
+              <Row label="Orden">{order.order_number ?? order.id}</Row>
+              {order.status && (
+                <Row label="Estado">{ORDER_STATUS_LABELS[order.status] ?? order.status}</Row>
+              )}
+              <Row label="Entrega">{deliveryText(terms)}</Row>
+              <Row label="Pago">Sandbox</Row>
+            </Rows>
+          ) : (
+            <Rows className="border-t border-[#ececec] pt-4">
+              {terms.lines.map((line) => (
+                <Row key={line.item_id} label={`${line.quantity} × ${line.name}`}>
+                  {formatMoney(line.quantity * line.unit_amount_minor, terms.currency)}
+                </Row>
+              ))}
+              {extra !== 0 && (
+                <Row label={extra > 0 ? "Envío y otros cargos" : "Descuentos"}>
+                  {formatMoney(extra, terms.currency)}
+                </Row>
+              )}
+              <Row label="Entrega">{deliveryText(terms)}</Row>
+              <Row label="Pago">
+                <span className={chip({ tone: "neutral", size: "sm" })}>Sandbox</span>
+              </Row>
+            </Rows>
+          )}
+
+          {status !== "completed" && <AcpDetails terms={terms} />}
+
+          {status === "error" && error && (
+            <Notice tone="danger" alert>
+              {error}
+            </Notice>
+          )}
+
+          <Actions
+            status={status}
+            recorded={recorded}
+            busy={busy}
+            orderUrl={orderUrl}
+            onApprove={onApprove}
+            onCancel={onCancel}
+            onNewPurchase={onNewPurchase}
+          />
+
+          {receipt && (recorded || status === "completed") && <ReceiptLine receipt={receipt} />}
+
+          {copy.footer && (
+            <p className="text-center text-xs leading-5 text-[#6b6b6b]">{copy.footer}</p>
+          )}
         </div>
-
-        {priceChanged && !settled && (
-          <Notice tone="warning">
-            El precio cambió desde que consulté el catálogo. Este total es el vigente en el
-            checkout.
-          </Notice>
-        )}
-
-        {status === "completed" && order ? (
-          <Rows className="border-t border-[#ececec] pt-4">
-            <Row label="Orden">{order.order_number ?? order.id}</Row>
-            {order.status && (
-              <Row label="Estado">{ORDER_STATUS_LABELS[order.status] ?? order.status}</Row>
-            )}
-            <Row label="Entrega">{deliveryText(terms)}</Row>
-            <Row label="Pago">Sandbox</Row>
-          </Rows>
-        ) : (
-          <Rows className="border-t border-[#ececec] pt-4">
-            {terms.lines.map((line) => (
-              <Row key={line.item_id} label={`${line.quantity} × ${line.name}`}>
-                {formatMoney(line.quantity * line.unit_amount_minor, terms.currency)}
-              </Row>
-            ))}
-            {extra !== 0 && (
-              <Row label={extra > 0 ? "Envío y otros cargos" : "Descuentos"}>
-                {formatMoney(extra, terms.currency)}
-              </Row>
-            )}
-            <Row label="Entrega">{deliveryText(terms)}</Row>
-            <Row label="Pago">
-              <span className={chip({ tone: "neutral", size: "sm" })}>Sandbox</span>
-            </Row>
-          </Rows>
-        )}
-
-        {status !== "completed" && <AcpDetails terms={terms} />}
-
-        {status === "error" && error && (
-          <Notice tone="danger" alert>
-            {error}
-          </Notice>
-        )}
-
-        <Actions
-          status={status}
-          recorded={recorded}
-          busy={busy}
-          orderUrl={orderUrl}
-          onApprove={onApprove}
-          onCancel={onCancel}
-          onNewPurchase={onNewPurchase}
-        />
-
-        {receipt && (recorded || status === "completed") && <ReceiptLine receipt={receipt} />}
-
-        {copy.footer && (
-          <p className="text-center text-xs leading-5 text-[#6b6b6b]">{copy.footer}</p>
-        )}
-      </div>
-    </section>
+      </section>
+    </>
   )
 }
 
@@ -552,13 +582,15 @@ function Actions({
             : "Completar compra"
           : "Aprobar y comprar"
 
+  // `aria-disabled` y no `disabled`: un botón desactivado pierde el foco, y el que se pulsó debe
+  // conservarlo mientras la compra avanza. Sin `onClick` no se puede pulsar dos veces.
   return (
     <div className={cn("grid gap-2", recorded ? "grid-cols-1" : "grid-cols-[auto_1fr]")}>
       {!recorded && (
         <button
           type="button"
-          onClick={onCancel}
-          disabled={busy}
+          onClick={busy ? undefined : onCancel}
+          aria-disabled={busy || undefined}
           className={pillButton({ tone: "soft", size: "lg" })}
         >
           {status === "canceling" ? <Spinner /> : <XIcon aria-hidden />}
@@ -567,8 +599,8 @@ function Actions({
       )}
       <button
         type="button"
-        onClick={onApprove}
-        disabled={busy}
+        onClick={busy ? undefined : onApprove}
+        aria-disabled={busy || undefined}
         className={cn(pillButton({ tone: "ink", size: "lg" }), "w-full")}
         data-testid="approve-purchase"
       >
@@ -586,6 +618,7 @@ export function PurchaseApprovalCardSkeleton({ className }: { className?: string
     <div
       role="status"
       aria-label="Preparando los términos de la compra"
+      aria-busy="true"
       className={cn(
         "w-full max-w-[30rem] space-y-5 rounded-[24px] border border-[#ececec] bg-white p-5",
         className,

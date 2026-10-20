@@ -148,9 +148,12 @@ export const AwaitingApproval: Story = {
     )
     await expect(canvas.getByTestId("product-card-hero")).toBeVisible()
     // La fila de actividad sale de la traza, fuera de la tarjeta y del grupo «Pensando…».
+    const activity = await canvas.findByTestId("purchase-activity")
     await expect(
       await canvas.findByRole("button", { name: /Esperando tu aprobación/ }),
     ).toHaveAttribute("aria-expanded", "false")
+    // Con tarjeta de la compra, ella anuncia los cambios: la fila no tiene región de estado.
+    await expect(activity.querySelector("[role='status']")).toBeNull()
   },
 }
 
@@ -208,6 +211,10 @@ export const PolicyBlocked: Story = {
     await expect(card).toHaveTextContent("Comercio permitido")
     await expect(card).toHaveTextContent(NOTHING_CHARGED)
     await expect(canvas.getByRole("button", { name: /Bloqueada por la política/ })).toBeVisible()
+    // Sin tarjeta de aprobación, la fila es la que anuncia el estado de la compra.
+    await expect(
+      canvas.getByTestId("purchase-activity").querySelector("[role='status']"),
+    ).toHaveTextContent("Bloqueada por la política de compra")
     await expect(canvas.queryByRole("alert")).toBeNull()
     await expect(canvas.queryByText(/error inesperado/i)).toBeNull()
     await expect(canvas.queryByText("Se detuvo por un error")).toBeNull()

@@ -14,6 +14,11 @@ import "./agent.css"
 export type PurchaseActivityProps = {
   trace: PurchaseTrace
   defaultOpen?: boolean
+  /**
+   * Anunciar los cambios de estado a los lectores de pantalla. En el chat calla cuando el mensaje
+   * tiene una tarjeta de la compra, que ya los anuncia.
+   */
+  announce?: boolean
   className?: string
 }
 
@@ -27,7 +32,12 @@ function productOf(trace: PurchaseTrace) {
  * ve la línea de tiempo de controles. Las decisiones (aprobar, el bloqueo) van fuera, siempre a la
  * vista.
  */
-export function PurchaseActivity({ trace, defaultOpen = false, className }: PurchaseActivityProps) {
+export function PurchaseActivity({
+  trace,
+  defaultOpen = false,
+  announce = true,
+  className,
+}: PurchaseActivityProps) {
   const product = productOf(trace)
   const summary = purchaseSummary(trace)
   const working = trace.status === "in_progress"
@@ -40,12 +50,15 @@ export function PurchaseActivity({ trace, defaultOpen = false, className }: Purc
       data-status={trace.status}
     >
       {/* La traza se relee mientras la compra avanza: cada cambio de estado se anuncia una vez. */}
-      <span role="status" className="sr-only">
-        {summary}
-      </span>
+      {announce && (
+        <span role="status" className="sr-only">
+          {summary}
+        </span>
+      )}
       {/*
         Rejilla y no flex: el resumen crece primero hasta su ancho completo y el producto solo usa
-        lo que sobra. Con flex ambos se encogen a la vez y el estado salía cortado en el móvil.
+        lo que sobra. Con flex ambos se encogen a la vez y el estado salía cortado en el móvil. Si
+        aun así no cabe (320 px), el resumen pasa a dos líneas: el estado nunca se recorta.
       */}
       <Collapsible.Trigger
         className={cn(
@@ -60,7 +73,7 @@ export function PurchaseActivity({ trace, defaultOpen = false, className }: Purc
         />
         <span
           className={cn(
-            "truncate font-medium",
+            "min-w-0 leading-5 font-medium wrap-break-word",
             working && "agent-shimmer",
             trace.status === "failed" && "text-red-700",
           )}

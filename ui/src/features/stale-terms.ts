@@ -1,4 +1,4 @@
-import { isRecord } from "@/features/agent-results"
+import { asApprovalResult, isRecord } from "@/features/agent-results"
 import { usePurchaseSession } from "@/features/purchase-session"
 import { messagePurchaseRunId, runIdOf } from "@/features/purchase-trace"
 import type { AgentToolCallPart } from "@/lib/agent-contract"
@@ -46,6 +46,22 @@ export function useMessageStaleTerms(parts: readonly StepPart[]) {
   if (parts.some((part) => staleApprovalOf(part) !== null)) return true
   const runId = messagePurchaseRunId(parts)
   return runId !== null && purchases[runId]?.termsStatus !== undefined
+}
+
+/**
+ * El mensaje muestra una tarjeta de la compra: la de aprobación o la de términos que ya no valen.
+ * Ella anuncia cada cambio de la compra a los lectores de pantalla, así que la fila de actividad no
+ * lo repite.
+ */
+export function messageHasPurchaseCard(parts: readonly StepPart[]) {
+  return parts.some(
+    (part) =>
+      staleApprovalOf(part) !== null ||
+      (part.type === "tool-call" &&
+        part.toolName === "request_approval" &&
+        !part.isError &&
+        asApprovalResult(part.result) !== null),
+  )
 }
 
 /** Paso `request_approval` con el que se restaura una compra pendiente cuyos términos ya no valen. */
