@@ -1,5 +1,10 @@
 # HNP-01: inventario de reutilización sin cherry-pick
 
+> **Nota 2026-10-20.** Inventario del 18 de octubre; las rutas son las de HNP-01 en `a633a04`.
+> Hoy el paquete está en `evaluation/src/commerce_evaluation/hnp/`, el corpus (`cases.json`,
+> `oracle.json`) en `evaluation/data/hnp/`, las pruebas en `tests/evaluation/hnp/` y
+> `scripts/run_hnp_review_demo.py` es el entrypoint `uv run hnp-review-demo`.
+
 Fuente inspeccionada: `Maldinho18/tesis-commerce-agent@a633a043337286406f9a3e859809556ce46bcba1`. El commit agrega 16 archivos sobre su base histórica `678ce5f7f3c3132afc3f1fa27a5e287f5af0df5d`. Se leyó desde los objetos Git existentes; no se cambió la rama HNP de Yair ni se ejecutó su programa.
 
 | Componente | Reutilización y límites |

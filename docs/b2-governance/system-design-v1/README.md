@@ -6,6 +6,12 @@ Lectura completa: [roadmap.md](roadmap.md). Copia independiente: [roadmap.html](
 Fuente nativa: [plan.mdx](plan.mdx). Registro: [decisions.json](decisions.json).
 Investigación: [protocol-research.md](../protocol-research.md).
 
+> **Nota 2026-10-20.** El diseño es del 11 de octubre y no se reescribe. El runner
+> `scripts/run_joint_e2e.py` que el roadmap y el plan citan como punto de partida E2E se retiró;
+> su cobertura es la suite de sistema de [tests/integration](../../../tests/integration/README.md).
+> `src/commerce_agent/governance/ports.py` era un archivo propuesto: `PolicyEvaluator` quedó en
+> `src/commerce_agent/governance/evaluator.py`.
+
 Alcance confirmado por Yair el 2026-10-11: Human Present y Human Not Present. Incluye
 46 decisiones del núcleo y cuatro B2B condicionadas. El diseño continúa abierto: las
 recomendaciones y spikes no son capacidades implementadas.
