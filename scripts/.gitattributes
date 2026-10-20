@@ -1,5 +1,0 @@
-export_governance_monitor.py -text
-governance_snapshot_demo.ps1 -text
-governance_snapshot_server.mjs -text
-prepare_governance_snapshot.mjs -text
-.gitattributes -text

@@ -1,6 +1,6 @@
 # Convención visual de los diagramas B2
 
-Los diagramas B2 reutilizan el lenguaje definido por `scripts/build_presentation_diagrams.py` y por
+Los diagramas B2 reutilizan el lenguaje definido por `scripts/tools/build_presentation_diagrams.py` y por
 las vistas C4, secuencia y estados bajo `docs/diagrams/`. No se introduce una segunda identidad
 visual para la gobernanza.
 

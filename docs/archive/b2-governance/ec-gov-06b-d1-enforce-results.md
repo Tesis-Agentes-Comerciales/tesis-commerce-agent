@@ -323,7 +323,7 @@ sigue describiendo la medición original en Windows.
   - Un allow termina en `d1_dispatch_blocked` con reserva durable y sin POST.
   - POL-01 sigue sin poder denegar en el flujo integrado, por lo dicho en B–C.
   - Esto actualiza «No se instala ni habilita enforce en Settings» (A). El bloqueo de
-    activación comercial de E sigue vigente. Guía: [D1 enforce opt-in](d1-enforce-runtime-optin.md).
+    activación comercial de E sigue vigente. Guía: [D1 enforce opt-in](../../b2-governance/d1-enforce-runtime-optin.md).
 - **Reintento (PR #12).** Después de un deny registrado o de un fallo diagnosticado, el
   reintento reutilizaba los IDs de decisión, evidencia y operación. El ledger rechazaba
   el registro y el run quedaba en `d1_unavailable`. Ahora `d1_enforce_inputs` guarda
