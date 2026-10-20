@@ -6,6 +6,7 @@ from commerce_agent.llm.conversation_router import (
     ConversationRouter,
     IntentInterpretationError,
     OpenAIConversationRouter,
+    UnknownVariantSelection,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "ConversationRouter",
     "IntentInterpretationError",
     "OpenAIConversationRouter",
+    "UnknownVariantSelection",
 ]
