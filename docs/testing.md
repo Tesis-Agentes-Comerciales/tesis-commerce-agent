@@ -33,8 +33,8 @@ clasificada por dónde se crea, sin `pytestmark` ni `skipif` propios:
 | 2. Merchant + PostgreSQL | Persistencia, D17, ACP HTTP del Merchant | Repositorio del Merchant | Cada PR del Merchant | Ver su `docs/testing.md` |
 | 3. UI | Lint, build, pruebas de Node, historias de Storybook con interacción y axe en Chromium | `ui/` | Cada PR (`ui`) | `cd ui && npm ci && npm run lint && npm run test && npm run test-storybook` |
 | 4. Sistema | Agent ↔ Merchant ↔ proveedor de pagos con PostgreSQL desechable; gobernanza con fallos inyectados, compras B0 y ACP, compra B0 desde el navegador | `tests/integration/` | Cada noche y a pedido (`nightly.yml`) | [`tests/integration/README.md`](../tests/integration/README.md) |
-| 4. UI E2E | Recorridos de la UI en el navegador con Playwright | `ui/e2e/` | Cada noche (`ui-e2e`) | `cd ui && npm run e2e` |
-| 5. Evaluación | Experimento HNP y piloto de gobernanza sin red ni modelo (dry-run): forma de resultados, costos, trazas, guardas de gasto | `tests/evaluation/` | Cada PR, dentro de `python-tests` | `uv run pytest -m evaluation` |
+| 3. UI E2E | Recorridos de chat y monitor en el navegador con Playwright, sobre el build y con backends simulados | `ui/e2e/` | Cada PR (`ui`) | `cd ui && npm run e2e` |
+| 5. Evaluación | Experimento HNP y piloto de gobernanza sin red ni modelo (dry-run): forma de resultados, costos, trazas, guardas de gasto | `tests/evaluation/` y entrypoints | Cada PR, dentro de `python-tests` | `uv run pytest -m evaluation`, `uv run hnp-matrix --dry-run --env-file .env.example`, `uv run governance-pilot --dry-run` |
 
 Las corridas reales de evaluación (`HNP_LIVE=1`, modelo pagado) nunca corren en CI: se lanzan a
 mano con los entrypoints de `commerce_evaluation` y sus guardas de costo.
@@ -66,28 +66,24 @@ Se retiraron `RUN_JOINT_E2E`, `RUN_JOINT_AP2_E2E` y `RUN_GOV06DC_REAL`/`RUN_GOV0
 - `python-lint`: `ruff format --check`, `ruff check`, `pyright` y `uv build`; falla si
   `commerce_evaluation` aparece dentro del wheel.
 - `python-tests`: `uv run pytest --cov` (capas 1 y 5; la 4 se recoge y se omite), el umbral de
-  cobertura del producto y un resumen de cobertura en la página del job.
+  cobertura del producto, los dry-run de `hnp-matrix` y `governance-pilot` (sin red; escriben en
+  `.local/`) y un resumen de cobertura en la página del job.
 - `auth`: `npm ci` y `npm test` en `auth/`.
 - `ui`: `npm ci`, lint, build (y que el monitor de gobernanza no entre al build por defecto),
-  `npm run test`, `build-storybook` y `test-storybook` en Chromium. Playwright sale de
-  `ui/package-lock.json` (`npx --no-install`), nunca de una versión sin fijar.
+  `npm run test`, `build-storybook`, `test-storybook` y `npm run e2e` en Chromium. Playwright
+  sale de `ui/package-lock.json` (`npx --no-install`), nunca de una versión sin fijar.
 
 `nightly.yml` corre a las 06:23 UTC y con `workflow_dispatch`, donde se puede elegir la rama o
-commit del Merchant (`merchant_ref`) y del proveedor (`payment_ref`):
-
-- `live-stack`: clona el Merchant y el proveedor, instala los tres proyectos, `auth/`, `ui/` y
-  el Chromium de Playwright, corre `tests/integration` completo y sube la evidencia (JSONL,
-  logs, captura del navegador y JUnit) como artefacto por 14 días.
-- `ui-e2e`: `npm run e2e` en `ui/`.
+commit del Merchant (`merchant_ref`) y del proveedor (`payment_ref`). Su job `live-stack` clona
+el Merchant y el proveedor, instala los tres proyectos, `auth/`, `ui/` y el Chromium de
+Playwright, corre `tests/integration` completo y sube la evidencia (JSONL, logs, captura del
+navegador y JUnit) como artefacto por 14 días.
 
 El Merchant y el proveedor son privados: `live-stack` necesita el secreto
 `MERCHANT_REPO_TOKEN`, un token de solo lectura (`contents: read`) sobre
 `Tesis-Agentes-Comerciales/tesis-commerce-merchant` y
 `Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox`. Sin él, el job se omite con un
 aviso visible en la ejecución.
-
-Los scripts `test-storybook` y `e2e` de `ui/package.json`, y `playwright` como dependencia de
-desarrollo de la UI, llegan con el trabajo de Storybook; hasta integrarlo, esos pasos fallan.
 
 ## Cobertura
 

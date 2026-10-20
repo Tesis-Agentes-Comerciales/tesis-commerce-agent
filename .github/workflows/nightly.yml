@@ -1,7 +1,7 @@
 name: Nightly system tests
 
-# Layer 4 (docs/testing.md): the live suite across Agent, Merchant and payment provider, and
-# the browser E2E of the UI. Replaces live-stack.yml and joint-e2e.yml.
+# Layer 4 (docs/testing.md): the live suite across Agent, Merchant and payment provider.
+# Replaces live-stack.yml and joint-e2e.yml; the mocked UI E2E runs on every PR in ci.yml.
 on:
   workflow_dispatch:
     inputs:
@@ -130,31 +130,3 @@ jobs:
             ${{ runner.temp }}/live-junit.xml
           if-no-files-found: ignore
           retention-days: 14
-
-  ui-e2e:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: ui
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-
-      - name: Install UI dependencies
-        run: npm ci
-
-      - name: Install Chromium for Playwright
-        run: npx --no-install playwright install --with-deps chromium
-
-      - name: Playwright E2E
-        run: npm run e2e

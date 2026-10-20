@@ -77,6 +77,12 @@ jobs:
       - name: Product coverage floor
         run: uv run coverage report --include="src/*" --format=total --fail-under=85
 
+      # Layer 5 entrypoints end to end with FakeTransport and no network; outputs stay in .local/.
+      - name: Evaluation dry-runs
+        run: |
+          uv run hnp-matrix --dry-run --env-file .env.example
+          uv run governance-pilot --dry-run
+
       - name: Coverage summary
         if: ${{ !cancelled() }}
         run: |
@@ -160,3 +166,7 @@ jobs:
 
       - name: Storybook interaction tests
         run: npm run test-storybook
+
+      # Chat and governance journeys against the built UI with mocked backends; no services.
+      - name: Playwright E2E
+        run: npm run e2e
