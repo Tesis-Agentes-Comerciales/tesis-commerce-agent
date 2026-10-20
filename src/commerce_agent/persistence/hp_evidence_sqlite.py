@@ -40,6 +40,7 @@ _SCHEMA = (
     """CREATE TRIGGER IF NOT EXISTS hp_evidence_no_delete BEFORE DELETE ON hp_evidence
         BEGIN SELECT RAISE(ABORT, 'hp_evidence_append_only'); END""",
 )
+_SELECT = "SELECT run_id, sequence, record_kind, body, previous_digest, digest FROM hp_evidence"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,9 +66,28 @@ class SqliteHpEvidenceStore:
     def append(
         self, run_id: str, record_kind: HpRecordKind, body: Mapping[str, object]
     ) -> HpEvidence:
+        return self._write(run_id, record_kind, body, once=False)
+
+    def append_once(
+        self, run_id: str, record_kind: HpRecordKind, body: Mapping[str, object]
+    ) -> HpEvidence:
+        """The run's identical record if it exists; otherwise appended. Retries add nothing."""
+        return self._write(run_id, record_kind, body, once=True)
+
+    def _write(
+        self, run_id: str, record_kind: HpRecordKind, body: Mapping[str, object], *, once: bool
+    ) -> HpEvidence:
         text = canonical_bytes(dict(body)).decode()
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
+            if once:
+                existing = connection.execute(
+                    f"{_SELECT} WHERE run_id = ? AND record_kind = ? AND body = ? "
+                    "ORDER BY sequence LIMIT 1",
+                    (run_id, record_kind, text),
+                ).fetchone()
+                if existing is not None:
+                    return _record(existing)
             last = connection.execute(
                 "SELECT sequence, digest FROM hp_evidence WHERE run_id = ? "
                 "ORDER BY sequence DESC LIMIT 1",
@@ -96,14 +116,12 @@ class SqliteHpEvidenceStore:
 
 def read_run(connection: sqlite3.Connection, run_id: str) -> tuple[HpEvidence, ...]:
     """A run's records in order, from any connection: the purchase trace reads read-only."""
-    rows = connection.execute(
-        "SELECT run_id, sequence, record_kind, body, previous_digest, digest "
-        "FROM hp_evidence WHERE run_id = ? ORDER BY sequence",
-        (run_id,),
-    ).fetchall()
-    return tuple(
-        HpEvidence(row[0], row[1], row[2], json.loads(row[3]), row[4], row[5]) for row in rows
-    )
+    rows = connection.execute(f"{_SELECT} WHERE run_id = ? ORDER BY sequence", (run_id,)).fetchall()
+    return tuple(_record(row) for row in rows)
+
+
+def _record(row: tuple[Any, ...]) -> HpEvidence:
+    return HpEvidence(row[0], row[1], row[2], json.loads(row[3]), row[4], row[5])
 
 
 def chain_is_valid(run_id: str, records: tuple[HpEvidence, ...]) -> bool:

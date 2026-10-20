@@ -375,10 +375,12 @@ class PurchaseService:
             yield
         except BaseException as error:
             if flow is not None:
+                if isinstance(error, PurchaseServiceError) and error.code == "budget_exceeded":
+                    # Raised only after `cancel_budget` ended the journal `canceled`: nothing to
+                    # mark uncertain, and the journal refuses any phase after it.
+                    raise
                 flow.fail()
-                if isinstance(error, Exception) and not (
-                    isinstance(error, PurchaseServiceError) and error.code == "budget_exceeded"
-                ):
+                if isinstance(error, Exception):
                     raise PurchaseServiceError(
                         "Post-create operation requires local inspection",
                         code="d1_post_create_uncertain",

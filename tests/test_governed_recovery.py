@@ -38,6 +38,7 @@ from commerce_agent.application.purchase import CheckoutDetails, PurchaseService
 from commerce_agent.approval import ApprovalService
 from commerce_agent.config import Settings
 from commerce_agent.domain import HardConstraints, OptionConstraint, PurchaseIntent, RankedCandidate
+from commerce_agent.governance.post_create import PostCreateFlow
 from commerce_agent.llm import (
     CandidateDecision,
     CatalogRecovery,
@@ -47,8 +48,11 @@ from commerce_agent.llm import (
 )
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
+from tests.governance.test_hp_continuation import PAYMENT_TOKEN, StoreMerchant
+from tests.governance.test_runtime_dispatch import governed
 from tests.governance.test_shadow_integration import configuration
-from tests.test_api import checkout_details
+from tests.test_api import StubConversationRouter, checkout_details
+from tests.test_selection import feed_with, variant
 
 PHONES_PATH = Path(__file__).parent / "fixtures" / "phones_feed"
 PHONES = load_product_feed(PHONES_PATH)
@@ -439,8 +443,7 @@ def test_governed_no_candidate_is_explained_without_calling_the_model(tmp_path: 
 def test_governed_budget_exceeded_after_checkout_declares_the_cancellation(
     tmp_path: Path,
 ) -> None:
-    # Enforce only reaches the merchant once D1 dispatch lands (PR-2), so this drives the shared
-    # conversation service directly; any exception here would surface as a 4xx/5xx.
+    # The shared conversation service without D1; the D1 path is covered through the API below.
     merchant = PhoneMerchant()
     router = S02Router(s02_intent(max_total=100_000_000), pick_pixel_8())
     steps = StepLog()
@@ -470,6 +473,117 @@ def test_governed_budget_exceeded_after_checkout_declares_the_cancellation(
     ]
     assert purchase_rows(tmp_path) == [("canceled", CHECKOUT_ID)]
     assert steps.events[-2:] == [("started", "prepare_checkout"), ("failed", "prepare_checkout")]
+
+
+def over_budget_sonora() -> StubConversationRouter:
+    """Sonora fits the shortlist at 72.000 but the merchant's total, with shipping, is 74.000."""
+    intent = PurchaseIntent(hard=HardConstraints(currency="COP", max_total_amount_minor=73_000))
+    return StubConversationRouter(
+        CommerceDecision(action="purchase", assistant_message="Preparo.", intent=intent),
+        CandidateDecision(
+            action="purchase", assistant_message="Elegí Sonora.", selected_variant_id="SON-01"
+        ),
+    )
+
+
+def journal_phases(tmp_path: Path) -> list[str]:
+    with closing(sqlite3.connect(tmp_path / "agent.db")) as connection:
+        rows = connection.execute(
+            "SELECT body FROM d1_post_create_events ORDER BY version"
+        ).fetchall()
+    return [json.loads(body)["phase"] for (body,) in rows]
+
+
+@pytest.mark.parametrize("evidence", ["recorded", "lost"])
+def test_governed_budget_cancellation_through_d1_ends_the_journal_canceled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    evidence: str,
+) -> None:
+    # The D1 checkout is canceled through the post-create journal (`cancel_budget`), which then
+    # ends `canceled`; nothing after it may try to mark the journal uncertain.
+    failures: list[str] = []
+    monkeypatch.setattr(PostCreateFlow, "fail", lambda flow: failures.append(flow.run_id))
+    merchant = StoreMerchant()
+    app = create_app(
+        settings=governed(tmp_path / "agent.db"),
+        transport=httpx.MockTransport(merchant),
+        payment_transport=httpx.MockTransport(
+            lambda request: httpx.Response(201, json=PAYMENT_TOKEN)
+        ),
+        conversation_router=over_budget_sonora(),
+    )
+    with TestClient(app) as client:
+        if evidence == "lost":
+            lose_hp_evidence(tmp_path)
+        response = client.post("/conversation/turn", json=s02_body("turn-budget-d1"))
+
+    if evidence == "recorded":
+        assert response.status_code == 200, response.text
+        assert response.json()["action"] == "respond"
+        assert_explains(response.json()["assistant_message"], "lo cancelé", "COP 730")
+        (record,) = recorded_recoveries(tmp_path)
+        assert (record["kind"], record["checkout_id"]) == (
+            "budget_exceeded_after_checkout",
+            "cs_api_1",
+        )
+    else:
+        assert (response.status_code, response.json()) == B0_BUDGET_EXCEEDED
+        assert_evidence_unavailable_logged(caplog)
+    assert merchant.effects() == [("POST", "/checkout_sessions/cs_api_1/cancel")]
+    assert purchase_rows(tmp_path) == [("canceled", "cs_api_1")]
+    assert journal_phases(tmp_path)[-3:] == ["intent", "observed", "canceled"]
+    assert failures == []
+
+
+def test_a_retried_turn_records_its_recovery_once(tmp_path: Path) -> None:
+    class FailsOnce(StepLog):
+        """The turn fails after the recovery was recorded; the client retries the same turn."""
+
+        def step_finished(self, step: str, result: dict[str, Any]) -> None:
+            if step == "select_product" and not self.events.count(("finished", step)):
+                self.events.append(("finished", step))
+                raise ConnectionResetError("stream closed")
+            super().step_finished(step, result)
+
+    router = S02Router(s02_intent(max_unit=100_000_000), pick_pixel_8())
+    observer = FailsOnce()
+    evidence = hp_recovery_evidence(tmp_path)
+    with conversation(tmp_path, router, PhoneMerchant(), evidence) as service:
+        turn = {
+            "messages": (ConversationMessage(role="user", content=S02_REQUEST),),
+            "details": CheckoutDetails.model_validate_json(json.dumps(checkout_details())),
+            "turn_id": "turn-s02",
+            "conversation_id": "conversation-s02",
+            "observer": observer,
+        }
+        with pytest.raises(ConnectionResetError):
+            service.execute(**turn)
+        retried = service.execute(**turn)
+
+    assert retried.action == "respond"
+    (record,) = recorded_recoveries(tmp_path)
+    assert record["explanation_sha256"] == sha256(retried.assistant_message)
+    assert SqliteHpEvidenceStore(tmp_path / "agent.db").verify_chain(S02_RUN_ID)
+
+
+def test_a_budget_without_currency_is_explained_by_the_currency_not_the_price(
+    tmp_path: Path,
+) -> None:
+    # A budget without currency meets COP and USD prices: the shortlist cuts every product.
+    feed = feed_with(
+        variant("COP-1", amount=900_000), variant("USD-1", amount=20_000, currency="USD")
+    )
+    intent = PurchaseIntent(hard=HardConstraints(max_unit_amount_minor=500_000))
+    context = RecoveryContext(run_id="run-1", feed=feed, intent=intent)
+
+    message = GovernedRecovery(hp_recovery_evidence(tmp_path)).no_candidate(context)
+
+    assert_explains(message, "no indica la moneda", "varias monedas", "No preparé ningún checkout")
+    assert "supera tu presupuesto" not in message
+    (record,) = recorded_recoveries(tmp_path)
+    assert (record["cause"], record["variant_id"], record["currency"]) == ("currency", None, None)
 
 
 def test_without_evidence_budget_exceeded_after_checkout_keeps_the_409_of_b0(
