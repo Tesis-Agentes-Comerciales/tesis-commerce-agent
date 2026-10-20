@@ -7,6 +7,9 @@ from pydantic import SecretStr
 
 from commerce_agent.acp import ACPClient, ACPClientError, CheckoutUpdateRequest
 from commerce_agent.acp.models import SelectedFulfillmentOption
+from commerce_agent.acp.offer_snapshot import DeliveryContext
+
+LAB_DESTINATION = DeliveryContext(country="CO", city="Bogota", postal_code="110111")
 
 
 def checkout(status: str = "not_ready_for_payment") -> dict[str, Any]:
@@ -201,3 +204,98 @@ def test_authenticated_operation_fails_without_bearer() -> None:
     ):
         client.get_checkout("cs_test_001")
     assert captured.value.code == "missing_auth"
+
+
+def lab_offer(
+    *,
+    revision: int = 1,
+    price: int = 154_000_000,
+    shipping: int = 2_500_000,
+    observed_at: str = "2026-09-20T11:30:00Z",
+    expires_at: str = "2026-09-20T12:30:00Z",
+    stock: int = 3,
+) -> dict[str, Any]:
+    """Merchant Offer snapshot as served by the lab extension `POST /lab/offers/get`."""
+    return {
+        "id": "BBGooglePixel8-128GB",
+        "product_id": "BBGooglePixel8",
+        "merchant_id": "merchant_lab",
+        "revision": revision,
+        "category": "smartphones",
+        "name": "Google Pixel 8 128GB negro",
+        "brand": "Google",
+        "condition": "new",
+        "availability": "in_stock" if stock > 0 else "out_of_stock",
+        "available_quantity": stock,
+        "pricing": {
+            "currency": "cop",
+            "items_total_minor": price,
+            "shipping_total_minor": shipping,
+            "total_minor": price + shipping,
+            "tax_included": True,
+        },
+        "delivery_context": {"country": "CO", "city": "Bogota", "postal_code": "110111"},
+        "delivery_days": 2,
+        "observed_at": observed_at,
+        "expires_at": expires_at,
+    }
+
+
+def test_lab_offer_is_read_once_with_the_merchant_session() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True, "data": lab_offer(revision=2)})
+
+    with ACPClient(
+        "http://127.0.0.1:4120", SecretStr("test-token"), transport=httpx.MockTransport(handler)
+    ) as client:
+        offer = client.get_offer("BBGooglePixel8-128GB", LAB_DESTINATION)
+
+    assert (offer.id, offer.revision, offer.pricing.total_minor) == (
+        "BBGooglePixel8-128GB",
+        2,
+        156_500_000,
+    )
+    [request] = requests
+    assert (request.method, request.url.path) == ("POST", "/lab/offers/get")
+    assert request.headers["authorization"] == "Bearer test-token"
+    assert json.loads(request.content) == {
+        "offer_id": "BBGooglePixel8-128GB",
+        "delivery_context": {"country": "CO", "city": "Bogota", "postal_code": "110111"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("response", "code"),
+    [
+        (httpx.Response(503, json={"detail": "busy"}), "http_error"),
+        (
+            httpx.Response(
+                200, json={"ok": False, "error": {"code": "OFFER_EXPIRED", "message": "x"}}
+            ),
+            "invalid_offer",
+        ),
+        (
+            httpx.Response(200, json={"ok": True, "data": {"id": "BBGooglePixel8-128GB"}}),
+            "invalid_offer",
+        ),
+    ],
+)
+def test_lab_offer_failure_is_not_retried(response: httpx.Response, code: str) -> None:
+    calls = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return response
+
+    with (
+        ACPClient(
+            "http://127.0.0.1:4120", SecretStr("test-token"), transport=httpx.MockTransport(handler)
+        ) as client,
+        pytest.raises(ACPClientError) as captured,
+    ):
+        client.get_offer("BBGooglePixel8-128GB", LAB_DESTINATION)
+    assert (captured.value.code, calls) == (code, 1)
