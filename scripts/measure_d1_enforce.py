@@ -1,7 +1,7 @@
-"""Offline PurchaseService measurement with test spies; never a deployment entrypoint.
+"""Offline PurchaseService measurement with checkout spies; never a deployment entrypoint.
 
 uv run python scripts/measure_d1_enforce.py --output .local/gov06b/latency.json
-Requires dev dependencies and local synthetic test fixtures. No real client is built.
+Uses the synthetic setups in scripts/_support/d1_bench.py. No real client is built.
 """
 
 import argparse
@@ -16,19 +16,9 @@ from statistics import median
 from tempfile import TemporaryDirectory
 from time import perf_counter_ns
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+from _support.d1_bench import baseline, enforce, start
 
-from tests.governance.test_enforce_integration import (  # noqa: E402
-    MARKER,
-    OWNER,
-    HardConstraints,
-    PurchaseIntent,
-    baseline,
-    details,
-    make_case,
-    start,
-)
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def measure(output: Path, repetitions: int) -> dict:
@@ -51,24 +41,16 @@ def measure(output: Path, repetitions: int) -> dict:
                 path = temporary / f"{repetition}-{mode}.sqlite"
                 began = perf_counter_ns()
                 if mode == "enforce":
-                    case = make_case(path)
+                    service, gateway, gate = enforce(path)
                     setup_ms = (perf_counter_ns() - began) / 1e6
                     began = perf_counter_ns()
-                    result = start(case)
-                    phases = dict(case.gate.timings)
-                    gateway = case.gateway
+                    result = start(service)
+                    phases = dict(gate.timings)
                 else:
                     service, gateway, observer = baseline(path, shadow=mode == "shadow")
                     setup_ms = (perf_counter_ns() - began) / 1e6
                     began = perf_counter_ns()
-                    result = service.start(
-                        run_id="run-a",
-                        owner_id=OWNER,
-                        request=MARKER,
-                        intent=PurchaseIntent(hard=HardConstraints(currency="COP")),
-                        selected_variant_id="SON-01",
-                        details=details(),
-                    )
+                    result = start(service)
                     phases = (
                         {}
                         if observer is None
