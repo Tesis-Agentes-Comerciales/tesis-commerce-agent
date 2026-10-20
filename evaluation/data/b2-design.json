@@ -5,7 +5,7 @@
   "created_at": "2026-10-06",
   "baseline": {
     "condition": "B0",
-    "manifest": "evaluation/b0-baseline.json",
+    "manifest": "evaluation/data/b0-baseline.json",
     "git_tag": "b0-baseline-2026-10-06"
   },
   "treatment": {
@@ -97,7 +97,7 @@
     "held_out_evaluation"
   ],
   "pilot": {
-    "scenario_manifest": "evaluation/pilot-scenarios.json",
+    "scenario_manifest": "evaluation/data/pilot-scenarios.json",
     "repetitions_per_scenario": 5,
     "pairing_keys": [
       "scenario_id",

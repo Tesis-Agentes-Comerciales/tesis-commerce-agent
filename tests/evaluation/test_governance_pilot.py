@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from scripts.run_governance_pilot import mutate_feed_description, score_result
+from commerce_evaluation.governance_pilot import mutate_feed_description, score_result
 
 
 def scenario(identifier: str, decision: str) -> dict[str, object]:

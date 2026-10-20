@@ -23,7 +23,7 @@ con 50 decisiones, dependencias, artefactos y criterios de cierre. B2B queda com
 independiente. HNP todavía no está implementado en la base actual. Vista estable:
 [roadmap en Notion](https://app.notion.com/p/3f965dca59e781f393ebd77838dba95b).
 
-Los documentos P1–P5, el diagrama y `evaluation/b2-design.json` conservan la propuesta original.
+Los documentos P1–P5, el diagrama y `evaluation/data/b2-design.json` conservan la propuesta original.
 La revisión D1/D2 es el punto de partida HP. El roadmap añade autorización delegada y D3-HNP
 junto al compromiso de despacho. Todavía hay que reconciliar contratos, evaluación, diagramas
 y manifiesto antes de usarlos para implementar; las secciones P1–P5 conservadas abajo son históricas.
@@ -75,7 +75,7 @@ a esa capa.
 - [Modelo de amenazas](threat-model.md)
 - [Plan de evaluación](evaluation-plan.md)
 - [Plan de implementación](implementation-plan.md)
-- [Manifiesto legible por máquina](../../evaluation/b2-design.json)
+- [Manifiesto legible por máquina](../../evaluation/data/b2-design.json)
 
 Actualización 2026-10-19, posterior a la integración HP:
 

@@ -119,5 +119,5 @@ fijará después de observar la variabilidad de B2.
 - resumen automático: `b0-pilot-v1.summary.json`;
 - notebook ejecutado: `b0-pilot-v1-analysis.ipynb`;
 - figuras reproducibles: `figures/b0-oracle-outcomes.*` y `figures/b0-latency-and-trace.*`;
-- matriz predefinida: `../pilot-scenarios.json`;
-- manifiesto congelado: `../b0-baseline.json`.
+- matriz predefinida: `../data/pilot-scenarios.json`;
+- manifiesto congelado: `../data/b0-baseline.json`.

@@ -180,7 +180,7 @@ Con el agente y el merchant locales activos, la evaluación conversacional opcio
 configurado y cancela todos los checkouts sandbox que prepara:
 
 ```sh
-uv run python scripts/evaluate_conversation.py
+uv run evaluate-conversation
 ```
 
 `complete` devuelve conflicto si el episodio no está aprobado. Dos intentos concurrentes no pueden
