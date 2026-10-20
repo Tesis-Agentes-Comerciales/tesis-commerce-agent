@@ -25,6 +25,7 @@ import {
 import { AGENT_API_URL, checkoutDetails } from "@/lib/commerce-api"
 import { buyerHeaders } from "@/lib/auth-client"
 import type { BuyerProfile } from "@/lib/commerce-types"
+import type { PurchaseTrace } from "@/lib/trace-contract"
 
 const STARTER_PROMPTS = [
   "Quiero un celular de máximo 3 millones de pesos",
@@ -299,6 +300,13 @@ function PurchaseSessionProvider({
   onNewPurchase?: () => void
 }) {
   const [purchases, setPurchases] = useState<Record<string, LocalPurchase>>({})
+  const [traces, setTraces] = useState<Record<string, PurchaseTrace>>({})
+  // Estable: la relectura de la traza depende de ella en un efecto.
+  const recordTrace = useCallback(
+    (runId: string, trace: PurchaseTrace) =>
+      setTraces((current) => ({ ...current, [runId]: trace })),
+    [],
+  )
   const session = useMemo(
     () => ({
       purchases,
@@ -307,9 +315,11 @@ function PurchaseSessionProvider({
           ...current,
           [runId]: { ...(current[runId] ?? NEW_PURCHASE), ...update },
         })),
+      traces,
+      recordTrace,
       onNewPurchase,
     }),
-    [purchases, onNewPurchase],
+    [purchases, traces, recordTrace, onNewPurchase],
   )
 
   return <PurchaseSessionContext.Provider value={session}>{children}</PurchaseSessionContext.Provider>

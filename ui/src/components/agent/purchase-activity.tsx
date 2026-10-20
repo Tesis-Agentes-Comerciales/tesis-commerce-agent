@@ -29,6 +29,7 @@ function productOf(trace: PurchaseTrace) {
  */
 export function PurchaseActivity({ trace, defaultOpen = false, className }: PurchaseActivityProps) {
   const product = productOf(trace)
+  const summary = purchaseSummary(trace)
   const working = trace.status === "in_progress"
 
   return (
@@ -38,6 +39,10 @@ export function PurchaseActivity({ trace, defaultOpen = false, className }: Purc
       data-testid="purchase-activity"
       data-status={trace.status}
     >
+      {/* La traza se relee mientras la compra avanza: cada cambio de estado se anuncia una vez. */}
+      <span role="status" className="sr-only">
+        {summary}
+      </span>
       {/*
         Rejilla y no flex: el resumen crece primero hasta su ancho completo y el producto solo usa
         lo que sobra. Con flex ambos se encogen a la vez y el estado salía cortado en el móvil.
@@ -60,7 +65,7 @@ export function PurchaseActivity({ trace, defaultOpen = false, className }: Purc
             trace.status === "failed" && "text-red-700",
           )}
         >
-          {purchaseSummary(trace)}
+          {summary}
         </span>
         <span className="truncate text-xs text-[#6b6b6b]">{product}</span>
         <ChevronRightIcon

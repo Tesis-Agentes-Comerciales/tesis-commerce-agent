@@ -50,3 +50,22 @@ def test_policy_block_in_the_chat_says_what_did_not_happen(tmp_path: Path) -> No
     assert "No se creó ningún checkout ni se hizo ningún cobro" in message["status"]["error"]
     failed = [part for part in message["content"] if part.get("isError")]
     assert failed[-1]["result"]["error"]["code"] == "d1_denied"
+
+
+def test_a_policy_block_names_its_purchase_so_the_chat_can_read_the_trace(tmp_path: Path) -> None:
+    # The failed step has no result to carry the run, so the chat reads it from the step's args.
+    with shop(tmp_path, "enforce", agent_d1_allowed_merchant_origins=ALLIED_STORE) as current:
+        current.client.headers.update(as_buyer())
+        _, state = post_assistant(
+            current.client, assistant_body([add_message(PURCHASE_REQUEST)], turn_id="blocked")
+        )
+        prepare = next(
+            part
+            for part in state["messages"][-1]["content"]
+            if part.get("toolName") == "prepare_checkout"
+        )
+        trace = current.trace(prepare["args"]["run_id"])
+
+    assert prepare["isError"] is True
+    assert trace["status"] == "blocked"
+    assert trace["steps"][-1]["decision"]["rules"][1]["result"] == "fail"

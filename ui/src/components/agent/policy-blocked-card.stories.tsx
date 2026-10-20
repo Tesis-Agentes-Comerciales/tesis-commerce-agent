@@ -85,6 +85,15 @@ export const DeniedWithoutFailedRule: Story = {
   },
 }
 
+/** Una decisión sin reglas no prueba que la política faltara: la revisión no se completó. */
+export const DeniedWithoutRules: Story = {
+  args: { decision: { ...MERCHANT_DECISION, rules: [], reason_codes: [] } },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText(/La revisión de la política no se completó\./)).toBeVisible()
+    await expect(canvas.queryByText(/no estaba disponible/)).toBeNull()
+  },
+}
+
 /** El detalle técnico lleva los códigos y la versión de la política. */
 export const TechnicalDetail: Story = {
   play: async ({ args, canvas, userEvent }) => {

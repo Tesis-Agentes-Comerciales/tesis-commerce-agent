@@ -20,6 +20,8 @@ import { cn } from "cn"
 import {
   AgentPlan,
   derivePlanProgress,
+  PolicyBlockedCard,
+  PurchaseActivity,
   ReasoningStep,
   ThinkingGroup,
   ThinkingIndicator,
@@ -29,6 +31,11 @@ import {
   useElapsedMs,
 } from "@/components/agent"
 import { PROMINENT_TOOLS } from "@/features/agent-toolkit"
+import {
+  activityVisible,
+  blockingDecision,
+  useMessagePurchaseTrace,
+} from "@/features/purchase-trace"
 import {
   AGENT_TOOL_NAMES,
   MAX_MESSAGE_CHARS,
@@ -163,6 +170,9 @@ function AssistantMessage() {
     const part = parts[index]
     return part?.type === "tool-call" && toolStepStatus(part, status) === "error"
   })
+  const purchaseTrace = useMessagePurchaseTrace(parts, status)
+  // Un bloqueo de la política no es un error: lo explica su tarjeta, no el aviso rojo.
+  const blockedBy = blockingDecision(purchaseTrace)
   const elapsedMs = useActiveElapsed(active)
   const activity = active ? currentActivity(parts) : null
   // El grupo se abre solo mientras el turno corre, hasta que la persona lo toque.
@@ -181,7 +191,7 @@ function AssistantMessage() {
       {hasTrace && (
         <ThinkingGroup
           active={active}
-          failed={failedStep || failedStatus}
+          failed={(failedStep || failedStatus) && blockedBy === null}
           stopped={stopped}
           elapsedMs={elapsedMs}
           stepCount={layout.trace.length}
@@ -195,6 +205,10 @@ function AssistantMessage() {
         </ThinkingGroup>
       )}
 
+      {purchaseTrace && activityVisible(purchaseTrace, status) && (
+        <PurchaseActivity trace={purchaseTrace} className="mb-3" />
+      )}
+
       {layout.prominent.length > 0 && (
         <div className="mb-4 flex flex-col gap-4">
           {layout.prominent.map((index) => (
@@ -202,6 +216,8 @@ function AssistantMessage() {
           ))}
         </div>
       )}
+
+      {blockedBy && <PolicyBlockedCard decision={blockedBy} className="mb-4" />}
 
       {layout.text.map((index) => (
         <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />
@@ -217,11 +233,14 @@ function AssistantMessage() {
         />
       )}
 
-      <MessagePrimitive.Error>
-        <ErrorPrimitive.Root className="mt-2 rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">
-          <ErrorPrimitive.Message />
-        </ErrorPrimitive.Root>
-      </MessagePrimitive.Error>
+      {/* Sin la traza (404, 503) el aviso sigue: el backend ya lo redacta sin «error inesperado». */}
+      {blockedBy === null && (
+        <MessagePrimitive.Error>
+          <ErrorPrimitive.Root className="mt-2 rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">
+            <ErrorPrimitive.Message />
+          </ErrorPrimitive.Root>
+        </MessagePrimitive.Error>
+      )}
 
       {/* Un turno interrumpido no tiene error que mostrar: sin este aviso la respuesta queda vacía. */}
       {stopped && (

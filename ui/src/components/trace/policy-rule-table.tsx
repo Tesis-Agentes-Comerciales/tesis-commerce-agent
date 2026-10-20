@@ -50,7 +50,9 @@ function RuleRow({ rule, showValues }: { rule: PolicyRule; showValues: boolean }
         </span>
       </div>
       {showValues && (rule.observed !== null || rule.expected !== null) && (
-        <dl className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs leading-4">
+        // Término sobre valor: en un teléfono de 320 px, a dos columnas, la URL quedaba en un hueco
+        // de pocos caracteres y se partía en muchas líneas.
+        <dl className="mt-1.5 space-y-1.5 text-xs leading-4">
           {rule.observed !== null && <RuleValue label={copy.observed} value={rule.observed} />}
           {rule.expected !== null && <RuleValue label={copy.expected} value={rule.expected} />}
         </dl>
@@ -61,9 +63,9 @@ function RuleRow({ rule, showValues }: { rule: PolicyRule; showValues: boolean }
 
 function RuleValue({ label, value }: { label: string; value: string }) {
   return (
-    <>
+    <div>
       <dt className="text-[#6b6b6b]">{label}</dt>
-      <dd className="font-mono break-all text-[#0d0d0d]">{value}</dd>
-    </>
+      <dd className="mt-0.5 font-mono break-all text-[#0d0d0d]">{value}</dd>
+    </div>
   )
 }

@@ -27,7 +27,8 @@
 @theme inline {
   --font-heading: ui-sans-serif, system-ui, sans-serif;
   --font-sans: ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  /* Menlo antes del genérico: Chrome en macOS no resuelve SFMono-Regular y caía en Courier. */
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);

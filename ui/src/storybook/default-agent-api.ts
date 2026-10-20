@@ -1,7 +1,13 @@
 import type { ApprovalTerms } from "@/lib/agent-contract"
 import type { AgentApiMock } from "@/storybook/agent-api-mock"
-import { fixtureState, recordPurchaseOutcome, scriptedAssistant } from "@/storybook/assistant-transport"
+import {
+  fixtureState,
+  purchaseOutcome,
+  recordPurchaseOutcome,
+  scriptedAssistant,
+} from "@/storybook/assistant-transport"
 import { approvalRecord, COMPLETED } from "@/storybook/fixtures"
+import { TRACES, withRunId } from "@/storybook/trace-fixtures"
 
 /** Términos que mostró `request_approval` en `purchase.sse`; el backend los repite al aprobar. */
 function streamedTerms(): ApprovalTerms {
@@ -13,6 +19,18 @@ function streamedTerms(): ApprovalTerms {
     }
   }
   throw Error("purchase.sse no trae los términos de request_approval")
+}
+
+/** Traza que acompaña a los streams: espera la aprobación hasta que la historia complete o cancele. */
+function liveTrace(runId: string) {
+  const outcome = purchaseOutcome(runId)
+  const trace =
+    outcome === "completed"
+      ? TRACES.completedShadow
+      : outcome === "canceled"
+        ? TRACES.canceled
+        : TRACES.awaitingApproval
+  return withRunId(trace, runId)
 }
 
 export const DEFAULT_AGENT_API: AgentApiMock = {
@@ -31,6 +49,7 @@ export const DEFAULT_AGENT_API: AgentApiMock = {
     recordPurchaseOutcome(params.runId ?? "", "canceled")
     return { delayMs: 400, body: { run_id: params.runId, stage: "canceled" } }
   },
+  "GET /purchases/:runId/trace": ({ params }) => ({ body: liveTrace(params.runId ?? "") }),
   "POST /purchases/:runId/complete": ({ params }) => {
     recordPurchaseOutcome(params.runId ?? "", "completed")
     return { delayMs: 900, body: COMPLETED }

@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useState } from "react"
 import { expect, waitFor } from "storybook/test"
 
 import { PolicyBlockedCard } from "@/components/agent/policy-blocked-card"
 import { PurchaseActivity } from "@/components/agent/purchase-activity"
-import type { TraceStep } from "@/lib/trace-contract"
+import type { PurchaseTrace, TraceStep } from "@/lib/trace-contract"
 import { decisionOf, stepOf, TRACES } from "@/storybook/trace-fixtures"
 
 const meta = {
@@ -67,10 +68,15 @@ export const CompletedOpen: Story = {
 /** El teclado abre la fila y el foco queda visible. */
 export const KeyboardToggle: Story = {
   play: async ({ canvas, userEvent }) => {
-    await userEvent.tab()
     const trigger = canvas.getByRole("button", { name: /Compra completada/ })
+    const resting = getComputedStyle(trigger).boxShadow
+    await userEvent.tab()
     await expect(trigger).toHaveFocus()
-    await expect(trigger).toHaveClass("focus-visible:ring-2")
+    await expect(trigger.matches(":focus-visible")).toBe(true)
+    // El anillo se pinta de verdad: la sombra cambia y lleva la tinta del chat.
+    const focused = getComputedStyle(trigger).boxShadow
+    await expect(focused).not.toBe(resting)
+    await expect(focused).toContain("rgb(13, 13, 13)")
     await userEvent.keyboard("{Enter}")
     await expect(trigger).toHaveAttribute("aria-expanded", "true")
     await userEvent.keyboard(" ")
@@ -103,6 +109,31 @@ export const AwaitingApproval: Story = {
   args: { trace: TRACES.awaitingApproval },
   play: async ({ canvas }) => {
     await expect(canvas.getByRole("button", { name: /Esperando tu aprobación/ })).toBeVisible()
+  },
+}
+
+/** Simula la relectura de la traza después de completar la compra. */
+function RereadTrace({ trace: initial }: { trace: PurchaseTrace }) {
+  const [trace, setTrace] = useState(initial)
+  return (
+    <div className="space-y-3">
+      <PurchaseActivity trace={trace} />
+      <button type="button" onClick={() => setTrace(TRACES.completedShadow)}>
+        Releer la traza
+      </button>
+    </div>
+  )
+}
+
+/** Al releer la traza cambia el estado: un lector de pantalla lo oye sin mover el foco. */
+export const AnnouncesStatusChanges: Story = {
+  args: { trace: TRACES.awaitingApproval },
+  render: (args) => <RereadTrace trace={args.trace} />,
+  play: async ({ canvas, userEvent }) => {
+    const status = canvas.getByRole("status")
+    await expect(status).toHaveTextContent("Esperando tu aprobación")
+    await userEvent.click(canvas.getByRole("button", { name: "Releer la traza" }))
+    await expect(status).toHaveTextContent(/Compra completada en \d+ s/)
   },
 }
 

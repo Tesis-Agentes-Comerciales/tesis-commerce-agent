@@ -64,3 +64,21 @@ export const NotEvaluated: Story = {
     await expect(canvas.queryByRole("term")).toBeNull()
   },
 }
+
+/** Teléfono de 320 px: término y valor se apilan y la URL usa el ancho de la fila. */
+export const Phone320: Story = {
+  args: { rules: decisionOf(TRACES.blockedMerchant).rules },
+  decorators: [
+    (Story) => (
+      <div className="w-[288px]">
+        <Story />
+      </div>
+    ),
+  ],
+  play: async ({ canvas }) => {
+    const term = canvas.getByText("Comercios permitidos")
+    const value = canvas.getByText("https://tienda-aliada.example.test")
+    await expect(value.getBoundingClientRect().top).toBeGreaterThan(term.getBoundingClientRect().bottom - 1)
+    await expect(value.getBoundingClientRect().left).toBe(term.getBoundingClientRect().left)
+  },
+}

@@ -271,7 +271,25 @@ bloqueo quedan en un desplegable «Detalle técnico», cerrado por defecto.
 **Integración:**
 
 - `features/purchase-trace.ts` pide la traza cuando aparece `run_id`, cuando termina cada paso
-  del stream y después de aprobar, completar o cancelar.
+  del stream y después de aprobar, completar o cancelar. Así quedó construido:
+  - **De dónde sale el `run_id`:** del paso que empezó la compra en ese mensaje, cuando ya
+    terminó: `prepare_checkout` o, en una compra restaurada, `request_approval`. Un bloqueo de la
+    política falla `prepare_checkout` sin `result`, así que el backend pone el `run_id` también en
+    sus `args` (`docs/agent-ui-contract.md`). Se espera a que el paso termine para no pedir la traza
+    de una compra que aún no existe. Los mensajes de seguimiento (`purchase_update`) no tienen fila
+    propia: actualizan la del mensaje que empezó la compra.
+  - **Cuándo se relee:** cada vez que cambia el número de pasos terminados, el estado del mensaje,
+    la etapa de `state.purchase` de esa compra o la acción local de la tarjeta (aprobar, completar,
+    cancelar). Una lectura en curso se aborta si llega otra.
+  - **Errores:** un 404, un 503, la red caída o una traza fuera de contrato (`parsePurchaseTrace`, o
+    un `run_id` distinto) no rompen el chat. Se conserva la última traza leída; si no hay ninguna, la
+    fila no aparece y queda el aviso del mensaje, que el backend ya redacta en español.
+  - **En el mensaje:** la fila va debajo del grupo «Pensando…» y antes de las tarjetas. Con la compra
+    bloqueada, `PolicyBlockedCard` va después de las tarjetas y reemplaza al aviso rojo del mensaje;
+    el grupo «Pensando…» tampoco se marca como error. Una compra que sigue «en curso» en un mensaje
+    que terminó con error o se detuvo no muestra la fila, porque ese turno ya no la moverá.
+  - **Recibo:** la tarjeta de aprobación lee la misma traza (una por compra, compartida en la sesión).
+  - **Anuncios:** la fila anuncia cada cambio de estado con `role="status"`.
 - `features/audit/` carga la tabla y el detalle.
 - La app gana una navegación mínima entre Chat y Compras.
 
@@ -286,6 +304,12 @@ bloqueo quedan en un desplegable «Detalle técnico», cerrado por defecto.
      ni se hizo ningún cobro»;
    - no aparece «error inesperado».
 3. **Política desactivada:** todo funciona y el control figura como desactivado.
+
+Los criterios 1–3 tienen E2E con la API simulada (`ui/e2e/chat.spec.ts`), y el 3, además, la
+prueba live del navegador (`tests/integration/test_live_browser.py`, con el router guionado). Con
+`enforce` y `AGENT_HP_FLOW=governed`, una compra permitida en modo activo también llega a la orden
+(criterio 1 en modo activo).
+
 4. **Auditoría:** la tabla lista las compras del usuario y el detalle de cada una muestra la misma
    traza que el chat.
 5. **API:** no expone campos sensibles, y el run de otro usuario responde 404. Ambos casos tienen
@@ -302,15 +326,16 @@ Cada PR depende del anterior y se fusiona con CI en verde y con la aprobación d
 | A | `chore(ui): remove the governance monitor` | Borra el visor, los scripts, los tests de Node, el exportador y la proyección. Ajusta Playwright, Storybook, CI y docs. No añade funcionalidad |
 | B | `feat(ui): purchase trace components` | Contrato TS, fixtures, primitivas y componentes del chat, con historias. Sin cablear |
 | C | `feat(api): purchase trace and history endpoints` | TDD del ensamblador y de los dos endpoints. Modelo Pydantic validado contra las fixtures de B. Hora de fin por paso del turno y mensajes para los códigos `d1_*` |
-| D | `feat(ui): live purchase activity in the chat` | Cableado del chat, E2E con API simulada y una prueba live en `tests/integration` |
+| D | `feat(ui): live purchase activity in the chat` | Cableado del chat, E2E con API simulada y una prueba live en `tests/integration`. Además, el `run_id` en los `args` de `prepare_checkout`, el stream real de un bloqueo (`purchase-blocked.sse`) y los seguimientos de la revisión de B |
 | E | `feat(ui): purchases audit view` | Componentes de auditoría con historias, cableado, navegación y E2E |
 
 ## Riesgos y decisiones
 
-- **Permitir en modo activo:** termina en `d1_dispatch_blocked` y deja la compra en `selected`,
-  pendiente y sin poder cancelarse. Para la demo, la compra completa va en modo observando y el
-  bloqueo en modo activo. Un bloqueo deja la compra en `received`, que no impide compras nuevas.
-  Arreglar el despacho en modo activo queda fuera de este alcance.
+- **Permitir en modo activo:** con `AGENT_HP_FLOW=governed` (despacho D1 y continuación gobernada,
+  #36 y #37), una compra permitida en `enforce` crea el checkout, pide la aprobación y llega a la
+  orden. Solo sin ese flujo (`AGENT_HP_FLOW=blocked`, el valor por defecto) termina en
+  `d1_dispatch_blocked` y queda en `selected`, sin poder cancelarse; el chat lo explica sin «error
+  inesperado». Un bloqueo deja la compra en `received`, que no impide compras nuevas.
 - **Valores observado y esperado de cada regla:** salen de la entrada de la decisión (origen del
   comercio, candidatos elegibles) y de la política (lista de comercios). Se exponen solo esos
   campos, nunca la entrada canónica completa.
@@ -320,4 +345,7 @@ Cada PR depende del anterior y se fusiona con CI en verde y con la aprobación d
 - **Reloj del sandbox:** con `AGENT_SANDBOX_CLOCK_AT`, `approved_at` es la hora fija del sandbox y
   la aprobación aparece fuera del orden cronológico.
 - **Refresco:** si releer la traza no se siente en vivo, se emite dentro del stream de `/assistant`
-  (`state.trace`), que ya tiene patrón.
+  (`state.trace`), que ya tiene patrón. Hoy el `run_id` llega al terminar `prepare_checkout`, así
+  que la elección y la política del turno en curso aparecen en la fila de una vez, con el checkout.
+- **E2E y fases en curso:** Playwright entrega el stream simulado de una sola vez, así que el E2E no
+  observa la fila «Comprando…»; ese estado lo cubren las historias de `PurchaseActivity`.

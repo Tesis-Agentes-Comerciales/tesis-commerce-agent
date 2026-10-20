@@ -43,6 +43,11 @@ export function stepOf<Kind extends StepKind>(trace: PurchaseTrace, kind: Kind) 
   return step as Extract<TraceStep, { kind: Kind }>
 }
 
+/** La misma fixture con el `run_id` de un stream: la UI descarta una traza de otra compra. */
+export function withRunId(trace: PurchaseTrace, runId: string): PurchaseTrace {
+  return { ...trace, run_id: runId }
+}
+
 /** Decisión de política de una fixture, para las tarjetas que la reciben suelta. */
 export function decisionOf(trace: PurchaseTrace) {
   return stepOf(trace, "policy_decision").decision

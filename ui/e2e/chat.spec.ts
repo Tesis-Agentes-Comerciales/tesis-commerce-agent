@@ -13,6 +13,16 @@ const STREAMS = new URL("../src/storybook/fixtures/assistant-transport/", import
 const stream = (name: string) => readFileSync(new URL(`${name}.sse`, STREAMS), "utf8")
 const PURCHASE = stream("purchase")
 const PURCHASE_COMPLETED = stream("purchase-completed")
+const PURCHASE_BLOCKED = stream("purchase-blocked")
+
+// Trazas de src/storybook/trace-fixtures (las mismas de Storybook y del contrato Pydantic), con el
+// `run_id` del stream: la UI descarta una traza de otra compra.
+const TRACES = new URL("../src/storybook/trace-fixtures/", import.meta.url)
+type Trace = { run_id: string; policy_mode: string; status: string; steps: { kind: string }[] }
+const trace = (name: string, runId: string): Trace => ({
+  ...JSON.parse(readFileSync(new URL(`${name}.json`, TRACES), "utf8")),
+  run_id: runId,
+})
 
 type Approval = { run_id: string; terms: ApprovalTerms }
 
@@ -37,6 +47,47 @@ function streamedApproval(sse: string): Approval {
 
 const APPROVAL = streamedApproval(PURCHASE)
 
+/** `run_id` de una compra que la política detuvo: solo viaja en los `args` de `prepare_checkout`. */
+function blockedRun(sse: string) {
+  const match = /"toolName": "prepare_checkout", "args": \{[^}]*"run_id": "(run_[0-9a-f]+)"/.exec(sse)
+  if (!match?.[1]) throw Error("El stream no trae el run_id de prepare_checkout")
+  return match[1]
+}
+
+const BLOCKED_RUN = blockedRun(PURCHASE_BLOCKED)
+const NOTHING_CHARGED = "No se creó ningún checkout ni se hizo ningún cobro."
+
+/** Índice de la primera llamada que cumple la condición, o -1. */
+const callIndex = (calls: AgentCall[], method: string, suffix: string) =>
+  calls.findIndex((call) => call.method === method && call.path.endsWith(suffix))
+
+type Phase = "awaiting" | "completed"
+
+/**
+ * La compra cambia como en el backend: espera la aprobación hasta que se completa por REST. El
+ * stream simulado llega de una vez, así que no hay un tramo «en curso» que observar aquí; ese estado
+ * lo cubren las historias de `PurchaseActivity`.
+ */
+function purchaseTrace(phaseTrace: (phase: Phase) => Trace): TraceRoute {
+  return (calls) => ({
+    body: phaseTrace(callIndex(calls, "POST", "/complete") >= 0 ? "completed" : "awaiting"),
+  })
+}
+
+const shadowTrace = (phase: Phase) =>
+  trace(phase === "completed" ? "completed-shadow" : "awaiting-approval", APPROVAL.run_id)
+
+/** Política desactivada: la espera es la misma traza sin el paso de política. */
+function policyOffTrace(phase: Phase): Trace {
+  if (phase === "completed") return trace("policy-off", APPROVAL.run_id)
+  const awaiting = shadowTrace("awaiting")
+  return {
+    ...awaiting,
+    policy_mode: "off",
+    steps: awaiting.steps.filter((step) => step.kind !== "policy_decision"),
+  }
+}
+
 type AssistantBody = {
   turn_id: string
   commands: { type: string; runId?: string; message?: { parts: { text: string }[] } }[]
@@ -48,8 +99,20 @@ type AssistantBody = {
 
 type AgentCall = { method: string; path: string; authorization: string | null; body: unknown }
 
+/** Respuesta de `GET /purchases/{run_id}/trace` según las llamadas hechas hasta ahora (incluida esta). */
+type TraceRoute = (calls: AgentCall[]) => { status?: number; body: unknown }
+
+type AgentOptions = {
+  /** Stream del primer turno: por defecto, la compra preparada. */
+  turn?: string
+  /** Sin ella, la traza responde 404, como una compra que el agente no conoce. */
+  trace?: TraceRoute
+}
+
+const RUN_SEGMENT = /\/run_[A-Za-z0-9_-]+(?=\/|$)/
+
 /** Agente simulado: registra cada llamada para revisar cuerpos y cabeceras. */
-async function routeAgent(page: Page) {
+async function routeAgent(page: Page, { turn = PURCHASE, trace }: AgentOptions = {}) {
   const calls: AgentCall[] = []
   const cors = {
     "Access-Control-Allow-Origin": UI_ORIGIN,
@@ -67,7 +130,7 @@ async function routeAgent(page: Page) {
     }
     calls.push(call)
     const json = (body: unknown) => route.fulfill({ headers: cors, json: body })
-    switch (`${call.method} ${call.path.replace(APPROVAL.run_id, ":runId")}`) {
+    switch (`${call.method} ${call.path.replace(RUN_SEGMENT, "/:runId")}`) {
       case "GET /health":
         return json({ status: "ok" })
       case "GET /me/pending-purchase":
@@ -78,8 +141,13 @@ async function routeAgent(page: Page) {
         return route.fulfill({
           headers: cors,
           contentType: "text/event-stream",
-          body: followUp ? PURCHASE_COMPLETED : PURCHASE,
+          body: followUp ? PURCHASE_COMPLETED : turn,
         })
+      }
+      case "GET /purchases/:runId/trace": {
+        if (!trace) break
+        const reply = trace(calls)
+        return route.fulfill({ status: reply.status ?? 200, headers: cors, json: reply.body })
       }
       case "GET /purchases/:runId/approval":
         return json(APPROVAL.terms)
@@ -150,6 +218,102 @@ test("prepara, aprueba y completa una compra; la aprobación solo viaja por REST
   }
 })
 
+test.describe("actividad de la compra", () => {
+  test("modo observando: la fila pasa de esperar la aprobación a completada y muestra la política permitida con sus dos reglas", async ({
+    page,
+  }) => {
+    await routeSession(page)
+    const calls = await routeAgent(page, {
+      trace: purchaseTrace(shadowTrace),
+    })
+    await page.goto("/")
+    const card = await preparePurchase(page)
+    const activity = page.getByTestId("purchase-activity")
+    await expect(activity).toHaveAttribute("data-status", "awaiting_approval")
+    await expect(activity.getByRole("button", { name: /Esperando tu aprobación/ })).toBeVisible()
+    expect(callIndex(calls, "GET", `/purchases/${APPROVAL.run_id}/trace`)).toBeGreaterThanOrEqual(0)
+
+    await card.getByTestId("approve-purchase").click()
+    await expect(card).toHaveAttribute("data-status", "completed")
+    await expect(activity).toHaveAttribute("data-status", "completed")
+    const trigger = activity.getByRole("button", { name: /Compra completada en \d+ s/ })
+    await expect(trigger).toBeVisible()
+    // Se relee después de completar, y el recibo sale de esa traza.
+    const completed = callIndex(calls, "POST", "/complete")
+    expect(calls.slice(completed).some((call) => call.path.endsWith("/trace"))).toBe(true)
+    await expect(card.getByTestId("approval-receipt")).toHaveText(/^Aprobado por ti · \d{2}:\d{2}/)
+
+    await trigger.click()
+    await expect(activity.getByText("Política de compra: permitida")).toBeVisible()
+    await expect(activity.getByText("Solo observando: registra, no detiene")).toBeVisible()
+    const rules = activity.getByRole("list", { name: "Reglas de la política de compra" })
+    await expect(rules.getByRole("listitem")).toHaveCount(2)
+    await expect(rules.getByText("Producto dentro de lo que pediste")).toBeVisible()
+    await expect(rules.getByText("Comercio permitido")).toBeVisible()
+    await expect(rules.getByText("Cumple")).toHaveCount(2)
+  })
+
+  test("modo activo: el bloqueo por el comercio muestra su tarjeta y ningún error inesperado", async ({
+    page,
+  }) => {
+    await routeSession(page)
+    const calls = await routeAgent(page, {
+      turn: PURCHASE_BLOCKED,
+      trace: () => ({ body: trace("blocked-merchant", BLOCKED_RUN) }),
+    })
+    await page.goto("/")
+    const composer = page.getByLabel("Mensaje de compra")
+    await composer.fill(PURCHASE_REQUEST)
+    await composer.press("Enter")
+
+    const card = page.getByTestId("policy-blocked-card")
+    await expect(card).toBeVisible()
+    await expect(card.getByRole("heading", { name: "La política de compra detuvo esta compra" })).toBeVisible()
+    await expect(card.getByText("Comercio permitido")).toBeVisible()
+    await expect(card.getByText("https://tienda-aliada.example.test")).toBeVisible()
+    await expect(card.getByText(NOTHING_CHARGED)).toBeVisible()
+    await expect(page.getByTestId("purchase-activity")).toHaveAttribute("data-status", "blocked")
+    await expect(page.getByText(/error inesperado/i)).toHaveCount(0)
+    // Un bloqueo no es un error: ni aviso rojo ni tarjeta de aprobación.
+    await expect(page.getByRole("alert")).toHaveCount(0)
+    await expect(page.getByTestId("purchase-approval-card")).toHaveCount(0)
+    expect(calls.some((call) => call.path === `/purchases/${BLOCKED_RUN}/trace`)).toBe(true)
+  })
+
+  test("política desactivada: la compra se completa y el control figura como desactivado", async ({
+    page,
+  }) => {
+    await routeSession(page)
+    await routeAgent(page, { trace: purchaseTrace(policyOffTrace) })
+    await page.goto("/")
+    const card = await preparePurchase(page)
+    await card.getByTestId("approve-purchase").click()
+    await expect(card).toHaveAttribute("data-status", "completed")
+    await expect(page.getByText(/La compra quedó completada/)).toBeVisible()
+
+    const activity = page.getByTestId("purchase-activity")
+    await activity.getByRole("button", { name: /Compra completada/ }).click()
+    const policy = activity.getByRole("listitem").filter({ hasText: "Política desactivada" })
+    await expect(policy).toBeVisible()
+    await expect(policy).toContainText("No se revisó esta compra")
+    await expect(activity.getByText("Orden confirmada")).toBeVisible()
+  })
+
+  for (const status of [404, 503]) {
+    test(`una traza que responde ${status} no rompe la compra`, async ({ page }) => {
+      await routeSession(page)
+      await routeAgent(page, { trace: () => ({ status, body: { detail: "unavailable" } }) })
+      await page.goto("/")
+      const card = await preparePurchase(page)
+      await card.getByTestId("approve-purchase").click()
+      await expect(card).toHaveAttribute("data-status", "completed")
+      await expect(page.getByText(/La compra quedó completada/)).toBeVisible()
+      await expect(page.getByTestId("purchase-activity")).toHaveCount(0)
+      await expect(page.getByRole("alert")).toHaveCount(0)
+    })
+  }
+})
+
 test("sin sesión muestra el acceso y no llama al agente", async ({ page }) => {
   await routeSession(page, { signedIn: false })
   const requests = agentRequests(page)
@@ -161,6 +325,21 @@ test("sin sesión muestra el acceso y no llama al agente", async ({ page }) => {
 
 test.describe("móvil", () => {
   test.use({ viewport: { width: 390, height: 844 } })
+
+  test("la tarjeta de bloqueo cabe en 375 px", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 })
+    await routeSession(page)
+    await routeAgent(page, {
+      turn: PURCHASE_BLOCKED,
+      trace: () => ({ body: trace("blocked-merchant", BLOCKED_RUN) }),
+    })
+    await page.goto("/")
+    const composer = page.getByLabel("Mensaje de compra")
+    await composer.fill(PURCHASE_REQUEST)
+    await composer.press("Enter")
+    await expect(page.getByTestId("policy-blocked-card")).toBeVisible()
+    expect(await fitsViewport(page)).toBe(true)
+  })
 
   test("la bienvenida y la tarjeta de aprobación caben sin scroll horizontal", async ({ page }) => {
     await routeSession(page)
