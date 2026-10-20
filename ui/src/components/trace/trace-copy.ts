@@ -246,7 +246,11 @@ const PURCHASE_SUMMARY: Record<Exclude<PurchaseStatus, "completed">, string> = {
 /** Línea de la fila de actividad en el chat. */
 export function purchaseSummary(trace: PurchaseTrace) {
   if (trace.status !== "completed") return PURCHASE_SUMMARY[trace.status]
-  const elapsed = formatElapsed(Date.parse(trace.updated_at) - Date.parse(trace.started_at))
+  // Hasta la orden confirmada: un aviso del comercio que llega después mueve `updated_at`.
+  const confirmedAt = trace.steps.find((step) => step.kind === "order_confirmed")?.at
+  const elapsed = confirmedAt
+    ? formatElapsed(Date.parse(confirmedAt) - Date.parse(trace.started_at))
+    : null
   return elapsed ? `Compra completada en ${elapsed}` : "Compra completada"
 }
 

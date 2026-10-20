@@ -41,6 +41,24 @@ export const Completed: Story = {
   },
 }
 
+const LATE_WEBHOOK_AT = "2026-10-20T16:30:00.000Z"
+
+/** Un aviso del comercio que llega 48 min después no alarga la duración de la compra. */
+export const CompletedLateWebhook: Story = {
+  args: {
+    trace: {
+      ...TRACES.completedShadow,
+      updated_at: LATE_WEBHOOK_AT,
+      steps: TRACES.completedShadow.steps.map((step) =>
+        step.kind === "order_event" ? { ...step, at: LATE_WEBHOOK_AT } : step,
+      ),
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByRole("button", { name: /Compra completada en 47 s/ })).toBeVisible()
+  },
+}
+
 export const CompletedOpen: Story = {
   args: { defaultOpen: true },
 }
