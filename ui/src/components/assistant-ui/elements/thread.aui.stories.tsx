@@ -226,6 +226,53 @@ export const PolicyBlockedTraceUnavailable: Story = {
   },
 }
 
+// Texto de `assistant_transport.ERROR_MESSAGES["checkout_terms_changed"]`.
+const TERMS_CHANGED_TEXT =
+  "Las condiciones del comercio cambiaron (por ejemplo, el precio, el envío o la disponibilidad), así que no seguí con la compra. No se hizo ningún cobro."
+
+/** `request_approval` falla en el stream porque la oferta cambió al presentar los términos (S04). */
+function termsChangedWhilePresenting(): AgentState {
+  const messages = AWAITING.messages.map((message) => {
+    if (message.role !== "assistant") return message
+    const content = message.content.map((part) =>
+      part.type === "tool-call" && part.toolName === "request_approval"
+        ? {
+            ...part,
+            result: { error: { code: "checkout_terms_changed", message: TERMS_CHANGED_TEXT } },
+            isError: true,
+          }
+        : part,
+    )
+    return {
+      ...message,
+      content,
+      status: { type: "incomplete", reason: "error", error: TERMS_CHANGED_TEXT } as const,
+    }
+  })
+  return { ...AWAITING, messages }
+}
+
+/**
+ * La tarjeta explica la parada y ofrece cancelar: ni aviso rojo ni «Se detuvo por un error», ni el
+ * plan o la fila «Esperando tu aprobación», que la contradirían.
+ */
+export const TermsChangedWhilePresenting: Story = {
+  args: { state: termsChangedWhilePresenting() },
+  parameters: traceApi(TRACES.awaitingApproval),
+  play: async ({ canvas }) => {
+    await traceSettled()
+    await expect(canvas.queryByTestId("purchase-activity")).toBeNull()
+    await expect(canvas.queryByText("Esperando tu aprobación")).toBeNull()
+    const card = await canvas.findByTestId("stale-terms-card")
+    await expect(card).toHaveTextContent("Las condiciones del comercio cambiaron")
+    await expect(card).toHaveTextContent("Sony WH-1000XM6")
+    await expect(canvas.getByRole("button", { name: "Cancelar compra" })).toBeEnabled()
+    await expect(canvas.queryByTestId("purchase-approval-card")).toBeNull()
+    await expect(canvas.queryByRole("alert")).toBeNull()
+    await expect(canvas.queryByText("Se detuvo por un error")).toBeNull()
+  },
+}
+
 export const PendingPurchase: Story = { args: { state: fixtureState("pendingPurchase") } }
 
 export const NoCandidate: Story = { args: { state: fixtureState("noCandidate") } }

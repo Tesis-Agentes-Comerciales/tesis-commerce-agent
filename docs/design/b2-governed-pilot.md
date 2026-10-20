@@ -127,7 +127,9 @@ shadow con frescura y recuperación activas. Nunca se presenta como enforce.
   `approval_terms: null` y `terms_status` en `changed` (la oferta cambió) o `unavailable` (no se
   pudo leer). El comprador la cancela, lo que nunca depende de la frescura, y vuelve a pedirla:
   obtiene un checkout nuevo con el precio actual, que pasa otra vez por D1 y requiere una
-  aprobación nueva.
+  aprobación nueva. En el chat, la tarjeta de aprobación muestra ese estado («Las condiciones del
+  comercio cambiaron» o «No pude confirmar las condiciones con el comercio», sin cobro) con un solo
+  botón, «Cancelar compra». Lo muestra también si aprobar responde 409 o 503 en la misma sesión.
 - **Regla de presupuesto total en D1.** Queda para la siguiente revisión de política.
 
 ## Riesgos

@@ -149,6 +149,32 @@ Seguimiento tras cancelar por REST: `purchase_update` y `purchase.stage = cancel
 ]
 ```
 
+## `purchase-repeated.sse`
+
+La misma compra pedida de nuevo después de cancelar (S04, términos que cambiaron): un checkout nuevo con otro `run_id`, términos nuevos y `purchase` en `awaiting_confirmation`.
+
+- Estado enviado: el estado final de `purchase-canceled.sse`.
+- Comandos:
+
+```json
+[
+  {
+    "type": "add-message",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Quiero audífonos negros por menos de 2 millones"
+        }
+      ]
+    },
+    "parentId": null,
+    "sourceId": null
+  }
+]
+```
+
 ## `no-candidate.sse`
 
 Sin candidatos: `search_catalog` devuelve `products: []` y el texto final es la recuperación conversacional.

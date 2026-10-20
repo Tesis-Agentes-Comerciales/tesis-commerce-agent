@@ -13,6 +13,8 @@ const STREAMS = new URL("../src/storybook/fixtures/assistant-transport/", import
 const stream = (name: string) => readFileSync(new URL(`${name}.sse`, STREAMS), "utf8")
 const PURCHASE = stream("purchase")
 const PURCHASE_COMPLETED = stream("purchase-completed")
+const PURCHASE_CANCELED = stream("purchase-canceled")
+const PURCHASE_REPEATED = stream("purchase-repeated")
 const PURCHASE_BLOCKED = stream("purchase-blocked")
 
 // Trazas de src/storybook/trace-fixtures (las mismas de Storybook y del contrato Pydantic), con el
@@ -57,6 +59,33 @@ function blockedRun(sse: string) {
 const BLOCKED_RUN = blockedRun(PURCHASE_BLOCKED)
 const NOTHING_CHARGED = "No se creó ningún checkout ni se hizo ningún cobro."
 
+// Términos que ya no valen (S04): el backend rechaza la aprobación o la compra restaurada llega con
+// `terms_status`. El `message` es el texto interno del backend, que la UI no debe mostrar.
+const STALE_TERMS = {
+  changed: {
+    status: 409,
+    body: { code: "checkout_terms_changed", message: "Live offer no longer matches the checkout terms" },
+    title: "Las condiciones del comercio cambiaron",
+  },
+  unavailable: {
+    status: 503,
+    body: { code: "offer_freshness_unavailable", message: "Live offer could not be read" },
+    title: "No pude confirmar las condiciones con el comercio",
+  },
+} as const
+
+/** Compra pendiente restaurada sin términos, como la devuelve `GET /me/pending-purchase`. */
+const stalePending = (termsStatus: keyof typeof STALE_TERMS) => ({
+  purchase: {
+    run_id: APPROVAL.run_id,
+    stage: "awaiting_confirmation",
+    checkout_id: APPROVAL.terms.checkout_id,
+    order_id: null,
+  },
+  approval_terms: null,
+  terms_status: termsStatus,
+})
+
 /** Índice de la primera llamada que cumple la condición, o -1. */
 const callIndex = (calls: AgentCall[], method: string, suffix: string) =>
   calls.findIndex((call) => call.method === method && call.path.endsWith(suffix))
@@ -95,6 +124,7 @@ type AssistantBody = {
     buyer: Record<string, string>
     fulfillment: { address: Record<string, string> }
   }
+  state: { messages: unknown[]; purchase: { run_id: string } | null }
 }
 
 type AgentCall = { method: string; path: string; authorization: string | null; body: unknown }
@@ -103,17 +133,27 @@ type AgentCall = { method: string; path: string; authorization: string | null; b
 type TraceRoute = (calls: AgentCall[]) => { status?: number; body: unknown }
 
 type AgentOptions = {
-  /** Stream del primer turno: por defecto, la compra preparada. */
-  turn?: string
+  /** Stream de cada mensaje del comprador, en orden: por defecto, la compra preparada. */
+  turns?: string[]
   /** Sin ella, la traza responde 404, como una compra que el agente no conoce. */
   trace?: TraceRoute
+  /** `GET /me/pending-purchase` al cargar: por defecto, ninguna compra pendiente. */
+  pending?: unknown
+  /** `POST /purchases/{run_id}/approval`: por defecto, la aprobación registrada. */
+  approval?: { status: number; body: unknown }
+  /** Respuesta a `purchase-updated` después de cancelar: por defecto, `purchase-canceled.sse`. */
+  canceled?: (body: AssistantBody) => string
 }
 
 const RUN_SEGMENT = /\/run_[A-Za-z0-9_-]+(?=\/|$)/
 
 /** Agente simulado: registra cada llamada para revisar cuerpos y cabeceras. */
-async function routeAgent(page: Page, { turn = PURCHASE, trace }: AgentOptions = {}) {
+async function routeAgent(
+  page: Page,
+  { turns = [PURCHASE], trace, pending = null, approval, canceled = () => PURCHASE_CANCELED }: AgentOptions = {},
+) {
   const calls: AgentCall[] = []
+  let turn = 0
   const cors = {
     "Access-Control-Allow-Origin": UI_ORIGIN,
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
@@ -134,14 +174,16 @@ async function routeAgent(page: Page, { turn = PURCHASE, trace }: AgentOptions =
       case "GET /health":
         return json({ status: "ok" })
       case "GET /me/pending-purchase":
-        return route.fulfill({ headers: cors, contentType: "application/json", body: "null" })
+        return route.fulfill({ headers: cors, contentType: "application/json", body: JSON.stringify(pending) })
       case "POST /assistant": {
-        // El segundo turno continúa el estado del primero, así que los streams encajan.
-        const followUp = (call.body as AssistantBody).commands.at(-1)?.type === "purchase-updated"
+        // Cada stream continúa el estado del anterior, así que encajan en el orden del fixture.
+        const body = call.body as AssistantBody
+        const followUp = body.commands.at(-1)?.type === "purchase-updated"
+        const wasCanceled = callIndex(calls, "POST", "/cancel") >= 0
         return route.fulfill({
           headers: cors,
           contentType: "text/event-stream",
-          body: followUp ? PURCHASE_COMPLETED : turn,
+          body: followUp ? (wasCanceled ? canceled(body) : PURCHASE_COMPLETED) : turns[turn++],
         })
       }
       case "GET /purchases/:runId/trace": {
@@ -152,13 +194,28 @@ async function routeAgent(page: Page, { turn = PURCHASE, trace }: AgentOptions =
       case "GET /purchases/:runId/approval":
         return json(APPROVAL.terms)
       case "POST /purchases/:runId/approval":
+        if (approval) return route.fulfill({ status: approval.status, headers: cors, json: approval.body })
         return json(approvalRecord(APPROVAL.run_id))
+      case "POST /purchases/:runId/cancel": {
+        const runId = /run_[A-Za-z0-9_-]+/.exec(call.path)?.[0]
+        return json({ run_id: runId, stage: "canceled", checkout_id: APPROVAL.terms.checkout_id, order_id: null })
+      }
       case "POST /purchases/:runId/complete":
         return json(COMPLETED)
     }
     return route.fulfill({ status: 404, headers: cors, json: { code: "not_found", message: "not found" } })
   })
   return calls
+}
+
+/**
+ * `purchase-updated` sobre un estado que no sale de los fixtures (una compra restaurada): el mismo
+ * estado con la etapa cancelada, como lo devolvería el backend antes de su mensaje de seguimiento.
+ */
+function canceledEcho({ state }: AssistantBody) {
+  const value = { ...state, purchase: { ...state.purchase, stage: "canceled" } }
+  const frame = { type: "update-state", operations: [{ type: "set", path: [], value }] }
+  return `data: ${JSON.stringify(frame)}\n\ndata: [DONE]\n\n`
 }
 
 const assistantBodies = (calls: AgentCall[]) =>
@@ -258,7 +315,7 @@ test.describe("actividad de la compra", () => {
   }) => {
     await routeSession(page)
     const calls = await routeAgent(page, {
-      turn: PURCHASE_BLOCKED,
+      turns: [PURCHASE_BLOCKED],
       trace: () => ({ body: trace("blocked-merchant", BLOCKED_RUN) }),
     })
     await page.goto("/")
@@ -314,6 +371,76 @@ test.describe("actividad de la compra", () => {
   }
 })
 
+test.describe("términos que ya no valen", () => {
+  for (const termsStatus of ["changed", "unavailable"] as const) {
+    const stale = STALE_TERMS[termsStatus]
+    test(`aprobar responde ${stale.status} ${stale.body.code}: sin cobro, se cancela y se pide de nuevo`, async ({
+      page,
+    }) => {
+      await routeSession(page)
+      const calls = await routeAgent(page, {
+        turns: [PURCHASE, PURCHASE_REPEATED],
+        approval: { status: stale.status, body: stale.body },
+      })
+      await page.goto("/")
+      const card = await preparePurchase(page)
+      await card.getByTestId("approve-purchase").click()
+
+      // La tarjeta de aprobación cede su lugar: sin cobro y con una sola salida.
+      const staleCard = page.getByTestId("stale-terms-card")
+      await expect(staleCard).toHaveAttribute("data-status", "stale")
+      await expect(staleCard.getByRole("heading", { name: stale.title })).toBeVisible()
+      await expect(staleCard.getByText("No se hizo ningún cobro.", { exact: true })).toBeVisible()
+      await expect(staleCard.getByRole("button")).toHaveText(["Cancelar compra"])
+      await expect(page.getByTestId("purchase-approval-card")).toHaveCount(0)
+      await expect(page.getByText(/recarga la página|no longer|could not/i)).toHaveCount(0)
+      await expect(page.getByRole("alert")).toHaveCount(0)
+      // Ni el plan ni la actividad siguen esperando una aprobación que ya no es posible.
+      await expect(page.getByText("Esperando tu aprobación")).toHaveCount(0)
+
+      await staleCard.getByRole("button", { name: "Cancelar compra" }).click()
+      await expect(staleCard).toHaveAttribute("data-status", "canceled")
+      await expect(page.getByText(/Cancelé la compra pendiente/)).toBeVisible()
+      expect(callIndex(calls, "POST", `/purchases/${APPROVAL.run_id}/cancel`)).toBeGreaterThanOrEqual(0)
+      expect(callIndex(calls, "POST", "/complete")).toBe(-1)
+
+      // Pedirla de nuevo abre otra compra, con su propio checkout y términos por aprobar.
+      const composer = page.getByLabel("Mensaje de compra")
+      await composer.fill(PURCHASE_REQUEST)
+      await composer.press("Enter")
+      const again = page.getByTestId("purchase-approval-card")
+      await expect(again).toHaveAttribute("data-status", "awaiting_approval")
+      await expect(again.getByTestId("approve-purchase")).toBeEnabled()
+      await expect(staleCard).toHaveAttribute("data-status", "canceled")
+      expect(assistantBodies(calls).map((body) => body.commands.at(-1)?.type)).toEqual([
+        "add-message",
+        "purchase-updated",
+        "add-message",
+      ])
+    })
+
+    test(`una compra pendiente con terms_status "${termsStatus}" se puede cancelar tras recargar`, async ({
+      page,
+    }) => {
+      await routeSession(page)
+      const calls = await routeAgent(page, { pending: stalePending(termsStatus), canceled: canceledEcho })
+      await page.goto("/")
+      await expect(page.getByText("Recuperé tu compra pendiente. Revisa su estado antes de continuar.")).toBeVisible()
+      const staleCard = page.getByTestId("stale-terms-card")
+      await expect(staleCard.getByRole("heading", { name: stale.title })).toBeVisible()
+      await expect(staleCard.getByText("No se hizo ningún cobro.", { exact: true })).toBeVisible()
+      await expect(staleCard.getByRole("button")).toHaveText(["Cancelar compra"])
+      await expect(page.getByRole("alert")).toHaveCount(0)
+
+      await staleCard.getByRole("button", { name: "Cancelar compra" }).click()
+      await expect(staleCard).toHaveAttribute("data-status", "canceled")
+      await expect.poll(() => assistantBodies(calls).length).toBe(1)
+      expect(assistantBodies(calls)[0].commands).toEqual([{ type: "purchase-updated", runId: APPROVAL.run_id }])
+      expect(calls.filter((call) => call.method === "POST" && call.path.endsWith("/cancel"))).toHaveLength(1)
+    })
+  }
+})
+
 test("sin sesión muestra el acceso y no llama al agente", async ({ page }) => {
   await routeSession(page, { signedIn: false })
   const requests = agentRequests(page)
@@ -330,7 +457,7 @@ test.describe("móvil", () => {
     await page.setViewportSize({ width: 375, height: 812 })
     await routeSession(page)
     await routeAgent(page, {
-      turn: PURCHASE_BLOCKED,
+      turns: [PURCHASE_BLOCKED],
       trace: () => ({ body: trace("blocked-merchant", BLOCKED_RUN) }),
     })
     await page.goto("/")
@@ -338,6 +465,15 @@ test.describe("móvil", () => {
     await composer.fill(PURCHASE_REQUEST)
     await composer.press("Enter")
     await expect(page.getByTestId("policy-blocked-card")).toBeVisible()
+    expect(await fitsViewport(page)).toBe(true)
+  })
+
+  test("la tarjeta de términos que cambiaron cabe en 375 px", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 })
+    await routeSession(page)
+    await routeAgent(page, { pending: stalePending("unavailable") })
+    await page.goto("/")
+    await expect(page.getByTestId("stale-terms-card")).toBeVisible()
     expect(await fitsViewport(page)).toBe(true)
   })
 

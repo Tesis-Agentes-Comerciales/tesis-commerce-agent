@@ -34,6 +34,11 @@ La aplicación queda en `http://127.0.0.1:5173` y espera la API del agente en
   (`/purchases/{run_id}/approval`, `/complete`, `/cancel`) y después envía el comando propio
   `purchase-updated`. Ningún comando del transporte lleva evidencia de aprobación: eso sigue solo por
   REST, con el fingerprint que devolvió el backend.
+- Términos que ya no valen (S04, `src/features/stale-terms.ts`): si aprobar responde 409
+  `checkout_terms_changed` o 503 `offer_freshness_unavailable`, si `request_approval` falla con esos
+  códigos o si `GET /me/pending-purchase` trae `terms_status`, la tarjeta de aprobación cede su lugar
+  a `StaleTermsCard`: dice que no se hizo ningún cobro y deja solo «Cancelar compra». Después de
+  cancelar, el comprador pide la compra de nuevo en el chat y obtiene otro checkout.
 - `src/features/purchase-trace.ts` relee `GET /purchases/{run_id}/trace` para la compra de cada
   mensaje: al aparecer el `run_id`, al terminar cada paso, al cerrar el mensaje y después de aprobar,
   completar o cancelar. Con la traza, el mensaje muestra la fila de actividad (`PurchaseActivity`),
@@ -59,7 +64,8 @@ carga: `sb.mock` cambia `src/lib/auth-client.ts` por `src/lib/__mocks__/auth-cli
 - `Pages/App` monta la app completa. `Online` es interactiva: saluda, pide detalles, prepara una
   compra o recuerda la pendiente según el texto. Las demás historias (`PurchaseFlow`, `CancelFlow`,
   `NoCandidate`, `PendingPurchase`, `BackendError`, `RequestRejected`, `Offline`,
-  `CompletionFails`) recorren el flujo con `play`.
+  `CompletionFails`, `TermsChangedOnApprove`, `TermsUnavailableOnApprove`, `RestoredTermsChanged`,
+  `RestoredTermsUnavailable`) recorren el flujo con `play`.
 - `Chat/Thread` congela momentos de un stream real: `src/storybook/assistant-transport.ts` aplica los
   frames de un fixture hasta un marcador y entrega ese estado como `initialState`, sin
   temporizadores.
@@ -103,7 +109,9 @@ traza responde con las fixtures de `src/storybook/trace-fixtures/`. `e2e/chat.sp
 aprobación y completion, revisa que el cuerpo lleve `details` y `turn_id`, que la aprobación solo
 viaje por REST con el fingerprint de los términos y que en móvil no haya scroll horizontal. También
 cubre la actividad de la compra: política permitida con sus dos reglas, bloqueo por el comercio con
-su tarjeta y sin «error inesperado», política desactivada y una traza que responde 404 o 503. Usa un puerto propio (5190) y el mismo Chromium que
+su tarjeta y sin «error inesperado», política desactivada y una traza que responde 404 o 503. Y los
+términos que ya no valen: aprobar responde 409 o 503, se cancela y se pide de nuevo, y una compra
+restaurada con `terms_status` se puede cancelar. Usa un puerto propio (5190) y el mismo Chromium que
 `test-storybook`.
 
 La UI no contiene llaves ni tokens. Los datos de entrega se envían a FastAPI, y el único control que

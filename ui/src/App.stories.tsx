@@ -2,8 +2,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, waitFor, within } from "storybook/test"
 
 import App from "@/App"
+import type { PendingPurchase as PendingPurchaseBody, PendingTermsStatus } from "@/lib/commerce-api"
 import type { AgentApiRequest } from "@/storybook/agent-api-mock"
-import { ASSISTANT_SSE, FIXTURE_REQUESTS, scriptedAssistant } from "@/storybook/assistant-transport"
+import {
+  ASSISTANT_SSE,
+  FIXTURE_REQUESTS,
+  fixtureState,
+  scriptedAssistant,
+} from "@/storybook/assistant-transport"
 import { sendComposerMessage } from "@/storybook/interactions"
 
 const meta = {
@@ -184,3 +190,106 @@ export const RequestRejected: Story = {
     ).toBeVisible()
   },
 }
+
+// Términos que ya no valen (S04): la oferta cambió o no se pudo leer. El `message` es el texto
+// interno del backend; la tarjeta no lo muestra.
+const STALE_APPROVAL = {
+  changed: {
+    status: 409,
+    body: { code: "checkout_terms_changed", message: "Live offer no longer matches the checkout terms" },
+  },
+  unavailable: {
+    status: 503,
+    body: { code: "offer_freshness_unavailable", message: "Live offer could not be read" },
+  },
+} as const
+
+const STALE_TITLE: Record<PendingTermsStatus, string> = {
+  changed: "Las condiciones del comercio cambiaron",
+  unavailable: "No pude confirmar las condiciones con el comercio",
+}
+
+/** Aprobar responde 409: la tarjeta deja solo «Cancelar compra» y después se pide de nuevo. */
+export const TermsChangedOnApprove: Story = {
+  parameters: {
+    agentApi: { ...FAST_STREAM.agentApi, "POST /purchases/:runId/approval": STALE_APPROVAL.changed },
+  },
+  play: async (context) => {
+    const card = await approvalCard(context)
+    await context.userEvent.click(within(card).getByTestId("approve-purchase"))
+    const stale = await context.canvas.findByTestId("stale-terms-card", {}, STREAM_TIMEOUT)
+    await expect(within(stale).getByRole("heading", { name: STALE_TITLE.changed })).toBeVisible()
+    await expect(within(stale).getByText("No se hizo ningún cobro.")).toBeVisible()
+    await expect(within(stale).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Cancelar compra",
+    ])
+    await expect(context.canvas.queryByText(/no longer|recarga la página/i)).toBeNull()
+    await expect(context.canvas.queryByText("Esperando tu aprobación")).toBeNull()
+
+    await context.userEvent.click(within(stale).getByRole("button", { name: "Cancelar compra" }))
+    await waitFor(() => expect(stale).toHaveAttribute("data-status", "canceled"), STREAM_TIMEOUT)
+    await expect(
+      await context.canvas.findByText(/Cancelé la compra pendiente/, {}, STREAM_TIMEOUT),
+    ).toBeVisible()
+
+    // Pedirla de nuevo prepara otra compra (otro `run_id`) con términos por aprobar.
+    await sendComposerMessage(context, FIXTURE_REQUESTS.purchase)
+    const again = await context.canvas.findByTestId("purchase-approval-card", {}, STREAM_TIMEOUT)
+    await waitFor(() => expect(again).toHaveAttribute("data-status", "awaiting_approval"), STREAM_TIMEOUT)
+    await expect(stale).toHaveAttribute("data-status", "canceled")
+  },
+}
+
+/** Aprobar responde 503: no se pudo leer la oferta, así que tampoco se cobra. */
+export const TermsUnavailableOnApprove: Story = {
+  parameters: {
+    agentApi: { ...FAST_STREAM.agentApi, "POST /purchases/:runId/approval": STALE_APPROVAL.unavailable },
+  },
+  play: async (context) => {
+    const card = await approvalCard(context)
+    await context.userEvent.click(within(card).getByTestId("approve-purchase"))
+    const stale = await context.canvas.findByTestId("stale-terms-card", {}, STREAM_TIMEOUT)
+    await expect(within(stale).getByRole("heading", { name: STALE_TITLE.unavailable })).toBeVisible()
+    await expect(within(stale).getByRole("button", { name: "Cancelar compra" })).toBeEnabled()
+  },
+}
+
+/** Compra pendiente de `purchase.sse`, restaurada al recargar con `terms_status` y sin términos. */
+function stalePending(termsStatus: PendingTermsStatus): PendingPurchaseBody {
+  const purchase = fixtureState("purchase").purchase
+  if (!purchase) throw Error("purchase.sse no deja una compra pendiente")
+  return {
+    purchase: { ...purchase, checkout_id: "cs_storybook_1" },
+    approval_terms: null,
+    terms_status: termsStatus,
+  }
+}
+
+function restoredStaleStory(termsStatus: PendingTermsStatus): Story {
+  return {
+    parameters: {
+      agentApi: { ...FAST_STREAM.agentApi, "GET /me/pending-purchase": { body: stalePending(termsStatus) } },
+    },
+    play: async (context) => {
+      await expect(
+        await context.canvas.findByText(/Recuperé tu compra pendiente/, {}, STREAM_TIMEOUT),
+      ).toBeVisible()
+      const stale = context.canvas.getByTestId("stale-terms-card")
+      await expect(within(stale).getByRole("heading", { name: STALE_TITLE[termsStatus] })).toBeVisible()
+      await expect(context.canvas.queryByTestId("purchase-approval-card")).toBeNull()
+      await expect(context.canvas.queryByRole("alert")).toBeNull()
+
+      await context.userEvent.click(within(stale).getByRole("button", { name: "Cancelar compra" }))
+      await waitFor(() => expect(stale).toHaveAttribute("data-status", "canceled"), STREAM_TIMEOUT)
+      await expect(
+        await context.canvas.findByText(/Cancelé la compra pendiente/, {}, STREAM_TIMEOUT),
+      ).toBeVisible()
+    },
+  }
+}
+
+/** Tras recargar, `GET /me/pending-purchase` trae `terms_status: "changed"`: se puede cancelar. */
+export const RestoredTermsChanged: Story = restoredStaleStory("changed")
+
+/** Tras recargar, `terms_status: "unavailable"`: la oferta no se pudo leer. */
+export const RestoredTermsUnavailable: Story = restoredStaleStory("unavailable")

@@ -23,7 +23,8 @@ import {
   asSearchResult,
   asSelectResult,
 } from "@/features/agent-results"
-import { PurchaseApproval } from "@/features/purchase-approval"
+import { PurchaseApproval, StaleTermsApproval } from "@/features/purchase-approval"
+import { staleApprovalOf } from "@/features/stale-terms"
 import type { AgentMessageStatus, AgentToolName } from "@/lib/agent-contract"
 
 type StepProps = ToolCallMessagePartProps<Record<string, unknown>, unknown>
@@ -127,6 +128,17 @@ export function RequestApprovalTool(part: StepProps) {
   const selected = asSelectResult(useSiblingResult("select_product"))
   const prepared = asPrepareResult(useSiblingResult("prepare_checkout"))
   if (status === "running") return <PurchaseApprovalCardSkeleton />
+  // Términos que ya no valen: la compra sigue pendiente y la tarjeta ofrece cancelarla.
+  const stale = staleApprovalOf(part)
+  if (stale) {
+    return (
+      <StaleTermsApproval
+        runId={stale.runId}
+        terms={stale.terms}
+        product={asProduct(selected?.product) ?? null}
+      />
+    )
+  }
   if (status === "error") return <ProminentStepError toolName="request_approval" part={part} />
   const result = asApprovalResult(part.result)
   if (!result) return <ProminentStepError toolName="request_approval" part={part} />

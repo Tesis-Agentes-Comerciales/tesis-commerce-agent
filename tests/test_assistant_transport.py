@@ -646,6 +646,33 @@ def test_a_purchase_left_unfinished_by_the_merchant_does_not_block_the_next_one(
     assert retried["purchase"]["stage"] == "awaiting_confirmation"
 
 
+def test_a_canceled_purchase_can_be_asked_for_again_with_its_own_checkout(
+    tmp_path: Path,
+) -> None:
+    """S04: con términos que cambiaron, el comprador cancela y vuelve a pedir la misma compra."""
+    merchant = Merchant()
+    with assistant_client(tmp_path / "agent.db", merchant=merchant) as client:
+        prepared = prepare_purchase(client)
+        first = prepared["purchase"]["run_id"]
+        client.post(f"/purchases/{first}/cancel").raise_for_status()
+        _, canceled = post_assistant(
+            client,
+            assistant_body([purchase_updated(first)], turn_id="turn-cancel", state=prepared),
+        )
+        _, repeated = post_assistant(
+            client,
+            assistant_body([add_message(PURCHASE_REQUEST)], turn_id="turn-again", state=canceled),
+        )
+
+    second = repeated["purchase"]["run_id"]
+    assert second != first
+    assert repeated["purchase"]["stage"] == "awaiting_confirmation"
+    approval = tool_calls(assistant_message(repeated))["request_approval"]
+    assert approval["isError"] is False
+    assert approval["result"]["run_id"] == second
+    assert merchant.requests.count("POST /checkout_sessions") == 2
+
+
 def test_same_turn_id_replays_and_different_payload_conflicts(tmp_path: Path) -> None:
     router = ScriptedRouter()
     with assistant_client(tmp_path / "agent.db", router=router) as client:

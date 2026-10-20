@@ -14,6 +14,7 @@ import pendingPurchaseRaw from "@/storybook/fixtures/assistant-transport/pending
 import purchaseBlockedRaw from "@/storybook/fixtures/assistant-transport/purchase-blocked.sse?raw"
 import purchaseCanceledRaw from "@/storybook/fixtures/assistant-transport/purchase-canceled.sse?raw"
 import purchaseCompletedRaw from "@/storybook/fixtures/assistant-transport/purchase-completed.sse?raw"
+import purchaseRepeatedRaw from "@/storybook/fixtures/assistant-transport/purchase-repeated.sse?raw"
 import purchaseRaw from "@/storybook/fixtures/assistant-transport/purchase.sse?raw"
 
 // Streams reales de `POST /assistant` (ver fixtures/assistant-transport/README.md). Storybook los
@@ -41,6 +42,7 @@ export const ASSISTANT_SSE = {
   pendingPurchase: localizeImages(pendingPurchaseRaw),
   purchaseCompleted: localizeImages(purchaseCompletedRaw),
   purchaseCanceled: localizeImages(purchaseCanceledRaw),
+  purchaseRepeated: localizeImages(purchaseRepeatedRaw),
   purchaseBlocked: localizeImages(purchaseBlockedRaw),
   noCandidate: localizeImages(noCandidateRaw),
   error: localizeImages(errorRaw),
@@ -219,7 +221,10 @@ export function scriptedFixture(body: AssistantRequestBody): AssistantFixture {
   if (body.state?.purchase?.stage === "awaiting_confirmation") return "pendingPurchase"
   if (/^\s*(hola|buenas|hey)\b/.test(text)) return "greeting"
   if (/\b50 mil\b/.test(text)) return "noCandidate"
-  if (/aud[ií]fono|headphone/.test(text)) return "purchase"
+  // Pedida otra vez después de cancelar: otra compra, con su propio `run_id`.
+  if (/aud[ií]fono|headphone/.test(text)) {
+    return body.state?.purchase?.stage === "canceled" ? "purchaseRepeated" : "purchase"
+  }
   return "clarify"
 }
 
