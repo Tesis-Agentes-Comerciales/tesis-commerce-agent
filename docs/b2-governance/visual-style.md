@@ -35,7 +35,27 @@ visual para la gobernanza.
 
 ## Aplicación en B2
 
-Los componentes nuevos (`Trusted State`, `Policy Gateway`, OPA, `OfferFreshnessGuard` y
-`Decision Evidence`) usan el mismo azul del agente porque pertenecen a su frontera. La aprobación
-AP2 conserva el ámbar usado para el punto de autorización. B0 y B2 se distinguen mediante el texto
-de tipo (`[Componente B0]` o `[Componente B2]`), no mediante rellenos o una paleta adicional.
+Los controles B2 (gate D1, frescura de la oferta, continuación y recuperación gobernadas, ledgers
+de evidencia) usan el mismo azul del agente porque pertenecen a su frontera, y se dibujan dentro
+del componente B0 donde actúan. La aprobación AP2 conserva el ámbar usado para el punto de
+autorización. B0 y B2 se distinguen mediante el texto de tipo (`[Componente B0]` o
+`[B2 · hecho]`), no mediante rellenos o una paleta adicional.
+
+La propuesta original P1–P5 (`Trusted State`, `Policy Gateway`, OPA, `OfferFreshnessGuard`,
+`Decision Evidence`) quedó como histórica en
+[`docs/diagrams/historico/b2-architecture-p1-p5.svg`](../diagrams/historico/b2-architecture-p1-p5.svg).
+
+## Estado de implementación
+
+Cuando un diagrama mezcla trabajo hecho y pendiente, el borde lo indica y el texto de tipo lo
+repite, para que se lea igual en gris o impreso:
+
+| Estado | Borde | Texto de tipo |
+|---|---|---|
+| Hecho (en `org/main`) | continuo, color de su responsabilidad | `[B2 · hecho]` |
+| En curso (piloto de la semana) | discontinuo largo, mismo color | `[B2 · en curso]` |
+| Futuro | punteado corto, gris `#8C8C8C`, nombre en gris | `[B2 · futuro]` |
+
+Las fronteras de sistema siguen siendo punteadas en azul o gris; no llevan estado. En la secuencia
+gobernada, los mensajes que agrega B2 van en azul del agente y los rechazos sin efecto comercial en
+el rojo de fallo.

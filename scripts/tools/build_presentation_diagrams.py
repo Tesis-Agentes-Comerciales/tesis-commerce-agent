@@ -398,55 +398,6 @@ def system_context() -> C4Page:
     return p
 
 
-def architecture() -> C4Page:
-    p = C4Page("C4 · Ecosistema del agente", 2860, 1450)
-    p.boundary(430, 265, 1570, 1060, "Agente comprador", AGENT_BLUE)
-    elements = (
-        ("person", 50, 610, 300, 220, "Comprador", "Chatea y aprueba", BUYER_GREEN),
-        ("browser", 530, 560, 350, 190, "Interfaz del agente", "Chat y aprobación", AGENT_BLUE),
-        ("container", 1150, 560, 350, 190, "API del agente", "Orquesta la compra", AGENT_BLUE),
-        ("container", 530, 980, 350, 175, "Identidad", "Autentica compradores", AGENT_BLUE),
-        ("data", 1050, 980, 330, 175, "Compras", "Términos y pedidos", AGENT_BLUE),
-        (
-            "data",
-            1550,
-            980,
-            330,
-            175,
-            "Memoria del grafo",
-            "Historial y puntos de control",
-            AGENT_BLUE,
-        ),
-        ("system", 1150, 35, 350, 175, "OpenAI", "Interpreta solicitudes", EXTERNAL_WINE),
-        ("system", 2300, 560, 390, 190, "Comercio", "Catálogo y compra", MERCHANT_AMBER),
-        ("system", 2300, 990, 390, 190, "Proveedor de pago", "Pago de prueba", EXTERNAL_WINE),
-    )
-    for kind, x, y, width, height, name, description, border in elements:
-        p.element(kind, x, y, width, height, name, description, border, show_type=False)
-
-    p.edge((350, 670), (530, 670), dashed=True)
-    p.text("HTTPS", 370, 605, 140, 38, size=18)
-    p.edge((880, 665), (1150, 665), dashed=True)
-    p.text("HTTPS · SSE", 895, 605, 235, 38, size=18)
-    p.edge((705, 750), (705, 980), dashed=True)
-    p.text("HTTPS", 555, 840, 130, 38, size=18)
-    p.edge((1150, 720), (880, 1060), points=((960, 720), (960, 1060)), dashed=True)
-    p.text("JWT · JWKS", 765, 845, 175, 38, size=18)
-    p.edge((1215, 750), (1215, 980), dashed=True)
-    p.text("SQLite", 1060, 850, 125, 38, size=18)
-    p.edge((1430, 750), (1715, 980), points=((1430, 925), (1715, 925)), dashed=True)
-    p.text("SQLite", 1535, 850, 125, 38, size=18)
-    p.edge((1325, 560), (1325, 210), dashed=True)
-    p.text("HTTPS · Responses API", 1360, 345, 290, 38, size=18, align="left")
-    p.edge((1500, 665), (2300, 665), dashed=True)
-    p.text("HTTPS · catálogo + ACP REST", 1600, 600, 340, 38, size=18)
-    p.edge((1500, 725), (2300, 1085), points=((2145, 725), (2145, 1085)), dashed=True)
-    p.text("HTTPS · AP2", 1760, 850, 170, 38, size=18)
-    p.edge((2495, 750), (2495, 990), dashed=True)
-    p.text("HTTPS", 2515, 845, 130, 38, size=18)
-    return p
-
-
 def agent_components() -> C4Page:
     p = C4Page("C4 · Componentes de la API", 2440, 1450)
     p.boundary(95, 90, 2250, 1270, "API del agente", AGENT_BLUE, scope="Contenedor")
@@ -702,7 +653,6 @@ def state_machine() -> Page:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     write("agent-system-context-c4.drawio", [system_context()])
-    write("agent-architecture-c4.drawio", [architecture()])
     write("agent-components-c4.drawio", [agent_components()])
     write("purchase-sequence.drawio", [purchase_sequence()])
     write("purchase-sequence-1-discovery.drawio", [purchase_sequence_discovery()])
