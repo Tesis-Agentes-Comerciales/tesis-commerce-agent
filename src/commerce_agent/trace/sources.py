@@ -74,7 +74,9 @@ def merchant_origins(settings: Settings) -> dict[str, str]:
 
 
 def read_records(database: Path, graph_database: Path, run_id: str) -> PurchaseRecords | None:
-    with closing(sqlite3.connect(database, timeout=5)) as connection:
+    with closing(
+        sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+    ) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
         purchase = _row(
             connection,
@@ -164,7 +166,7 @@ def _turn(graph_database: Path, thread_id: str, run_id: str) -> TurnSnapshot | N
     if not graph_database.exists():
         return None
     try:
-        uri = f"{graph_database.as_uri()}?mode=ro"
+        uri = f"{graph_database.resolve().as_uri()}?mode=ro"
         with closing(sqlite3.connect(uri, uri=True, check_same_thread=False)) as connection:
             saver = SqliteSaver(connection, serde=JsonPlusSerializer(allowed_msgpack_modules=[]))
             config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
@@ -184,7 +186,17 @@ def _turn(graph_database: Path, thread_id: str, run_id: str) -> TurnSnapshot | N
     )
     if not turn:
         return None
-    chosen = next(((at, values) for at, values in turn if values.get("selected_variant_id")), None)
+    # One thread per conversation: a turn's first checkpoints still carry the previous turn's
+    # selection until the graph adopts the new turn as active.
+    chosen = next(
+        (
+            (at, values)
+            for at, values in turn
+            if values.get("selected_variant_id")
+            and values.get("active_turn_id") == values["turn_id"]
+        ),
+        None,
+    )
     candidate = None
     if chosen is not None:
         candidate = next(

@@ -345,7 +345,9 @@ class PurchaseTraces:
 
     def history(self, owner_id: str, *, limit: int, before: str | None) -> PurchaseHistory | None:
         """A page of the owner's purchases, newest first; None if `before` is not one of them."""
-        with closing(sqlite3.connect(self._database, timeout=5)) as connection:
+        with closing(
+            sqlite3.connect(f"{self._database.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        ) as connection:
             cursor = (None, None)
             if before is not None:
                 cursor = connection.execute(

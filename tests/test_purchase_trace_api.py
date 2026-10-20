@@ -94,19 +94,20 @@ class Shop:
     def store(self) -> SqliteAgentStore:
         return SqliteAgentStore(self.configuration.agent_database_path)
 
-    def buy(self, turn_id: str = "turn-1", buyer: str = "a"):
+    def buy(self, turn_id: str = "turn-1", buyer: str = "a", **conversation: str):
         return self.client.post(
             "/conversation/turn",
             json={
                 "turn_id": turn_id,
+                **conversation,
                 "messages": [{"role": "user", "content": PURCHASE_REQUEST}],
                 "details": checkout_details(),
             },
             headers=as_buyer(buyer),
         )
 
-    def prepare(self, turn_id: str = "turn-1") -> dict[str, Any]:
-        response = self.buy(turn_id)
+    def prepare(self, turn_id: str = "turn-1", **conversation: str) -> dict[str, Any]:
+        response = self.buy(turn_id, **conversation)
         assert response.status_code == 200, response.text
         return response.json()
 
@@ -260,6 +261,35 @@ def test_completed_shadow_purchase_has_every_control_in_order(tmp_path: Path) ->
         "duration_ms": row["duration_ms"],
     }
     assert isinstance(row["duration_ms"], int)
+
+
+def test_second_purchase_in_a_conversation_shows_its_own_selection(tmp_path: Path) -> None:
+    # The chat keeps one LangGraph thread per conversation, so a new turn starts from a
+    # checkpoint that still carries the previous turn's selection until the graph clears it.
+    # Policy blocks keep the merchant double to one checkout id and leave no pending purchase.
+    with shop(tmp_path, "enforce", agent_d1_allowed_merchant_origins=ALLIED_STORE) as current:
+        for turn_id in ("turn-1", "turn-2"):
+            denied = current.buy(turn_id, conversation_id="chat-1")
+            assert denied.status_code == 409 and denied.json()["code"] == "d1_denied"
+        newest = current.history()["purchases"][0]["run_id"]
+        trace = current.trace(newest)
+
+    selection = step(trace, "selection")
+    assert selection["at"] > step(trace, "request")["at"]
+    assert selection["duration_ms"] > 0
+    assert_chronological(trace)
+
+
+def test_trace_reads_a_relative_database_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The default AGENT_DATABASE_PATH is relative; read-only URIs need an absolute path.
+    monkeypatch.chdir(tmp_path)
+    with shop(Path("."), "shadow") as current:
+        prepared = current.prepare()
+        trace = current.trace(prepared["purchase"]["run_id"])
+
+    assert step(trace, "selection")["at"] > step(trace, "request")["at"]
 
 
 def test_a_late_merchant_webhook_does_not_stretch_the_purchase_duration(
