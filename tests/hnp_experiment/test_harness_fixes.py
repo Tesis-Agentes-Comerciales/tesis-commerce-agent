@@ -158,3 +158,61 @@ def test_binding_is_enforced_by_version_admission_not_by_unreachable_check():
     assert changed.record.admission.code == "CONTEXT_CHANGED"
     assert changed.record.admission.backend_failures == ("binding",)
     assert not changed.effect_occurred and not sink.events
+
+
+def test_validator_receives_public_reviewer_facts_without_leaks():
+    from commerce_agent.hnp_experiment.models import (
+        ProposalView,
+        ReviewerContext,
+        TrustedReviewContext,
+        wire_bytes,
+    )
+
+    seen = {}
+
+    def validate(proposal: ProposalView, context: ReviewerContext):
+        seen["wire"] = wire_bytes({"proposal": proposal, "context": context})
+        seen["types"] = (type(proposal), type(context))
+        return independent_assessment(proposal, context)
+
+    c, _ = coordinator(ScriptedValidatorAgent(validate))
+    assert c.run("public-facts").effect_occurred
+    assert seen["types"] == (ProposalView, ReviewerContext)
+    wire = seen["wire"]
+    for leaked in (b"eligible_variant_ids", b"buyer_adapter_id", b"scripted-buyer", b"approved"):
+        assert leaked not in wire
+    # Allowlist: only the backend's selection verdict is withheld from the reviewer.
+    assert set(TrustedReviewContext.model_fields) - set(ReviewerContext.model_fields) == {
+        "eligible_variant_ids"
+    }
+
+
+def test_scripted_reviewer_derives_eligibility_like_the_backend_on_every_fixture():
+    from commerce_agent.hnp_experiment.adapters import reviewer_eligible_variants
+    from commerce_agent.hnp_experiment.context import assemble, reviewer_context
+
+    for case in CASES:
+        context = assemble(case.source)
+        assert reviewer_eligible_variants(reviewer_context(context)) == frozenset(
+            context.eligible_variant_ids
+        )
+
+
+def test_hidden_hard_constraint_makes_scripted_selection_unresolved():
+    from commerce_agent.governance.canonical import parse_model
+    from commerce_agent.hnp_experiment.context import (
+        assemble,
+        proposal_envelope,
+        proposal_view,
+        reviewer_context,
+    )
+    from commerce_agent.hnp_experiment.models import BuyerDraft, wire_bytes
+
+    context = reviewer_context(assemble(VALID.source))
+    hard = context.intent.hard.model_copy(update={"categories": ("phone",)})
+    hidden = context.model_copy(update={"intent": context.intent.model_copy(update={"hard": hard})})
+    draft = parse_model(BuyerDraft, wire_bytes(VALID.buyer_payload))
+    proposal = proposal_view(proposal_envelope(assemble(VALID.source), draft, "scripted-buyer:1"))
+    assessment = independent_assessment(proposal, hidden)
+    assert assessment.verdict == "abstain"
+    assert [c.check_id for c in assessment.checks if c.result == "unresolved"] == ["selection"]

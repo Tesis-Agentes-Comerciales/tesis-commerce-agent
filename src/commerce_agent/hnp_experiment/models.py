@@ -193,6 +193,28 @@ class TrustedReviewContext(ExperimentalModel):
         return self
 
 
+class ReviewerContext(ExperimentalModel):
+    """Public facts a human reviewer would see; never backend-derived eligibility.
+
+    ``eligible_variant_ids`` is the backend's own selection verdict: handing it to the validator
+    would let it copy the answer instead of reviewing the candidates.
+    """
+
+    episode_ref: SourceRef
+    intent_ref: SourceRef
+    feed_ref: SourceRef
+    delegation_ref: SourceRef
+    context_ref: SourceRef
+    intent: PurchaseIntent
+    required_constraint_ids: Ids
+    candidates: tuple[Candidate, ...]
+    authorized_merchant_ref: Id
+    terms: SyntheticTerms
+    delegation: SyntheticDelegation
+    authority_now: UtcTime
+    protocol_verification: Literal["not_executed"] = "not_executed"
+
+
 class BuyerContext(ExperimentalModel):
     intent: PurchaseIntent
     intent_ref: SourceRef
@@ -233,6 +255,17 @@ class ProposalEnvelope(ExperimentalModel):
         if self.proposal_digest != expected:
             raise ValueError("Proposal digest mismatch")
         return self
+
+
+class ProposalView(ExperimentalModel):
+    """Reviewer copy of a proposal: without the buyer's identity or private prose."""
+
+    proposal_id: Id
+    revision: Version
+    episode_ref: SourceRef
+    intent_ref: SourceRef
+    draft: BuyerDraft
+    proposal_digest: Digest
 
 
 class CheckResult(ExperimentalModel):

@@ -8,7 +8,7 @@ from time import perf_counter_ns
 from commerce_agent.governance.canonical import parse_model
 
 from .backend import mandatory_failures
-from .context import buyer_context, check_refs
+from .context import buyer_context, check_refs, proposal_envelope, proposal_view, reviewer_context
 from .deadline import call_with_deadline
 from .evidence import ExperimentalEvidence
 from .models import (
@@ -91,24 +91,7 @@ class ReviewCoordinator:
                 raw = self.buyer.propose(buyer_context(context))
                 # Wire errors and RoleOutputError are ValueError: the buyer's own output.
                 draft = parse_model(BuyerDraft, wire_bytes(raw))
-                body = dict(
-                    schema_version=SCHEMA,
-                    proposal_id=context.episode_ref.id + ":proposal",
-                    revision=1,
-                    episode_ref=context.episode_ref,
-                    intent_ref=context.intent_ref,
-                    buyer_adapter_id=self.buyer.adapter_id,
-                    draft=draft,
-                )
-                proposal = parse_model(
-                    ProposalEnvelope,
-                    wire_bytes(
-                        {
-                            **body,
-                            "proposal_digest": digest("hnp-proposal/v1", body),
-                        }
-                    ),
-                )
+                proposal = proposal_envelope(context, draft, self.buyer.adapter_id)
             except ValueError:
                 code = "BUYER_INVALID"
             except Exception:
@@ -122,10 +105,8 @@ class ReviewCoordinator:
                 try:
                     if validator is None:
                         raise RuntimeError("No validator")
-                    reviewed = (
-                        parse_model(ProposalEnvelope, wire_bytes(proposal)),
-                        parse_model(TrustedReviewContext, wire_bytes(context)),
-                    )
+                    # Fresh public projections: no buyer identity or backend eligibility.
+                    reviewed = (proposal_view(proposal), reviewer_context(context))
                     # The deadline is enforced while waiting, not measured after the fact.
                     raw = call_with_deadline(lambda: validator.review(*reviewed), self.budget)
                 except RoleOutputError:

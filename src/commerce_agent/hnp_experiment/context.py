@@ -13,9 +13,13 @@ from commerce_agent.governance.models import Id, Ids, UtcTime, Version
 from .models import (
     SCHEMA,
     BuyerContext,
+    BuyerDraft,
     Candidate,
     CheckId,
     ExperimentalModel,
+    ProposalEnvelope,
+    ProposalView,
+    ReviewerContext,
     SourceRef,
     SyntheticDelegation,
     SyntheticTerms,
@@ -101,7 +105,39 @@ def buyer_context(context: TrustedReviewContext) -> BuyerContext:
     )
 
 
-def check_refs(check: CheckId, context: TrustedReviewContext) -> tuple[SourceRef, ...]:
+def proposal_envelope(
+    context: TrustedReviewContext, draft: BuyerDraft, buyer_adapter_id: str
+) -> ProposalEnvelope:
+    """Backend-owned envelope: refs come from the resolved context, never from the buyer."""
+    body = dict(
+        schema_version=SCHEMA,
+        proposal_id=context.episode_ref.id + ":proposal",
+        revision=1,
+        episode_ref=context.episode_ref,
+        intent_ref=context.intent_ref,
+        buyer_adapter_id=buyer_adapter_id,
+        draft=draft,
+    )
+    return parse_model(
+        ProposalEnvelope,
+        wire_bytes({**body, "proposal_digest": digest("hnp-proposal/v1", body)}),
+    )
+
+
+def reviewer_context(context: TrustedReviewContext) -> ReviewerContext:
+    """Allowlisted projection: fields absent from ReviewerContext never reach the validator."""
+    fields = set(ReviewerContext.model_fields)
+    return parse_model(ReviewerContext, wire_bytes(context.model_dump(mode="json", include=fields)))
+
+
+def proposal_view(proposal: ProposalEnvelope) -> ProposalView:
+    fields = set(ProposalView.model_fields)
+    return parse_model(ProposalView, wire_bytes(proposal.model_dump(mode="json", include=fields)))
+
+
+def check_refs(
+    check: CheckId, context: TrustedReviewContext | ReviewerContext
+) -> tuple[SourceRef, ...]:
     if check == "selection":
         return context.intent_ref, context.feed_ref
     if check == "budget":

@@ -25,6 +25,8 @@ from commerce_agent.hnp_experiment.models import (
     BuyerDraft,
     Condition,
     ProposalEnvelope,
+    ProposalView,
+    ReviewerContext,
     SourceRef,
     SyntheticDelegation,
     TrustedReviewContext,
@@ -217,7 +219,7 @@ def test_role_contexts_are_distinct_and_buyer_prose_is_not_validator_authority()
         assert not hasattr(c, "delegation") and not hasattr(c, "oracle")
         return CASES[0].buyer_payload
 
-    def validate(p: ProposalEnvelope, c: TrustedReviewContext):
+    def validate(p: ProposalView, c: ReviewerContext):
         seen["validator"] = c
         assert not p.draft.justification
         assert not hasattr(c, "oracle") and not hasattr(c, "expected_result")

@@ -6,7 +6,8 @@ from typing import Protocol
 from .models import (
     BuyerContext,
     BuyerDraft,
-    ProposalEnvelope,
+    ProposalView,
+    ReviewerContext,
     SourceRef,
     TrustedReviewContext,
     ValidatorAssessment,
@@ -20,11 +21,11 @@ class BuyerAgent(Protocol):
 
 
 class ValidatorAgent(Protocol):
+    """Receives the same public facts as a human reviewer, never backend verdicts."""
+
     adapter_id: str
 
-    def review(
-        self, proposal: ProposalEnvelope, context: TrustedReviewContext
-    ) -> ValidatorAssessment: ...
+    def review(self, proposal: ProposalView, context: ReviewerContext) -> ValidatorAssessment: ...
 
 
 class TrustedContextResolver(Protocol):

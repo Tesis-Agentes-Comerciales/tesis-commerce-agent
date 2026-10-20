@@ -17,8 +17,8 @@ from .models import (
     DemoResult,
     ExperimentalModel,
     Id,
-    ProposalEnvelope,
-    TrustedReviewContext,
+    ProposalView,
+    ReviewerContext,
     wire_bytes,
 )
 from .sink import SimulatedEffectSink
@@ -51,7 +51,7 @@ def load_cases(path: Path) -> tuple[CaseSpec, ...]:
 
 
 def response_for(behavior: str):
-    def respond(proposal: ProposalEnvelope, context: TrustedReviewContext) -> object:
+    def respond(proposal: ProposalView, context: ReviewerContext) -> object:
         if behavior == "timeout":
             raise TimeoutError("synthetic timeout")
         if behavior == "unavailable":
