@@ -1,7 +1,8 @@
 # Piloto B2 gobernado en Human Present
 
-Estado: aprobado por el líder técnico el 20-oct-2026. El manifiesto pre-registrado es
-`evaluation/data/b2-pilot-v1.json`.
+Estado: aprobado por el líder técnico el 20-oct-2026 y ejecutado el mismo día sobre el commit
+`40c5ab3`. El manifiesto pre-registrado es `evaluation/data/b2-pilot-v1.json`; los resultados están
+en `evaluation/results/b2-pilot-v1-report.md`.
 
 ## Problema
 
@@ -102,15 +103,17 @@ Repo del agente. Cada PR es pequeño, lleva sus tests y lo revisa un agente inde
 | 5 | `test(integration): enforce POL-02 from settings in the live stack` | 2 | Demo y evidencia |
 | 6 | `feat(conversation): explain rejected selections without technical errors in governed mode` | — | Piloto (S02) |
 | 7 | `feat(evaluation): score governed evidence, merchant checkouts and policy latency` | 1, 4, 6 | Piloto (traza, M3) |
-| 8 | `feat(approval): refresh and re-present stale checkout terms` | 4 | Demo |
+| 8 | `feat(api): keep a purchase with changed terms visible and cancelable` (ver Decisiones) | 4 | Demo |
 | 9 | `feat(ui): Spanish messages for governed purchase errors` | 3 | Demo |
 | 10 | `docs(evaluation): B2 pilot v1 results` | corrida | Tesis |
 
 PR-1 tiene tests que fallan sobre el código actual: toda variable `AGENT_*` que exporta el runner
 existe en `Settings`, y el entorno de B2 produce `enforce` con D1 configurado.
 
-**Plan B.** Si el despacho en vivo falla, se corre una condición declarada aparte, «B2-lite»: D1 en
-shadow con frescura y recuperación activas. Nunca se presenta como enforce.
+**Plan B.** Si el despacho en vivo fallaba, se corría una condición declarada aparte, «B2-lite».
+No hizo falta: el despacho en vivo funcionó. La definición original («D1 en shadow con frescura y
+recuperación activas») no coincidía con el código, porque en `shadow` la frescura solo registra y
+la recuperación no actúa.
 
 ## Decisiones
 
@@ -138,7 +141,7 @@ shadow con frescura y recuperación activas. Nunca se presenta como enforce.
   (PR-2, 20-oct):* con el comercio real son idénticos
   (`tests/integration/test_live_b2_governed_purchase.py`), así que se conserva la comparación
   exacta.
-- **Re-presentación.** El refresh escribe en el comercio, solo en el flujo gobernado.
+- **Re-presentación.** Ya no aplica: se eligió «visible y cancelable» (ver Decisiones), que no escribe en el comercio por su cuenta.
 - **Estado `uncertain`.** Bloquea compras nuevas, así que la demo usa una base limpia.
 - **Atribución.** S04 se debe a la frescura y S02 a la recuperación; no al PDP.
 - **S05 en enforce.** Nunca se ha corrido en vivo con el feed mutado; el smoke de B2 lo incluye.
