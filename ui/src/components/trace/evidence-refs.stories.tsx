@@ -58,6 +58,53 @@ export const CopyFails: Story = {
   },
 }
 
+/**
+ * Columna estrecha (el detalle técnico a 320 px): rótulo sobre valor, y el valor entero aunque se
+ * parta en varias líneas. El botón de copiar queda al lado del valor.
+ */
+export const Narrow: Story = {
+  args: {
+    refs: [
+      { label: "Compra", value: TRACE.run_id },
+      { label: "Evidencia de frescura al aprobar", value: `sha256:${"a1b2c3d4".repeat(8)}` },
+    ],
+  },
+  decorators: [
+    (Story) => (
+      <div className="w-[260px]">
+        <Story />
+      </div>
+    ),
+  ],
+  play: async ({ canvas }) => {
+    for (const value of [TRACE.run_id, `sha256:${"a1b2c3d4".repeat(8)}`]) {
+      const text = canvas.getByText(value)
+      await expect(text.scrollWidth).toBeLessThanOrEqual(text.clientWidth)
+      const term = canvas.getByText(text.closest("div")?.querySelector("dt")?.textContent ?? "")
+      await expect(text.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+        term.getBoundingClientRect().bottom - 1,
+      )
+    }
+    await expect(canvas.getByRole("button", { name: "Copiar compra" })).toBeVisible()
+  },
+}
+
+/** Con espacio, cada identificador va en una fila: rótulo a la izquierda y valor a la derecha. */
+export const Wide: Story = {
+  decorators: [
+    (Story) => (
+      <div className="w-[36rem]">
+        <Story />
+      </div>
+    ),
+  ],
+  play: async ({ canvas }) => {
+    const value = canvas.getByText(DECISION.decision_id)
+    const term = canvas.getByText("Decisión")
+    await expect(Math.abs(value.getBoundingClientRect().top - term.getBoundingClientRect().top)).toBeLessThan(4)
+  },
+}
+
 export const WithoutIds: Story = {
   args: { refs: [] },
   play: async ({ canvas }) => {
