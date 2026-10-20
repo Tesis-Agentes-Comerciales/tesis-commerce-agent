@@ -276,6 +276,51 @@ export const TermsUnavailableOnApprove: Story = {
   },
 }
 
+/**
+ * La compra ya no espera aprobación (se aprobó o canceló en otra pestaña): el backend responde 409
+ * `invalid_stage` con su texto interno en inglés. La tarjeta lo dice en español y no promete nada.
+ */
+export const ApproveInvalidStage: Story = {
+  parameters: {
+    agentApi: {
+      ...FAST_STREAM.agentApi,
+      "POST /purchases/:runId/approval": {
+        status: 409,
+        body: { code: "invalid_stage", message: "Purchase is not awaiting approval" },
+      },
+    },
+  },
+  play: async (context) => {
+    const card = await approvalCard(context)
+    await context.userEvent.click(within(card).getByTestId("approve-purchase"))
+    await expect(await within(card).findByRole("alert", {}, STREAM_TIMEOUT)).toHaveTextContent(
+      "Esta compra cambió de estado y ya no admite esta acción.",
+    )
+    await expect(context.canvas.queryByText(/awaiting|Purchase is/)).toBeNull()
+  },
+}
+
+/** Cancelar: el comercio no canceló el checkout esperado (409 `checkout_mismatch`). */
+export const CancelCheckoutMismatch: Story = {
+  parameters: {
+    agentApi: {
+      ...FAST_STREAM.agentApi,
+      "POST /purchases/:runId/cancel": {
+        status: 409,
+        body: { code: "checkout_mismatch", message: "Merchant did not cancel the expected checkout" },
+      },
+    },
+  },
+  play: async (context) => {
+    const card = await approvalCard(context)
+    await context.userEvent.click(within(card).getByRole("button", { name: "Cancelar" }))
+    await expect(await within(card).findByRole("alert", {}, STREAM_TIMEOUT)).toHaveTextContent(
+      "El comercio respondió con un checkout que no coincide con esta compra, así que me detuve.",
+    )
+    await expect(context.canvas.queryByText(/Merchant|expected checkout/)).toBeNull()
+  },
+}
+
 /** Compra pendiente de `purchase.sse`, restaurada al recargar con `terms_status` y sin términos. */
 function stalePending(termsStatus: PendingTermsStatus): PendingPurchaseBody {
   const purchase = fixtureState("purchase").purchase
