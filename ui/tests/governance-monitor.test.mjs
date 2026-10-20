@@ -16,8 +16,8 @@ test("adapter preserves source classifications and global PARTIAL", () => {
   assert.equal(bundle.status, "PARTIAL")
   assert.equal(bundle.scenarios.length, 4)
   assert.equal(scenario("hnp-false-accept").executionKind, "scripted offline")
-  assert.equal(scenario("hp-allowed").executionKind, "replay")
-  assert.equal(scenario("hp-allowed").enforce.outcome, null)
+  assert.equal(scenario("hp-created").executionKind, "replay")
+  assert.equal(scenario("hp-created").enforce.outcome, null)
 })
 test("Q allow and applied deny remain independent; no outcome inferred from Q", () => {
   const s = scenario("hp-denied")
@@ -83,8 +83,19 @@ test("lost response renders initial uncertainty and later confirmed recovery sep
   assert.ok(html.includes("Confirmada · found"))
   assert.ok(!html.includes("→"))
 })
+test("HP label never claims permission without an applied D1 allow", () => {
+  const s = scenario("hp-created")
+  assert.equal(s.enforce.outcome, null)
+  assert.equal(s.shadow.outcome, "allow")
+  assert.equal(s.label, "HP · creación observada")
+  assert.doesNotMatch(renderToStaticMarkup(createElement(GovernanceMonitor, { bundle })), /permitid/i)
+  const claimed = copy(); claimed.scenarios[0].label = "HP · permitido"
+  assert.throws(() => parseEvidence(claimed), /etiqueta de permiso/)
+  const explicit = copy(); Object.assign(explicit.scenarios[0], { label: "HP · permitido por D1" }); explicit.scenarios[0].enforce.outcome = "allow"
+  assert.equal(parseEvidence(explicit).scenarios[0].label, "HP · permitido por D1")
+})
 test("evidence strings are rendered as text and cannot inject markup", () => {
-  const s = structuredClone(scenario("hp-allowed")); s.intent = '<script>alert("unit")</script>'
+  const s = structuredClone(scenario("hp-created")); s.intent = '<script>alert("unit")</script>'
   const html = renderToStaticMarkup(createElement(ScenarioDetails, { scenario: s }))
   assert.ok(html.includes("&lt;script&gt;"))
   assert.ok(!html.includes("<script>"))
@@ -102,7 +113,7 @@ const strictCopy = () => structuredClone(bundle)
 const htmlFor = (s) => renderToStaticMarkup(createElement(ScenarioDetails, { scenario: s }))
 
 test("MON-02A confirmed historical creation has separate creation and recovery facts", () => {
-  const s = scenario("hp-allowed")
+  const s = scenario("hp-created")
   assert.equal(s.execution, "started")
   assert.equal(s.creation, "confirmed")
   assert.equal(s.recovery, "confirmed")
@@ -206,13 +217,13 @@ test("MON-02A budget pass belongs to erroneous validator, source budget denial i
   for (const text of ["budget: pass (validador)", "denegado por el backend", "13.000", "12.500", "Discrepancia documentada", "declaración errónea del guion"]) assert.ok(html.includes(text), text)
 })
 test("MON-02A no verdict is reconstructed from existing decision/evidence IDs", () => {
-  const s = scenario("hp-allowed")
+  const s = scenario("hp-created")
   assert.ok(s.enforce.decisionId && s.enforce.evidenceId && s.enforce.digest)
   assert.equal(s.enforce.outcome, null)
   assert.ok(htmlFor(s).includes("No disponible en la fuente"))
 })
 test("MON-02A real historical source and scripted source have explicit distinct labels", () => {
-  assert.ok(htmlFor(scenario("hp-allowed")).includes("HTTP/PostgreSQL real histórico · replay"))
+  assert.ok(htmlFor(scenario("hp-created")).includes("HTTP/PostgreSQL real histórico · replay"))
   assert.ok(htmlFor(scenario("hnp-false-accept")).includes("Scripted offline · sin LLM"))
 })
 test("MON-02A contradictory recovery found versus rejected creation is rejected", () => {

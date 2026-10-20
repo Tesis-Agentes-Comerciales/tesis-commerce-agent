@@ -12,8 +12,8 @@
   "hnpLedgerEntriesVerified": 65,
   "scenarios": [
     {
-      "id": "hp-allowed",
-      "label": "HP · permitido",
+      "id": "hp-created",
+      "label": "HP · creación observada",
       "mode": "HP",
       "executionKind": "replay",
       "scope": "D17 HTTP/PG real histórico; monitor sin conexión comercial",

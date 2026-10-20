@@ -62,6 +62,15 @@ class ArtifactProjectionTests(unittest.TestCase):
         digest = hashlib.sha256(module.DATA.read_bytes()).hexdigest()
         self.assertEqual(provenance["projection_sha256"], digest)
 
+    def test_hp_label_claims_permission_only_from_an_explicit_allow(self):
+        value = module.read_pinned(SOURCES / "agent-received.json", "agent-received.json")
+        projected = module.hp(value)
+        self.assertIsNone(projected["enforce"]["outcome"])
+        self.assertEqual(projected["label"], "HP · creación observada")
+        self.assertIn("permitido", module.hp_label("allow", False))
+        for outcome in (None, "deny"):
+            self.assertNotIn("permitido", module.hp_label(outcome, False))
+
     def test_projection_does_not_execute_network(self):
         with patch("socket.socket", side_effect=AssertionError("Network forbidden")):
             value = module.read_pinned(SOURCES / "http-deny.json", "http-deny.json")

@@ -9,7 +9,7 @@
   },
   "hnpLedgerEntriesVerified": 65,
   "hnpResultsVerified": 54,
-  "projection_sha256": "722b589628b871ec723241f308cecc2f088f63f6d44e3df37022495033886086",
+  "projection_sha256": "4f0a53771e814cd37fc583fd6c9adb14dccb95cbfdca41684ec863da76a99490",
   "execution": "artifact verification and projection only; no harness execution",
   "cryptography": "digest consistency, not a signature or human authorization"
 }

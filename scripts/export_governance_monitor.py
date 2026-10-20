@@ -109,6 +109,13 @@ def phase(
     }
 
 
+def hp_label(enforce_outcome: str | None, uncertain: bool) -> str:
+    """A commercial POST is not a permission; only an explicit applied allow reads as one."""
+    if uncertain:
+        return "HP · respuesta perdida"
+    return "HP · permitido por D1" if enforce_outcome == "allow" else "HP · creación observada"
+
+
 def hp(value: dict[str, Any], uncertain: bool = False) -> dict[str, Any]:
     guard = value["guard"]
     shadow = guard["shadow_binding"]
@@ -120,9 +127,11 @@ def hp(value: dict[str, Any], uncertain: bool = False) -> dict[str, Any]:
     assert shadow["governance_mode"] == "shadow" and shadow["dispatch_capability"] is False
     total = next(x["amount"] for x in response["totals"] if x["type"] == "total")
     name = "agent-lost.json" if uncertain else "agent-received.json"
+    # The envelope keeps D1 references but not its verdict, so the applied outcome stays unknown.
+    enforce = phase(None, guard["decision_id"], guard["evidence_id"], guard["evidence_digest"])
     return {
-        "id": "hp-uncertain" if uncertain else "hp-allowed",
-        "label": "HP · respuesta perdida" if uncertain else "HP · permitido",
+        "id": "hp-uncertain" if uncertain else "hp-created",
+        "label": hp_label(enforce["outcome"], uncertain),
         "mode": "HP",
         "executionKind": "replay",
         "scope": "D17 HTTP/PG real histórico; monitor sin conexión comercial",
@@ -139,9 +148,7 @@ def hp(value: dict[str, Any], uncertain: bool = False) -> dict[str, Any]:
             shadow["evidence_id"],
             shadow["evidence_digest"],
         ),
-        "enforce": phase(
-            None, guard["decision_id"], guard["evidence_id"], guard["evidence_digest"]
-        ),
+        "enforce": enforce,
         "validator": None,
         "backend": {
             "code": value["recovered"]["reason"],

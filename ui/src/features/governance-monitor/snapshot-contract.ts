@@ -26,7 +26,7 @@ export function parseDemoSnapshot(value: unknown): DemoSnapshot {
   const text = JSON.stringify(value)
   if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:ghp_|github_pat_|AIza|sk-proj-)[A-Za-z0-9_-]{20,}|Bearer\s+\S+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text)) throw Error("Redacción de fixture inválida")
   const bundle = parseEvidence(s.bundle)
-  const expected = ["hp-allowed", "hp-denied", "hnp-false-accept", "hp-uncertain"]
+  const expected = ["hp-created", "hp-denied", "hnp-false-accept", "hp-uncertain"]
   if (bundle.scenarios.length !== expected.length || expected.some((id, i) => bundle.scenarios[i].id !== id)) throw Error("Escenarios fuera de la fixture autorizada")
   return { schema: "governance-demo-snapshot/1", snapshotId: DEMO_SNAPSHOT_ID, classification: "sanitized_demo_fixture", temporalScope: "historical_closed_artifacts", liveEvents: false, authenticatedUserEvidence: false, bundle }
 }

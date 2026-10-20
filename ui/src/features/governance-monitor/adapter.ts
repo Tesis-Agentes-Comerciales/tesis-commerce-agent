@@ -145,6 +145,7 @@ export function scenarioIssue(s: Scenario): string | null {
   if (s.effectOccurred === true && (s.execution !== "started" || (s.creation !== "confirmed" && s.recovery !== "confirmed"))) return "efecto sin creación o recuperación confirmada"
   if (s.recovery === "not_found" && s.effectOccurred === true) return "not_found con efecto confirmado"
   if (s.mode === "HNP" && s.validator === null) return "HNP sin evaluación del validador"
+  if (/permitid/i.test(s.label) && s.enforce?.outcome !== "allow") return "etiqueta de permiso sin decisión allow aplicada"
   if (s.mode === "HP" && s.budgetLimitMinor !== null) return "límite HNP atribuido a HP"
   if (s.mode === "HNP" && s.totalMinor !== null && s.budgetLimitMinor !== null
     && s.totalMinor > s.budgetLimitMinor && (s.execution !== "blocked" || !s.backend.failures.includes("budget"))) return "presupuesto excedido sin bloqueo backend documentado"
