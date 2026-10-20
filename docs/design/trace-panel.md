@@ -190,7 +190,7 @@ interface PurchaseSummary {       // filas de GET /me/purchases
   request: string
   merchant: string | null
   total: { minor: number; currency: string } | null
-  status: PurchaseStatus
+  status: PurchaseStatus | "trace_unavailable"  // el segundo, solo en el historial
   policy: { outcome: "allow" | "deny"; failed_rules: string[] } | null
   approved_at: string | null
   order_id: string | null
@@ -232,8 +232,21 @@ interface PurchaseSummary {       // filas de GET /me/purchases
 - **Historial:** `GET /me/purchases?limit=20&before=<run_id>` devuelve
   `{ purchases: PurchaseSummary[], next_cursor: string | null }`. Solo lista las compras propias,
   de la más reciente a la más antigua; `next_cursor` va en `before` para pedir la página siguiente.
-  Un `before` que no es del usuario responde 400. Si la evidencia de gobernanza no pasa su
-  verificación, los dos endpoints responden 503 en lugar de una traza incompleta.
+  Un `before` que no es del usuario responde 400.
+- **Traza no disponible:** la traza no se arma con datos que no se pueden verificar. Pasa cuando:
+  - la evidencia no verifica: el registro de decisiones de la política, el artefacto de la política
+    frente a la última decisión, o la cadena de `hp_evidence`;
+  - un cuerpo de `hp_evidence` no tiene la forma que lee la traza;
+  - un dato guardado queda fuera del contrato, como un `expires_at` mal formado en los términos o
+    un texto vacío.
+
+  `GET /purchases/{run_id}/trace` responde 503 en lugar de una traza incompleta. El historial no
+  cae por una compra: esa fila sale con `status: "trace_unavailable"` y solo con lo que guarda la
+  fila de `purchases` (`run_id`, `request`, `order_id` y su hora de creación como `started_at`). El
+  resto va en `null`, porque el estado, la política, el comercio, el total, la aprobación y la
+  duración salen de la evidencia o de los términos. Ese estado solo existe en `PurchaseSummary`.
+- **Lectura del grafo:** el historial lee una vez los checkpoints de cada conversación y los
+  comparte entre sus compras, en lugar de deserializar el hilo entero por fila.
 
 ### Fuentes por paso
 
@@ -245,17 +258,20 @@ interface PurchaseSummary {       // filas de GET /me/purchases
 | `checkout_created` | `purchases.checkout_id` | `operation_keys` (`checkout.create`), que se escribe justo antes de llamar al comercio; el modo activo no la guarda ahí y queda en `null` |
 | `approval` | `approval_terms` y `approvals`. `state`: `done` si se aprobó, `waiting` si la compra espera la aprobación y `skipped` si no la hubo (cancelada, o la frescura bloqueó los términos) | `approved_at`; si no hay aprobación, `approval_terms.updated_at` |
 | `authorization_signed` | `approvals`: solo si existe algún mandato, nunca su contenido | `approved_at` |
-| `payment_authorized` | `operation_keys` (`payment.delegate`), solo si la etapa prueba que la delegación terminó (`completing`, `uncertain`, `completed`, `failed`); monto de `approval_terms` | `created_at` |
+| `payment_authorized` | `operation_keys` (`payment.delegate`), solo si la etapa prueba que la delegación terminó (`completing`, `uncertain`, `completed`, `failed`) o si, en `approved`, la fila de la compra cambió después de crear esa clave: un 4xx del comercio a `/complete` devuelve la reserva a `approved`, y esa reserva solo se toma cuando el proveedor ya respondió. Una delegación fallida deja la fila como la escribió la aprobación. Monto de `approval_terms` | `created_at` |
 | `order_confirmed` | `completion_results`: los recibos solo como presencia | `completed_at` |
-| `order_event` | `webhook_events` de la orden | `received_at` |
+| `order_event` | `webhook_events` de la orden. Se intercala por hora: un aviso puede llegar antes de que el agente registre la orden que el comercio ya confirmó | `received_at` |
 | `canceled` | `operation_keys` (`checkout.cancel.user` o `.budget`) con la etapa `canceled` | `created_at` |
 | `failed` | etapa `failed`. El código del error no se guarda: va `purchase_failed`, con actor `merchant` si el comercio rechazó el cierre | `purchases.updated_at` |
-| `freshness_check` | `hp_evidence` (`freshness_check`), con la cadena de digests verificada. `changes` sale de `changed_fields` y `compared`, y `read_error` de `reason`; `state` es `blocked` si la decisión fue `block` y `done` si no. Actor `agent`. Una comprobación igual a la anterior (misma etapa, resultado, cambios y error de lectura) no agrega fila: `GET /me/pending-purchase` vuelve a comprobar cada vez que se recarga | `checked_at` |
-| `governed_recovery` | `hp_evidence` (`governed_recovery`), con la cadena verificada. Actor `agent`, `state` `done`. Solo la ve una compra que existe: hoy, `budget_exceeded_after_checkout` | `null`: el registro no guarda hora; va al final |
+| `freshness_check` | `hp_evidence` (`freshness_check`), con la cadena de digests y la forma del cuerpo verificadas. `changes` sale de `changed_fields` y `compared`, y `read_error` de `reason`; `state` es `blocked` si la decisión fue `block` y `done` si no. Actor `agent`. Una comprobación igual a la anterior (misma etapa, resultado, cambios y error de lectura) no agrega fila: `GET /me/pending-purchase` vuelve a comprobar cada vez que se recarga | `checked_at` |
+| `governed_recovery` | `hp_evidence` (`governed_recovery`), con la cadena y la forma del cuerpo verificadas. Actor `agent`, `state` `done`. Solo la ve una compra que existe: hoy, `budget_exceeded_after_checkout` | `null`: el registro no guarda hora; va al final |
 
-Los pasos de `hp_evidence` se intercalan por hora entre los demás. Si su cadena no se verifica, los
-dos endpoints responden 503, como con la evidencia de la política. Ninguno expone el texto del
-comprador ni la explicación: la evidencia guarda sus digests y la traza ni siquiera los copia.
+Los pasos de `hp_evidence` y los avisos del comercio se intercalan por hora entre los demás: cada
+uno va antes del primer paso posterior, y los pasos sin hora no se mueven. En un empate, la frescura
+va antes del paso que protege y un aviso, después. Si la cadena de `hp_evidence` o la forma de un
+cuerpo no se verifica, la traza no está disponible, como con la evidencia de la política. Ninguno
+expone el texto del comprador ni la explicación: la evidencia guarda sus digests y la traza ni
+siquiera los copia.
 
 **Estado de la compra:**
 
@@ -267,6 +283,7 @@ comprador ni la explicación: la evidencia guarda sus digests y la traza ni siqu
 | `awaiting_confirmation` y la última comprobación de frescura bloqueó | `stale_terms` |
 | `canceled`, `failed`, `uncertain` | el mismo |
 | cualquier otro | `in_progress` |
+| solo en el historial: la traza no está disponible | `trace_unavailable` |
 
 ## Componentes
 

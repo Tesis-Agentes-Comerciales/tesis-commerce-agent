@@ -34,6 +34,9 @@ PurchaseStatus = Literal[
     "failed",
     "uncertain",
 ]
+# Only a history row: its trace could not be built without inventing data (evidence that does
+# not verify, or a stored value outside the contract). The trace itself answers 503.
+SummaryStatus = PurchaseStatus | Literal["trace_unavailable"]
 StepState = Literal["done", "running", "waiting", "blocked", "error", "skipped"]
 PolicyMode = Literal["off", "shadow", "enforce"]
 Receipt = Literal["checkout", "payment"]
@@ -253,7 +256,7 @@ class PurchaseSummary(TraceModel):
     request: Text
     merchant: Text | None
     total: Money | None
-    status: PurchaseStatus
+    status: SummaryStatus
     policy: PolicySummary | None
     approved_at: UtcTime | None
     order_id: Text | None

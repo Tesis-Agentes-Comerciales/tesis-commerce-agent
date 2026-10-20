@@ -194,3 +194,26 @@ def test_purchase_summary_matches_the_ui_contract() -> None:
     assert PurchaseSummary.model_validate_json(json.dumps(row)).model_dump(mode="json") == row
     with pytest.raises(ValidationError):
         PurchaseSummary.model_validate_json(json.dumps({**row, "owner_id": "buyer-a"}))
+
+
+def test_only_a_history_row_can_say_its_trace_is_unavailable() -> None:
+    """`SummaryStatus` in trace-contract.ts: the trace itself answers 503 instead."""
+    row = {
+        "run_id": "run_1",
+        "started_at": "2026-10-20T15:41:29.134Z",
+        "request": "Quiero audífonos",
+        "merchant": None,
+        "total": None,
+        "status": "trace_unavailable",
+        "policy": None,
+        "approved_at": None,
+        "order_id": "ord_1",
+        "duration_ms": None,
+    }
+    assert PurchaseSummary.model_validate_json(json.dumps(row)).model_dump(mode="json") == row
+    with pytest.raises(ValidationError):
+        PurchaseSummary.model_validate_json(json.dumps({**row, "status": "unavailable"}))
+    with pytest.raises(ValidationError):
+        PurchaseTrace.model_validate_json(
+            json.dumps(mutated(lambda trace: trace.update(status="trace_unavailable")))
+        )

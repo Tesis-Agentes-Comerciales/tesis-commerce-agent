@@ -10,12 +10,12 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
-from pydantic import SecretBytes
+from pydantic import SecretBytes, TypeAdapter, ValidationError
 
 from commerce_agent.application.conversation import turn_run_id
 from commerce_agent.config import Settings, validate_service_base_url
@@ -25,6 +25,39 @@ from commerce_agent.governance.models import D1PolicyArtifact
 from commerce_agent.governance.provenance import ProvenanceKeys, merchant_pseudonym
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.persistence.hp_evidence_sqlite import HpEvidence, chain_is_valid, read_run
+
+
+class FreshnessBody(TypedDict):
+    """What the trace reads of a `freshness_check` body (OfferFreshnessGuard._body)."""
+
+    stage: str
+    governance_mode: str
+    outcome: str
+    decision: str
+    changed_fields: list[str]
+    checked_at: str
+    compared: NotRequired[dict[str, dict[str, object]] | None]
+    observed_revision: NotRequired[object]
+    reason: NotRequired[object]
+
+
+class RecoveryBody(TypedDict):
+    """What the trace reads of a `governed_recovery` body (GovernedRecoveryRecord)."""
+
+    kind: str
+    cause: str
+    variant_id: NotRequired[object]
+    budget_minor: NotRequired[object]
+    observed_unit_amount_minor: NotRequired[object]
+    currency: NotRequired[object]
+
+
+HP_BODIES: dict[str, TypeAdapter[Any]] = {
+    "freshness_check": TypeAdapter(FreshnessBody),
+    "governed_recovery": TypeAdapter(RecoveryBody),
+}
+# One conversation thread's graph checkpoints, oldest first: (`ts`, channel values).
+Checkpoints = list[tuple[str, dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -76,7 +109,47 @@ def merchant_origins(settings: Settings) -> dict[str, str]:
     return origins
 
 
-def read_records(database: Path, graph_database: Path, run_id: str) -> PurchaseRecords | None:
+class GraphCheckpoints:
+    """Read-only checkpoints of each conversation thread, deserialized once per instance.
+
+    The history builds one per page: purchases of the same conversation share its thread.
+    """
+
+    def __init__(self, graph_database: Path) -> None:
+        self._database = graph_database
+        self._threads: dict[str, Checkpoints | None] = {}
+
+    def thread(self, thread_id: str) -> Checkpoints | None:
+        if thread_id not in self._threads:
+            self._threads[thread_id] = self._read(thread_id)
+        return self._threads[thread_id]
+
+    def _read(self, thread_id: str) -> Checkpoints | None:
+        if not self._database.exists():
+            return None
+        try:
+            uri = f"{self._database.resolve().as_uri()}?mode=ro"
+            with closing(sqlite3.connect(uri, uri=True, check_same_thread=False)) as connection:
+                saver = SqliteSaver(
+                    connection, serde=JsonPlusSerializer(allowed_msgpack_modules=[])
+                )
+                config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+                return [
+                    (item.checkpoint["ts"], item.checkpoint["channel_values"])
+                    for item in saver.list(config)
+                ]
+        except sqlite3.Error:
+            return None
+
+
+def read_records(
+    database: Path,
+    graph_database: Path,
+    run_id: str,
+    *,
+    checkpoints: GraphCheckpoints | None = None,
+) -> PurchaseRecords | None:
+    graph = checkpoints or GraphCheckpoints(graph_database)
     with closing(
         sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
     ) as connection:
@@ -127,7 +200,7 @@ def read_records(database: Path, graph_database: Path, run_id: str) -> PurchaseR
             ),
             decisions=decisions,
             policy=_policy(connection, run_id, decisions),
-            turn=_turn(graph_database, thread["thread_id"], run_id) if thread else None,
+            turn=_turn(graph.thread(thread["thread_id"]), run_id) if thread else None,
             hp_evidence=_hp_evidence(connection, run_id),
         )
 
@@ -151,7 +224,8 @@ def _decisions(connection: sqlite3.Connection, run_id: str) -> tuple[DecisionRec
 
 
 def _hp_evidence(connection: sqlite3.Connection, run_id: str) -> tuple[HpEvidence, ...]:
-    """The run's hp_evidence chain; a broken link makes the whole trace unavailable."""
+    """The run's hp_evidence chain; a broken link or a body the trace cannot read makes the
+    whole trace unavailable."""
     # Created only when a governed HP control is configured (off databases never have it).
     if not connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'hp_evidence'"
@@ -163,13 +237,18 @@ def _hp_evidence(connection: sqlite3.Connection, run_id: str) -> tuple[HpEvidenc
         raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
     if not chain_is_valid(run_id, records):
         raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE")
+    try:
+        for record in records:
+            HP_BODIES[record.record_kind].validate_python(record.body)
+    except (KeyError, ValidationError):
+        raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
     return records
 
 
 def _policy(
     connection: sqlite3.Connection, run_id: str, decisions: tuple[DecisionRecord, ...]
 ) -> D1PolicyArtifact | None:
-    """The run's policy artifact, only if it is the one the decisions were bound to."""
+    """The run's policy artifact; one the decisions were not bound to fails verification."""
     if not decisions:
         return None
     row = connection.execute(
@@ -178,23 +257,12 @@ def _policy(
     try:
         return verify_artifact(row[0] if row else None, decisions[-1].decision.policy_binding)
     except GovernanceError:
-        return None
+        raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
 
 
-def _turn(graph_database: Path, thread_id: str, run_id: str) -> TurnSnapshot | None:
+def _turn(checkpoints: Checkpoints | None, run_id: str) -> TurnSnapshot | None:
     """Turn start and the checkpoint written right after `select_product` chose a variant."""
-    if not graph_database.exists():
-        return None
-    try:
-        uri = f"{graph_database.resolve().as_uri()}?mode=ro"
-        with closing(sqlite3.connect(uri, uri=True, check_same_thread=False)) as connection:
-            saver = SqliteSaver(connection, serde=JsonPlusSerializer(allowed_msgpack_modules=[]))
-            config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
-            checkpoints = [
-                (item.checkpoint["ts"], item.checkpoint["channel_values"])
-                for item in saver.list(config)
-            ]
-    except sqlite3.Error:
+    if checkpoints is None:
         return None
     turn = sorted(
         (

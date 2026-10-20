@@ -15,6 +15,13 @@ export type PurchaseStatus =
   | "failed"
   | "uncertain"
 
+/**
+ * Solo en el historial: la traza de esa compra no se pudo armar sin inventar datos (evidencia que no
+ * verifica o un dato guardado fuera del contrato). La fila trae lo que guarda la compra; la traza
+ * misma responde 503.
+ */
+export type SummaryStatus = PurchaseStatus | "trace_unavailable"
+
 export type StepState = "done" | "running" | "waiting" | "blocked" | "error" | "skipped"
 
 export interface PurchaseTrace {
@@ -140,7 +147,7 @@ export interface PurchaseSummary {
   request: string
   merchant: string | null
   total: { minor: number; currency: string } | null
-  status: PurchaseStatus
+  status: SummaryStatus
   policy: { outcome: "allow" | "deny"; failed_rules: string[] } | null
   approved_at: string | null
   order_id: string | null

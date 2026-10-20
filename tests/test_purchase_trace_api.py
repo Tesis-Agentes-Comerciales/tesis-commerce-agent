@@ -9,7 +9,7 @@ import json
 import re
 import secrets
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -21,6 +21,7 @@ import pytest
 from assistant_support import (
     CHECKOUT_ID,
     MERCHANT_ORIGIN,
+    ORDER_ID,
     PURCHASE_REQUEST,
     Merchant,
     ScriptedRouter,
@@ -35,10 +36,14 @@ from commerce_agent.api import create_app
 from commerce_agent.application.purchase import CheckoutDetails
 from commerce_agent.buyer_auth import BuyerPrincipal
 from commerce_agent.config import Settings
+from commerce_agent.governance.evaluator import GovernanceError
 from commerce_agent.llm import ConversationMessage
 from commerce_agent.persistence import ApprovalRecord, SqliteAgentStore
+from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
 from commerce_agent.trace import PurchaseTraces
+from commerce_agent.trace.assembler import utc
 from commerce_agent.trace.models import PurchaseHistory, PurchaseTrace
+from commerce_agent.trace.sources import GraphCheckpoints
 from tests.governance.test_hp_continuation import StoreMerchant, ask
 from tests.governance.test_hp_continuation import app_client as governed_client
 from tests.governance.test_runtime_dispatch import governed as governed_settings
@@ -103,6 +108,34 @@ class DecliningMerchant(Merchant):
         return super().handle(request)
 
 
+class RetryableRejectionMerchant(Merchant):
+    """Merchant that refuses /complete with a 4xx the buyer may retry.
+
+    CompletionService already delegated the payment, so it releases the claim back to `approved`.
+    """
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/complete"):
+            return httpx.Response(400, json={"code": "invalid_request", "message": "Rejected"})
+        return super().handle(request)
+
+
+@dataclass
+class EarlyWebhookMerchant(Merchant):
+    """Merchant that sends the order webhook before it answers /complete.
+
+    The webhook receiver runs on its own request, so the agent can store it before recording the
+    completion the merchant had already confirmed.
+    """
+
+    before_answering: Callable[[], None] = lambda: None
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/complete"):
+            self.before_answering()
+        return super().handle(request)
+
+
 @dataclass
 class Shop:
     client: TestClient
@@ -157,14 +190,19 @@ class Shop:
 
 @contextmanager
 def shop(
-    tmp_path: Path, mode: str = "off", merchant: Merchant | None = None, **extra: Any
+    tmp_path: Path,
+    mode: str = "off",
+    merchant: Merchant | None = None,
+    *,
+    payment_status: int = 201,
+    **extra: Any,
 ) -> Iterator[Shop]:
     configuration = governed(tmp_path / "agent.db", mode, **extra)
     app = create_app(
         settings=configuration,
         transport=(merchant or Merchant()).transport(),
         payment_transport=httpx.MockTransport(
-            lambda _: httpx.Response(201, json={"id": PAYMENT_TOKEN})
+            lambda _: httpx.Response(payment_status, json={"id": PAYMENT_TOKEN})
         ),
         conversation_router=ScriptedRouter(),
         id_factory=counter_ids(),
@@ -190,19 +228,21 @@ def assert_chronological(trace: dict[str, Any]) -> None:
     assert trace["updated_at"] >= times[-1]
 
 
-def record_order_webhook(shop: Shop, order_id: str) -> None:
+def record_order_webhook(
+    shop: Shop, order_id: str, event_type: str = "order_update", status: str = "shipped"
+) -> None:
     payload = {
-        "type": "order_update",
+        "type": event_type,
         "data": {
             "type": "order",
             "id": order_id,
             "checkout_session_id": CHECKOUT_ID,
-            "status": "shipped",
+            "status": status,
         },
     }
     shop.store.record_webhook(
-        request_id="req_1",
-        event_type="order_update",
+        request_id=f"req_{event_type}",
+        event_type=event_type,
         order_id=order_id,
         payload_sha256="a" * 64,
         payload=payload,
@@ -318,6 +358,28 @@ def test_trace_reads_a_relative_database_path(
         trace = current.trace(prepared["purchase"]["run_id"])
 
     assert step(trace, "selection")["at"] > step(trace, "request")["at"]
+
+
+def test_a_webhook_stored_before_the_completion_stays_in_time_order(tmp_path: Path) -> None:
+    merchant = EarlyWebhookMerchant()
+    with shop(tmp_path, "off", merchant=merchant) as current:
+        merchant.before_answering = lambda: record_order_webhook(
+            current, ORDER_ID, "order_create", "confirmed"
+        )
+        prepared = current.prepare()
+        current.approve(prepared)
+        trace = current.trace(prepared["purchase"]["run_id"])
+        row = current.history()["purchases"][0]
+
+    assert kinds(trace)[-3:] == ["payment_authorized", "order_event", "order_confirmed"]
+    assert step(trace, "order_event")["at"] < step(trace, "order_confirmed")["at"]
+    assert_chronological(trace)
+    # The purchase still ends at its order, as with a late webhook.
+    assert row["status"] == "completed"
+    assert row["duration_ms"] == (
+        datetime.fromisoformat(step(trace, "order_confirmed")["at"])
+        - datetime.fromisoformat(trace["started_at"])
+    ) // timedelta(milliseconds=1)
 
 
 def test_a_late_merchant_webhook_does_not_stretch_the_purchase_duration(
@@ -444,6 +506,37 @@ def test_payment_rejected_by_the_merchant_ends_in_a_failure(tmp_path: Path) -> N
     assert_chronological(trace)
 
 
+def test_a_merchant_4xx_after_delegating_keeps_the_payment_step(tmp_path: Path) -> None:
+    with shop(tmp_path, "off", merchant=RetryableRejectionMerchant()) as current:
+        prepared = current.prepare()
+        run_id = prepared["purchase"]["run_id"]
+        current.approve(prepared, completes=False)
+        trace = current.trace(run_id)
+        purchase = current.store.purchase(run_id)
+
+    # The merchant refused after the provider issued the token: the buyer may retry.
+    assert purchase is not None and purchase["stage"] == "approved"
+    assert trace["status"] == "in_progress"
+    assert kinds(trace)[-2:] == ["approval", "payment_authorized"]
+    payment = step(trace, "payment_authorized")
+    assert (payment["max_minor"], payment["currency"]) == (1_924_000_00, "COP")
+    assert_chronological(trace)
+
+
+def test_a_failed_delegation_has_no_payment_step(tmp_path: Path) -> None:
+    with shop(tmp_path, "off", payment_status=503) as current:
+        prepared = current.prepare()
+        run_id = prepared["purchase"]["run_id"]
+        current.approve(prepared, completes=False)
+        trace = current.trace(run_id)
+        purchase = current.store.purchase(run_id)
+
+    # The delegation key exists, but the provider never returned a token.
+    assert purchase is not None and purchase["stage"] == "approved"
+    assert "payment_authorized" not in kinds(trace)
+    assert kinds(trace)[-1] == "approval"
+
+
 def test_trace_of_another_buyer_or_unknown_run_is_not_found(tmp_path: Path) -> None:
     with shop(tmp_path, "off") as current:
         run_id = current.prepare()["purchase"]["run_id"]
@@ -454,6 +547,31 @@ def test_trace_of_another_buyer_or_unknown_run_is_not_found(tmp_path: Path) -> N
     assert foreign.status_code == unknown.status_code == 404
     assert foreign.json() == unknown.json()
     assert anonymous.status_code == 401
+
+
+def test_history_reads_each_conversation_checkpoints_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reads: list[str] = []
+    read = GraphCheckpoints._read
+
+    def counted(checkpoints: GraphCheckpoints, thread_id: str):
+        reads.append(thread_id)
+        return read(checkpoints, thread_id)
+
+    monkeypatch.setattr(GraphCheckpoints, "_read", counted)
+    with shop(tmp_path, "enforce", agent_d1_allowed_merchant_origins=ALLIED_STORE) as current:
+        for turn_id in ("turn-1", "turn-2"):
+            denied = current.buy(turn_id, conversation_id="chat-1")
+            assert denied.status_code == 409 and denied.json()["code"] == "d1_denied"
+        reads.clear()
+        rows = current.history()["purchases"]
+        assert len(reads) == 1
+        traces = [current.trace(row["run_id"]) for row in rows]
+
+    # Each row still reads its own turn from the shared thread.
+    assert [row["started_at"] for row in rows] == [trace["started_at"] for trace in traces]
+    assert rows[0]["started_at"] > rows[1]["started_at"]
 
 
 def seed(store: SqliteAgentStore, owner: str, count: int, prefix: str) -> list[str]:
@@ -821,16 +939,146 @@ def test_s02_budget_recovery_appears_after_the_cancellation(tmp_path: Path) -> N
     assert not leaked & set(strings(trace))
 
 
+def tamper_hp_evidence(database: Path, run_id: str) -> None:
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("DROP TRIGGER IF EXISTS hp_evidence_no_update")
+        connection.execute(
+            "UPDATE hp_evidence SET body = json_set(body, '$.outcome', 'changed') WHERE run_id = ?",
+            (run_id,),
+        )
+
+
+def assert_unavailable(shop: Shop, run_id: str) -> None:
+    response = shop.client.get(f"/purchases/{run_id}/trace", headers=as_buyer())
+    assert response.status_code == 503, response.text
+    assert response.json() == {"detail": "Purchase trace unavailable"}
+
+
 def test_a_tampered_hp_evidence_chain_makes_the_trace_unavailable(tmp_path: Path) -> None:
     settings = governed_settings(tmp_path / "agent.db")
     with governed_client(settings, StoreMerchant()) as client:
         run_id = ask(client, "turn-tamper").json()["purchase"]["run_id"]
-        with closing(sqlite3.connect(settings.agent_database_path)) as connection, connection:
-            connection.execute("DROP TRIGGER hp_evidence_no_update")
-            connection.execute(
-                "UPDATE hp_evidence SET body = json_set(body, '$.outcome', 'changed')"
-            )
+        tamper_hp_evidence(settings.agent_database_path, run_id)
         trace = client.get(f"/purchases/{run_id}/trace")
         history = client.get("/me/purchases")
 
-    assert trace.status_code == history.status_code == 503
+    assert trace.status_code == 503
+    assert history.status_code == 200
+    assert [row["status"] for row in history.json()["purchases"]] == ["trace_unavailable"]
+
+
+def test_a_broken_purchase_marks_only_its_own_history_row(tmp_path: Path) -> None:
+    with shop(tmp_path, "shadow") as current:
+        prepared = current.prepare()
+        broken = prepared["purchase"]["run_id"]
+        current.approve(prepared)
+        [newer] = seed(current.store, BUYER, 1, "newer")
+        tamper_hp_evidence(current.configuration.agent_database_path, broken)
+        assert_unavailable(current, broken)
+        rows = current.history()["purchases"]
+        intact = current.trace(newer)
+        purchase = current.store.purchase(broken)
+
+    assert purchase is not None and purchase["created_at"] is not None
+    assert [row["run_id"] for row in rows] == [newer, broken]
+    assert rows[0]["status"] == intact["status"] == "in_progress"
+    # Only what the purchase row stores: status, policy, terms and times need the evidence.
+    assert rows[1] == {
+        "run_id": broken,
+        "started_at": utc(purchase["created_at"]),
+        "request": PURCHASE_REQUEST,
+        "merchant": None,
+        "total": None,
+        "status": "trace_unavailable",
+        "policy": None,
+        "approved_at": None,
+        "order_id": ORDER_ID,
+        "duration_ms": None,
+    }
+
+
+def test_a_policy_artifact_that_does_not_verify_makes_the_trace_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The ledger checks its own episode; the trace also binds the artifact to the last decision.
+    def mismatch(*_: object) -> None:
+        raise GovernanceError("GOV_ARTIFACT_MISMATCH")
+
+    with shop(tmp_path, "shadow") as current:
+        run_id = current.prepare()["purchase"]["run_id"]
+        monkeypatch.setattr("commerce_agent.trace.sources.verify_artifact", mismatch)
+        assert_unavailable(current, run_id)
+        row = current.history()["purchases"][0]
+
+    assert (row["status"], row["policy"]) == ("trace_unavailable", None)
+
+
+def rewrite_terms(database: Path, run_id: str, **changes: object) -> None:
+    with closing(sqlite3.connect(database)) as connection, connection:
+        (terms,) = connection.execute(
+            "SELECT terms FROM approval_terms WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        connection.execute(
+            "UPDATE approval_terms SET terms = ? WHERE run_id = ?",
+            (json.dumps({**json.loads(terms), **changes}), run_id),
+        )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        pytest.param({"expires_at": "mañana"}, id="malformed-expiry"),
+        pytest.param({"currency": "pesos"}, id="contract-rejects-the-currency"),
+        pytest.param({"fingerprint": ""}, id="contract-rejects-an-empty-text"),
+    ],
+)
+def test_stored_terms_outside_the_contract_make_the_trace_unavailable(
+    tmp_path: Path, changes: dict[str, object]
+) -> None:
+    with shop(tmp_path, "off") as current:
+        run_id = current.prepare()["purchase"]["run_id"]
+        rewrite_terms(current.configuration.agent_database_path, run_id, **changes)
+        assert_unavailable(current, run_id)
+        row = current.history()["purchases"][0]
+
+    assert row["run_id"] == run_id and row["status"] == "trace_unavailable"
+
+
+# A freshness_check body as OfferFreshnessGuard._body writes it.
+FRESHNESS_BODY = {
+    "checkout_id": CHECKOUT_ID,
+    "stage": "approve",
+    "observed_revision": None,
+    "compared": {},
+    "outcome": "unavailable",
+    "changed_fields": [],
+    "reason": "freshness_check_failed",
+    "governance_mode": "shadow",
+    "decision": "allow",
+    "checked_at": "2026-10-20T16:00:00Z",
+}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"stage": "approve", "outcome": "fresh"}, id="missing-fields"),
+        pytest.param({**FRESHNESS_BODY, "changed_fields": "total_minor"}, id="text-not-list"),
+        pytest.param({**FRESHNESS_BODY, "compared": {"total_minor": 1}}, id="pair-not-object"),
+        pytest.param({**FRESHNESS_BODY, "stage": "complete"}, id="stage-outside-contract"),
+        pytest.param({**FRESHNESS_BODY, "checked_at": "ayer"}, id="malformed-time"),
+    ],
+)
+def test_an_hp_evidence_body_the_trace_cannot_read_makes_it_unavailable(
+    tmp_path: Path, body: dict[str, object]
+) -> None:
+    with shop(tmp_path, "shadow") as current:
+        run_id = current.prepare()["purchase"]["run_id"]
+        # Appended through the store: the chain verifies, only the body has another shape.
+        evidence = SqliteHpEvidenceStore(current.configuration.agent_database_path)
+        evidence.append(run_id, "freshness_check", {**body, "run_id": run_id})
+        assert evidence.verify_chain(run_id)
+        assert_unavailable(current, run_id)
+        row = current.history()["purchases"][0]
+
+    assert row["status"] == "trace_unavailable"
