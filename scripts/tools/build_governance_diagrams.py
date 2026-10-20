@@ -1550,7 +1550,7 @@ def export(names: list[str]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").partition("\n")[0])
     parser.add_argument("--export", action="store_true", help="also export .svg and .png")
     parser.add_argument("names", nargs="*", help=f"subset to build: {', '.join(DIAGRAMS)}")
     args = parser.parse_args()

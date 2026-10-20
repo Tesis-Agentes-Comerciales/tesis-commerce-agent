@@ -10,6 +10,12 @@ El lote canónico de B0 es `b0-pilot-v1.jsonl`; `b0-pilot-v1-report.md` resume s
 archivos con prefijo `b0-smoke-` corresponden únicamente a la validación previa del arnés y no se
 incluyen en las métricas del piloto.
 
+Edición manual: en los tres `b0-*.summary.json` el campo `output` se reescribió a mano en el PR #24
+(commit `dea6245`). El runner había guardado la ruta absoluta del JSONL en la máquina que lo
+produjo; ahora es relativa a la raíz del repositorio (`evaluation/results/<lote>.jsonl`). Ningún otro
+campo, el orden de las claves ni el formato cambiaron, y los JSONL no se tocaron. Ningún digest,
+manifiesto ni prueba fija los bytes de esos resúmenes.
+
 El lote canónico del piloto B2 gobernado (B0' frente a B2, manifiesto `B2-PILOT-v1`) es
 `b0prime-b2-20261020T201055Z.jsonl`, con su `.summary.json`. Conserva el nombre que le dio el runner
 para que el campo `output` del resumen siga siendo exacto. `b2-pilot-v1-report.md` resume sus

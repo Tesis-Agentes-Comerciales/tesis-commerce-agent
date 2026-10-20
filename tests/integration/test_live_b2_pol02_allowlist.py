@@ -1,9 +1,10 @@
 """POL-02 configured from Settings governs a live B2 purchase turn, on the B0 lane.
 
-Contract: the Agent is assembled as in production, `build_runtime(Settings)`, with the B2
-condition variables of the governance pilot (`agent_environment`, the same ones the demo
-launcher exports) in the process environment. Nothing injects a policy, a gate or a model:
-the merchant allowlist reaches the D1 gate only through AGENT_D1_ALLOWED_MERCHANT_ORIGINS.
+Contract: the Agent is assembled as in production, `build_runtime(Settings)`, with the
+variables the demo launcher exports for its mode (`demo_stack.mode_environment` over
+`demo_stack.MODES`, the pilot's B2 condition) in the process environment. Nothing injects a
+policy, a gate or a model: the merchant allowlist reaches the D1 gate only through
+AGENT_D1_ALLOWED_MERCHANT_ORIGINS.
 
 Scenario: the same conversational purchase turn (scripted router, never a real LLM) for a
 seeded B0 episode under two allowlists.
@@ -24,7 +25,8 @@ from commerce_agent.llm import ConversationMessage
 from commerce_agent.runtime import build_runtime
 from commerce_agent.trace.assembler import PurchaseTraces
 from commerce_agent.trace.models import PolicyDecisionStep
-from commerce_evaluation.governance_pilot import CONDITIONS, D1RunKeys, agent_environment
+from commerce_evaluation.demo_stack import MODES, mode_environment
+from commerce_evaluation.governance_pilot import D1RunKeys
 from tests.integration.live_purchase import (
     PHONE_INTENT,
     PHONE_REQUEST,
@@ -33,17 +35,16 @@ from tests.integration.live_purchase import (
 )
 from tests.integration.test_live_purchase import APPROVED_AT
 
-# The demo's pol02-deny allowlist: a valid origin that is not the lane's Merchant.
-OTHER_MERCHANT = "https://comercio-autorizado.example"
-
 
 @pytest.mark.parametrize("mode", ["pol02-deny", "b2"])
 def test_b2_pol02_allowlist_from_settings_governs_the_purchase_turn(
     b0, tmp_path, monkeypatch, mode
 ):
     episode = b0.episode(f"pol02-{mode}")
-    allowed = b0.origin if mode == "b2" else OTHER_MERCHANT
-    condition = agent_environment(CONDITIONS["B2"], allowed, D1RunKeys.generate())
+    # The demo's own modes: b2 allows the lane's Merchant, pol02-deny names another one.
+    condition = mode_environment(MODES[mode], b0.origin, D1RunKeys.generate())
+    allowed = condition["AGENT_D1_ALLOWED_MERCHANT_ORIGINS"]
+    assert (allowed == b0.origin) is (mode == "b2")
     for name, value in condition.items():
         monkeypatch.setenv(name, value)
     settings = Settings(
