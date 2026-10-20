@@ -1,18 +1,10 @@
 import type { Page } from "@playwright/test"
 
-import { demoConfig } from "../src/features/governance-monitor/demo-config.ts"
 import { BUYER_SESSION, BUYER_TOKEN } from "../src/storybook/fixtures.ts"
 
-// Puertos y carpeta propios: el E2E nunca reutiliza el servidor de desarrollo, la vista de auditoría
-// ni el directorio de la demo de snapshots.
+// Puerto propio: el E2E nunca reutiliza el servidor de desarrollo.
 export const UI_ORIGIN = "http://127.0.0.1:5190"
 export const AGENT_API_URL = "http://127.0.0.1:43120"
-export const SNAPSHOT_ENV = {
-  VITE_GOVERNANCE_SNAPSHOT_PORT: "5191",
-  GOVERNANCE_SNAPSHOT_ORIGINS: UI_ORIGIN,
-  GOVERNANCE_DEMO_DIR: ".local/governance-e2e",
-}
-export const SNAPSHOT_URL = demoConfig(SNAPSHOT_ENV).snapshotUrl
 
 /**
  * Better Auth simulado en la red: el bundle usa su cliente real, pero `get-session` y `token`
