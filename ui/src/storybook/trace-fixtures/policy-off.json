@@ -1,0 +1,98 @@
+{
+  "run_id": "0b8d4f6a-3e2c-4a71-9d5b-6c1e8f0a2d37",
+  "status": "completed",
+  "policy_mode": "off",
+  "request": "Quiero audífonos negros por menos de 2 millones",
+  "merchant": "http://127.0.0.1:4120",
+  "total": {
+    "minor": 164990000,
+    "currency": "COP"
+  },
+  "started_at": "2026-10-20T16:33:20.412Z",
+  "updated_at": "2026-10-20T16:34:07.388Z",
+  "steps": [
+    {
+      "id": "request",
+      "at": "2026-10-20T16:33:20.412Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "request"
+    },
+    {
+      "id": "selection",
+      "at": "2026-10-20T16:33:29.130Z",
+      "duration_ms": 8718,
+      "actor": "agent",
+      "state": "done",
+      "kind": "selection",
+      "product": "Sony WH-1000XM6 negro",
+      "total_minor": 164990000,
+      "currency": "COP"
+    },
+    {
+      "id": "checkout_created",
+      "at": "2026-10-20T16:33:30.544Z",
+      "duration_ms": 1414,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "checkout_created",
+      "checkout_id": "cs_c6f1a8e30d5b"
+    },
+    {
+      "id": "approval",
+      "at": "2026-10-20T16:34:05.204Z",
+      "duration_ms": 34660,
+      "actor": "user",
+      "state": "done",
+      "kind": "approval",
+      "fingerprint": "9c1f4e7a2b8d06c3f5e91a4d7b2c8e0f6a3d9b1c4e7f2a5d8b0c3e6f9a2d5b8c",
+      "expires_at": "2026-10-20T16:48:31.016Z",
+      "approved_at": "2026-10-20T16:34:05.204Z"
+    },
+    {
+      "id": "authorization_signed",
+      "at": "2026-10-20T16:34:05.636Z",
+      "duration_ms": 432,
+      "actor": "user",
+      "state": "done",
+      "kind": "authorization_signed",
+      "mandates": [
+        "checkout",
+        "payment"
+      ]
+    },
+    {
+      "id": "payment_authorized",
+      "at": "2026-10-20T16:34:06.114Z",
+      "duration_ms": 478,
+      "actor": "payment",
+      "state": "done",
+      "kind": "payment_authorized",
+      "max_minor": 164990000,
+      "currency": "COP"
+    },
+    {
+      "id": "order_confirmed",
+      "at": "2026-10-20T16:34:07.388Z",
+      "duration_ms": 1274,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "order_confirmed",
+      "order_id": "ord_0f4b8d1e65",
+      "receipts": [
+        "checkout",
+        "payment"
+      ]
+    },
+    {
+      "id": "order_event:1",
+      "at": "2026-10-20T16:34:07.388Z",
+      "duration_ms": null,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "order_event",
+      "event_type": "order_create"
+    }
+  ]
+}

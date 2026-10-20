@@ -1,0 +1,91 @@
+{
+  "run_id": "a8c3e1f7-4b2d-4f69-b0e5-8d9a2c6f1b73",
+  "status": "awaiting_approval",
+  "policy_mode": "shadow",
+  "request": "Quiero audífonos negros por menos de 2 millones",
+  "merchant": "http://127.0.0.1:4120",
+  "total": {
+    "minor": 164990000,
+    "currency": "COP"
+  },
+  "started_at": "2026-10-20T16:48:20.412Z",
+  "updated_at": "2026-10-20T16:48:31.020Z",
+  "steps": [
+    {
+      "id": "request",
+      "at": "2026-10-20T16:48:20.412Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "request"
+    },
+    {
+      "id": "selection",
+      "at": "2026-10-20T16:48:29.130Z",
+      "duration_ms": 8718,
+      "actor": "agent",
+      "state": "done",
+      "kind": "selection",
+      "product": "Sony WH-1000XM6 negro",
+      "total_minor": 164990000,
+      "currency": "COP"
+    },
+    {
+      "id": "policy_decision",
+      "at": "2026-10-20T16:48:29.134Z",
+      "duration_ms": 4,
+      "actor": "policy",
+      "state": "done",
+      "kind": "policy_decision",
+      "decision": {
+        "mode": "shadow",
+        "outcome": "allow",
+        "effect": "observed",
+        "policy": {
+          "set_id": "d1-demo-policy",
+          "revision": 3
+        },
+        "rules": [
+          {
+            "id": "POL-01",
+            "result": "pass",
+            "observed": "SON-XM6-BLK",
+            "expected": "BOS-QCU-BLK, SON-XM6-BLK"
+          },
+          {
+            "id": "POL-02",
+            "result": "pass",
+            "observed": "http://127.0.0.1:4120",
+            "expected": "http://127.0.0.1:4120"
+          }
+        ],
+        "reason_codes": [
+          "ALL_APPLICABLE_POLICIES_SATISFIED"
+        ],
+        "latency_ms": 4,
+        "decision_id": "decision:92e5b0d7c4a1f8363b6e0d9c2a7f5e18",
+        "evidence_id": "evidence:81e5f7a2c9d0e6b3638f1a4c7d0b5e29"
+      }
+    },
+    {
+      "id": "checkout_created",
+      "at": "2026-10-20T16:48:30.548Z",
+      "duration_ms": 1414,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "checkout_created",
+      "checkout_id": "cs_92e5b0d7c4a1"
+    },
+    {
+      "id": "approval",
+      "at": "2026-10-20T16:48:31.020Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "waiting",
+      "kind": "approval",
+      "fingerprint": "9c1f4e7a2b8d06c3f5e91a4d7b2c8e0f6a3d9b1c4e7f2a5d8b0c3e6f9a2d5b8c",
+      "expires_at": "2026-10-20T17:03:31.020Z",
+      "approved_at": null
+    }
+  ]
+}

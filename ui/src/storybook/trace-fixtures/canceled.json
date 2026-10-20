@@ -1,0 +1,100 @@
+{
+  "run_id": "36e0c9b4-2a7f-4d1c-9e8a-5b0f3d6a2c91",
+  "status": "canceled",
+  "policy_mode": "shadow",
+  "request": "Quiero audífonos negros por menos de 2 millones",
+  "merchant": "http://127.0.0.1:4120",
+  "total": {
+    "minor": 164990000,
+    "currency": "COP"
+  },
+  "started_at": "2026-10-20T17:02:20.412Z",
+  "updated_at": "2026-10-20T17:02:52.388Z",
+  "steps": [
+    {
+      "id": "request",
+      "at": "2026-10-20T17:02:20.412Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "request"
+    },
+    {
+      "id": "selection",
+      "at": "2026-10-20T17:02:29.130Z",
+      "duration_ms": 8718,
+      "actor": "agent",
+      "state": "done",
+      "kind": "selection",
+      "product": "Sony WH-1000XM6 negro",
+      "total_minor": 164990000,
+      "currency": "COP"
+    },
+    {
+      "id": "policy_decision",
+      "at": "2026-10-20T17:02:29.134Z",
+      "duration_ms": 4,
+      "actor": "policy",
+      "state": "done",
+      "kind": "policy_decision",
+      "decision": {
+        "mode": "shadow",
+        "outcome": "allow",
+        "effect": "observed",
+        "policy": {
+          "set_id": "d1-demo-policy",
+          "revision": 3
+        },
+        "rules": [
+          {
+            "id": "POL-01",
+            "result": "pass",
+            "observed": "SON-XM6-BLK",
+            "expected": "BOS-QCU-BLK, SON-XM6-BLK"
+          },
+          {
+            "id": "POL-02",
+            "result": "pass",
+            "observed": "http://127.0.0.1:4120",
+            "expected": "http://127.0.0.1:4120"
+          }
+        ],
+        "reason_codes": [
+          "ALL_APPLICABLE_POLICIES_SATISFIED"
+        ],
+        "latency_ms": 4,
+        "decision_id": "decision:a0d6f3b8e2c5917404e8b1d7f3a6c9e2",
+        "evidence_id": "evidence:2e9c6a3f7d1b8e4047195c2e8b3f6d0a"
+      }
+    },
+    {
+      "id": "checkout_created",
+      "at": "2026-10-20T17:02:30.548Z",
+      "duration_ms": 1414,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "checkout_created",
+      "checkout_id": "cs_a0d6f3b8e2c5"
+    },
+    {
+      "id": "approval",
+      "at": "2026-10-20T17:02:30.548Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "skipped",
+      "kind": "approval",
+      "fingerprint": "9c1f4e7a2b8d06c3f5e91a4d7b2c8e0f6a3d9b1c4e7f2a5d8b0c3e6f9a2d5b8c",
+      "expires_at": "2026-10-20T17:17:31.020Z",
+      "approved_at": null
+    },
+    {
+      "id": "canceled",
+      "at": "2026-10-20T17:02:52.388Z",
+      "duration_ms": 21840,
+      "actor": "user",
+      "state": "done",
+      "kind": "canceled",
+      "by": "user"
+    }
+  ]
+}
