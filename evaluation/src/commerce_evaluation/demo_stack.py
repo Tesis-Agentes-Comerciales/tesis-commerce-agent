@@ -3,8 +3,9 @@
 `uv run demo-stack` starts the merchant's PostgreSQL (docker compose, never `down`), migrates,
 imports the managed catalog, resets the scripted offer, issues the agent's merchant session and
 starts every service with secrets and AP2/D1 keys generated for this launch. The agent runs one of
-the pilot's conditions (governance_pilot.CONDITIONS), so the demo is the configuration the pilot
-evaluates. `uv run demo-stack s04` changes the scripted offer's price during the demo.
+the pilot's conditions (governance_pilot.CONDITIONS); unlike the pilot, it buys from the managed
+catalog with the real clock. `uv run demo-stack s04` changes the scripted offer's price during the
+demo.
 
 Secrets live only in this process and in the children that need them: they are never printed and
 never written. Each launch gets its own directory under .local/demo/ with a new agent database,
@@ -16,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -72,6 +74,8 @@ MODEL_SETTINGS = (
     "OPENAI_REASONING_EFFORT",
 )
 REQUIRED_MODEL_SETTINGS = ("OPENAI_API_KEY", "OPENAI_MODEL")
+# The pilot's model (pilot-scenarios.json): another one is announced, not refused.
+PILOT_MODEL = "gpt-5-mini"
 # Variables a child never inherits from the presenter's shell: each service gets explicit ones.
 INHERITED_PREFIXES = (
     "OPENAI_",
@@ -98,8 +102,14 @@ INHERITED_NAMES = frozenset(
     }
 )
 REDACTED = "[redactado]"
+# A merchant step that fails to connect prints its DSN, password included (like commerce_lab.db).
+DATABASE_URL = re.compile(r"postgres(?:ql)?(?:\+\w+)?://\S+")
+# What python-dotenv (and so Settings) drops from an unquoted value: whitespace, then a comment.
+INLINE_COMMENT = re.compile(r"\s+#.*")
 READY_TIMEOUT_SECONDS = 90.0
 STOP_TIMEOUT_SECONDS = 10.0
+# Closing the terminal (SIGHUP) or `kill` (SIGTERM) shut the stack down like Ctrl-C.
+SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 
 
 class DemoError(RuntimeError):
@@ -218,6 +228,17 @@ class StackSecrets:
         )
 
 
+def env_value(raw: str) -> str:
+    """A .env value as the agent's Settings reads it: a quoted one up to its closing quote,
+    an unquoted one without its inline ` # comment`."""
+    value = raw.strip()
+    if value[:1] in {'"', "'"}:
+        end = value.find(value[0], 1)
+        if end > 0:
+            return value[1:end]
+    return INLINE_COMMENT.sub("", value)
+
+
 def read_model_settings(path: Path) -> dict[str, str]:
     """The model settings of the agent's .env (KEY=VALUE lines); nothing else is read."""
     if not path.is_file():
@@ -228,9 +249,7 @@ def read_model_settings(path: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         name, value = line.removeprefix("export ").split("=", 1)
-        name, value = name.strip(), value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
+        name, value = name.strip(), env_value(value)
         if name in MODEL_SETTINGS and value:
             found[name] = value
     return found
@@ -308,6 +327,13 @@ class DemoPlan:
 
     def mode_environment(self) -> dict[str, str]:
         return mode_environment(self.mode, self.merchant_origin, self.secrets.d1)
+
+    def warnings(self) -> list[str]:
+        """What differs from the pilot without stopping the demo."""
+        model = self.model.get("OPENAI_MODEL")
+        if model is None or model == PILOT_MODEL:
+            return []
+        return [f"OPENAI_MODEL={model} no es el modelo del piloto ({PILOT_MODEL})"]
 
     def setup_steps(self) -> list[tuple[str, tuple[str, ...]]]:
         steps: list[tuple[str, tuple[str, ...]]] = []
@@ -498,7 +524,8 @@ def offer_summary(offer: Mapping[str, Any]) -> str:
 
 
 def redact(text: str, values: Iterable[str]) -> str:
-    """Remove every secret, also JSON-escaped and line by line for multi-line keys."""
+    """Remove every secret, also JSON-escaped and line by line for multi-line keys, and every
+    PostgreSQL URL."""
     forms: set[str] = set()
     for value in values:
         if not value:
@@ -509,7 +536,12 @@ def redact(text: str, values: Iterable[str]) -> str:
         )
     for form in sorted(forms, key=len, reverse=True):
         text = text.replace(form, REDACTED)
-    return text
+    return DATABASE_URL.sub(REDACTED, text)
+
+
+def tail(text: str, values: Iterable[str], lines: int = 30) -> str:
+    """The last lines of a step's output, redacted."""
+    return redact("\n".join(text.strip().splitlines()[-lines:]), values)
 
 
 def port_in_use(port: int) -> bool:
@@ -621,18 +653,20 @@ class Launcher:
             return response.status_code, None
 
     def _signal(self, process: Process, signum: int) -> None:
-        with suppress(ProcessLookupError):
+        # macOS answers EPERM for a group whose processes are all zombies: it is gone as well.
+        with suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, signum)
 
     # Output.
     def say(self, message: str = "") -> None:
+        # The log first: it still records the line when the terminal is already gone.
         text = redact(message, self._secrets)
-        print(text, file=self.out, flush=True)
         self._log.write(text + "\n")
         self._log.flush()
+        print(text, file=self.out, flush=True)
 
     def _tail(self, text: str, lines: int = 30) -> str:
-        return redact("\n".join(text.strip().splitlines()[-lines:]), self._secrets)
+        return tail(text, self._secrets, lines)
 
     # Steps.
     def command(self, label: str, command: Sequence[str], *, json_output: bool = False) -> Any:
@@ -713,6 +747,8 @@ class Launcher:
         plan = self.plan
         self.say(f"Demo local · modo {plan.mode.name} · {plan.mode.description}")
         self.say(f"Directorio del arranque: {plan.run_dir}")
+        for warning in plan.warnings():
+            self.say(f"Aviso: {warning}")
         token = self.prepare_merchant()
         for service in plan.services(token):
             health = self.start_service(service)
@@ -755,24 +791,47 @@ class Launcher:
             time.sleep(interval)
 
     def stop(self) -> None:
-        # A second Ctrl-C must not leave services behind.
-        previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        """SIGTERM to every group first, then SIGKILL to the ones still running. Nothing it
+        prints can stop it: after SIGHUP the terminal is gone."""
+        # A second Ctrl-C, SIGTERM or SIGHUP must not leave services behind.
+        previous = {
+            signum: signal.signal(signum, signal.SIG_IGN)
+            for signum in (signal.SIGINT, *SHUTDOWN_SIGNALS)
+        }
         try:
+            running = [(s, p) for s, p in reversed(self.running) if p.poll() is None]
+            for _, process in running:
+                self._signal(process, signal.SIGTERM)
+            deadline = time.monotonic() + STOP_TIMEOUT_SECONDS
+            stubborn = [
+                (service, process)
+                for service, process in running
+                if not _exited(process, deadline - time.monotonic())
+            ]
+            for _, process in stubborn:
+                self._signal(process, signal.SIGKILL)
+            alive = {
+                process.pid for _, process in stubborn if not _exited(process, STOP_TIMEOUT_SECONDS)
+            }
             for service, process in reversed(self.running):
-                if process.poll() is None:
-                    self._signal(process, signal.SIGTERM)
-                    try:
-                        process.wait(timeout=STOP_TIMEOUT_SECONDS)
-                    except subprocess.TimeoutExpired:
-                        self._signal(process, signal.SIGKILL)
-                        process.wait(timeout=STOP_TIMEOUT_SECONDS)
-                self.say(f"· {service.label}: apagado")
+                state = f"no se detuvo (pid {process.pid})" if process.pid in alive else "apagado"
+                with suppress(OSError, ValueError):
+                    self.say(f"· {service.label}: {state}")
             self.running.clear()
         finally:
-            signal.signal(signal.SIGINT, previous)
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
 
     def close(self) -> None:
         self._log.close()
+
+
+def _exited(process: Process, timeout: float) -> bool:
+    try:
+        process.wait(timeout=max(timeout, 0.0))
+    except subprocess.TimeoutExpired:
+        return False
+    return True
 
 
 def _interrupt(signum: int, frame: object) -> None:
@@ -858,6 +917,8 @@ def describe(plan: DemoPlan, problems: list[str], out: TextIO) -> None:
         shown = REDACTED if value in plan.secret_values() else value
         print(f"  {name}={shown}", file=out)
     print(f"Directorio del arranque: {plan.run_dir}", file=out)
+    for warning in plan.warnings():
+        print(f"Aviso: {warning}", file=out)
     for service in plan.services(merchant_token=REDACTED):
         print(f"· {service.label}: {service.origin} (cwd {service.cwd})", file=out)
         print(f"    variables: {', '.join(sorted(set(service.env) - set(plan.base)))}", file=out)
@@ -879,19 +940,23 @@ def up(argv: Sequence[str]) -> int:
             print(f"  ✗ {problem}", file=sys.stderr)
         return 2
     launcher = Launcher(plan)
-    signal.signal(signal.SIGTERM, _interrupt)
+    previous = {signum: signal.signal(signum, _interrupt) for signum in SHUTDOWN_SIGNALS}
     try:
         launcher.start()
         launcher.watch()
     except KeyboardInterrupt:
-        launcher.say("\nApagando…")
+        with suppress(OSError, ValueError):
+            launcher.say("\nApagando…")
         return 0
     except DemoError as error:
-        launcher.say(f"\nLa demo se detuvo: {error}")
+        with suppress(OSError, ValueError):
+            launcher.say(f"\nLa demo se detuvo: {error}")
         return 1
     finally:
         launcher.stop()
         launcher.close()
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 def _s04_parser() -> argparse.ArgumentParser:
@@ -939,14 +1004,23 @@ def s04(argv: Sequence[str], out: TextIO | None = None) -> int:
         text=True,
         check=False,
     )
+    # No launch secret exists here; the merchant's DSN is still redacted.
+    details = tail(result.stderr, (), lines=15)
     if result.returncode != 0:
         print(f"No se pudo cambiar la oferta (código {result.returncode}):", file=sys.stderr)
-        print("\n".join(result.stderr.strip().splitlines()[-15:]), file=sys.stderr)
+        print(details, file=sys.stderr)
         return 1
-    print(
-        f"Oferta actualizada: {offer_summary(json.loads(result.stdout.splitlines()[-1]))}.",
-        file=out,
-    )
+    try:
+        offer = json.loads(result.stdout.strip().splitlines()[-1])
+        summary = offer_summary(offer if isinstance(offer, dict) else {})
+    except (IndexError, json.JSONDecodeError, DemoError):
+        print(
+            "El comercio respondió con una oferta inesperada: no se pudo confirmar el cambio.",
+            file=sys.stderr,
+        )
+        print(details, file=sys.stderr)
+        return 1
+    print(f"Oferta actualizada: {summary}.", file=out)
     if not arguments.restore:
         print("Para volver al precio del catálogo: uv run demo-stack s04 --restore", file=out)
     return 0

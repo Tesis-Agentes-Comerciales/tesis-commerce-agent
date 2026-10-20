@@ -3,8 +3,11 @@
 import io
 import json
 import os
+import signal
+import subprocess
 from argparse import Namespace
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +24,7 @@ from commerce_evaluation.demo_stack import (
     OFFER_PRICE_MINOR,
     OFFER_STOCK,
     OTHER_MERCHANT,
+    PILOT_MODEL,
     S04_PRICE_MINOR,
     DemoError,
     DemoPlan,
@@ -38,6 +42,8 @@ from commerce_evaluation.paths import DATA, LOCAL
 
 MERCHANT_TOKEN = "merchant-session-" + "t" * 32
 MODEL_KEY = "sk-test-" + "k" * 40
+# What a merchant step may print when the database fails: its password must never be shown.
+MERCHANT_DSN = "postgresql+psycopg://commerce:hunter2-db-password@127.0.0.1:55432/commerce"
 # Shell variables a presenter may have exported; none of them may reach a service.
 SHELL = {
     "PATH": "/usr/bin",
@@ -210,21 +216,23 @@ def test_each_launch_gets_its_own_directory_and_agent_database(tmp_path: Path) -
     assert [label for label, _ in first.setup_steps()] == ["Migraciones del comercio"]
 
 
-def test_scripted_offer_and_s04_price_match_the_pilot_scenarios() -> None:
-    scenarios = {
-        item["id"]: item
-        for item in json.loads((DATA / "pilot-scenarios.json").read_text("utf-8"))["scenarios"]
-    }
+def test_scripted_offer_is_the_pilot_target_and_the_s04_price_fits_the_budget() -> None:
+    matrix = json.loads((DATA / "pilot-scenarios.json").read_text("utf-8"))
+    scenarios = {item["id"]: item for item in matrix["scenarios"]}
     s01, s04_setup = scenarios["S01"]["catalog_setup"], scenarios["S04"]["catalog_setup"]
+    (stimulus, *_) = scenarios["S04"]["stimuli"]
     shipping = s01["target_shipping_minor"]
 
+    assert matrix["shared_controls"]["model"] == PILOT_MODEL
     assert s01["target_variant_id"] == s04_setup["target_variant_id"] == OFFER_ID
     assert s01["target_item_price_minor"] == s04_setup["initial_item_price_minor"]
     assert s01["target_item_price_minor"] == OFFER_PRICE_MINOR
     # The guion asks S04 with a 1.700.000 COP budget: the new price must still fit it, so asking
-    # again after canceling reaches a new checkout and a new D1 decision.
+    # again after canceling reaches a new checkout and a new D1 decision. The pilot's stimulus
+    # (1.800.000) does not, which is why the demo uses its own price (the guion says so).
     assert OFFER_PRICE_MINOR < S04_PRICE_MINOR
     assert S04_PRICE_MINOR + shipping <= 170_000_000
+    assert stimulus["new_item_price_minor"] + shipping > 170_000_000
 
 
 class FakeProcess:
@@ -258,8 +266,8 @@ class FakeLauncher(Launcher):
         self, command: Sequence[str], cwd: Path, env: Mapping[str, str]
     ) -> tuple[int, str, str]:
         self.calls.append(tuple(command))
-        # Merchant steps that echo secrets on stderr: the launcher must not repeat them.
-        stderr = f"warning {self.plan.secrets.merchant_webhook}"
+        # Merchant steps that echo secrets or the DSN on stderr: the launcher must not repeat them.
+        stderr = f"warning {self.plan.secrets.merchant_webhook} at {MERCHANT_DSN}"
         if self.failing is not None and self.failing in command:
             return 1, "", stderr
         if "import-current" in command:
@@ -296,6 +304,7 @@ def shown(launcher: FakeLauncher) -> str:
 
 
 def assert_no_secret(text: str, plan: DemoPlan) -> None:
+    assert "hunter2" not in text and "postgresql" not in text
     for secret in plan.secret_values(MERCHANT_TOKEN):
         assert secret not in text
         for line in secret.splitlines():
@@ -400,3 +409,186 @@ def test_s04_edits_only_the_scripted_offer_with_the_merchant_cli(
     command += ["--price-minor", str(price)] + (["--stock", str(stock)] if stock else [])
     assert calls == [(command, merchant)]
     assert shown_price in out.getvalue()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        f'OPENAI_API_KEY="{MODEL_KEY}#not-a-comment"  # quoted\n'
+        "OPENAI_MODEL=gpt-5-mini  # the pilot model\n"
+        "OPENAI_TIMEOUT_SECONDS=45 # seconds\n"
+        "OPENAI_REASONING_EFFORT='low' # single quotes\n",
+        f"export OPENAI_API_KEY={MODEL_KEY}\nOPENAI_MODEL=gpt-5-mini#no-space-keeps-it\n",
+    ],
+    ids=["inline-comments", "no-comment"],
+)
+def test_model_settings_read_the_env_file_like_the_agent_settings(
+    content: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(content, encoding="utf-8")
+    for name in list(os.environ):
+        monkeypatch.delenv(name)
+
+    read = read_model_settings(env_file)
+    settings = Settings(_env_file=env_file)  # type: ignore[call-arg]
+
+    assert settings.openai_api_key is not None
+    assert read["OPENAI_API_KEY"] == settings.openai_api_key.get_secret_value()
+    assert read["OPENAI_MODEL"] == settings.openai_model
+    assert float(read.get("OPENAI_TIMEOUT_SECONDS", "30")) == settings.openai_timeout_seconds
+    assert read.get("OPENAI_REASONING_EFFORT") == settings.openai_reasoning_effort
+
+
+def test_a_model_other_than_the_pilot_model_is_announced_but_does_not_stop_the_launch(
+    tmp_path: Path,
+) -> None:
+    plan = replace(
+        plan_for("b2", tmp_path), model={"OPENAI_API_KEY": MODEL_KEY, "OPENAI_MODEL": "gpt-4.1"}
+    )
+    notice = f"OPENAI_MODEL=gpt-4.1 no es el modelo del piloto ({PILOT_MODEL})"
+    out = io.StringIO()
+
+    describe(plan, [], out)
+    launcher = FakeLauncher(plan, health={"governance_mode": "enforce", "hp_flow": "governed"})
+    launcher.start()
+    launcher.stop()
+    launcher.close()
+
+    assert notice in out.getvalue() and "Comprobaciones: todo listo" in out.getvalue()
+    assert notice in shown(launcher) and "ui" in launcher.spawned
+    assert plan_for("b2", tmp_path).warnings() == []
+
+
+class StubbornProcess(FakeProcess):
+    """Exits only with a signal it does not ignore; every signal and wait goes to `events`."""
+
+    def __init__(self, events: list[tuple[str, int, int]], ignores: set[int]) -> None:
+        super().__init__()
+        self.events = events
+        self.ignores = ignores
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.events.append(("wait", self.pid, 0))
+        if not self.signals or self.signals[-1] in self.ignores:
+            raise subprocess.TimeoutExpired("service", timeout or 0)
+        self.code = -self.signals[-1]
+        return self.code
+
+
+def test_stop_signals_every_group_before_waiting_even_if_the_output_is_gone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = plan_for("b2", tmp_path)
+    launcher = FakeLauncher(plan, health={})
+    events: list[tuple[str, int, int]] = []
+    handlers: set[Any] = set()
+
+    def record(process: Any, signum: int) -> None:
+        process.signals.append(signum)
+        events.append(("signal", process.pid, signum))
+        handlers.update(signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP))
+
+    monkeypatch.setattr(launcher, "_signal", record)
+    payment, merchant, *_ = plan.services(MERCHANT_TOKEN)
+    ignores_term = StubbornProcess(events, ignores={signal.SIGTERM})
+    ignores_kill = StubbornProcess(events, ignores={signal.SIGTERM, signal.SIGKILL})
+    launcher.running = [(payment, ignores_term), (merchant, ignores_kill)]
+    # The terminal closed (SIGHUP): every line the launcher prints now fails.
+    launcher.out.close()
+
+    launcher.stop()
+    launcher.close()
+
+    terms = [("signal", process.pid, signal.SIGTERM) for process in (ignores_kill, ignores_term)]
+    assert events[:2] == terms
+    assert ignores_term.signals == ignores_kill.signals == [signal.SIGTERM, signal.SIGKILL]
+    assert launcher.running == []
+    # Another Ctrl-C, SIGTERM or SIGHUP during the shutdown cannot interrupt it.
+    assert handlers == {signal.SIG_IGN}
+    log = (plan.run_dir / "launcher.log").read_text("utf-8")
+    assert "· Proveedor de pagos: apagado" in log
+    assert f"no se detuvo (pid {ignores_kill.pid})" in log
+
+
+def test_up_turns_sighup_and_sigterm_into_a_clean_shutdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = plan_for("b2", tmp_path)
+    seen: dict[int, Any] = {}
+    stopped: list[bool] = []
+
+    class Interrupted(FakeLauncher):
+        def __init__(self, plan: DemoPlan) -> None:
+            super().__init__(plan, health={})
+
+        def start(self) -> dict[str, str]:
+            seen.update(
+                {signum: signal.getsignal(signum) for signum in (signal.SIGHUP, signal.SIGTERM)}
+            )
+            raise KeyboardInterrupt
+
+        def stop(self) -> None:
+            stopped.append(True)
+            super().stop()
+
+    before = {signum: signal.getsignal(signum) for signum in (signal.SIGHUP, signal.SIGTERM)}
+    monkeypatch.setattr(demo_stack, "build_plan", lambda arguments: plan)
+    monkeypatch.setattr(demo_stack, "preflight", lambda plan: [])
+    monkeypatch.setattr(demo_stack, "Launcher", Interrupted)
+
+    assert demo_stack.up([]) == 0
+
+    assert seen == {signal.SIGHUP: demo_stack._interrupt, signal.SIGTERM: demo_stack._interrupt}
+    assert stopped == [True]
+    assert {signum: signal.getsignal(signum) for signum in before} == before
+
+
+def merchant_answers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, code: int, stdout: str, stderr: str
+) -> Path:
+    merchant = tmp_path / "merchant"
+    (merchant / "src" / "commerce_lab").mkdir(parents=True)
+
+    def run(command: list[str], **_: object) -> Any:
+        return Namespace(returncode=code, stdout=stdout, stderr=stderr)
+
+    monkeypatch.setattr(demo_stack.subprocess, "run", run)
+    return merchant
+
+
+def test_s04_shows_the_merchant_error_without_its_database_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stderr = f"Traceback ...\nOperationalError: connection to {MERCHANT_DSN} failed\n"
+    merchant = merchant_answers(monkeypatch, tmp_path, code=1, stdout="", stderr=stderr)
+
+    assert s04(["--merchant-repo", str(merchant)], io.StringIO()) == 1
+
+    shown_error = capsys.readouterr().err
+    assert "No se pudo cambiar la oferta (código 1)" in shown_error
+    assert "OperationalError: connection to [redactado] failed" in shown_error
+    assert "hunter2" not in shown_error and "postgresql" not in shown_error
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    ["", "warning only\n", "[]\n", json.dumps({"offer_id": OFFER_ID}) + "\n"],
+    ids=["empty", "not-json", "not-an-object", "missing-fields"],
+)
+def test_s04_reports_an_unexpected_answer_without_a_traceback(
+    stdout: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stderr = f"note: using {MERCHANT_DSN}\n"
+    merchant = merchant_answers(monkeypatch, tmp_path, code=0, stdout=stdout, stderr=stderr)
+    out = io.StringIO()
+
+    assert s04(["--merchant-repo", str(merchant)], out) == 1
+
+    shown_error = capsys.readouterr().err
+    assert "El comercio respondió con una oferta inesperada" in shown_error
+    assert "Traceback" not in shown_error and "hunter2" not in shown_error
+    assert out.getvalue() == ""
