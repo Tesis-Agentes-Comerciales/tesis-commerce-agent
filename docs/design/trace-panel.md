@@ -170,23 +170,49 @@ interface PurchaseSummary {       // filas de GET /me/purchases
 - **Validación en la UI:** `parsePurchaseTrace` comprueba la forma exacta (un campo de más también
   falla). Las fixtures JSON no se pueden comprobar con `satisfies`, porque TypeScript ensancha sus
   literales a `string`; la historia `Trace/Contract` valida cada archivo de la carpeta.
+- **Forma, igual en los dos lados:** el modelo Pydantic (`src/commerce_agent/trace/models.py`)
+  aplica las mismas reglas que `parsePurchaseTrace` y `tests/test_trace_contract.py` valida con él
+  cada fixture:
+  - textos no vacíos;
+  - enteros ≥ 0 en `*_ms`, `minor`, `total_minor`, `max_minor` y `revision`;
+  - monedas de tres letras;
+  - horas ISO-8601 en UTC terminadas en `Z`; `+00:00` se rechaza;
+  - ningún campo de más.
+
+  El backend normaliza todas las horas a UTC con `Z` y milisegundos, incluida `expires_at`, que
+  llega del comercio con cualquier desfase. Una hora del comercio sin desfase se lee como UTC.
+- **Duración:** `duration_ms` solo va cuando los dos extremos se midieron: la elección (del inicio
+  del turno a la elección), la política (`latency_ms`) y la aprobación (de mostrar los términos a
+  aprobar). En el resto va `null`. En el historial, la de la compra llega hasta `order_confirmed`
+  si se completó, como en `purchaseSummary`, para que un aviso tardío del comercio no la alargue;
+  hasta `updated_at` si terminó bloqueada, cancelada o fallida, y es `null` mientras sigue en curso.
+- **Comercio:** `merchant` y los valores de POL-02 son orígenes. La decisión guarda un seudónimo
+  (`merchant_ref`); el backend lo traduce con los orígenes configurados (`MERCHANT_BASE_URL` y
+  `AGENT_D1_ALLOWED_MERCHANT_ORIGINS`). Si no lo reconoce, POL-02 muestra el seudónimo y, sin
+  términos de aprobación, `merchant` queda en `null`. Los datos de la compra no guardan un nombre
+  legible del comercio, así que no se expone ninguno.
 - **Dueño:** se valida con `purchase_for_owner`. Un run de otro usuario o que no existe responde 404.
-  `GET /me/purchases` solo lista las compras propias, paginadas.
+- **Historial:** `GET /me/purchases?limit=20&before=<run_id>` devuelve
+  `{ purchases: PurchaseSummary[], next_cursor: string | null }`. Solo lista las compras propias,
+  de la más reciente a la más antigua; `next_cursor` va en `before` para pedir la página siguiente.
+  Un `before` que no es del usuario responde 400. Si la evidencia de gobernanza no pasa su
+  verificación, los dos endpoints responden 503 en lugar de una traza incompleta.
 
 ### Fuentes por paso
 
 | Paso | Fuente | Hora |
 | --- | --- | --- |
-| `request` | `purchases.request_text` | `purchases.created_at` |
-| `selection` | tool-call `select_product` del turno guardado | hora de fin del paso (nueva, ver PR C) |
-| `policy_decision` | `SqliteGovernanceEvidenceStore.for_run` | `decided_at` |
-| `checkout_created` | `operation_keys` (`checkout.create`) y `purchases.checkout_id` | `created_at` |
-| `approval` | `approval_terms` y `approvals` | `updated_at` y `approved_at` |
-| `authorization_signed` | `approvals`: se lee si los mandatos existen, nunca su contenido | `approved_at` |
-| `payment_authorized` | `operation_keys` (`payment.delegate`) | `created_at` |
-| `order_confirmed` | `completion_results` y `orders` | `completed_at` |
-| `order_event` | `webhook_events` | `received_at` |
-| `canceled`, `failed` | `operation_keys` (`checkout.cancel.*`) y `purchases.stage` | `created_at` y `updated_at` |
+| `request` | `purchases.request_text` | primer checkpoint del turno en el grafo; si no hay, `purchases.created_at` (se escribe después de elegir) |
+| `selection` | checkpoint del grafo escrito al terminar `select_product`: la variante elegida y su precio observado. Sin checkpoint, la línea de `approval_terms` | la de ese checkpoint; sin checkpoint, `null` |
+| `policy_decision` | `SqliteGovernanceEvidenceStore.for_run`. POL-01: variante elegida y elegibles. POL-02: origen del comercio y orígenes de la política (`governance_episodes`, verificada contra la decisión) | `decided_at` |
+| `checkout_created` | `purchases.checkout_id` | `operation_keys` (`checkout.create`), que se escribe justo antes de llamar al comercio; el modo activo no la guarda ahí y queda en `null` |
+| `approval` | `approval_terms` y `approvals` | `approved_at`; si no hay aprobación, `approval_terms.updated_at` |
+| `authorization_signed` | `approvals`: solo si existe algún mandato, nunca su contenido | `approved_at` |
+| `payment_authorized` | `operation_keys` (`payment.delegate`), solo si la etapa prueba que la delegación terminó (`completing`, `uncertain`, `completed`, `failed`); monto de `approval_terms` | `created_at` |
+| `order_confirmed` | `completion_results`: los recibos solo como presencia | `completed_at` |
+| `order_event` | `webhook_events` de la orden | `received_at` |
+| `canceled` | `operation_keys` (`checkout.cancel.user` o `.budget`) con la etapa `canceled` | `created_at` |
+| `failed` | etapa `failed`. El código del error no se guarda: va `purchase_failed`, con actor `merchant` si el comercio rechazó el cierre | `purchases.updated_at` |
 
 **Estado de la compra:**
 
@@ -288,6 +314,10 @@ Cada PR depende del anterior y se fusiona con CI en verde y con la aprobación d
 - **Valores observado y esperado de cada regla:** salen de la entrada de la decisión (origen del
   comercio, candidatos elegibles) y de la política (lista de comercios). Se exponen solo esos
   campos, nunca la entrada canónica completa.
-- **Hora de los pasos:** hoy no se guarda. PR C la añade sin cambiar el contrato del stream.
+- **Hora de los pasos:** PR C la lee de los checkpoints de LangGraph (`agent.graph.db`), sin tocar
+  el flujo de conversación. Depende de los canales `turn_id`, `selected_variant_id` y
+  `ranked_candidates` del grafo; si cambian, la elección pierde su hora y sus tests fallan.
+- **Reloj del sandbox:** con `AGENT_SANDBOX_CLOCK_AT`, `approved_at` es la hora fija del sandbox y
+  la aprobación aparece fuera del orden cronológico.
 - **Refresco:** si releer la traza no se siente en vivo, se emite dentro del stream de `/assistant`
   (`state.trace`), que ya tiene patrón.
