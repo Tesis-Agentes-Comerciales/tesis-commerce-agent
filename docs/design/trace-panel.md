@@ -314,7 +314,14 @@ oferta y el digest de la evidencia) van al «Detalle técnico».
 
 La lista de cambios usa la forma de las reglas (término sobre valor): por cada campo, «En el
 checkout» y «Oferta actual». Campos: «Precio del producto», «Envío», «Total», «Moneda», «Vigencia de
-la oferta», «Días de entrega» y «Unidades disponibles». Los montos llevan la moneda de los términos.
+la oferta», «Días de entrega» y «Disponibilidad». Los montos llevan la moneda de los términos.
+
+- **Vigencia de la oferta:** siempre con segundos (`formatPreciseDateTime`). Una oferta renovada
+  vence un año después de cambiar, así que las dos vigencias suelen caer en el mismo minuto; si aun
+  con segundos se leen iguales, se agregan los milisegundos.
+- **Disponibilidad:** el checkout no guarda existencias sino la cantidad pedida, que se compara con
+  las unidades que el comercio puede vender. Por eso sus valores dicen «Unidades pedidas» y
+  «Unidades disponibles» en vez de «En el checkout» y «Oferta actual».
 
 Una compra en `stale_terms` dice en la fila de actividad «Detenida: cambiaron las condiciones» o
 «Detenida: condiciones sin confirmar», según la última comprobación; en la etiqueta de estado,

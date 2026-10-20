@@ -602,12 +602,18 @@ def governed_trace(client: TestClient, run_id: str) -> dict[str, Any]:
     return body
 
 
+# The demo's S04 rewrites the offer: a new price and a new validity window counted from that moment
+# (commerce_lab.managed_catalog.changed_offer). Seconds apart, so both read the same to the minute.
+REPRICED_EXPIRES_AT = "2099-09-20T13:00:42Z"
+
+
 def reprice(merchant: StoreMerchant) -> None:
     """S04 stimulus: the merchant reprices the live offer after the terms were presented."""
     pricing = merchant.offer["pricing"]
     merchant.offer = {
         **merchant.offer,
         "revision": 2,
+        "expires_at": REPRICED_EXPIRES_AT,
         "pricing": {**pricing, "items_total_minor": 80_000, "total_minor": 82_000},
     }
 
@@ -665,6 +671,11 @@ def test_s04_trace_shows_the_freshness_block_and_what_changed(tmp_path: Path) ->
     assert approved["changes"] == [
         {"field": "subtotal_minor", "presented": 72_000, "current": 80_000},
         {"field": "total_minor", "presented": 74_000, "current": 82_000},
+        {
+            "field": "expires_at",
+            "presented": "2099-09-20T13:00:00.000Z",
+            "current": "2099-09-20T13:00:42.000Z",
+        },
     ]
     assert (approved["currency"], approved["offer_revision"], approved["read_error"]) == (
         "COP",

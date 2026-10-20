@@ -1,10 +1,6 @@
 import { cn } from "cn"
 
-import {
-  FRESHNESS_CHANGES_LABEL,
-  FRESHNESS_VALUE_LABEL,
-  freshnessChanges,
-} from "@/components/trace/trace-copy"
+import { FRESHNESS_CHANGES_LABEL, freshnessChanges } from "@/components/trace/trace-copy"
 import type { TraceStep } from "@/lib/trace-contract"
 
 export type FreshnessChangesProps = {
@@ -29,8 +25,8 @@ export function FreshnessChanges({ step, className }: FreshnessChangesProps) {
         <li key={change.field} className="px-3.5 py-2.5" data-field={change.field}>
           <p className="min-w-0 text-sm leading-5 font-medium wrap-break-word">{change.name}</p>
           <dl className="mt-1.5 space-y-1.5 text-xs leading-4">
-            <ChangeValue label={FRESHNESS_VALUE_LABEL.presented} value={change.presented} />
-            <ChangeValue label={FRESHNESS_VALUE_LABEL.current} value={change.current} />
+            <ChangeValue label={change.labels.presented} value={change.presented} />
+            <ChangeValue label={change.labels.current} value={change.current} />
           </dl>
         </li>
       ))}

@@ -6,8 +6,9 @@ import type { StepState } from "@/lib/trace-contract"
 
 import "@/components/agent/agent.css"
 
-// Monocromo como las filas del chat. Solo dos estados llevan tono: `blocked` (la política detuvo la
-// compra a propósito) en ámbar con escudo y `error` (algo falló) en rojo con una equis.
+// Monocromo como las filas del chat. Solo dos estados llevan tono: `blocked` (la compra se detuvo a
+// propósito, por la política o por un control de la aplicación como la frescura de la oferta; el
+// título de la fila dice cuál) en ámbar con escudo y `error` (algo falló) en rojo con una equis.
 const CIRCLE: Record<StepState, string> = {
   done: "bg-[#ececec] text-[#0d0d0d]",
   running: "bg-white text-[#0d0d0d]",
