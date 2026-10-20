@@ -1,4 +1,5 @@
-"""Experimental backend-injected D1 gate. Runtime assembly is opt-in, without dispatch.
+"""Experimental backend-injected D1 gate. Runtime assembly is opt-in (bootstrap.py);
+only AGENT_HP_FLOW=governed gives it dispatch ports (runtime_dispatch.py).
 
 An explicit envelope transport can be injected by the backend for the first POST
 only. Its creation observation stops before every post-create commercial effect.
@@ -78,10 +79,11 @@ from .uow import D1Application
 
 
 class InitialCheckoutDispatch(Protocol):
-    """Trusted backend transport boundary. No production implementation in 06B.
+    """Trusted backend transport boundary, admitted only after a committed claim.
 
-    Tests may inject a single-attempt spy. This interface itself is not evidence
-    that a Merchant offers replay/reconciliation, and does not enable Settings.
+    The governed runtime injects SingleAttemptCheckoutDispatch; tests may inject a
+    spy. This interface itself is not evidence that a Merchant offers
+    replay/reconciliation.
     """
 
     def create_once(

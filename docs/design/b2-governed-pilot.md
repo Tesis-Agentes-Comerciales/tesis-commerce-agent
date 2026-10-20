@@ -130,7 +130,10 @@ shadow con frescura y recuperación activas. Nunca se presenta como enforce.
 
 - **GET idéntico al POST.** La verificación posterior a la creación exige que el GET del checkout
   sea idéntico a la respuesta del POST, y eso nunca se probó con el comercio real. Se valida
-  primero con una prueba live; si falla, se comparan solo los campos materiales.
+  primero con una prueba live; si falla, se comparan solo los campos materiales. *Resultado
+  (PR-2, 20-oct):* con el comercio real son idénticos
+  (`tests/integration/test_live_b2_governed_purchase.py`), así que se conserva la comparación
+  exacta.
 - **Re-presentación.** El refresh escribe en el comercio, solo en el flujo gobernado.
 - **Estado `uncertain`.** Bloquea compras nuevas, así que la demo usa una base limpia.
 - **Atribución.** S04 se debe a la frescura y S02 a la recuperación; no al PDP.

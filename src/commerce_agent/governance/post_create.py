@@ -67,7 +67,7 @@ class PostCreateEvent(EnvelopeModel):
 
 
 class ExperimentalPostCreateDispatch(Protocol):
-    """Backend test port; no production implementation or human authority claim."""
+    """Backend port, never a human authority claim. Production: runtime_dispatch.py."""
 
     def perform_once(
         self, effect: Effect, call: Callable[[], CheckoutSession]

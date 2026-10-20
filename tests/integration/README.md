@@ -11,7 +11,7 @@ pasa por HTTP real de loopback a través de `FaultProxy`, que es transparente sa
 prueba arma un fallo etiquetado. La suite normal y `ci.yml` los omiten; el workflow
 `nightly.yml` los ejecuta cada noche y a pedido.
 
-Hay tres grupos sobre el mismo PostgreSQL:
+Hay cuatro grupos sobre el mismo PostgreSQL:
 
 - Gobernanza (06D-C, 07A, 07B-B, 07B-P): el Merchant del stack detrás de su proxy, con fallos
   inyectados.
@@ -19,6 +19,9 @@ Hay tres grupos sobre el mismo PostgreSQL:
   pagos. `b0` es la línea base B0 (ACP + AP2 Human Present: mandatos y recibos firmados,
   webhooks de orden); `acp` es la finalización ACP sin AP2 y la API conversacional. Reemplazan
   al E2E conjunto de septiembre ([equivalencias](#equivalencia-con-el-e2e-conjunto)).
+- B2 gobernado (`test_live_b2_governed_purchase.py`): sobre el carril `b0`, la compra con
+  `AGENT_GOVERNANCE_MODE=enforce` y `AGENT_HP_FLOW=governed`. El gate sale del bootstrap de
+  producción y crea el checkout con un solo POST.
 - Navegador (`test_live_browser.py`): sobre el carril `b0`, Chromium se registra en `auth/`,
   pide la compra en la UI servida por Vite, la aprueba en la tarjeta y ve la orden confirmada;
   el Agent atiende en este mismo proceso con el router guionado y guarda ambos recibos AP2.
@@ -67,14 +70,14 @@ uv run pytest tests/integration -rs
 ```
 
 Un módulo o un escenario: pase su archivo, o filtre por el identificador que llevan los nombres
-(`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`, `-k b0`, `-k acp`, `-k browser`). Con
+(`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`, `-k b0`, `-k b2`, `-k acp`, `-k browser`). Con
 `--basetemp=<dir>` la evidencia queda en un lugar conocido.
 
-La suite completa (62 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B
+La suite completa (63 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B
 (marker `slow`): cada escenario hace una selección nueva sobre el catálogo completo del Merchant
 (cientos de lecturas de Offer por fase) y el Merchant reconstruye el catálogo en cada lectura.
-`-m "not slow"` deja 51 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras y
-la del navegador) en unos 2 minutos.
+`-m "not slow"` deja 52 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
+la gobernada B2 y la del navegador) en unos 2 minutos.
 
 ## Evidencia y limpieza
 

@@ -125,9 +125,12 @@ def configured_d1(
 def build_enforce_gate(
     settings: Settings, commercial_clock: Callable[[], datetime] | None
 ) -> "SqliteD1EnforceGate":
-    """Runtime gate without a dispatch port: an allow stops at its durable reservation."""
+    """Runtime gate. Only the governed HP flow gets dispatch ports; with the blocked
+    default an allow stops at its durable reservation (`d1_dispatch_blocked`)."""
     from .enforce import SqliteD1EnforceGate
+    from .runtime_dispatch import SingleAttemptCheckoutDispatch, SingleAttemptPostCreateDispatch
 
+    governed = settings.agent_hp_flow == "governed"
     try:
         configured = configured_d1(settings, commercial_clock)
         if not isinstance(configured.configuration, D1EnforceConfiguration):
@@ -137,6 +140,8 @@ def build_enforce_gate(
             configured.configuration,
             configured.keys,
             configured.clocks,
+            dispatch=SingleAttemptCheckoutDispatch() if governed else None,
+            post_create_dispatch=SingleAttemptPostCreateDispatch() if governed else None,
             policy_bytes=configured.policy_bytes,
             policy_binding=configured.policy_binding,
         )
