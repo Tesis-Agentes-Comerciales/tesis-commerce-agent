@@ -102,11 +102,11 @@ ERROR_MESSAGES = {
     ),
     "checkout_terms_changed": (
         "Las condiciones del comercio cambiaron (por ejemplo, el precio, el envío o la "
-        "disponibilidad). No se hizo ningún cobro; revisa las condiciones actualizadas."
+        "disponibilidad), así que no seguí con la compra. No se hizo ningún cobro."
     ),
     "offer_freshness_unavailable": (
-        "No pude confirmar con el comercio que el precio y la disponibilidad sigan vigentes. "
-        "No se hizo ningún cobro; inténtalo de nuevo en un momento."
+        "No pude confirmar con el comercio que el precio y la disponibilidad sigan vigentes, "
+        "así que detuve la compra por precaución. No se hizo ningún cobro."
     ),
 }
 PURCHASE_UPDATE_TEXT = {
