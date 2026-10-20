@@ -44,6 +44,9 @@ La aplicación queda en `http://127.0.0.1:5173` y espera la API del agente en
   completar o cancelar. Con la traza, el mensaje muestra la fila de actividad (`PurchaseActivity`),
   la tarjeta de bloqueo (`PolicyBlockedCard`) en lugar del aviso rojo y el recibo de la tarjeta de
   aprobación. Un 404 o un 503 no rompen el chat: la fila no aparece y queda el aviso del mensaje.
+  La línea de tiempo también muestra dos controles de la aplicación del flujo gobernado, nunca como
+  política: la frescura de la oferta (qué cambió entre el checkout y la oferta actual) y la
+  recuperación gobernada (por qué el agente no siguió).
 - Los `result` de cada paso se validan antes de dibujarlos (`src/features/agent-results.ts`): el feed
   y las respuestas ACP no son confiables.
 

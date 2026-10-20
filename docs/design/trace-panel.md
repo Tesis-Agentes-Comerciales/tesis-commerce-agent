@@ -55,6 +55,12 @@ La UI no muestra códigos internos. El código queda en el detalle técnico para
 | Aprobación B0 | «Tu aprobación» |
 | Mandatos AP2 | «Autorización firmada» |
 | Pago delegado | «Pago autorizado» |
+| Frescura de la oferta (`freshness_check`) | «Condiciones confirmadas con el comercio», «Las condiciones del comercio cambiaron» |
+| Recuperación gobernada (`governed_recovery`) | «El agente explicó por qué no siguió» |
+
+La frescura y la recuperación son **controles de la aplicación** del flujo HP gobernado
+(`docs/design/b2-governed-pilot.md`), no decisiones de la política de compra (D1). La UI nunca los
+nombra como política ni como regla.
 
 ## Alcance
 
@@ -95,7 +101,7 @@ lados.
 type TraceActor = "user" | "agent" | "policy" | "merchant" | "payment"
 type PurchaseStatus =
   | "in_progress" | "awaiting_approval" | "completed"
-  | "blocked" | "canceled" | "failed" | "uncertain"
+  | "blocked" | "stale_terms" | "canceled" | "failed" | "uncertain"
 type StepState = "done" | "running" | "waiting" | "blocked" | "error" | "skipped"
 
 interface PurchaseTrace {
@@ -128,7 +134,38 @@ type TraceStep = {
   | { kind: "order_event"; event_type: string }
   | { kind: "canceled"; by: "user" | "budget" }
   | { kind: "failed"; code: string }
+  | {
+      kind: "freshness_check"   // control de la aplicación, no de la política
+      stage: "present" | "approve"
+      mode: "shadow" | "enforce"
+      outcome: "fresh" | "changed" | "unavailable"
+      changes: FreshnessChange[]  // solo los campos que cambiaron
+      currency: string | null     // moneda de los términos presentados, para los montos
+      offer_revision: number | null
+      read_error: string | null   // código si no se pudo leer la oferta
+      evidence_digest: string     // digest de la fila de hp_evidence
+    }
+  | {
+      kind: "governed_recovery" // control de la aplicación, no de la política
+      recovery: "no_candidate" | "selection_outside_shortlist" | "budget_exceeded_after_checkout"
+      cause: RecoveryCause
+      variant_id: string | null
+      budget_minor: number | null
+      observed_minor: number | null   // precio del catálogo, no el total del comercio
+      currency: string | null
+      evidence_digest: string
+    }
 )
+
+type FreshnessChange =            // valor presentado frente al de la oferta viva
+  | { field: "subtotal_minor" | "shipping_minor" | "total_minor" | "delivery_days" | "stock"
+      presented: number | null; current: number | null }
+  | { field: "currency"; presented: string | null; current: string | null }
+  | { field: "expires_at"; presented: string | null; current: string | null }  // UTC con Z
+
+type RecoveryCause =
+  | "budget" | "unavailable" | "currency" | "category" | "condition" | "option" | "term"
+  | "not_shortlisted" | "not_in_catalog" | "no_match"
 
 interface PolicyDecision {
   mode: "shadow" | "enforce"
@@ -206,21 +243,28 @@ interface PurchaseSummary {       // filas de GET /me/purchases
 | `selection` | checkpoint del grafo escrito al terminar `select_product`: la variante elegida y su precio observado. Sin checkpoint, la línea de `approval_terms` | la de ese checkpoint; sin checkpoint, `null` |
 | `policy_decision` | `SqliteGovernanceEvidenceStore.for_run`. POL-01: variante elegida y elegibles. POL-02: origen del comercio y orígenes de la política (`governance_episodes`, verificada contra la decisión) | `decided_at` |
 | `checkout_created` | `purchases.checkout_id` | `operation_keys` (`checkout.create`), que se escribe justo antes de llamar al comercio; el modo activo no la guarda ahí y queda en `null` |
-| `approval` | `approval_terms` y `approvals` | `approved_at`; si no hay aprobación, `approval_terms.updated_at` |
+| `approval` | `approval_terms` y `approvals`. `state`: `done` si se aprobó, `waiting` si la compra espera la aprobación y `skipped` si no la hubo (cancelada, o la frescura bloqueó los términos) | `approved_at`; si no hay aprobación, `approval_terms.updated_at` |
 | `authorization_signed` | `approvals`: solo si existe algún mandato, nunca su contenido | `approved_at` |
 | `payment_authorized` | `operation_keys` (`payment.delegate`), solo si la etapa prueba que la delegación terminó (`completing`, `uncertain`, `completed`, `failed`); monto de `approval_terms` | `created_at` |
 | `order_confirmed` | `completion_results`: los recibos solo como presencia | `completed_at` |
 | `order_event` | `webhook_events` de la orden | `received_at` |
 | `canceled` | `operation_keys` (`checkout.cancel.user` o `.budget`) con la etapa `canceled` | `created_at` |
 | `failed` | etapa `failed`. El código del error no se guarda: va `purchase_failed`, con actor `merchant` si el comercio rechazó el cierre | `purchases.updated_at` |
+| `freshness_check` | `hp_evidence` (`freshness_check`), con la cadena de digests verificada. `changes` sale de `changed_fields` y `compared`, y `read_error` de `reason`; `state` es `blocked` si la decisión fue `block` y `done` si no. Actor `agent`. Una comprobación igual a la anterior (misma etapa, resultado, cambios y error de lectura) no agrega fila: `GET /me/pending-purchase` vuelve a comprobar cada vez que se recarga | `checked_at` |
+| `governed_recovery` | `hp_evidence` (`governed_recovery`), con la cadena verificada. Actor `agent`, `state` `done`. Solo la ve una compra que existe: hoy, `budget_exceeded_after_checkout` | `null`: el registro no guarda hora; va al final |
+
+Los pasos de `hp_evidence` se intercalan por hora entre los demás. Si su cadena no se verifica, los
+dos endpoints responden 503, como con la evidencia de la política. Ninguno expone el texto del
+comprador ni la explicación: la evidencia guarda sus digests y la traza ni siquiera los copia.
 
 **Estado de la compra:**
 
 | Etapa o evento | Estado |
 | --- | --- |
 | `completed` | `completed` |
-| `awaiting_confirmation` | `awaiting_approval` |
+| `awaiting_confirmation` (sin bloqueo de frescura) | `awaiting_approval` |
 | última decisión con `effect = blocked` | `blocked` |
+| `awaiting_confirmation` y la última comprobación de frescura bloqueó | `stale_terms` |
 | `canceled`, `failed`, `uncertain` | el mismo |
 | cualquier otro | `in_progress` |
 
@@ -242,15 +286,46 @@ historias por estado con `play` y axe. Usan el sistema visual de `docs/workflow.
 
 La traza solo trae lo que pasó. `ControlTimeline` deduce dos filas que no vienen en ella: la
 política desactivada (`policy_mode: off`), entre la elección y el checkout, y, si la compra terminó
-bloqueada, cancelada o fallida, los controles que no alcanzó («No se ejecutó»). Una compra por
-confirmar no las agrega, porque no se sabe qué pasó. En el chat, `PolicyRuleTable` muestra el valor
-observado y el esperado solo de las reglas que fallan; la auditoría los muestra todos.
+bloqueada, detenida por términos que ya no valen, cancelada o fallida, los controles que no alcanzó
+(«No se ejecutó»). Una compra por confirmar no las agrega, porque no se sabe qué pasó. En el chat,
+`PolicyRuleTable` muestra el valor observado y el esperado solo de las reglas que fallan; la
+auditoría los muestra todos.
+
+La frescura y la recuperación no están en esa lista de controles: solo existen con
+`AGENT_HP_FLOW=governed` (la frescura también en `shadow`), así que una fila «No se ejecutó» suya
+diría algo falso en `off`. Aparecen solo cuando la traza las trae.
+
+#### Controles de la aplicación: frescura y recuperación
+
+Usan `ControlStep` sin estilos nuevos. Un bloqueo de frescura lleva el escudo ámbar de `blocked`,
+igual que la política, pero su título nunca nombra la política; por eso la etiqueta de estado de
+`blocked` es «Detenido», sin atribuir. Los códigos (`stage`, `outcome`, `read_error`, la revisión de la
+oferta y el digest de la evidencia) van al «Detalle técnico».
+
+| Paso | Título | Detalle |
+| --- | --- | --- |
+| Frescura `fresh` al presentar | «Condiciones confirmadas con el comercio» | «Antes de mostrarte los términos» |
+| Frescura `fresh` al aprobar | «Condiciones confirmadas con el comercio» | «Antes de registrar tu aprobación» |
+| Frescura `changed`, bloqueada, al presentar | «Las condiciones del comercio cambiaron» | «No se mostraron los términos para aprobar.» y la lista de cambios |
+| Frescura `changed`, bloqueada, al aprobar | «Las condiciones del comercio cambiaron» | «Tu aprobación no se registró y no se firmó ninguna autorización.» y la lista de cambios |
+| Frescura `unavailable`, bloqueada | «No se pudieron confirmar las condiciones con el comercio» | «Por precaución, la compra se detuvo.» |
+| Frescura en `shadow` (`changed` o `unavailable`) | el mismo título | «Solo observando: registra, no detiene» y, si cambió, la lista |
+| Recuperación | «El agente explicó por qué no siguió» | La causa y lo que no pasó, p. ej. «Superaba tu presupuesto de $ 1.000.000,00 COP. Se canceló el checkout antes de cobrar.» o «La opción elegida no estaba entre las verificadas para tu pedido. No se creó ningún checkout.» |
+
+La lista de cambios usa la forma de las reglas (término sobre valor): por cada campo, «En el
+checkout» y «Oferta actual». Campos: «Precio del producto», «Envío», «Total», «Moneda», «Vigencia de
+la oferta», «Días de entrega» y «Unidades disponibles». Los montos llevan la moneda de los términos.
+
+Una compra en `stale_terms` dice en la fila de actividad «Detenida: cambiaron las condiciones» o
+«Detenida: condiciones sin confirmar», según la última comprobación; en la etiqueta de estado,
+«Detenida: condiciones del comercio». Son cortas para no recortarse en un teléfono de 375 px. La tarjeta de términos que ya no valen
+(`StaleTermsCard`) sigue fuera del plegable con su único botón, «Cancelar compra».
 
 ### Chat en vivo (`ui/src/components/agent/`)
 
 | Componente | Responsabilidad | Historias |
 | --- | --- | --- |
-| `PurchaseActivity` | Fila plegable por compra («Comprando…», «Esperando tu aprobación», «Compra completada en 21 s», «Bloqueada por la política de compra»); al abrirla muestra `ControlTimeline` | Una por estado; `play` para abrir y cerrar |
+| `PurchaseActivity` | Fila plegable por compra («Comprando…», «Esperando tu aprobación», «Compra completada en 21 s», «Bloqueada por la política de compra», «Detenida: cambiaron las condiciones»); al abrirla muestra `ControlTimeline` | Una por estado; `play` para abrir y cerrar |
 | `PolicyBlockedCard` | Tarjeta fuera del plegable: qué regla no se cumplió y qué no ocurrió | Comercio no permitido, política no disponible |
 | `PurchaseApprovalCard` (existente) | Al decidir, se convierte en recibo («Aprobado por ti · 10:42 · autorización firmada») | Se añaden las historias del recibo |
 
@@ -288,6 +363,10 @@ bloqueo quedan en un desplegable «Detalle técnico», cerrado por defecto.
     bloqueada, `PolicyBlockedCard` va después de las tarjetas y reemplaza al aviso rojo del mensaje;
     el grupo «Pensando…» tampoco se marca como error. Una compra que sigue «en curso» en un mensaje
     que terminó con error o se detuvo no muestra la fila, porque ese turno ya no la moverá.
+    Con términos que ya no valen (S04), aprobar responde 409 y la traza se relee: llega en
+    `stale_terms`, así que la fila se ve con la comprobación que bloqueó y qué cambió, y la tarjeta
+    de términos va fuera del plegable. Una traza anterior que aún diga `awaiting_approval` no se
+    muestra mientras tanto, porque contradiría a la tarjeta.
   - **Recibo:** la tarjeta de aprobación lee la misma traza (una por compra, compartida en la sesión).
   - **Anuncios:** la fila anuncia cada cambio de estado con `role="status"`.
 - `features/audit/` carga la tabla y el detalle.
@@ -349,3 +428,12 @@ Cada PR depende del anterior y se fusiona con CI en verde y con la aprobación d
   que la elección y la política del turno en curso aparecen en la fila de una vez, con el checkout.
 - **E2E y fases en curso:** Playwright entrega el stream simulado de una sola vez, así que el E2E no
   observa la fila «Comprando…»; ese estado lo cubren las historias de `PurchaseActivity`.
+- **Recuperación sin compra (S02):** cuando el modelo elige fuera de la lista corta o no hay
+  candidatos, la recuperación ocurre antes de crear la compra: no hay fila en `purchases` contra la
+  cual validar el dueño, y el chat no recibe `run_id`. Esa traza no existe y el chat muestra solo la
+  explicación del agente. La traza muestra la recuperación cuando ya hay compra
+  (`budget_exceeded_after_checkout`). Mostrar la otra exige atar el run al dueño sin crear la compra;
+  queda para después de la demo.
+- **Hora de la frescura:** `checked_at` sale del reloj real, mientras que `approved_at` usa el del
+  sandbox si `AGENT_SANDBOX_CLOCK_AT` está puesto; con ese reloj la aprobación puede quedar fuera de
+  orden respecto de la frescura.

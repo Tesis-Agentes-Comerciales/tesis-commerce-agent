@@ -419,6 +419,42 @@ test.describe("términos que ya no valen", () => {
       ])
     })
 
+    if (termsStatus === "changed") {
+      test("aprobar responde 409: la actividad muestra que la frescura detuvo la aprobación y qué cambió", async ({
+        page,
+      }) => {
+        await routeSession(page)
+        // La traza se relee tras el 409: la frescura de la oferta, no la política, detuvo la compra.
+        await routeAgent(page, {
+          approval: { status: stale.status, body: stale.body },
+          trace: (calls) => ({
+            body: trace(
+              callIndex(calls, "POST", "/approval") >= 0 ? "stale-terms" : "awaiting-approval",
+              APPROVAL.run_id,
+            ),
+          }),
+        })
+        await page.goto("/")
+        const card = await preparePurchase(page)
+        await card.getByTestId("approve-purchase").click()
+
+        const activity = page.getByTestId("purchase-activity")
+        await expect(activity).toHaveAttribute("data-status", "stale_terms")
+        await expect(page.getByTestId("stale-terms-card").getByRole("button")).toHaveText(["Cancelar compra"])
+        await activity.getByRole("button", { name: /Detenida: cambiaron las condiciones/ }).click()
+        const blocked = activity.getByRole("listitem").filter({ hasText: "Las condiciones del comercio cambiaron" })
+        await expect(blocked).toHaveAttribute("data-state", "blocked")
+        await expect(blocked).toContainText("Tu aprobación no se registró y no se firmó ninguna autorización.")
+        const total = blocked.getByRole("list", { name: "Qué cambió" }).getByRole("listitem").filter({ hasText: "Total" })
+        await expect(total).toContainText(/En el checkout\$\s?1\.924\.000(,00)? COP/)
+        await expect(total).toContainText(/Oferta actual\$\s?2\.024\.000(,00)? COP/)
+        await expect(activity.getByText("Condiciones confirmadas con el comercio")).toBeVisible()
+        await expect(activity.getByText("La política detuvo la compra")).toHaveCount(0)
+        await expect(page.getByText("Esperando tu aprobación")).toHaveCount(0)
+        await expect(page.getByRole("alert")).toHaveCount(0)
+      })
+    }
+
     test(`una compra pendiente con terms_status "${termsStatus}" se puede cancelar tras recargar`, async ({
       page,
     }) => {

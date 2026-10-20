@@ -183,6 +183,52 @@ export const Uncertain: Story = {
   args: { trace: TRACES.uncertain },
 }
 
+/**
+ * S04: la frescura detuvo la aprobación. La fila ya no dice «Esperando tu aprobación» y, abierta,
+ * muestra qué cambió; la tarjeta de términos que ya no valen va fuera, con «Cancelar compra».
+ */
+export const StaleTerms: Story = {
+  args: { trace: TRACES.staleTerms },
+  play: async ({ canvas, userEvent }) => {
+    const trigger = canvas.getByRole("button", { name: /Detenida: cambiaron las condiciones/ })
+    await expect(canvas.queryByText(/Esperando tu aprobación|política de compra/)).toBeNull()
+    await userEvent.click(trigger)
+    await waitFor(() =>
+      expect(canvas.getByText("Las condiciones del comercio cambiaron")).toBeVisible(),
+    )
+    await expect(canvas.getByRole("list", { name: "Qué cambió" })).toBeVisible()
+    await userEvent.click(canvas.getByText("Detalle técnico"))
+    await expect(canvas.getByText(/^approve · changed · enforce · revisión 2$/)).toBeVisible()
+  },
+}
+
+export const StaleTermsUnavailable: Story = {
+  args: {
+    trace: {
+      ...TRACES.staleTerms,
+      steps: TRACES.staleTerms.steps.map((step) =>
+        step.kind === "freshness_check" && step.state === "blocked"
+          ? { ...step, outcome: "unavailable", changes: [], read_error: "freshness_check_failed" }
+          : step,
+      ),
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("button", { name: /Detenida: condiciones sin confirmar/ }),
+    ).toBeVisible()
+  },
+}
+
+/** S02: la compra se canceló por presupuesto; al abrirla, la explicación del agente. */
+export const GovernedRecovery: Story = {
+  args: { trace: TRACES.governedRecovery, defaultOpen: true },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByRole("button", { name: /Compra cancelada/ })).toBeVisible()
+    await expect(canvas.getByText("El agente explicó por qué no siguió")).toBeVisible()
+  },
+}
+
 const SHADOW_DECISION = stepOf(TRACES.completedShadow, "policy_decision")
 const FIRST_DECISION_ID = "decision:0f1e2d3c4b5a69788796a5b4c3d2e1f0"
 
@@ -235,6 +281,7 @@ const ALL_STATUSES = [
   TRACES.awaitingApproval,
   TRACES.completedShadow,
   TRACES.blockedMerchant,
+  TRACES.staleTerms,
   TRACES.canceled,
   TRACES.failed,
   TRACES.uncertain,
@@ -253,7 +300,11 @@ export const Phone375: Story = {
     </div>
   ),
   play: async ({ canvas }) => {
-    for (const summary of ["Bloqueada por la política de compra", "Esperando tu aprobación"]) {
+    for (const summary of [
+      "Bloqueada por la política de compra",
+      "Esperando tu aprobación",
+      "Detenida: cambiaron las condiciones",
+    ]) {
       const label = canvas.getByText(summary, { selector: "button span" })
       await expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth)
     }

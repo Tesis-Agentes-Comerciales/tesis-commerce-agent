@@ -5,7 +5,13 @@ import { CONTROL_ORDER, type SkippedControl } from "@/components/trace/trace-cop
 import type { PurchaseStatus, PurchaseTrace, StepKind, TraceStep } from "@/lib/trace-contract"
 
 /** Compras que terminaron antes de tiempo: se listan los controles que ya no ocurrieron. */
-const ENDED_EARLY: ReadonlySet<PurchaseStatus> = new Set(["blocked", "canceled", "failed"])
+const ENDED_EARLY: ReadonlySet<PurchaseStatus> = new Set([
+  "blocked",
+  // Con términos que ya no valen solo queda cancelar: ni firma, ni pago, ni orden.
+  "stale_terms",
+  "canceled",
+  "failed",
+])
 
 type TimelineRow = TraceStep | SkippedControl
 

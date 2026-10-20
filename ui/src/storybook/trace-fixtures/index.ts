@@ -12,9 +12,11 @@ import canceled from "./canceled.json"
 import completedEnforce from "./completed-enforce.json"
 import completedShadow from "./completed-shadow.json"
 import failed from "./failed.json"
+import governedRecovery from "./governed-recovery.json"
 import inProgress from "./in-progress.json"
 import policyOff from "./policy-off.json"
 import policyUnavailable from "./policy-unavailable.json"
+import staleTerms from "./stale-terms.json"
 import uncertain from "./uncertain.json"
 
 // Trazas sintéticas, una por escenario. El backend valida estos mismos archivos con Pydantic.
@@ -34,7 +36,19 @@ export const TRACES = {
   failed: parsePurchaseTrace(failed),
   canceled: parsePurchaseTrace(canceled),
   uncertain: parsePurchaseTrace(uncertain),
+  // Controles de la aplicación del flujo HP gobernado (b2-governed-pilot), no de la política.
+  /** S04: el comercio cambió el precio después de mostrar los términos; la frescura detuvo la aprobación. */
+  staleTerms: parsePurchaseTrace(staleTerms),
+  /** S02: el total del comercio superó el presupuesto; el agente canceló el checkout y lo explicó. */
+  governedRecovery: parsePurchaseTrace(governedRecovery),
 } satisfies Record<string, PurchaseTrace>
+
+/** Último paso de un tipo: en S04, la comprobación de frescura que bloqueó. */
+export function lastStepOf<Kind extends StepKind>(trace: PurchaseTrace, kind: Kind) {
+  const step = trace.steps.findLast((candidate) => candidate.kind === kind)
+  if (!step) throw new Error(`Fixture ${trace.run_id} has no ${kind} step`)
+  return step as Extract<TraceStep, { kind: Kind }>
+}
 
 /** Primer paso de un tipo dentro de una fixture; falla si no lo tiene. */
 export function stepOf<Kind extends StepKind>(trace: PurchaseTrace, kind: Kind) {

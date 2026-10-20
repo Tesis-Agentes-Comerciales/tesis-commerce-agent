@@ -20,10 +20,11 @@ from pydantic import SecretBytes
 from commerce_agent.application.conversation import turn_run_id
 from commerce_agent.config import Settings, validate_service_base_url
 from commerce_agent.governance.evaluator import GovernanceError, verify_artifact
-from commerce_agent.governance.evidence import DecisionRecord
+from commerce_agent.governance.evidence import DecisionRecord, EvidenceError
 from commerce_agent.governance.models import D1PolicyArtifact
 from commerce_agent.governance.provenance import ProvenanceKeys, merchant_pseudonym
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
+from commerce_agent.persistence.hp_evidence_sqlite import HpEvidence, chain_is_valid, read_run
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,8 @@ class PurchaseRecords:
     decisions: tuple[DecisionRecord, ...]
     policy: D1PolicyArtifact | None
     turn: TurnSnapshot | None
+    # Application controls of the governed HP flow: offer freshness and governed recovery.
+    hp_evidence: tuple[HpEvidence, ...] = ()
 
 
 def merchant_origins(settings: Settings) -> dict[str, str]:
@@ -125,6 +128,7 @@ def read_records(database: Path, graph_database: Path, run_id: str) -> PurchaseR
             decisions=decisions,
             policy=_policy(connection, run_id, decisions),
             turn=_turn(graph_database, thread["thread_id"], run_id) if thread else None,
+            hp_evidence=_hp_evidence(connection, run_id),
         )
 
 
@@ -144,6 +148,22 @@ def _decisions(connection: sqlite3.Connection, run_id: str) -> tuple[DecisionRec
         return ()
     evidence = SqliteGovernanceEvidenceStore(connection).for_run(run_id)
     return tuple(item for item in evidence if isinstance(item, DecisionRecord))
+
+
+def _hp_evidence(connection: sqlite3.Connection, run_id: str) -> tuple[HpEvidence, ...]:
+    """The run's hp_evidence chain; a broken link makes the whole trace unavailable."""
+    # Created only when a governed HP control is configured (off databases never have it).
+    if not connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'hp_evidence'"
+    ).fetchone():
+        return ()
+    try:
+        records = read_run(connection, run_id)
+    except (sqlite3.Error, ValueError):
+        raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
+    if not chain_is_valid(run_id, records):
+        raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE")
+    return records
 
 
 def _policy(

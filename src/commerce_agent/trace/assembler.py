@@ -13,6 +13,7 @@ from pydantic import TypeAdapter
 
 from commerce_agent.config import Settings
 from commerce_agent.governance.evidence import DecisionRecord
+from commerce_agent.persistence.hp_evidence_sqlite import HpEvidence
 
 from .models import (
     ApprovalStep,
@@ -43,6 +44,10 @@ STAGE_STATUS: dict[str, PurchaseStatus] = {
 DELEGATED_STAGES = {"completing", "uncertain", "completed", "failed"}
 FINISHED = {"completed", "blocked", "canceled", "failed"}
 CANCELED_BY: dict[str, TraceActor] = {"user": "user", "budget": "agent"}
+# What a freshness check gates: it always runs before these are recorded.
+GATED = {"approval", "authorization_signed", "payment_authorized", "order_confirmed"}
+# Fields offer_freshness.compare_offer compares; a field it adds later stays out of the trace.
+AMOUNT_FIELDS = {"subtotal_minor", "shipping_minor", "total_minor", "delivery_days", "stock"}
 
 
 def utc(value: str) -> str:
@@ -167,13 +172,19 @@ def checkout_step(records: PurchaseRecords) -> TraceStep | None:
     return step("checkout_created", started and utc(started), "merchant", checkout_id=checkout_id)
 
 
+def stale_terms(records: PurchaseRecords) -> bool:
+    """The last freshness check blocked the terms: they can no longer be approved."""
+    checks = [item for item in records.hp_evidence if item.record_kind == "freshness_check"]
+    return bool(checks) and checks[-1].body.get("decision") == "block"
+
+
 def approval_step(records: PurchaseRecords) -> TraceStep | None:
     terms, approval = records.terms, records.approval
     if terms is None or records.terms_shown_at is None:
         return None
     shown = utc(records.terms_shown_at)
     approved = utc(approval["approved_at"]) if approval else None
-    waiting = records.purchase["stage"] == "awaiting_confirmation"
+    waiting = records.purchase["stage"] == "awaiting_confirmation" and not stale_terms(records)
     return step(
         "approval",
         approved or shown,
@@ -245,8 +256,120 @@ def failed_step(records: PurchaseRecords) -> TraceStep | None:
     return step("failed", at, actor, state="error", code="purchase_failed")
 
 
+def _count(value: object) -> int | None:
+    return value if type(value) is int and value >= 0 else None
+
+
+def _currency(value: object) -> str | None:
+    return value.upper() if isinstance(value, str) and len(value) == 3 else None
+
+
+def _time(value: object) -> str | None:
+    try:
+        return utc(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def freshness_change(field: str, pair: dict[str, Any]) -> dict[str, Any] | None:
+    """The checkout value against the live offer's, typed by field as in the contract."""
+    read = (
+        _count
+        if field in AMOUNT_FIELDS
+        else {"currency": _currency, "expires_at": _time}.get(field)
+    )
+    if read is None:
+        return None
+    return {
+        "field": field,
+        "presented": read(pair.get("checkout")),
+        "current": read(pair.get("offer")),
+    }
+
+
+def freshness_step(record: HpEvidence) -> TraceStep:
+    """Application control, attributed to the agent: never a policy decision."""
+    body = record.body
+    compared = body.get("compared") or {}
+    changes = (
+        freshness_change(field, compared.get(field) or {}) for field in body["changed_fields"]
+    )
+    return step(
+        "freshness_check",
+        utc(body["checked_at"]),
+        "agent",
+        step_id=f"freshness_check:{record.sequence}",
+        state="blocked" if body["decision"] == "block" else "done",
+        stage=body["stage"],
+        mode=body["governance_mode"],
+        outcome=body["outcome"],
+        changes=tuple(change for change in changes if change is not None),
+        currency=_currency((compared.get("currency") or {}).get("checkout")),
+        offer_revision=_count(body.get("observed_revision")),
+        read_error=body.get("reason") or None,
+        evidence_digest=record.digest,
+    )
+
+
+def freshness_steps(records: PurchaseRecords) -> list[TraceStep]:
+    """Every approval attempt, and every reload with AP2, checks again: a repeat adds no row."""
+    found: list[TraceStep] = []
+    previous = None
+    for record in records.hp_evidence:
+        if record.record_kind != "freshness_check":
+            continue
+        current = freshness_step(record)
+        result = current.model_dump(exclude={"id", "at", "offer_revision", "evidence_digest"})
+        if result != previous:
+            found.append(current)
+        previous = result
+    return found
+
+
+def recovery_steps(records: PurchaseRecords) -> list[TraceStep]:
+    """The record keeps no time; it always follows what it explains, so it goes last."""
+    return [
+        step(
+            "governed_recovery",
+            None,
+            "agent",
+            step_id=f"governed_recovery:{record.sequence}",
+            recovery=record.body["kind"],
+            cause=record.body["cause"],
+            variant_id=record.body.get("variant_id") or None,
+            budget_minor=_count(record.body.get("budget_minor")),
+            observed_minor=_count(record.body.get("observed_unit_amount_minor")),
+            currency=_currency(record.body.get("currency")),
+            evidence_digest=record.digest,
+        )
+        for record in records.hp_evidence
+        if record.record_kind == "governed_recovery"
+    ]
+
+
+def by_time(steps: list[TraceStep], checks: list[TraceStep]) -> list[TraceStep]:
+    """Insert each check before the first later step; steps without a time keep their place.
+
+    Times are rounded to milliseconds, and a check runs right before the approval it gates: on a
+    tie it goes first.
+    """
+    merged = list(steps)
+    for item in checks:
+        later = (
+            index
+            for index, current in enumerate(merged)
+            if item.at is not None
+            and current.at is not None
+            and (current.at > item.at or (current.at == item.at and current.kind in GATED))
+        )
+        merged.insert(next(later, len(merged)), item)
+    return merged
+
+
 def purchase_status(records: PurchaseRecords) -> PurchaseStatus:
     stage = records.purchase["stage"]
+    if stage == "awaiting_confirmation" and stale_terms(records):
+        return "stale_terms"
     if stage in ("completed", "awaiting_confirmation"):
         return STAGE_STATUS[stage]
     if records.decisions and records.decisions[-1].application.disposition == "blocked":
@@ -280,7 +403,8 @@ def assemble(records: PurchaseRecords, origins: dict[str, str]) -> PurchaseTrace
         canceled_step(records),
         failed_step(records),
     )
-    steps = tuple(item for item in found if item is not None)
+    ordered = by_time([item for item in found if item is not None], freshness_steps(records))
+    steps = (*ordered, *recovery_steps(records))
     terms = records.terms
     return PurchaseTrace(
         run_id=records.purchase["run_id"],

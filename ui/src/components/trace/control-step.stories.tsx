@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect } from "storybook/test"
+import { expect, within } from "storybook/test"
 
 import { ControlStep } from "@/components/trace/control-step"
-import { stepOf, TRACES } from "@/storybook/trace-fixtures"
+import { lastStepOf, stepOf, TRACES } from "@/storybook/trace-fixtures"
 
 const COMPLETED = TRACES.completedShadow
 
@@ -91,6 +91,132 @@ export const Failed: Story = {
   play: async ({ canvas }) => {
     await expect(canvas.getByText("El pago sandbox fue rechazado.")).toBeVisible()
     await expect(canvas.queryByText(/payment_declined/)).toBeNull()
+  },
+}
+
+// Controles de la aplicación del flujo HP gobernado: nunca se presentan como política.
+
+const FRESH = stepOf(TRACES.staleTerms, "freshness_check")
+const CHANGED = lastStepOf(TRACES.staleTerms, "freshness_check")
+const RECOVERY = stepOf(TRACES.governedRecovery, "governed_recovery")
+/** Ni la política ni sus códigos: la frescura y la recuperación son controles de la aplicación. */
+const NOT_POLICY = /política|regla|POL-0|D1|freshness|changed|enforce|budget_exceeded/i
+
+/** S04, al presentar los términos: la oferta viva coincide con el checkout. */
+export const FreshnessConfirmed: Story = {
+  args: { step: FRESH },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Condiciones confirmadas con el comercio")).toBeVisible()
+    await expect(canvas.getByText("Antes de mostrarte los términos")).toBeVisible()
+    await expect(canvas.queryByRole("list", { name: "Qué cambió" })).toBeNull()
+    await expect(canvas.queryByText(NOT_POLICY)).toBeNull()
+  },
+}
+
+/** S04, al aprobar: el precio cambió y el control detuvo la aprobación antes de firmar. */
+export const FreshnessBlocked: Story = {
+  args: { step: CHANGED },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(canvas.getByText("Las condiciones del comercio cambiaron")).toBeVisible()
+    await expect(
+      canvas.getByText("Tu aprobación no se registró y no se firmó ninguna autorización."),
+    ).toBeVisible()
+    // Escudo ámbar como cualquier bloqueo, pero sin atribuirlo a la política.
+    await expect(canvasElement.querySelector("li")).toHaveAttribute("data-state", "blocked")
+    await expect(canvas.getByText("Detenido")).toHaveClass("sr-only")
+    const changes = canvas.getByRole("list", { name: "Qué cambió" })
+    const total = within(changes).getByText("Total").closest("li")
+    await expect(total).toHaveTextContent(/En el checkout\$\s?1\.924\.000(,00)? COP/)
+    await expect(total).toHaveTextContent(/Oferta actual\$\s?2\.024\.000(,00)? COP/)
+    await expect(within(changes).getByText("Precio del producto")).toBeVisible()
+    await expect(canvas.queryByText(NOT_POLICY)).toBeNull()
+  },
+}
+
+/** Al presentar: la oferta cambió antes de que vieras los términos. */
+export const FreshnessBlockedWhenPresenting: Story = {
+  args: { step: { ...CHANGED, stage: "present" } },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("No se mostraron los términos para aprobar.")).toBeVisible()
+  },
+}
+
+/** No se pudo leer la oferta: falla cerrado, sin lista de cambios. */
+export const FreshnessUnavailable: Story = {
+  args: {
+    step: { ...CHANGED, outcome: "unavailable", changes: [], read_error: "freshness_check_failed" },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByText("No se pudieron confirmar las condiciones con el comercio"),
+    ).toBeVisible()
+    await expect(canvas.getByText("Por precaución, la compra se detuvo.")).toBeVisible()
+    await expect(canvas.queryByText(/freshness_check_failed/)).toBeNull()
+  },
+}
+
+/** Modo observando: el cambio se registra y la compra sigue. */
+export const FreshnessObserved: Story = {
+  args: { step: { ...CHANGED, mode: "shadow", state: "done" } },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Las condiciones del comercio cambiaron")).toBeVisible()
+    await expect(canvas.getByText("Solo observando: registra, no detiene")).toBeVisible()
+    await expect(canvas.getByRole("list", { name: "Qué cambió" })).toBeVisible()
+  },
+}
+
+/** Vigencia, días de entrega, unidades y moneda, cada uno con su formato. */
+export const FreshnessOtherFields: Story = {
+  args: {
+    step: {
+      ...CHANGED,
+      changes: [
+        { field: "expires_at", presented: "2026-10-20T16:25:31.020Z", current: null },
+        { field: "delivery_days", presented: 2, current: 1 },
+        { field: "stock", presented: 1, current: 0 },
+        { field: "currency", presented: "COP", current: "USD" },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Sin dato")).toBeVisible()
+    await expect(canvas.getByText("2 días")).toBeVisible()
+    await expect(canvas.getByText("1 día")).toBeVisible()
+    await expect(canvas.getByText("Unidades disponibles")).toBeVisible()
+    await expect(canvas.getByText("USD")).toBeVisible()
+  },
+}
+
+/** S02 con checkout: el total superó el presupuesto, el agente lo canceló y lo explicó. */
+export const GovernedRecovery: Story = {
+  args: { step: RECOVERY },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("El agente explicó por qué no siguió")).toBeVisible()
+    await expect(
+      canvas.getByText(
+        /^Superaba tu presupuesto de \$\s?1\.000\.000(,00)? COP\. Se canceló el checkout antes de cobrar\.$/,
+      ),
+    ).toBeVisible()
+    await expect(canvas.queryByText(NOT_POLICY)).toBeNull()
+  },
+}
+
+/** S02 sin checkout: el modelo eligió fuera de la lista corta. */
+export const GovernedRecoveryOutsideShortlist: Story = {
+  args: {
+    step: {
+      ...RECOVERY,
+      recovery: "selection_outside_shortlist",
+      cause: "not_shortlisted",
+      budget_minor: null,
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByText(
+        "La opción elegida no estaba entre las verificadas para tu pedido. No se creó ningún checkout.",
+      ),
+    ).toBeVisible()
   },
 }
 

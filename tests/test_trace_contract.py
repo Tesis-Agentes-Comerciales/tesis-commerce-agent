@@ -14,7 +14,7 @@ FIXTURE_FILES = sorted(FIXTURES.glob("*.json"))
 
 
 def test_every_ui_fixture_is_present() -> None:
-    assert len(FIXTURE_FILES) >= 11
+    assert len(FIXTURE_FILES) >= 13
 
 
 @pytest.mark.parametrize("path", FIXTURE_FILES, ids=lambda path: path.stem)
@@ -28,10 +28,19 @@ def fixture(name: str = "completed-shadow") -> dict[str, Any]:
     return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
 
 
-def mutated(change) -> dict[str, Any]:
-    trace = fixture()
+def mutated(change, name: str = "completed-shadow") -> dict[str, Any]:
+    trace = fixture(name)
     change(trace)
     return trace
+
+
+def kind(trace: dict[str, Any], name: str) -> dict[str, Any]:
+    """Last step of a kind: the blocking freshness check in stale-terms."""
+    return [item for item in trace["steps"] if item["kind"] == name][-1]
+
+
+def change(trace: dict[str, Any], index: int = 0) -> dict[str, Any]:
+    return kind(trace, "freshness_check")["changes"][index]
 
 
 @pytest.mark.parametrize(
@@ -69,13 +78,113 @@ def test_contract_is_as_strict_as_the_ui_validator(change) -> None:
         PurchaseTrace.model_validate_json(json.dumps(mutated(change)))
 
 
+@pytest.mark.parametrize(
+    ("name", "edit"),
+    [
+        pytest.param(
+            "stale-terms",
+            lambda trace: kind(trace, "freshness_check").update(stage="complete"),
+            id="unknown-freshness-stage",
+        ),
+        pytest.param(
+            "stale-terms",
+            lambda trace: kind(trace, "freshness_check").update(outcome="stale"),
+            id="unknown-freshness-outcome",
+        ),
+        pytest.param(
+            "stale-terms",
+            lambda trace: kind(trace, "freshness_check").update(decision="block"),
+            id="freshness-decision-is-the-state",
+        ),
+        pytest.param(
+            "stale-terms",
+            lambda trace: kind(trace, "freshness_check").update(evidence_digest=""),
+            id="empty-evidence-digest",
+        ),
+        pytest.param(
+            "stale-terms",
+            lambda trace: kind(trace, "freshness_check").update(offer_revision=-1),
+            id="negative-offer-revision",
+        ),
+        pytest.param(
+            "stale-terms",
+            lambda trace: change(trace).update(field="price"),
+            id="unknown-changed-field",
+        ),
+        pytest.param(
+            "stale-terms",
+            lambda trace: change(trace).update(presented="1899000"),
+            id="amount-as-text",
+        ),
+        pytest.param(
+            "stale-terms",
+            lambda trace: change(trace).update(field="currency"),
+            id="currency-as-amount",
+        ),
+        pytest.param(
+            "stale-terms",
+            lambda trace: change(trace).update(
+                field="expires_at", presented="2026-10-20T16:25:31+00:00", current=None
+            ),
+            id="expiry-with-offset",
+        ),
+        pytest.param(
+            "stale-terms",
+            lambda trace: change(trace).update(compared={"checkout": 1}),
+            id="extra-change-field",
+        ),
+        pytest.param(
+            "governed-recovery",
+            lambda trace: kind(trace, "governed_recovery").update(cause="policy"),
+            id="unknown-recovery-cause",
+        ),
+        pytest.param(
+            "governed-recovery",
+            lambda trace: kind(trace, "governed_recovery").update(recovery="retry"),
+            id="unknown-recovery",
+        ),
+        pytest.param(
+            "governed-recovery",
+            lambda trace: kind(trace, "governed_recovery").update(explanation_sha256="a" * 64),
+            id="recovery-explanation-digest",
+        ),
+        pytest.param(
+            "governed-recovery",
+            lambda trace: kind(trace, "governed_recovery").update(budget_minor=-1),
+            id="negative-budget",
+        ),
+    ],
+)
+def test_application_controls_are_as_strict_as_the_ui_validator(name: str, edit) -> None:
+    with pytest.raises(ValidationError):
+        PurchaseTrace.model_validate_json(json.dumps(mutated(edit, name)))
+
+
+def test_application_control_fixtures_cover_s04_and_s02() -> None:
+    stale = PurchaseTrace.model_validate_json(json.dumps(fixture("stale-terms")))
+    checks = [item for item in stale.steps if item.kind == "freshness_check"]
+    assert stale.status == "stale_terms"
+    assert [(item.stage, item.outcome, item.state) for item in checks] == [
+        ("present", "fresh", "done"),
+        ("approve", "changed", "blocked"),
+    ]
+    assert all(item.actor == "agent" for item in checks)
+    recovery = PurchaseTrace.model_validate_json(json.dumps(fixture("governed-recovery")))
+    [step] = [item for item in recovery.steps if item.kind == "governed_recovery"]
+    assert (step.recovery, step.cause, step.actor) == (
+        "budget_exceeded_after_checkout",
+        "budget",
+        "agent",
+    )
+
+
 def test_purchase_summary_matches_the_ui_contract() -> None:
     row = {
         "run_id": "run_1",
         "started_at": "2026-10-20T15:41:20.412Z",
         "request": "Quiero audífonos",
         "merchant": "http://127.0.0.1:4120",
-        "total": {"minor": 164990000, "currency": "COP"},
+        "total": {"minor": 192400000, "currency": "COP"},
         "status": "blocked",
         "policy": {"outcome": "deny", "failed_rules": ["POL-02"]},
         "approved_at": None,
