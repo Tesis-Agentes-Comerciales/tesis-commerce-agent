@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     agent_ui_origin: str = "http://127.0.0.1:5173"
     agent_sandbox_clock_at: datetime | None = None
     agent_governance_mode: Literal["off", "shadow", "enforce"] = "off"
+    # What an enforce allow leads to: "blocked" stops at d1_dispatch_blocked (the opt-in
+    # proof); "governed" dispatches the checkout and continues the Human Present flow.
+    agent_hp_flow: Literal["blocked", "governed"] = "blocked"
     # Decode/validate B2 configuration in the isolated bootstrap boundary, so missing
     # or malformed settings never prevent ordinary B0 construction in off/shadow.
     # Opt-in enforce instead refuses to start with them.

@@ -432,6 +432,41 @@ def test_conversation_turn_can_reply_without_contacting_merchant(tmp_path: Path)
     assert router.messages == (ConversationMessage(role="user", content="Quiero comprar algo"),)
 
 
+@pytest.mark.parametrize(
+    ("overrides", "condition"),
+    [
+        ({}, {"governance_mode": "off", "hp_flow": "blocked"}),
+        (
+            {"agent_governance_mode": "shadow", "agent_hp_flow": "governed"},
+            {"governance_mode": "shadow", "hp_flow": "governed"},
+        ),
+    ],
+)
+def test_health_reports_the_governance_condition(
+    tmp_path: Path, overrides: dict[str, str], condition: dict[str, str]
+) -> None:
+    def unexpected_request(_: httpx.Request) -> httpx.Response:
+        raise AssertionError("Health must not contact the merchant")
+
+    settings = Settings(
+        merchant_bearer_token=SecretStr("merchant-token"),
+        merchant_webhook_secret=SecretStr("webhook-secret-with-at-least-32-characters"),
+        agent_approval_secret=SecretStr("approval-secret-with-at-least-32-characters"),
+        payment_agent_bearer_token=SecretStr("payment-agent-token-with-at-least-32-characters"),
+        agent_database_path=tmp_path / "agent.db",
+        agent_feed_source="file",
+        agent_feed_path=FEED,
+        **overrides,  # pyright: ignore[reportArgumentType]
+    )
+    app = create_app(settings=settings, transport=httpx.MockTransport(unexpected_request))
+
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", **condition}
+
+
 def test_pending_purchase_can_be_canceled_through_api(tmp_path: Path) -> None:
     ready = checkout("ready_for_payment", with_details=True)
     canceled = deepcopy(ready)
