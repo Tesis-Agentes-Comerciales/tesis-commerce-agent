@@ -1,4 +1,5 @@
 import { formatMoney, formatTime } from "@/components/agent/agent-format"
+import type { EvidenceRef } from "@/components/trace/evidence-refs"
 import type {
   PolicyDecision,
   PolicyRule,
@@ -231,4 +232,20 @@ export function skippedTitle(control: SkippedControl) {
 
 export function skippedDetail(control: SkippedControl) {
   return control.reason === "policy_off" ? "No se revisó esta compra" : null
+}
+
+/** Identificadores de una decisión para el detalle técnico: aquí sí van los códigos internos. */
+export function decisionRefs(decision: PolicyDecision): EvidenceRef[] {
+  const failedRules = decision.rules.filter((rule) => rule.result === "fail").map((rule) => rule.id)
+  return [
+    { label: "Decisión", value: decision.decision_id },
+    { label: "Evidencia", value: decision.evidence_id },
+    { label: "Política", value: `${decision.policy.set_id} · revisión ${decision.policy.revision}` },
+    ...listRef("Reglas que fallaron", failedRules),
+    ...listRef("Códigos", decision.reason_codes),
+  ]
+}
+
+function listRef(label: string, values: string[]): EvidenceRef[] {
+  return values.length > 0 ? [{ label, value: values.join(", ") }] : []
 }

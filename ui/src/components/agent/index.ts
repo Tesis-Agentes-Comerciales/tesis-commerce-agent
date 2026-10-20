@@ -22,6 +22,10 @@ export {
   ProductImage,
   type ProductCardProps,
 } from "@/components/agent/product-card"
+export {
+  PolicyBlockedCard,
+  type PolicyBlockedCardProps,
+} from "@/components/agent/policy-blocked-card"
 export { ProductCarousel, type ProductCarouselProps } from "@/components/agent/product-carousel"
 export {
   PurchaseApprovalCard,
