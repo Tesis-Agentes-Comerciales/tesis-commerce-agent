@@ -1022,6 +1022,23 @@ def test_recorder_marks_cancellation_and_stops_before_new_steps() -> None:
     ]
 
 
+def test_recorder_closes_a_failed_step_and_still_completes_the_message() -> None:
+    # Governed recovery: the checkout step failed, but the turn ends with an explanation.
+    recorder = AssistantMessageRecorder(
+        index=0, new_id=lambda prefix: f"{prefix}_x", emit=lambda _: None
+    )
+    recorder.step_started("prepare_checkout", {"variant_id": "SON-01"})
+    error = {"code": "budget_exceeded", "message": "Lo cancelé."}
+    recorder.step_failed("prepare_checkout", error)
+    recorder.text("Lo cancelé.")
+    recorder.complete()
+    assert recorder.message is not None
+    step, text = recorder.message["content"]
+    assert (step["result"], step["isError"]) == ({"error": error}, True)
+    assert text == {"type": "text", "text": "Lo cancelé."}
+    assert recorder.message["status"] == {"type": "complete", "reason": "stop"}
+
+
 def test_client_disconnect_cancels_the_turn_before_checkout(tmp_path: Path) -> None:
     entered = threading.Event()
     release = threading.Event()

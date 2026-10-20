@@ -21,6 +21,7 @@ from commerce_agent.llm import (
     CommerceDecision,
     ConversationMessage,
     OpenAIConversationRouter,
+    UnknownVariantSelection,
 )
 from commerce_agent.llm import conversation_router as module
 from commerce_agent.llm.catalog_tool import make_catalog_lookup
@@ -403,6 +404,30 @@ def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) ->
     assert '"preference_score": 0' in call["input"]
     assert "authoritative total is unknown" in call["instructions"]
     assert "Human approval" in call["instructions"]
+
+
+def test_router_names_the_variant_chosen_outside_the_shortlist(monkeypatch) -> None:
+    decision = CandidateDecision(
+        action="purchase",
+        assistant_message="Elegí los Sonora blancos.",
+        selected_variant_id="SON-07",
+    )
+    monkeypatch.setattr(module, "OpenAI", lambda **_: FakeOpenAI(decision))
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"), model="test-model", feed=FEED
+    )
+    intent = PurchaseIntent(
+        hard=HardConstraints(categories=("headphones",), required_terms=("sonora",))
+    )
+    messages = (ConversationMessage(role="user", content="Quiero audífonos Sonora"),)
+
+    with pytest.raises(UnknownVariantSelection) as raised:
+        router.choose_candidate(messages, intent, rank_candidates(FEED, intent).ranked)
+
+    assert raised.value.variant_id == "SON-07"
+    # Same code and text as before, so B0 still answers 502 intent_model_error.
+    assert raised.value.code == "intent_model_error"
+    assert str(raised.value) == "The candidate model selected an unknown variant"
 
 
 def test_broad_category_requires_candidate_clarification(monkeypatch) -> None:

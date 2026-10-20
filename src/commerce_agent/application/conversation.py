@@ -17,6 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.acp.models import CheckoutSessionWithOrder
+from commerce_agent.application.governed_recovery import (
+    GovernedRecovery,
+    RecoveryContext,
+    outside_shortlist,
+)
 from commerce_agent.application.product_cards import product_card
 from commerce_agent.application.purchase import (
     CheckoutDetails,
@@ -33,6 +38,7 @@ from commerce_agent.llm import (
     ConversationMessage,
     ConversationRouter,
     IntentInterpretationError,
+    UnknownVariantSelection,
 )
 from commerce_agent.llm.reasoning import reasoning_listener
 from commerce_agent.persistence import SqliteAgentStore
@@ -101,6 +107,8 @@ class TurnObserver(Protocol):
     def step_started(self, step: StepName, args: dict[str, Any]) -> None: ...
 
     def step_finished(self, step: StepName, result: dict[str, Any]) -> None: ...
+
+    def step_failed(self, step: StepName, error: dict[str, str]) -> None: ...
 
 
 _observer: ContextVar[TurnObserver | None] = ContextVar("turn_observer", default=None)
@@ -180,6 +188,7 @@ class ConversationService:
         allow_checkout: bool = True,
         feed_provider: Callable[[], ProductFeed] | None = None,
         router_factory: Callable[[ProductFeed], ConversationRouter] | None = None,
+        recovery: GovernedRecovery | None = None,
     ) -> None:
         self._feed = feed
         self._store = store
@@ -190,6 +199,8 @@ class ConversationService:
         self._feed_provider = feed_provider
         self._router_factory = router_factory
         self._allow_checkout = allow_checkout
+        # Only the governed flow explains rejected selections; None keeps B0 and its errors.
+        self._recovery = recovery
         self._graph = self._build_graph(checkpointer)
         # ponytail: one local lock is enough for this single-process demo; use DB leases when
         # scaling.
@@ -441,7 +452,15 @@ class ConversationService:
             lambda state: "prepare_checkout" if state["selected_variant_id"] else "finalize",
             ["prepare_checkout", "finalize"],
         )
-        builder.add_edge("prepare_checkout", "request_approval")
+        if self._recovery is None:
+            builder.add_edge("prepare_checkout", "request_approval")
+        else:
+            # Only the governed flow ends a turn here, after canceling an over-budget checkout.
+            builder.add_conditional_edges(
+                "prepare_checkout",
+                lambda state: "finalize" if state["response"] else "request_approval",
+                ["request_approval", "finalize"],
+            )
         builder.add_edge("request_approval", "finalize")
         builder.add_conditional_edges(
             "finalize",
@@ -549,6 +568,8 @@ class ConversationService:
     def _recover_no_candidate(
         self, state: GraphState, runtime: Runtime[GraphContext]
     ) -> dict[str, Any]:
+        if self._recovery is not None:
+            return _explained(self._recovery.no_candidate(self._recovery_context(state, runtime)))
         router = runtime.context.router or self._router
         if router is None:
             raise IntentInterpretationError("No conversation model is configured")
@@ -578,7 +599,17 @@ class ConversationService:
             "select_product",
             lambda: {"candidate_variant_ids": [item.candidate.variant_id for item in candidates]},
         )
-        decision = router.choose_candidate(self._messages(state), self._intent(state), candidates)
+        try:
+            decision = router.choose_candidate(
+                self._messages(state), self._intent(state), candidates
+            )
+        except UnknownVariantSelection as error:
+            if self._recovery is None:
+                raise
+            return self._explain_selection(state, runtime, error.variant_id)
+        rejected = outside_shortlist(decision, candidates)
+        if self._recovery is not None and rejected is not None:
+            return self._explain_selection(state, runtime, rejected)
         selected = decision.selected_variant_id
         _finished(
             observer,
@@ -630,16 +661,30 @@ class ConversationService:
         details = runtime.context.details
         if details is None:
             raise IntentInterpretationError("Checkout details are required")
-        purchase = self._purchases.start(
-            run_id=turn_run_id(state["turn_id"]),
-            request=decision.purchase_request or self._messages(state)[-1].content,
-            intent=self._intent(state),
-            selected_variant_id=selected,
-            details=details,
-            graph_thread_id=runtime.context.thread_id,
-            owner_id=runtime.context.owner_id,
-            feed=runtime.context.feed,
-        )
+        run_id = turn_run_id(state["turn_id"])
+        try:
+            purchase = self._purchases.start(
+                run_id=run_id,
+                request=decision.purchase_request or self._messages(state)[-1].content,
+                intent=self._intent(state),
+                selected_variant_id=selected,
+                details=details,
+                graph_thread_id=runtime.context.thread_id,
+                owner_id=runtime.context.owner_id,
+                feed=runtime.context.feed,
+            )
+        except PurchaseServiceError as error:
+            if self._recovery is None or error.code != "budget_exceeded":
+                raise
+            stored = self._store.purchase(run_id)
+            message = self._recovery.budget_exceeded(
+                self._recovery_context(state, runtime),
+                selected,
+                stored["checkout_id"] if stored is not None else None,
+            )
+            if observer is not None:
+                observer.step_failed("prepare_checkout", {"code": error.code, "message": message})
+            return _explained(message)
         _finished(
             observer,
             "prepare_checkout",
@@ -722,6 +767,30 @@ class ConversationService:
         result = self._completion.complete(run_id=run_id)
         return {"completion_result": result.model_dump(mode="json")}
 
+    def _explain_selection(
+        self, state: GraphState, runtime: Runtime[GraphContext], variant_id: str
+    ) -> dict[str, Any]:
+        assert self._recovery is not None
+        message = self._recovery.outside_shortlist(
+            self._recovery_context(state, runtime), variant_id
+        )
+        _finished(
+            _observer.get(),
+            "select_product",
+            lambda: {"decision": "clarify", "product": None, "rationale": message},
+        )
+        return {"selected_variant_id": None, **_explained(message)}
+
+    def _recovery_context(
+        self, state: GraphState, runtime: Runtime[GraphContext]
+    ) -> RecoveryContext:
+        return RecoveryContext(
+            run_id=turn_run_id(state["turn_id"]),
+            feed=runtime.context.feed or self._feed,
+            intent=self._intent(state),
+            rejection_counts=state["rejection_counts"],
+        )
+
     def _stage(self, run_id: str, owner_id: str) -> str:
         view = self.purchase_view(run_id, owner_id)
         if view is None:
@@ -735,6 +804,11 @@ class ConversationService:
     def _cards(self, variant_ids: Any, feed: ProductFeed | None = None) -> list[dict[str, Any]]:
         cards = (self._card(variant_id, feed) for variant_id in variant_ids)
         return [card for card in cards if card is not None]
+
+
+def _explained(message: str) -> dict[str, Any]:
+    response = ConversationTurnResponse(action="respond", assistant_message=message)
+    return {"response": response.model_dump(mode="json")}
 
 
 def _started(

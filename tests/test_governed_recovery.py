@@ -1,0 +1,561 @@
+"""Governed recovery (B2, S02): explain rejected selections instead of technical errors.
+
+Router doubles only (never a real model), real SQLite in tmp_path and the merchant behind
+httpx.MockTransport. Off, shadow and the blocked flow must keep B0, its 502 and 409 included.
+"""
+
+import hashlib
+import json
+import logging
+import re
+import sqlite3
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from langgraph.checkpoint.sqlite import SqliteSaver
+from pydantic import SecretStr
+
+from commerce_agent.acp import ACPClient, load_product_feed
+from commerce_agent.acp.feed import ProductCandidate
+from commerce_agent.api import create_app
+from commerce_agent.application import PurchaseService
+from commerce_agent.application.conversation import (
+    ConversationService,
+    ConversationTurnRequest,
+    turn_run_id,
+)
+from commerce_agent.application.governed_recovery import (
+    GovernedRecovery,
+    GovernedRecoveryRecord,
+    RecoveryContext,
+    governed_recovery_enabled,
+)
+from commerce_agent.application.purchase import CheckoutDetails
+from commerce_agent.approval import ApprovalService
+from commerce_agent.config import Settings
+from commerce_agent.domain import HardConstraints, OptionConstraint, PurchaseIntent, RankedCandidate
+from commerce_agent.llm import (
+    CandidateDecision,
+    CatalogRecovery,
+    CommerceDecision,
+    ConversationMessage,
+    UnknownVariantSelection,
+)
+from commerce_agent.persistence import SqliteAgentStore
+from tests.governance.test_shadow_integration import configuration
+from tests.test_api import checkout_details
+
+PHONES_PATH = Path(__file__).parent / "fixtures" / "phones_feed"
+PHONES = load_product_feed(PHONES_PATH)
+MERCHANT = "http://127.0.0.1:4120"
+DISCOVERY = {
+    "protocol": {"name": "acp", "version": "2026-04-17", "supported_versions": ["2026-04-17"]},
+    "api_base_url": MERCHANT,
+    "transports": ["rest"],
+    "capabilities": {
+        "services": ["checkout"],
+        "supported_currencies": ["cop"],
+        "supported_locales": ["es-CO"],
+    },
+}
+# The S02 request of evaluation/data/pilot-scenarios.json.
+S02_REQUEST = (
+    "Quiero exactamente el Google Pixel 8 de 128 GB negro, pero no puedo gastar mas de "
+    "1.000.000 COP y no acepto otro modelo."
+)
+PIXEL_8 = "BBGooglePixel8-128GB"
+PIXEL_8A = "BBGooglePixel8a-128GB"
+CHECKOUT_ID = "cs_pixel_1"
+OBSERVED_PRICES = {PIXEL_8: 154_000_000, PIXEL_8A: 89_900_000}
+MODEL_RECOVERY = "Puedo mostrarte otras opciones del catálogo."
+# Codes, identifiers and traces never reach the buyer: Spanish prose has no snake_case.
+INTERNAL_DETAILS = re.compile(r"[A-Za-z]+_[A-Za-z_]+|BBGoogle|Traceback|Error|variant")
+
+
+def s02_intent(*, max_unit: int | None = None, max_total: int | None = None) -> PurchaseIntent:
+    return PurchaseIntent(
+        hard=HardConstraints(
+            currency="COP",
+            max_unit_amount_minor=max_unit,
+            max_total_amount_minor=max_total,
+            categories=("smartphones",),
+            required_terms=("pixel 8",),
+            required_options=(
+                OptionConstraint(name="color", value="negro"),
+                OptionConstraint(name="almacenamiento", value="128 gb"),
+            ),
+        )
+    )
+
+
+def pick_pixel_8() -> CandidateDecision:
+    return CandidateDecision(
+        action="purchase",
+        assistant_message="Elegí el Google Pixel 8 que pediste.",
+        selected_variant_id=PIXEL_8,
+    )
+
+
+class S02Router:
+    """Router double: the model insists on the exact Pixel 8 that the budget rejected."""
+
+    def __init__(
+        self, intent: PurchaseIntent, selection: CandidateDecision | Exception | None = None
+    ) -> None:
+        self.intent = intent
+        self.selection = selection
+        self.calls: list[str] = []
+
+    def route(self, messages: tuple[ConversationMessage, ...]) -> CommerceDecision:
+        self.calls.append("route")
+        return CommerceDecision(
+            action="purchase",
+            assistant_message="Buscaré ese teléfono.",
+            purchase_request=S02_REQUEST,
+            intent=self.intent,
+        )
+
+    def choose_candidate(
+        self,
+        messages: tuple[ConversationMessage, ...],
+        intent: PurchaseIntent,
+        candidates: tuple[RankedCandidate, ...],
+    ) -> CandidateDecision:
+        self.calls.append("choose_candidate")
+        if isinstance(self.selection, Exception):
+            raise self.selection
+        assert self.selection is not None
+        return self.selection
+
+    def recover_no_candidate(
+        self,
+        messages: tuple[ConversationMessage, ...],
+        intent: PurchaseIntent,
+        rejection_counts: dict[str, int],
+        alternatives: tuple[ProductCandidate, ...],
+    ) -> CatalogRecovery:
+        self.calls.append("recover_no_candidate")
+        return CatalogRecovery(action="clarify", assistant_message=MODEL_RECOVERY)
+
+
+def pixel_checkout(status: str) -> dict[str, Any]:
+    return {
+        "id": CHECKOUT_ID,
+        "protocol": {"version": "2026-04-17"},
+        "status": status,
+        "currency": "cop",
+        "capabilities": {"payment": {"handlers": []}},
+        "line_items": [
+            {
+                "id": "li_1",
+                "item": {
+                    "id": PIXEL_8,
+                    "name": "Google Pixel 8 128 GB negro",
+                    "unit_amount": 154_000_000,
+                },
+                "quantity": 1,
+                "totals": [{"type": "total", "display_text": "Artículo", "amount": 154_000_000}],
+            }
+        ],
+        "totals": [{"type": "total", "display_text": "Total", "amount": 156_500_000}],
+        "fulfillment_options": [
+            {
+                "type": "shipping",
+                "id": "ship_1",
+                "title": "Envío simulado a Bogotá",
+                "earliest_delivery_time": "2099-09-22T13:00:00Z",
+                "latest_delivery_time": "2099-09-22T13:00:00Z",
+                "totals": [{"type": "total", "display_text": "Envío", "amount": 2_500_000}],
+            }
+        ],
+        "selected_fulfillment_options": [],
+        "messages": [],
+        "links": [],
+        "created_at": "2026-10-20T11:00:00Z",
+        "updated_at": "2026-10-20T11:00:00Z",
+        "expires_at": "2099-10-20T13:00:00Z",
+    }
+
+
+class PhoneMerchant:
+    """ACP merchant whose authoritative Pixel 8 total exceeds the S02 budget."""
+
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, str]] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        route = (request.method, request.url.path)
+        self.requests.append(route)
+        if route == ("GET", "/.well-known/acp.json"):
+            return httpx.Response(200, json=DISCOVERY)
+        if route == ("POST", "/checkout_sessions"):
+            return httpx.Response(201, json=pixel_checkout("not_ready_for_payment"))
+        if route == ("POST", f"/checkout_sessions/{CHECKOUT_ID}/cancel"):
+            return httpx.Response(200, json=pixel_checkout("canceled"))
+        raise AssertionError(f"Unexpected merchant request: {route}")
+
+    @property
+    def checkout_posts(self) -> int:
+        return self.requests.count(("POST", "/checkout_sessions"))
+
+
+class InMemoryRecoveryEvidence:
+    def __init__(self) -> None:
+        self.records: list[GovernedRecoveryRecord] = []
+
+    def record(self, recovery: GovernedRecoveryRecord) -> None:
+        self.records.append(recovery)
+
+
+class StepLog:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+    def reasoning_delta(self, delta: str) -> None:
+        del delta
+
+    def step_started(self, step: str, args: dict[str, Any]) -> None:
+        self.events.append(("started", step))
+
+    def step_finished(self, step: str, result: dict[str, Any]) -> None:
+        self.events.append(("finished", step))
+
+    def step_failed(self, step: str, error: dict[str, str]) -> None:
+        self.events.append(("failed", step))
+
+
+@contextmanager
+def api(
+    tmp_path: Path, router: S02Router, *, mode: str, flow: str = "blocked"
+) -> Iterator[tuple[TestClient, PhoneMerchant]]:
+    merchant = PhoneMerchant()
+    settings = configuration(
+        tmp_path / "agent.db", mode=mode, agent_hp_flow=flow, agent_feed_path=PHONES_PATH
+    )
+    app = create_app(
+        settings=settings,
+        transport=httpx.MockTransport(merchant),
+        payment_transport=httpx.MockTransport(merchant),
+        conversation_router=router,
+    )
+    with TestClient(app) as client:
+        yield client, merchant
+
+
+@contextmanager
+def conversation(
+    tmp_path: Path, router: S02Router, merchant: PhoneMerchant, evidence: InMemoryRecoveryEvidence
+) -> Iterator[ConversationService]:
+    """The service `/conversation/turn` and `/assistant` share, with recovery on and no D1."""
+    store = SqliteAgentStore(tmp_path / "agent.db")
+    store.initialize()
+    client = ACPClient(
+        MERCHANT, SecretStr("merchant-token-for-tests"), transport=httpx.MockTransport(merchant)
+    )
+    approvals = ApprovalService(
+        store, SecretStr("approval-secret-with-at-least-32-characters"), merchant_origin=MERCHANT
+    )
+    purchases = PurchaseService(feed=PHONES, checkout=client, store=store, approvals=approvals)
+    graph = sqlite3.connect(tmp_path / "agent.graph.db", check_same_thread=False)
+    with closing(graph), closing(client):
+        yield ConversationService(
+            feed=PHONES,
+            store=store,
+            purchases=purchases,
+            completion=None,
+            discover=client.discover,
+            router=router,
+            checkpointer=SqliteSaver(graph),
+            recovery=GovernedRecovery(evidence),
+        )
+
+
+def s02_body(turn_id: str = "turn-s02") -> dict[str, Any]:
+    return {
+        "turn_id": turn_id,
+        "conversation_id": "conversation-s02",
+        "messages": [{"role": "user", "content": S02_REQUEST}],
+        "details": checkout_details(),
+    }
+
+
+def purchase_rows(tmp_path: Path) -> list[tuple[Any, ...]]:
+    with closing(sqlite3.connect(tmp_path / "agent.db")) as connection:
+        return connection.execute("SELECT stage, checkout_id FROM purchases").fetchall()
+
+
+def assert_explains(message: str, *causes: str) -> None:
+    assert INTERNAL_DETAILS.search(message) is None, message
+    for cause in causes:
+        assert cause in message, message
+
+
+def sha256(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+# Governed: AGENT_GOVERNANCE_MODE=enforce and AGENT_HP_FLOW=governed.
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [pick_pixel_8(), UnknownVariantSelection(PIXEL_8)],
+    ids=["router-returns-it", "openai-router-raises"],
+)
+def test_governed_s02_explains_a_choice_outside_the_shortlist_without_checkout(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, selection: CandidateDecision | Exception
+) -> None:
+    router = S02Router(s02_intent(max_unit=100_000_000), selection)
+    with (
+        caplog.at_level(logging.INFO, "commerce_agent.application.governed_recovery"),
+        api(tmp_path, router, mode="enforce", flow="governed") as (client, merchant),
+    ):
+        response = client.post("/conversation/turn", json=s02_body())
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["action"] == "respond"
+    assert body["purchase"] is None and body["approval_terms"] is None
+    assert_explains(
+        body["assistant_message"],
+        "Google Pixel 8 128 GB negro",
+        "COP 1.540.000",
+        "presupuesto de COP 1.000.000",
+        "No preparé ningún checkout",
+    )
+    assert merchant.requests == []
+    assert purchase_rows(tmp_path) == []
+    (logged,) = [record for record in caplog.records if "governed_recovery" in record.message]
+    assert '"control":"application"' in logged.message
+
+
+def test_governed_no_candidate_is_explained_without_calling_the_model(tmp_path: Path) -> None:
+    router = S02Router(s02_intent(max_unit=50_000_000))
+    with api(tmp_path, router, mode="enforce", flow="governed") as (client, merchant):
+        response = client.post("/conversation/turn", json=s02_body())
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["action"] == "respond" and body["purchase"] is None
+    assert_explains(
+        body["assistant_message"],
+        "Google Pixel 8a 128 GB negro",
+        "COP 899.000",
+        "presupuesto de COP 500.000",
+    )
+    assert router.calls == ["route"]
+    assert merchant.requests == []
+
+
+def test_governed_budget_exceeded_after_checkout_declares_the_cancellation(
+    tmp_path: Path,
+) -> None:
+    # Enforce only reaches the merchant once D1 dispatch lands (PR-2), so this drives the shared
+    # conversation service directly; any exception here would surface as a 4xx/5xx.
+    merchant = PhoneMerchant()
+    router = S02Router(s02_intent(max_total=100_000_000), pick_pixel_8())
+    steps = StepLog()
+    with conversation(tmp_path, router, merchant, InMemoryRecoveryEvidence()) as service:
+        response = service.execute(
+            (ConversationMessage(role="user", content=S02_REQUEST),),
+            CheckoutDetails.model_validate_json(json.dumps(checkout_details())),
+            turn_id="turn-s02",
+            conversation_id="conversation-s02",
+            observer=steps,
+        )
+
+    assert response.action == "respond" and response.purchase is None
+    assert_explains(
+        response.assistant_message,
+        "checkout",
+        "Google Pixel 8 128 GB negro",
+        "COP 1.540.000",
+        "presupuesto de COP 1.000.000",
+        "lo cancelé",
+        "No se hizo ningún cobro",
+    )
+    assert merchant.requests == [
+        ("GET", "/.well-known/acp.json"),
+        ("POST", "/checkout_sessions"),
+        ("POST", f"/checkout_sessions/{CHECKOUT_ID}/cancel"),
+    ]
+    assert purchase_rows(tmp_path) == [("canceled", CHECKOUT_ID)]
+    assert steps.events[-2:] == [("started", "prepare_checkout"), ("failed", "prepare_checkout")]
+
+
+@pytest.mark.parametrize(
+    ("intent", "selection", "kind", "variant_id", "checkout_id"),
+    [
+        (s02_intent(max_unit=50_000_000), None, "no_candidate", PIXEL_8A, None),
+        (
+            s02_intent(max_unit=100_000_000),
+            pick_pixel_8(),
+            "selection_outside_shortlist",
+            PIXEL_8,
+            None,
+        ),
+        (
+            s02_intent(max_total=100_000_000),
+            pick_pixel_8(),
+            "budget_exceeded_after_checkout",
+            PIXEL_8,
+            CHECKOUT_ID,
+        ),
+    ],
+)
+def test_each_governed_recovery_is_recorded_as_an_application_control(
+    tmp_path: Path,
+    intent: PurchaseIntent,
+    selection: CandidateDecision | None,
+    kind: str,
+    variant_id: str,
+    checkout_id: str | None,
+) -> None:
+    evidence = InMemoryRecoveryEvidence()
+    router = S02Router(intent, selection)
+    with conversation(tmp_path, router, PhoneMerchant(), evidence) as service:
+        response = service.respond(
+            ConversationTurnRequest.model_validate_json(json.dumps(s02_body()))
+        )
+
+    (record,) = evidence.records
+    assert (record.event, record.control) == ("governed_recovery", "application")
+    assert (record.kind, record.cause, record.variant_id) == (kind, "budget", variant_id)
+    assert record.checkout_id == checkout_id
+    assert record.run_id == turn_run_id("turn-s02")
+    assert record.currency == "COP"
+    assert record.budget_minor == (
+        intent.hard.max_unit_amount_minor or intent.hard.max_total_amount_minor
+    )
+    assert record.observed_unit_amount_minor == OBSERVED_PRICES[variant_id]
+    assert record.intent_sha256 == sha256(intent.model_dump_json())
+    assert record.explanation_sha256 == sha256(response.assistant_message)
+    assert "Quiero" not in record.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    ("intent", "variant_id", "causes"),
+    [
+        (
+            s02_intent(max_unit=100_000_000),
+            "BBGooglePixel9-128GB",
+            ("Google Pixel 9", "no está disponible en este momento"),
+        ),
+        (
+            s02_intent(max_unit=100_000_000),
+            "NOT-IN-THE-FEED",
+            ("no está disponible en el catálogo",),
+        ),
+        (
+            s02_intent(max_unit=100_000_000),
+            PIXEL_8A,
+            ("Google Pixel 8a", "no estaba entre las opciones"),
+        ),
+        (
+            PurchaseIntent(
+                hard=HardConstraints(
+                    currency="COP",
+                    required_options=(OptionConstraint(name="color", value="blanco"),),
+                )
+            ),
+            PIXEL_8,
+            ("Google Pixel 8", "no tiene las características que pediste", "color blanco"),
+        ),
+    ],
+    ids=["out-of-stock", "not-in-catalog", "valid-but-not-shortlisted", "hard-option"],
+)
+def test_a_rejected_choice_is_explained_with_the_domain_rules(
+    intent: PurchaseIntent, variant_id: str, causes: tuple[str, ...]
+) -> None:
+    evidence = InMemoryRecoveryEvidence()
+    context = RecoveryContext(run_id="run-1", feed=PHONES, intent=intent, rejection_counts={})
+
+    message = GovernedRecovery(evidence).outside_shortlist(context, variant_id)
+
+    assert_explains(message, *causes, "No preparé ningún checkout")
+    if variant_id == "NOT-IN-THE-FEED":
+        assert evidence.records[0].variant_id is None
+
+
+@pytest.mark.parametrize(
+    ("mode", "flow", "enabled"),
+    [
+        ("off", "blocked", False),
+        ("off", "governed", False),
+        ("shadow", "governed", False),
+        ("enforce", "blocked", False),
+        ("enforce", "governed", True),
+    ],
+)
+def test_recovery_is_enabled_only_for_enforce_with_the_governed_flow(
+    mode: str, flow: str, enabled: bool
+) -> None:
+    settings = Settings.model_validate({"agent_governance_mode": mode, "agent_hp_flow": flow})
+    assert governed_recovery_enabled(settings) is enabled
+
+
+# B0' (off), shadow and the blocked flow: behavior and status codes stay as in B0.
+
+
+@pytest.mark.parametrize(
+    ("mode", "flow"),
+    [("off", "blocked"), ("off", "governed"), ("shadow", "governed"), ("enforce", "blocked")],
+)
+def test_without_the_governed_flow_a_choice_outside_the_shortlist_keeps_the_502(
+    tmp_path: Path, mode: str, flow: str
+) -> None:
+    router = S02Router(s02_intent(max_unit=100_000_000), UnknownVariantSelection(PIXEL_8))
+    with api(tmp_path, router, mode=mode, flow=flow) as (client, merchant):
+        response = client.post("/conversation/turn", json=s02_body())
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "code": "intent_model_error",
+        "message": "The candidate model selected an unknown variant",
+    }
+    assert merchant.requests == []
+
+
+def test_off_keeps_refusing_a_returned_outside_choice_at_checkout_preparation(
+    tmp_path: Path,
+) -> None:
+    router = S02Router(s02_intent(max_unit=100_000_000), pick_pixel_8())
+    with api(tmp_path, router, mode="off") as (client, merchant):
+        response = client.post("/conversation/turn", json=s02_body())
+
+    assert response.status_code == 409 and response.json()["code"] == "invalid_candidate"
+    assert merchant.checkout_posts == 0
+
+
+@pytest.mark.parametrize(("mode", "flow"), [("off", "governed"), ("enforce", "blocked")])
+def test_without_the_governed_flow_no_candidate_keeps_the_model_recovery(
+    tmp_path: Path, mode: str, flow: str
+) -> None:
+    router = S02Router(s02_intent(max_unit=50_000_000))
+    with api(tmp_path, router, mode=mode, flow=flow) as (client, _):
+        response = client.post("/conversation/turn", json=s02_body())
+
+    assert response.status_code == 200
+    assert response.json()["action"] == "clarify"
+    assert response.json()["assistant_message"] == MODEL_RECOVERY
+    assert router.calls == ["route", "recover_no_candidate"]
+
+
+def test_off_budget_exceeded_after_checkout_keeps_the_409(tmp_path: Path) -> None:
+    router = S02Router(s02_intent(max_total=100_000_000), pick_pixel_8())
+    with api(tmp_path, router, mode="off", flow="governed") as (client, merchant):
+        response = client.post("/conversation/turn", json=s02_body())
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "code": "budget_exceeded",
+        "message": "Authoritative checkout total exceeds the budget",
+    }
+    assert merchant.checkout_posts == 1
+    assert ("POST", f"/checkout_sessions/{CHECKOUT_ID}/cancel") in merchant.requests
+    assert purchase_rows(tmp_path) == [("canceled", CHECKOUT_ID)]
