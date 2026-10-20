@@ -43,7 +43,9 @@ SOURCE_PATHS = (
     "src/commerce_agent/vendor/acp/2026-04-17/schema.feed.json",
 )
 type Measured = dict[Literal["algorithm", "normalization"], bytes]
-_memo: tuple[tuple[Path, ...], object, Measured] | None = None
+# Every measured path; project sources and lock keep their bytes for a content check.
+type Read = dict[Path, bytes | None]
+_memo: tuple[Read, object, Measured] | None = None
 _memo_lock = Lock()
 _RACY_NS = 2_000_000_000  # Coarsest common file timestamp resolution (FAT).
 
@@ -55,10 +57,10 @@ def lf_source(payload: bytes) -> str:
     return normalized.decode("utf-8")
 
 
-def _dependency(name: str, locked: dict[str, set[str]], read: list[Path]) -> dict[str, str]:
+def _dependency(name: str, locked: dict[str, set[str]], read: Read) -> dict[str, str]:
     package = distribution(name)
     # Installing or removing any distribution beside it changes this directory.
-    read.append(Path(str(package.locate_file(""))).resolve())
+    read[Path(str(package.locate_file(""))).resolve()] = None
     normalized_name = name.lower().replace("_", "-")
     if package.version not in locked.get(normalized_name, set()):
         raise GovernanceError("GOV_ARTIFACT_MISMATCH")
@@ -71,7 +73,7 @@ def _dependency(name: str, locked: dict[str, set[str]], read: list[Path]) -> dic
         if path.endswith(".pyc"):
             continue
         actual_path = Path(str(package.locate_file(path))).resolve()
-        read.append(actual_path)
+        read[actual_path] = None
         if not recorded_hash:
             if not path.endswith(".dist-info/RECORD"):
                 raise GovernanceError("GOV_ARTIFACT_MISMATCH")
@@ -94,7 +96,7 @@ def _dependency(name: str, locked: dict[str, set[str]], read: list[Path]) -> dic
     }
 
 
-def _signature(read: tuple[Path, ...]) -> object:
+def _signature(read: Read) -> object:
     """Cheap change key: writes, replacement or reinstall alter ctime, size or inode."""
     try:
         stats = [os.stat(path) for path in read]
@@ -111,22 +113,23 @@ def _signature(read: tuple[Path, ...]) -> object:
     ]
 
 
-def _measure(read: list[Path]) -> Measured:
+def _measure(read: Read) -> Measured:
     package = Path(str(files("commerce_agent")))
     # A wheel carries the lock as package data; a source checkout keeps it at its root.
     lock_path = package / "uv.lock"
     if not lock_path.is_file():
         lock_path = Path(__file__).resolve().parents[3] / "uv.lock"
-    read.append(lock_path)
-    lock = lf_source(lock_path.read_bytes())
+    raw_lock = read[lock_path] = lock_path.read_bytes()
+    lock = lf_source(raw_lock)
     locked: dict[str, set[str]] = {}
     for item in tomllib.loads(lock)["package"]:
         locked.setdefault(item["name"].lower().replace("_", "-"), set()).add(item["version"])
     dependencies = [_dependency(name, locked, read) for name in DEPENDENCIES]
     # Manifest names stay checkout-relative, so identities match in either layout.
     paths = {path: package / path.removeprefix("src/commerce_agent/") for path in SOURCE_PATHS}
-    read.extend(paths.values())
-    source = {path: lf_source(location.read_bytes()) for path, location in paths.items()}
+    raw = {path: location.read_bytes() for path, location in paths.items()}
+    read.update((paths[path], body) for path, body in raw.items())
+    source = {path: lf_source(body) for path, body in raw.items()}
     common = {
         "schema_version": "d1-source-manifest/1",
         "source_profile": "project-source-utf8-lf/1",
@@ -151,22 +154,29 @@ def _measure(read: list[Path]) -> Measured:
 def measure_d1_sources() -> Measured:
     """Setup I/O only. No git process, credentials, network or commercial mutation.
 
-    Full hashing runs once per process and again only after a measured file, the
-    distributions beside it or sys.path change; callers keep comparing every use.
+    Dependency hashing runs once per process and again only after an installed file,
+    the distributions beside it or sys.path change. Project sources and the lock are
+    compared byte for byte on every use; callers keep comparing every result.
     """
     global _memo
     with _memo_lock:
         try:
-            if _memo is not None and _signature(_memo[0]) == _memo[1]:
+            if (
+                _memo is not None
+                and _signature(_memo[0]) == _memo[1]
+                and all(
+                    body is None or path.read_bytes() == body for path, body in _memo[0].items()
+                )
+            ):
                 return dict(_memo[2])
             _memo = None
-            read: list[Path] = []
+            read: Read = {}
             measured = _measure(read)
-            signature = _signature(tuple(read))
+            signature = _signature(read)
             # Reuse only if a second read after the stat agrees: an earlier write
             # changes that read, and any later write changes the key.
-            if signature is not None and _measure([]) == measured:
-                _memo = (tuple(read), signature, measured)
+            if signature is not None and _measure({}) == measured:
+                _memo = (read, signature, measured)
             return dict(measured)
         except Exception:
             raise GovernanceError("GOV_ARTIFACT_MISMATCH") from None
