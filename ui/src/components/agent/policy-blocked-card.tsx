@@ -4,7 +4,12 @@ import { useId } from "react"
 
 import { PolicyRuleTable } from "@/components/trace/policy-rule-table"
 import { TechnicalDetails } from "@/components/trace/technical-details"
-import { decisionRefs, POLICY_MODE_LABEL, policyUnavailable } from "@/components/trace/trace-copy"
+import {
+  blockedCardCopy,
+  decisionRefs,
+  NOTHING_CHARGED,
+  policyModeNote,
+} from "@/components/trace/trace-copy"
 import type { PolicyDecision } from "@/lib/trace-contract"
 
 export type PolicyBlockedCardProps = {
@@ -14,35 +19,13 @@ export type PolicyBlockedCardProps = {
 }
 
 /**
- * Sin reglas fallidas la política no pudo verificar la compra: no respondió (ninguna regla
- * evaluada) o la revisión no terminó. En ambos casos se detuvo por precaución, no por una regla.
- */
-function blockedCopy(decision: PolicyDecision, failedCount: number) {
-  if (failedCount === 0) {
-    return {
-      title: "No se pudo verificar la política de compra",
-      subtitle: "Por precaución, la compra se detuvo.",
-      explanation: policyUnavailable(decision)
-        ? "La política no estaba disponible para revisar esta compra."
-        : "La revisión de la política no se completó.",
-    }
-  }
-  return {
-    title: "La política de compra detuvo esta compra",
-    subtitle:
-      failedCount === 1 ? "No se cumplió una regla." : `No se cumplieron ${failedCount} reglas.`,
-    explanation: null,
-  }
-}
-
-/**
  * Tarjeta fuera del plegable: qué regla no se cumplió y qué no ocurrió. Un bloqueo es la política
  * funcionando, no un error, así que va en ámbar y nunca dice «error inesperado».
  */
 export function PolicyBlockedCard({ decision, className }: PolicyBlockedCardProps) {
   const titleId = useId()
   const failedRules = decision.rules.filter((rule) => rule.result === "fail")
-  const copy = blockedCopy(decision, failedRules.length)
+  const copy = blockedCardCopy(decision, failedRules.length)
 
   return (
     <section
@@ -69,21 +52,18 @@ export function PolicyBlockedCard({ decision, className }: PolicyBlockedCardProp
         {failedRules.length > 0 ? (
           <PolicyRuleTable rules={failedRules} />
         ) : (
-          <p className="text-sm leading-5">
-            {copy.explanation} Ante la duda, la compra se detiene antes de llegar al comercio.
-          </p>
+          <p className="text-sm leading-5">{copy.explanation}</p>
         )}
 
         <p className="flex gap-2.5 rounded-[16px] bg-[#f7f7f7] px-3.5 py-3 text-sm leading-5">
           <CircleSlashIcon className="mt-0.5 size-4 shrink-0 text-[#6b6b6b]" aria-hidden />
-          {/* Las decisiones de política ocurren antes de crear el checkout (D1). */}
-          No se creó ningún checkout ni se hizo ningún cobro.
+          {NOTHING_CHARGED}
         </p>
 
         <TechnicalDetails refs={decisionRefs(decision)} />
 
         <p className="text-center text-xs leading-5 text-[#6b6b6b]">
-          Política de compra · {POLICY_MODE_LABEL[decision.mode]}
+          {policyModeNote(decision.mode)}
         </p>
       </div>
     </section>

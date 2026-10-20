@@ -292,3 +292,58 @@ export function traceRefs(trace: PurchaseTrace): EvidenceRef[] {
     ...trace.steps.flatMap(stepRefs),
   ]
 }
+
+export const TECHNICAL_DETAILS_TITLE = "Detalle técnico"
+
+export const EVIDENCE_EMPTY = "Esta compra todavía no tiene identificadores."
+
+export function copyEvidenceLabel(label: string) {
+  return `Copiar ${label.toLocaleLowerCase("es")}`
+}
+
+export const COPY_FEEDBACK = {
+  idle: "",
+  copied: "Copiado",
+  failed: "No se pudo copiar",
+}
+
+// Tarjeta de bloqueo. Las decisiones de política ocurren antes de crear el checkout (D1).
+
+export const NOTHING_CHARGED = "No se creó ningún checkout ni se hizo ningún cobro."
+
+const PRECAUTION = "Ante la duda, la compra se detiene antes de llegar al comercio."
+
+/**
+ * Sin reglas fallidas la política no pudo verificar la compra: no respondió (ninguna regla
+ * evaluada) o la revisión no terminó. En ambos casos se detuvo por precaución, no por una regla.
+ */
+export function blockedCardCopy(decision: PolicyDecision, failedCount: number) {
+  if (failedCount === 0) {
+    const cause = policyUnavailable(decision)
+      ? "La política no estaba disponible para revisar esta compra."
+      : "La revisión de la política no se completó."
+    return {
+      title: "No se pudo verificar la política de compra",
+      subtitle: "Por precaución, la compra se detuvo.",
+      explanation: `${cause} ${PRECAUTION}`,
+    }
+  }
+  return {
+    title: "La política de compra detuvo esta compra",
+    subtitle:
+      failedCount === 1 ? "No se cumplió una regla." : `No se cumplieron ${failedCount} reglas.`,
+    explanation: null,
+  }
+}
+
+export function policyModeNote(mode: PolicyDecision["mode"]) {
+  return `Política de compra · ${POLICY_MODE_LABEL[mode]}`
+}
+
+/** «Aprobado por ti · 10:42 · autorización firmada». */
+export function approvalReceiptText(approvedAt: string, authorizationSigned: boolean) {
+  const signed = CONTROLS.authorization_signed.done.toLocaleLowerCase("es")
+  return ["Aprobado por ti", formatTime(approvedAt), authorizationSigned ? signed : null]
+    .filter(Boolean)
+    .join(" · ")
+}

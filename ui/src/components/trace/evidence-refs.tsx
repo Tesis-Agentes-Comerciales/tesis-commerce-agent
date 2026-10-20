@@ -3,6 +3,7 @@ import { CheckIcon, CopyIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { focusRing } from "@/components/agent/agent-styles"
+import { COPY_FEEDBACK, copyEvidenceLabel, EVIDENCE_EMPTY } from "@/components/trace/trace-copy"
 
 export type EvidenceRef = {
   /** Qué identifica, en español: "Decisión", "Evidencia", "Orden". */
@@ -19,9 +20,7 @@ export type EvidenceRefsProps = {
 export function EvidenceRefs({ refs, className }: EvidenceRefsProps) {
   if (refs.length === 0) {
     return (
-      <p className={cn("text-xs leading-5 text-[#6b6b6b]", className)}>
-        Esta compra todavía no tiene identificadores.
-      </p>
+      <p className={cn("text-xs leading-5 text-[#6b6b6b]", className)}>{EVIDENCE_EMPTY}</p>
     )
   }
   return (
@@ -44,13 +43,7 @@ export function EvidenceRefs({ refs, className }: EvidenceRefsProps) {
   )
 }
 
-type CopyState = "idle" | "copied" | "failed"
-
-const COPY_FEEDBACK: Record<CopyState, string> = {
-  idle: "",
-  copied: "Copiado",
-  failed: "No se pudo copiar",
-}
+type CopyState = keyof typeof COPY_FEEDBACK
 
 function CopyButton({ evidence }: { evidence: EvidenceRef }) {
   const [state, setState] = useState<CopyState>("idle")
@@ -76,7 +69,7 @@ function CopyButton({ evidence }: { evidence: EvidenceRef }) {
       <button
         type="button"
         onClick={copy}
-        aria-label={`Copiar ${evidence.label.toLowerCase()}`}
+        aria-label={copyEvidenceLabel(evidence.label)}
         className={cn(
           "flex size-10 shrink-0 items-center justify-center rounded-full text-[#6b6b6b] transition-colors hover:bg-[#f2f2f2] hover:text-[#0d0d0d] sm:size-8",
           focusRing,

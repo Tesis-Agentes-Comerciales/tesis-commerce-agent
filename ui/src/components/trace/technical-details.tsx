@@ -3,6 +3,7 @@ import { ChevronDownIcon } from "lucide-react"
 
 import { focusRing } from "@/components/agent/agent-styles"
 import { EvidenceRefs, type EvidenceRef } from "@/components/trace/evidence-refs"
+import { TECHNICAL_DETAILS_TITLE } from "@/components/trace/trace-copy"
 
 /** Desplegable cerrado con los identificadores y códigos internos, como «Detalles ACP». */
 export function TechnicalDetails({ refs, className }: { refs: EvidenceRef[]; className?: string }) {
@@ -14,7 +15,7 @@ export function TechnicalDetails({ refs, className }: { refs: EvidenceRef[]; cla
           focusRing,
         )}
       >
-        Detalle técnico
+        {TECHNICAL_DETAILS_TITLE}
         <ChevronDownIcon
           className="size-4 text-[#6b6b6b] transition-transform group-open:rotate-180"
           aria-hidden

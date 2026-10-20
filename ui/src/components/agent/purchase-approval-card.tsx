@@ -18,11 +18,11 @@ import {
   formatDateTime,
   formatMoney,
   formatMoneyParts,
-  formatTime,
   safeLinkUrl,
 } from "@/components/agent/agent-format"
 import { chip, focusRing, pillButton } from "@/components/agent/agent-styles"
 import { ProductImage } from "@/components/agent/product-card"
+import { approvalReceiptText } from "@/components/trace/trace-copy"
 import type { ApprovalTerms, ProductCard } from "@/lib/agent-contract"
 import type { CompletedCheckout } from "@/lib/commerce-types"
 
@@ -410,18 +410,13 @@ export function PurchaseApprovalCard({
 
 /** «Aprobado por ti · 10:42 · autorización firmada». */
 function ReceiptLine({ receipt }: { receipt: ApprovalReceipt }) {
-  const parts = [
-    "Aprobado por ti",
-    formatTime(receipt.approvedAt),
-    receipt.authorizationSigned ? "autorización firmada" : null,
-  ].filter(Boolean)
   return (
     <p
       className="flex items-center justify-center gap-1.5 text-xs leading-5 text-[#6b6b6b]"
       data-testid="approval-receipt"
     >
       <ShieldCheckIcon className="size-3.5 shrink-0" aria-hidden />
-      {parts.join(" · ")}
+      {approvalReceiptText(receipt.approvedAt, receipt.authorizationSigned)}
     </p>
   )
 }
