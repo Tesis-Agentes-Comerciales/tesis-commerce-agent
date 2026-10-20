@@ -14,6 +14,7 @@ from pydantic import SecretBytes, ValidationError
 
 from commerce_agent.acp.feed import ProductFeed, load_product_feed
 from commerce_agent.domain import HardConstraints, OptionConstraint, PurchaseIntent, rank_candidates
+from commerce_agent.governance import provenance_artifacts
 from commerce_agent.governance.canonical import canonical_bytes, parse_model, sha256_digest
 from commerce_agent.governance.evaluator import (
     GovernanceError,
@@ -524,6 +525,8 @@ def test_source_change_changes_measured_identity_without_editing_business_files(
         return body
 
     monkeypatch.setattr(Path, "read_bytes", changed)
+    # A simulated read leaves file stats intact, so drop the per-process measurement.
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
     updated = vault.register_context("run-a", OWNER, configuration)
     assert updated.data.eligibility_algorithm_ref.version == 2
     assert (
@@ -543,8 +546,88 @@ def test_installed_dependency_tamper_is_rejected(monkeypatch: pytest.MonkeyPatch
         return original_read(path)
 
     monkeypatch.setattr(Path, "read_bytes", changed)
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
     with pytest.raises(GovernanceError, match="GOV_ARTIFACT_MISMATCH"):
         measure_d1_sources()
+
+
+def test_sources_hashed_once_until_a_measured_file_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "selection.py"
+    source.write_bytes(b"first")
+    reads: list[bytes] = []
+
+    def measure(read: list[Path]) -> dict[str, bytes]:
+        read.append(source)
+        reads.append(source.read_bytes())
+        return {"algorithm": reads[-1], "normalization": b""}
+
+    monkeypatch.setattr(provenance_artifacts, "_measure", measure)
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
+    # Just written: inside the racy window, so every call measures again.
+    assert measure_d1_sources() == measure_d1_sources()
+    assert reads == [b"first", b"first"]
+    monkeypatch.setattr(provenance_artifacts, "_RACY_NS", 0)
+    for _ in range(3):
+        assert measure_d1_sources()["algorithm"] == b"first"
+    assert len(reads) == 4  # One measurement and its confirmation after the stat.
+    source.write_bytes(b"changed")
+    assert measure_d1_sources()["algorithm"] == measure_d1_sources()["algorithm"] == b"changed"
+    assert reads[4:] == [b"changed", b"changed"]
+
+
+def test_write_during_measurement_is_never_reused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "selection.py"
+    source.write_bytes(b"x")
+    observed = iter([b"before", b"after", b"after", b"after"])
+
+    def measure(read: list[Path]) -> dict[str, bytes]:
+        read.append(source)
+        return {"algorithm": next(observed), "normalization": b""}
+
+    monkeypatch.setattr(provenance_artifacts, "_measure", measure)
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
+    monkeypatch.setattr(provenance_artifacts, "_RACY_NS", 0)
+    assert measure_d1_sources()["algorithm"] == b"before"
+    assert provenance_artifacts._memo is None
+    assert measure_d1_sources()["algorithm"] == measure_d1_sources()["algorithm"] == b"after"
+
+
+def test_purchase_paths_reuse_one_measurement_per_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.governance.test_enforce_integration import baseline, make_case, start
+    from tests.test_purchase_service import details
+
+    measured = provenance_artifacts._measure
+    calls: list[int] = []
+
+    def counted(read: list[Path]) -> provenance_artifacts.Measured:
+        calls.append(len(read))
+        return measured(read)
+
+    monkeypatch.setattr(provenance_artifacts, "_measure", counted)
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
+    # Independent of how recently the checkout or environment was written.
+    monkeypatch.setattr(provenance_artifacts, "_RACY_NS", 0)
+    for index in range(2):
+        assert start(make_case(tmp_path / f"enforce-{index}.db")).stage == "awaiting_confirmation"
+        service, _, observer = baseline(tmp_path / f"shadow-{index}.db", shadow=True)
+        result = service.start(
+            run_id="run-a",
+            owner_id=OWNER,
+            request="shadow",
+            intent=PurchaseIntent(hard=HardConstraints(currency="COP")),
+            selected_variant_id="SON-01",
+            details=details(),
+        )
+        assert result.stage == "awaiting_confirmation"
+        assert observer is not None and observer.diagnostics.observed == 1
+    # Callers still compare on every use; only the first full hash and its check run.
+    assert len(calls) == 2
 
 
 @pytest.mark.parametrize("bad_field", ["budget", "extra"])
