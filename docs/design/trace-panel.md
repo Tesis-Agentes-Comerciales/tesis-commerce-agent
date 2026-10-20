@@ -228,6 +228,11 @@ observado y el esperado solo de las reglas que fallan; la auditoría los muestra
 | `PolicyBlockedCard` | Tarjeta fuera del plegable: qué regla no se cumplió y qué no ocurrió | Comercio no permitido, política no disponible |
 | `PurchaseApprovalCard` (existente) | Al decidir, se convierte en recibo («Aprobado por ti · 10:42 · autorización firmada») | Se añaden las historias del recibo |
 
+El recibo llega a la tarjeta como prop `receipt`: la hora sale de `approval.approved_at` y la firma,
+de que exista el paso `authorization_signed`. La tarjeta solo lo muestra con la aprobación ya
+registrada. Los identificadores y códigos internos de la fila de actividad y de la tarjeta de
+bloqueo quedan en un desplegable «Detalle técnico», cerrado por defecto.
+
 ### Auditoría (`ui/src/components/audit/`)
 
 | Componente | Responsabilidad | Historias |

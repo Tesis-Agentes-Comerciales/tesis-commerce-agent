@@ -1,4 +1,5 @@
-import { formatMoney, formatTime } from "@/components/agent/agent-format"
+import { formatElapsed, formatMoney, formatTime } from "@/components/agent/agent-format"
+import type { EvidenceRef } from "@/components/trace/evidence-refs"
 import type {
   PolicyDecision,
   PolicyRule,
@@ -231,4 +232,118 @@ export function skippedTitle(control: SkippedControl) {
 
 export function skippedDetail(control: SkippedControl) {
   return control.reason === "policy_off" ? "No se revisó esta compra" : null
+}
+
+const PURCHASE_SUMMARY: Record<Exclude<PurchaseStatus, "completed">, string> = {
+  in_progress: "Comprando…",
+  awaiting_approval: "Esperando tu aprobación",
+  blocked: "Bloqueada por la política de compra",
+  canceled: "Compra cancelada",
+  failed: "La compra no se pudo completar",
+  uncertain: "Compra por confirmar con el comercio",
+}
+
+/** Línea de la fila de actividad en el chat. */
+export function purchaseSummary(trace: PurchaseTrace) {
+  if (trace.status !== "completed") return PURCHASE_SUMMARY[trace.status]
+  // Hasta la orden confirmada: un aviso del comercio que llega después mueve `updated_at`.
+  const confirmedAt = trace.steps.find((step) => step.kind === "order_confirmed")?.at
+  const elapsed = confirmedAt
+    ? formatElapsed(Date.parse(confirmedAt) - Date.parse(trace.started_at))
+    : null
+  return elapsed ? `Compra completada en ${elapsed}` : "Compra completada"
+}
+
+/** Identificadores de una decisión para el detalle técnico: aquí sí van los códigos internos. */
+export function decisionRefs(decision: PolicyDecision): EvidenceRef[] {
+  const failedRules = decision.rules.filter((rule) => rule.result === "fail").map((rule) => rule.id)
+  return [
+    { label: "Decisión", value: decision.decision_id },
+    { label: "Evidencia", value: decision.evidence_id },
+    { label: "Política", value: `${decision.policy.set_id} · revisión ${decision.policy.revision}` },
+    ...listRef("Reglas que fallaron", failedRules),
+    ...listRef("Códigos", decision.reason_codes),
+  ]
+}
+
+function listRef(label: string, values: string[]): EvidenceRef[] {
+  return values.length > 0 ? [{ label, value: values.join(", ") }] : []
+}
+
+function stepRefs(step: TraceStep): EvidenceRef[] {
+  switch (step.kind) {
+    case "checkout_created":
+      return [{ label: "Checkout", value: step.checkout_id }]
+    case "order_confirmed":
+      return [{ label: "Orden", value: step.order_id }]
+    case "failed":
+      return [{ label: "Código de error", value: step.code }]
+    default:
+      return []
+  }
+}
+
+export function traceRefs(trace: PurchaseTrace): EvidenceRef[] {
+  // Si la compra pasó más de una vez por la política, la que cuenta es la última decisión.
+  const last = trace.steps.findLast((step) => step.kind === "policy_decision")
+  return [
+    { label: "Compra", value: trace.run_id },
+    ...(last?.kind === "policy_decision" ? decisionRefs(last.decision) : []),
+    ...trace.steps.flatMap(stepRefs),
+  ]
+}
+
+export const TECHNICAL_DETAILS_TITLE = "Detalle técnico"
+
+export const EVIDENCE_EMPTY = "Esta compra todavía no tiene identificadores."
+
+export function copyEvidenceLabel(label: string) {
+  return `Copiar ${label.toLocaleLowerCase("es")}`
+}
+
+export const COPY_FEEDBACK = {
+  idle: "",
+  copied: "Copiado",
+  failed: "No se pudo copiar",
+}
+
+// Tarjeta de bloqueo. Las decisiones de política ocurren antes de crear el checkout (D1).
+
+export const NOTHING_CHARGED = "No se creó ningún checkout ni se hizo ningún cobro."
+
+const PRECAUTION = "Ante la duda, la compra se detiene antes de llegar al comercio."
+
+/**
+ * Sin reglas fallidas la política no pudo verificar la compra: no respondió (ninguna regla
+ * evaluada) o la revisión no terminó. En ambos casos se detuvo por precaución, no por una regla.
+ */
+export function blockedCardCopy(decision: PolicyDecision, failedCount: number) {
+  if (failedCount === 0) {
+    const cause = policyUnavailable(decision)
+      ? "La política no estaba disponible para revisar esta compra."
+      : "La revisión de la política no se completó."
+    return {
+      title: "No se pudo verificar la política de compra",
+      subtitle: "Por precaución, la compra se detuvo.",
+      explanation: `${cause} ${PRECAUTION}`,
+    }
+  }
+  return {
+    title: "La política de compra detuvo esta compra",
+    subtitle:
+      failedCount === 1 ? "No se cumplió una regla." : `No se cumplieron ${failedCount} reglas.`,
+    explanation: null,
+  }
+}
+
+export function policyModeNote(mode: PolicyDecision["mode"]) {
+  return `Política de compra · ${POLICY_MODE_LABEL[mode]}`
+}
+
+/** «Aprobado por ti · 10:42 · autorización firmada». */
+export function approvalReceiptText(approvedAt: string, authorizationSigned: boolean) {
+  const signed = CONTROLS.authorization_signed.done.toLocaleLowerCase("es")
+  return ["Aprobado por ti", formatTime(approvedAt), authorizationSigned ? signed : null]
+    .filter(Boolean)
+    .join(" · ")
 }
