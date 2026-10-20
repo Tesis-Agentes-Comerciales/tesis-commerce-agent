@@ -61,6 +61,30 @@ export const PolicyUnavailable: Story = {
   },
 }
 
+const MERCHANT_DECISION = decisionOf(TRACES.blockedMerchant)
+
+/** Deniega sin ninguna regla fallida: una se cumplió y la otra no llegó a evaluarse. */
+export const DeniedWithoutFailedRule: Story = {
+  args: {
+    decision: {
+      ...MERCHANT_DECISION,
+      rules: [
+        MERCHANT_DECISION.rules[0],
+        { id: "POL-02", result: "not_evaluated", observed: null, expected: null },
+      ],
+      reason_codes: ["GOV_EVIDENCE_UNAVAILABLE"],
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("heading", { name: "No se pudo verificar la política de compra" }),
+    ).toBeVisible()
+    await expect(canvas.getByText(/La revisión de la política no se completó\./)).toBeVisible()
+    await expect(canvas.queryByText(/0 reglas|no estaba disponible/)).toBeNull()
+    await expect(canvas.getByText(NOTHING_HAPPENED)).toBeVisible()
+  },
+}
+
 /** El detalle técnico lleva los códigos y la versión de la política. */
 export const TechnicalDetail: Story = {
   play: async ({ args, canvas, userEvent }) => {

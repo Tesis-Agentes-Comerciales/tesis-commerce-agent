@@ -13,17 +13,25 @@ export type PolicyBlockedCardProps = {
   className?: string
 }
 
-function blockedCopy(decision: PolicyDecision) {
-  if (policyUnavailable(decision)) {
+/**
+ * Sin reglas fallidas la política no pudo verificar la compra: no respondió (ninguna regla
+ * evaluada) o la revisión no terminó. En ambos casos se detuvo por precaución, no por una regla.
+ */
+function blockedCopy(decision: PolicyDecision, failedCount: number) {
+  if (failedCount === 0) {
     return {
       title: "No se pudo verificar la política de compra",
       subtitle: "Por precaución, la compra se detuvo.",
+      explanation: policyUnavailable(decision)
+        ? "La política no estaba disponible para revisar esta compra."
+        : "La revisión de la política no se completó.",
     }
   }
-  const failed = decision.rules.filter((rule) => rule.result === "fail").length
   return {
     title: "La política de compra detuvo esta compra",
-    subtitle: failed === 1 ? "No se cumplió una regla." : `No se cumplieron ${failed} reglas.`,
+    subtitle:
+      failedCount === 1 ? "No se cumplió una regla." : `No se cumplieron ${failedCount} reglas.`,
+    explanation: null,
   }
 }
 
@@ -33,8 +41,8 @@ function blockedCopy(decision: PolicyDecision) {
  */
 export function PolicyBlockedCard({ decision, className }: PolicyBlockedCardProps) {
   const titleId = useId()
-  const copy = blockedCopy(decision)
   const failedRules = decision.rules.filter((rule) => rule.result === "fail")
+  const copy = blockedCopy(decision, failedRules.length)
 
   return (
     <section
@@ -62,8 +70,7 @@ export function PolicyBlockedCard({ decision, className }: PolicyBlockedCardProp
           <PolicyRuleTable rules={failedRules} />
         ) : (
           <p className="text-sm leading-5">
-            La política no estaba disponible para revisar esta compra. Ante la duda, la compra se
-            detiene antes de llegar al comercio.
+            {copy.explanation} Ante la duda, la compra se detiene antes de llegar al comercio.
           </p>
         )}
 
