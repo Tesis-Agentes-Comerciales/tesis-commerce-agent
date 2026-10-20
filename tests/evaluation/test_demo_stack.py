@@ -5,8 +5,10 @@ import json
 import os
 import signal
 import subprocess
+import time
 from argparse import Namespace
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +41,9 @@ from commerce_evaluation.demo_stack import (
     s04,
 )
 from commerce_evaluation.paths import DATA, LOCAL
+
+# Ctrl-C, SIGTERM and SIGHUP: each one shuts the stack down.
+SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 MERCHANT_TOKEN = "merchant-session-" + "t" * 32
 MODEL_KEY = "sk-test-" + "k" * 40
@@ -292,6 +297,10 @@ class FakeLauncher(Launcher):
     def _signal(self, process: Any, signum: int) -> None:
         process.signals.append(signum)
 
+    def _group_alive(self, process: Any) -> bool:
+        # A fake process has no children: its group ends with it.
+        return False
+
 
 def shown(launcher: FakeLauncher) -> str:
     """Everything the launcher printed or wrote itself."""
@@ -523,25 +532,134 @@ def test_up_turns_sighup_and_sigterm_into_a_clean_shutdown(
             super().__init__(plan, health={})
 
         def start(self) -> dict[str, str]:
-            seen.update(
-                {signum: signal.getsignal(signum) for signum in (signal.SIGHUP, signal.SIGTERM)}
-            )
+            seen.update({signum: signal.getsignal(signum) for signum in SIGNALS})
             raise KeyboardInterrupt
 
         def stop(self) -> None:
             stopped.append(True)
             super().stop()
 
-    before = {signum: signal.getsignal(signum) for signum in (signal.SIGHUP, signal.SIGTERM)}
+    before = {signum: signal.getsignal(signum) for signum in SIGNALS}
     monkeypatch.setattr(demo_stack, "build_plan", lambda arguments: plan)
     monkeypatch.setattr(demo_stack, "preflight", lambda plan: [])
     monkeypatch.setattr(demo_stack, "Launcher", Interrupted)
 
     assert demo_stack.up([]) == 0
 
-    assert seen == {signal.SIGHUP: demo_stack._interrupt, signal.SIGTERM: demo_stack._interrupt}
+    assert seen == dict.fromkeys(SIGNALS, demo_stack._interrupt)
     assert stopped == [True]
     assert {signum: signal.getsignal(signum) for signum in before} == before
+
+
+@pytest.mark.parametrize(
+    "first", [signal.SIGINT, signal.SIGTERM], ids=["ctrl-c-twice", "sigterm-then-ctrl-c"]
+)
+def test_a_second_ctrl_c_before_stop_cannot_cut_the_shutdown_short(
+    first: signal.Signals, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = plan_for("b2", tmp_path)
+    stopped: list[bool] = []
+
+    class TwoSignals(FakeLauncher):
+        def __init__(self, plan: DemoPlan) -> None:
+            super().__init__(plan, health={})
+
+        def start(self) -> dict[str, str]:
+            os.kill(os.getpid(), first)
+            raise AssertionError("the first signal must interrupt the launch")
+
+        def say(self, message: str = "") -> None:
+            super().say(message)
+            if "Apagando" in message:
+                # The presenter presses Ctrl-C again before stop() starts.
+                os.kill(os.getpid(), signal.SIGINT)
+
+        def stop(self) -> None:
+            stopped.append(True)
+            super().stop()
+
+    before = {signum: signal.getsignal(signum) for signum in SIGNALS}
+    monkeypatch.setattr(demo_stack, "build_plan", lambda arguments: plan)
+    monkeypatch.setattr(demo_stack, "preflight", lambda plan: [])
+    monkeypatch.setattr(demo_stack, "Launcher", TwoSignals)
+
+    try:
+        code = demo_stack.up([])
+    except KeyboardInterrupt:
+        pytest.fail("the second Ctrl-C escaped up() (traceback and exit code 130)")
+
+    assert code == 0
+    assert stopped == [True]
+    assert {signum: signal.getsignal(signum) for signum in before} == before
+
+
+# A service whose leader dies with SIGTERM while a child it started ignores it (`uv run`,
+# `npm run`): the child writes its pid, then becomes `sleep` with SIGTERM still ignored.
+IGNORES_TERM = """trap '' TERM
+echo $$ > "$1"
+exec sleep 30
+"""
+
+
+def real_service(template: Service, tmp_path: Path, script: str, *arguments: str) -> Service:
+    return replace(
+        template,
+        command=("sh", "-c", script, *arguments),
+        cwd=tmp_path,
+        env={"PATH": os.environ["PATH"]},
+    )
+
+
+def pid_from(path: Path) -> int:
+    for _ in range(200):
+        text = path.read_text("utf-8").strip() if path.is_file() else ""
+        if text:
+            return int(text)
+        time.sleep(0.025)
+    raise AssertionError(f"{path.name} was never written")
+
+
+def gone(pid: int) -> bool:
+    """The process no longer runs (a zombie waiting for its new parent counts as gone)."""
+    for _ in range(200):
+        state = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, check=False
+        ).stdout.strip()
+        if not state or state.startswith("Z"):
+            return True
+        time.sleep(0.025)
+    return False
+
+
+def test_stop_kills_every_group_at_the_deadline_even_if_its_leader_already_exited(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(demo_stack, "STOP_TIMEOUT_SECONDS", 0.5)
+    plan = plan_for("b2", tmp_path)
+    launcher = Launcher(plan, io.StringIO())
+    payment, merchant, *_ = plan.services(MERCHANT_TOKEN)
+    script, pidfile = tmp_path / "ignores-term.sh", tmp_path / "child.pid"
+    script.write_text(IGNORES_TERM, "utf-8")
+    # The leader only waits, so SIGTERM ends it; its child keeps the group alive.
+    leader_exits = real_service(payment, tmp_path, 'sh "$0" "$1" & wait', str(script), str(pidfile))
+    # A plain service whose whole group is gone after SIGTERM: its SIGKILL must be skipped.
+    exits = real_service(merchant, tmp_path, "exec sleep 30")
+    launcher.running = [(s, launcher._spawn(s)) for s in (leader_exits, exits)]
+    groups = [process.pid for _, process in launcher.running]
+    try:
+        child = pid_from(pidfile)
+
+        launcher.stop()
+
+        assert gone(child)
+        assert all(gone(pid) for pid in groups)
+        log = (plan.run_dir / "launcher.log").read_text("utf-8")
+        assert log.count(": apagado") == 2 and "no se detuvo" not in log
+    finally:
+        for group in groups:
+            with suppress(ProcessLookupError, PermissionError):
+                os.killpg(group, signal.SIGKILL)
+        launcher.close()
 
 
 def merchant_answers(
