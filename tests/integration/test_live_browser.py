@@ -1,12 +1,15 @@
 """A buyer completes the B0 purchase from the browser, against the live stack.
 
 Sign-up through the auth service, the request in the chat, explicit approval on the approval
-card and the confirmed order, with both AP2 receipts kept by the Agent. The model boundary is
+card and the confirmed order, with both AP2 receipts kept by the Agent. The chat reads the
+purchase trace from the live Agent: the activity row ends completed, the card turns into a
+receipt and, with the policy off in this lane, the control shows as disabled. The model boundary is
 scripted (live_purchase.StaticConversationRouter) unless RUN_LIVE_LLM=1; the rest is the real
 UI and services.
 """
 
 import os
+import re
 import secrets
 import sqlite3
 from contextlib import closing
@@ -55,6 +58,14 @@ def test_b0_purchase_from_the_browser_signs_up_approves_and_keeps_both_receipts(
             assert agent_errors == []
             approve.click()
             expect(page.get_by_text("Compra completada").first).to_be_visible(timeout=30_000)
+            activity = page.get_by_test_id("purchase-activity")
+            expect(activity).to_have_attribute("data-status", "completed", timeout=15_000)
+            receipt = page.get_by_test_id("approval-receipt")
+            expect(receipt).to_contain_text("Aprobado por ti")
+            expect(receipt).to_contain_text("autorización firmada")
+            activity.get_by_role("button", name=re.compile("Compra completada")).click()
+            expect(activity.get_by_text("Política desactivada")).to_be_visible()
+            expect(activity.get_by_text("Orden confirmada")).to_be_visible()
         finally:
             # Evidence for the nightly artifact; the run directory holds no secret.
             page.screenshot(path=ui.root / "browser.png", full_page=True)
