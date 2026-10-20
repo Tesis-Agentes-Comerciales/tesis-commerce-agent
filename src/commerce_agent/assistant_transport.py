@@ -59,6 +59,55 @@ ERROR_MESSAGES = {
     "catalog_unavailable": "El catálogo del comercio no está disponible en este momento.",
     "turn_conflict": "Este envío ya se procesó con otro contenido. Escribe el mensaje de nuevo.",
     "purchase_not_found": "No encontré esa compra.",
+    # Governance stops: say what the policy did and what did not happen, without internal names.
+    "d1_denied": (
+        "La política de compra no permite esta compra. "
+        "No se creó ningún checkout ni se hizo ningún cobro."
+    ),
+    "d1_unavailable": (
+        "No pude revisar la política de compra, así que detuve la compra por precaución. "
+        "No se creó ningún checkout ni se hizo ningún cobro."
+    ),
+    "d1_capture_failed": (
+        "No pude preparar la revisión de la política de compra, así que detuve la compra por "
+        "precaución. No se creó ningún checkout ni se hizo ningún cobro."
+    ),
+    "d1_dispatch_blocked": (
+        "La política de compra permitió esta compra, pero en este entorno la compra se detiene "
+        "antes de crear el checkout. No se hizo ningún cobro."
+    ),
+    "d1_dispatch_uncertain": (
+        "No pude confirmar si el comercio creó el checkout. No se hizo ningún cobro; revisa el "
+        "estado de la compra antes de intentarlo de nuevo."
+    ),
+    "d1_initial_creation_observed": (
+        "El comercio registró el checkout, pero la compra se detuvo antes de continuar. "
+        "No se hizo ningún cobro."
+    ),
+    "d1_post_create_uncertain": (
+        "No pude terminar de preparar el checkout con el comercio. No se hizo ningún cobro; "
+        "revisa el estado de la compra antes de intentarlo de nuevo."
+    ),
+    "d1_invalid_result": (
+        "No pude verificar la preparación del checkout. No se hizo ningún cobro; revisa el "
+        "estado de la compra antes de intentarlo de nuevo."
+    ),
+    "d1_recovery_required": (
+        "Esta compra quedó a medias y necesita una revisión antes de continuar. "
+        "No se hizo ningún cobro."
+    ),
+    "d1_continuation_blocked": (
+        "Esta compra pasó por la política de compra y no se puede continuar desde aquí. "
+        "No se hizo ningún cobro."
+    ),
+    "checkout_terms_changed": (
+        "Las condiciones del comercio cambiaron (por ejemplo, el precio, el envío o la "
+        "disponibilidad), así que no seguí con la compra. No se hizo ningún cobro."
+    ),
+    "offer_freshness_unavailable": (
+        "No pude confirmar con el comercio que el precio y la disponibilidad sigan vigentes, "
+        "así que detuve la compra por precaución. No se hizo ningún cobro."
+    ),
 }
 PURCHASE_UPDATE_TEXT = {
     "awaiting_confirmation": "La compra sigue esperando tu aprobación.",
