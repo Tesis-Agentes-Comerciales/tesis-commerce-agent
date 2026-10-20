@@ -213,6 +213,10 @@ const STALE_APPROVAL = {
     status: 503,
     body: { code: "offer_freshness_unavailable", message: "Live offer could not be read" },
   },
+  expired: {
+    status: 409,
+    body: { code: "offer_expired", message: "La oferta del comercio venció, así que no seguí con la compra." },
+  },
 } as const
 
 const STALE_TITLE: Record<PendingTermsStatus, string> = {
@@ -318,6 +322,21 @@ export const CancelCheckoutMismatch: Story = {
       "El comercio respondió con un checkout que no coincide con esta compra, así que me detuve.",
     )
     await expect(context.canvas.queryByText(/Merchant|expected checkout/)).toBeNull()
+  },
+}
+
+/** Aprobar responde 409 `offer_expired`: la oferta venció, y se trata como condiciones que cambiaron. */
+export const OfferExpiredOnApprove: Story = {
+  parameters: {
+    agentApi: { ...FAST_STREAM.agentApi, "POST /purchases/:runId/approval": STALE_APPROVAL.expired },
+  },
+  play: async (context) => {
+    const card = await approvalCard(context)
+    await context.userEvent.click(within(card).getByTestId("approve-purchase"))
+    const stale = await context.canvas.findByTestId("stale-terms-card", {}, STREAM_TIMEOUT)
+    await expect(within(stale).getByRole("heading", { name: STALE_TITLE.changed })).toBeVisible()
+    await expect(within(stale).getByRole("button", { name: "Cancelar compra" })).toBeEnabled()
+    await expect(context.canvas.queryByText("Esperando tu aprobación")).toBeNull()
   },
 }
 
