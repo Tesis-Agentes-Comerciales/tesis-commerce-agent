@@ -67,6 +67,22 @@ export function formatDateTime(value: string) {
   return new Intl.DateTimeFormat(LOCALE, { dateStyle: "medium", timeStyle: "short" }).format(date)
 }
 
+/** Fecha y hora con segundos, y milisegundos si se piden; para distinguir dos instantes cercanos. */
+export function formatPreciseDateTime(value: string, { milliseconds = false } = {}) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  // Mismo orden que `dateStyle: "medium"`, que no admite `fractionalSecondDigits`.
+  return new Intl.DateTimeFormat(LOCALE, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    ...(milliseconds ? { fractionalSecondDigits: 3 } : {}),
+  }).format(date)
+}
+
 /** Hora local en 24 h ("10:42"), para recibos y pasos de la traza. */
 export function formatTime(value: string) {
   const date = new Date(value)

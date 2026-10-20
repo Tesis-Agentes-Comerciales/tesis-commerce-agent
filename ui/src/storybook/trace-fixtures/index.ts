@@ -17,6 +17,7 @@ import inProgress from "./in-progress.json"
 import policyOff from "./policy-off.json"
 import policyUnavailable from "./policy-unavailable.json"
 import staleTerms from "./stale-terms.json"
+import staleTermsReread from "./stale-terms-reread.json"
 import uncertain from "./uncertain.json"
 
 // Trazas sintéticas, una por escenario. El backend valida estos mismos archivos con Pydantic.
@@ -37,8 +38,16 @@ export const TRACES = {
   canceled: parsePurchaseTrace(canceled),
   uncertain: parsePurchaseTrace(uncertain),
   // Controles de la aplicación del flujo HP gobernado (b2-governed-pilot), no de la política.
-  /** S04: el comercio cambió el precio después de mostrar los términos; la frescura detuvo la aprobación. */
+  /**
+   * S04 como en el piloto: el comercio cambió el precio después de mostrar los términos y la frescura
+   * detuvo el POST de la aprobación (etapa `approve`).
+   */
   staleTerms: parsePurchaseTrace(staleTerms),
+  /**
+   * S04 como en el chat de la demo: al pulsar «Aprobar», la UI relee los términos antes del POST y la
+   * frescura los rechaza ahí (etapa `present`, después de un `present` confirmado).
+   */
+  staleTermsReread: parsePurchaseTrace(staleTermsReread),
   /** S02: el total del comercio superó el presupuesto; el agente canceló el checkout y lo explicó. */
   governedRecovery: parsePurchaseTrace(governedRecovery),
 } satisfies Record<string, PurchaseTrace>

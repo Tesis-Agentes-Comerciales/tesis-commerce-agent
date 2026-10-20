@@ -1,7 +1,7 @@
 import {
-  formatDateTime,
   formatElapsed,
   formatMoney,
+  formatPreciseDateTime,
   formatTime,
 } from "@/components/agent/agent-format"
 import type { EvidenceRef } from "@/components/trace/evidence-refs"
@@ -215,11 +215,12 @@ const FRESHNESS_WHEN: Record<FreshnessStep["stage"], string> = {
   approve: "Antes de registrar tu aprobación",
 }
 
-/** Qué no pasó cuando la comprobación detuvo la compra. */
-const FRESHNESS_STOPPED: Record<FreshnessStep["stage"], string> = {
-  present: "No se mostraron los términos para aprobar.",
-  approve: "Tu aprobación no se registró y no se firmó ninguna autorización.",
-}
+/**
+ * Qué no pasó cuando un cambio detuvo la compra. Un solo texto para las dos etapas: al pulsar
+ * «Aprobar», el chat relee los términos (etapa `present`) antes de enviar la aprobación, así que una
+ * parada en `present` puede llegar después de mostrarlos. Lo que sí vale en las dos es esto.
+ */
+const FRESHNESS_STOPPED = "No se registró ninguna aprobación ni se firmó ninguna autorización."
 
 const FRESHNESS_PRECAUTION = "Por precaución, la compra se detuvo."
 
@@ -229,7 +230,7 @@ function freshnessTitle(step: FreshnessStep) {
 
 function freshnessDetail(step: FreshnessStep) {
   if (step.state === "blocked") {
-    return step.outcome === "unavailable" ? FRESHNESS_PRECAUTION : FRESHNESS_STOPPED[step.stage]
+    return step.outcome === "unavailable" ? FRESHNESS_PRECAUTION : FRESHNESS_STOPPED
   }
   // En modo observando un cambio no detiene nada: se dice, igual que en la política.
   if (step.mode === "shadow" && step.outcome !== "fresh") return POLICY_MODE_LABEL.shadow
@@ -238,7 +239,13 @@ function freshnessDetail(step: FreshnessStep) {
 
 export const FRESHNESS_CHANGES_LABEL = "Qué cambió"
 
-export const FRESHNESS_VALUE_LABEL = { presented: "En el checkout", current: "Oferta actual" }
+type ValueLabels = { presented: string; current: string }
+
+/** Rótulos de los dos valores: los términos del checkout frente a la oferta que lee el agente. */
+const FRESHNESS_VALUE_LABEL: ValueLabels = {
+  presented: "En el checkout",
+  current: "Oferta actual",
+}
 
 const FRESHNESS_FIELD: Record<FreshnessField, string> = {
   subtotal_minor: "Precio del producto",
@@ -247,7 +254,12 @@ const FRESHNESS_FIELD: Record<FreshnessField, string> = {
   currency: "Moneda",
   expires_at: "Vigencia de la oferta",
   delivery_days: "Días de entrega",
-  stock: "Unidades disponibles",
+  stock: "Disponibilidad",
+}
+
+/** El checkout no guarda existencias: guarda la cantidad pedida, que se compara con las disponibles. */
+const FIELD_VALUE_LABEL: Partial<Record<FreshnessField, ValueLabels>> = {
+  stock: { presented: "Unidades pedidas", current: "Unidades disponibles" },
 }
 
 const MONEY_FIELDS: ReadonlySet<FreshnessField> = new Set([
@@ -261,15 +273,23 @@ const UNKNOWN_VALUE = "Sin dato"
 function changeValue(change: FreshnessChange, side: "presented" | "current", currency: string | null) {
   const value = change[side]
   if (value === null) return UNKNOWN_VALUE
-  if (typeof value === "string") {
-    return change.field === "expires_at" ? (formatDateTime(value) ?? value) : value
-  }
+  if (typeof value === "string") return value
   if (MONEY_FIELDS.has(change.field) && currency) return formatMoney(value, currency)
   if (change.field === "delivery_days") return value === 1 ? "1 día" : `${value} días`
   return String(value)
 }
 
-/** Cada cambio con su nombre y los dos valores ya escritos, para la lista de la fila. */
+/** Vigencias con segundos; si aun así se leen iguales, también con milisegundos. */
+function expiryValues(change: Extract<FreshnessChange, { field: "expires_at" }>) {
+  const write = (value: string | null, milliseconds: boolean) =>
+    value === null ? UNKNOWN_VALUE : (formatPreciseDateTime(value, { milliseconds }) ?? value)
+  const presented = write(change.presented, false)
+  const current = write(change.current, false)
+  if (presented !== current) return { presented, current }
+  return { presented: write(change.presented, true), current: write(change.current, true) }
+}
+
+/** Cada cambio con su nombre, sus rótulos y los dos valores ya escritos, para la lista de la fila. */
 export function freshnessChanges(step: FreshnessStep) {
   // Los montos de la oferta actual van en su moneda si también cambió.
   const currencyChange = step.changes.find((change) => change.field === "currency")
@@ -278,8 +298,13 @@ export function freshnessChanges(step: FreshnessStep) {
   return step.changes.map((change) => ({
     field: change.field,
     name: FRESHNESS_FIELD[change.field],
-    presented: changeValue(change, "presented", step.currency),
-    current: changeValue(change, "current", current),
+    labels: FIELD_VALUE_LABEL[change.field] ?? FRESHNESS_VALUE_LABEL,
+    ...(change.field === "expires_at"
+      ? expiryValues(change)
+      : {
+          presented: changeValue(change, "presented", step.currency),
+          current: changeValue(change, "current", current),
+        }),
   }))
 }
 

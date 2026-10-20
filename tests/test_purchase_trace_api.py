@@ -602,12 +602,18 @@ def governed_trace(client: TestClient, run_id: str) -> dict[str, Any]:
     return body
 
 
+# The demo's S04 rewrites the offer: a new price and a new validity window counted from that moment
+# (commerce_lab.managed_catalog.changed_offer). Seconds apart, so both read the same to the minute.
+REPRICED_EXPIRES_AT = "2099-09-20T13:00:42Z"
+
+
 def reprice(merchant: StoreMerchant) -> None:
     """S04 stimulus: the merchant reprices the live offer after the terms were presented."""
     pricing = merchant.offer["pricing"]
     merchant.offer = {
         **merchant.offer,
         "revision": 2,
+        "expires_at": REPRICED_EXPIRES_AT,
         "pricing": {**pricing, "items_total_minor": 80_000, "total_minor": 82_000},
     }
 
@@ -665,6 +671,11 @@ def test_s04_trace_shows_the_freshness_block_and_what_changed(tmp_path: Path) ->
     assert approved["changes"] == [
         {"field": "subtotal_minor", "presented": 72_000, "current": 80_000},
         {"field": "total_minor", "presented": 74_000, "current": 82_000},
+        {
+            "field": "expires_at",
+            "presented": "2099-09-20T13:00:00.000Z",
+            "current": "2099-09-20T13:00:42.000Z",
+        },
     ]
     assert (approved["currency"], approved["offer_revision"], approved["read_error"]) == (
         "COP",
@@ -675,6 +686,61 @@ def test_s04_trace_shows_the_freshness_block_and_what_changed(tmp_path: Path) ->
     assert approved["evidence_digest"].startswith("sha256:")
     assert row["status"] == "stale_terms"
     assert row["policy"] == {"outcome": "allow", "failed_rules": []}
+
+
+def test_s04_in_the_chat_stops_when_approving_rereads_the_terms(tmp_path: Path) -> None:
+    """The UI's order: «Aprobar» first reads the terms again (GET), and only then would POST."""
+    settings = governed_settings(tmp_path / "agent.db")
+    merchant = StoreMerchant()
+    with governed_client(settings, merchant) as client:
+        turn = ask(client, "turn-s04-chat")
+        assert turn.status_code == 200, turn.text
+        run_id = turn.json()["purchase"]["run_id"]
+        # Rereading unchanged terms checks again but adds no row.
+        assert client.get(f"/purchases/{run_id}/approval").status_code == 200
+        shown = governed_trace(client, run_id)
+        reprice(merchant)
+        reread = client.get(f"/purchases/{run_id}/approval")
+        assert reread.status_code == 409 and reread.json()["code"] == "checkout_terms_changed"
+        trace = governed_trace(client, run_id)
+        row = client.get("/me/purchases").json()["purchases"][0]
+        canceled = client.post(f"/purchases/{run_id}/cancel")
+        assert canceled.status_code == 200, canceled.text
+        after = governed_trace(client, run_id)
+
+    assert [(item["stage"], item["outcome"]) for item in freshness(shown)] == [("present", "fresh")]
+    assert trace["status"] == row["status"] == "stale_terms"
+    assert kinds(trace) == [
+        "request",
+        "selection",
+        "policy_decision",
+        "checkout_created",
+        "freshness_check",
+        "approval",
+        "freshness_check",
+    ]
+    assert_chronological(trace)
+    # No POST: the stop is at `present`, after the terms were shown, and nothing was signed.
+    assert step(trace, "approval")["state"] == "skipped"
+    assert step(trace, "approval")["approved_at"] is None
+    presented, reread_check = freshness(trace)
+    assert (presented["stage"], presented["outcome"], presented["state"]) == (
+        "present",
+        "fresh",
+        "done",
+    )
+    assert (reread_check["stage"], reread_check["outcome"], reread_check["state"]) == (
+        "present",
+        "changed",
+        "blocked",
+    )
+    assert [change["field"] for change in reread_check["changes"]] == [
+        "subtotal_minor",
+        "total_minor",
+        "expires_at",
+    ]
+    assert after["status"] == "canceled"
+    assert kinds(after)[-4:] == ["freshness_check", "approval", "freshness_check", "canceled"]
 
 
 def test_a_repeated_blocked_check_is_one_row_and_canceling_keeps_the_checks(

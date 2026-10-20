@@ -61,6 +61,20 @@ const NOTHING_CHARGED = "No se creó ningún checkout ni se hizo ningún cobro."
 
 // Términos que ya no valen (S04): el backend rechaza la aprobación o la compra restaurada llega con
 // `terms_status`. El `message` es el texto interno del backend, que la UI no debe mostrar.
+/** Lo que no ocurrió cuando la frescura detuvo la compra, en cualquiera de sus dos etapas. */
+const STOPPED = "No se registró ninguna aprobación ni se firmó ninguna autorización."
+
+/** La traza después de «Cancelar compra»: los mismos pasos y la cancelación al final. */
+function canceledTrace(stale: Trace): Trace {
+  const at = "2026-10-20T16:11:30.000Z"
+  return {
+    ...stale,
+    status: "canceled",
+    updated_at: at,
+    steps: [...stale.steps, { id: "canceled", at, duration_ms: null, actor: "user", state: "done", kind: "canceled", by: "user" }],
+  } as Trace
+}
+
 const STALE_TERMS = {
   changed: {
     status: 409,
@@ -141,6 +155,8 @@ type AgentOptions = {
   pending?: unknown
   /** `POST /purchases/{run_id}/approval`: por defecto, la aprobación registrada. */
   approval?: { status: number; body: unknown }
+  /** `GET /purchases/{run_id}/approval`, que la UI pide antes del POST: por defecto, los términos. */
+  terms?: { status: number; body: unknown }
   /** Respuesta a `purchase-updated` después de cancelar: por defecto, `purchase-canceled.sse`. */
   canceled?: (body: AssistantBody) => string
 }
@@ -150,7 +166,7 @@ const RUN_SEGMENT = /\/run_[A-Za-z0-9_-]+(?=\/|$)/
 /** Agente simulado: registra cada llamada para revisar cuerpos y cabeceras. */
 async function routeAgent(
   page: Page,
-  { turns = [PURCHASE], trace, pending = null, approval, canceled = () => PURCHASE_CANCELED }: AgentOptions = {},
+  { turns = [PURCHASE], trace, pending = null, approval, terms, canceled = () => PURCHASE_CANCELED }: AgentOptions = {},
 ) {
   const calls: AgentCall[] = []
   let turn = 0
@@ -192,6 +208,7 @@ async function routeAgent(
         return route.fulfill({ status: reply.status ?? 200, headers: cors, json: reply.body })
       }
       case "GET /purchases/:runId/approval":
+        if (terms) return route.fulfill({ status: terms.status, headers: cors, json: terms.body })
         return json(APPROVAL.terms)
       case "POST /purchases/:runId/approval":
         if (approval) return route.fulfill({ status: approval.status, headers: cors, json: approval.body })
@@ -425,6 +442,7 @@ test.describe("términos que ya no valen", () => {
       }) => {
         await routeSession(page)
         // La traza se relee tras el 409: la frescura de la oferta, no la política, detuvo la compra.
+        // Es la etapa `approve` (la del piloto): la oferta cambió entre releer los términos y el POST.
         await routeAgent(page, {
           approval: { status: stale.status, body: stale.body },
           trace: (calls) => ({
@@ -444,14 +462,71 @@ test.describe("términos que ya no valen", () => {
         await activity.getByRole("button", { name: /Detenida: cambiaron las condiciones/ }).click()
         const blocked = activity.getByRole("listitem").filter({ hasText: "Las condiciones del comercio cambiaron" })
         await expect(blocked).toHaveAttribute("data-state", "blocked")
-        await expect(blocked).toContainText("Tu aprobación no se registró y no se firmó ninguna autorización.")
-        const total = blocked.getByRole("list", { name: "Qué cambió" }).getByRole("listitem").filter({ hasText: "Total" })
+        await expect(blocked).toContainText(STOPPED)
+        const changes = blocked.getByRole("list", { name: "Qué cambió" }).getByRole("listitem")
+        const total = changes.filter({ hasText: "Total" })
         await expect(total).toContainText(/En el checkout\$\s?1\.924\.000(,00)? COP/)
         await expect(total).toContainText(/Oferta actual\$\s?2\.024\.000(,00)? COP/)
+        // La vigencia renovada cae en el mismo minuto que la anterior: los segundos la distinguen.
+        const expiry = changes.filter({ hasText: "Vigencia de la oferta" }).getByRole("definition")
+        await expect(expiry).toHaveText([/\d{1,2}:\d{2}:12\b/, /\d{1,2}:\d{2}:48\b/])
+        const [presented, current] = await expiry.allTextContents()
+        expect(presented).not.toBe(current)
         await expect(activity.getByText("Condiciones confirmadas con el comercio")).toBeVisible()
         await expect(activity.getByText("La política detuvo la compra")).toHaveCount(0)
         await expect(page.getByText("Esperando tu aprobación")).toHaveCount(0)
         await expect(page.getByRole("alert")).toHaveCount(0)
+      })
+    }
+
+    if (termsStatus === "changed") {
+      // El orden real del chat: «Aprobar» relee los términos (GET) y, si cambiaron, el POST no sale.
+      test("releer los términos al aprobar responde 409: sin POST, se cancela y la actividad lo muestra", async ({
+        page,
+      }) => {
+        await routeSession(page)
+        const reread = trace("stale-terms-reread", APPROVAL.run_id)
+        const calls = await routeAgent(page, {
+          terms: { status: stale.status, body: stale.body },
+          trace: (calls) => {
+            if (callIndex(calls, "POST", "/cancel") >= 0) return { body: canceledTrace(reread) }
+            const refused = callIndex(calls, "GET", `/purchases/${APPROVAL.run_id}/approval`) >= 0
+            return { body: refused ? reread : trace("awaiting-approval", APPROVAL.run_id) }
+          },
+        })
+        await page.goto("/")
+        const card = await preparePurchase(page)
+        await card.getByTestId("approve-purchase").click()
+
+        const staleCard = page.getByTestId("stale-terms-card")
+        await expect(staleCard).toHaveAttribute("data-status", "stale")
+        await expect(staleCard.getByRole("heading", { name: stale.title })).toBeVisible()
+        await expect(staleCard.getByText("No se hizo ningún cobro.", { exact: true })).toBeVisible()
+        await expect(staleCard.getByRole("button")).toHaveText(["Cancelar compra"])
+        await expect(page.getByTestId("purchase-approval-card")).toHaveCount(0)
+        await expect(page.getByRole("alert")).toHaveCount(0)
+        expect(callIndex(calls, "POST", `/purchases/${APPROVAL.run_id}/approval`)).toBe(-1)
+
+        const activity = page.getByTestId("purchase-activity")
+        await expect(activity).toHaveAttribute("data-status", "stale_terms")
+        await activity.getByRole("button", { name: /Detenida: cambiaron las condiciones/ }).click()
+        const steps = activity.getByRole("listitem")
+        await expect(steps.filter({ hasText: "Condiciones confirmadas con el comercio" })).toContainText(
+          "Antes de mostrarte los términos",
+        )
+        await expect(steps.filter({ hasText: "Tu aprobación" })).toContainText("No se ejecutó")
+        const blocked = steps.filter({ hasText: "Las condiciones del comercio cambiaron" })
+        await expect(blocked).toHaveAttribute("data-state", "blocked")
+        await expect(blocked).toContainText(STOPPED)
+        await expect(activity.getByText(/No se mostraron/)).toHaveCount(0)
+
+        await staleCard.getByRole("button", { name: "Cancelar compra" }).click()
+        await expect(staleCard).toHaveAttribute("data-status", "canceled")
+        await expect(page.getByText(/Cancelé la compra pendiente/)).toBeVisible()
+        await expect(activity).toHaveAttribute("data-status", "canceled")
+        expect(callIndex(calls, "POST", `/purchases/${APPROVAL.run_id}/cancel`)).toBeGreaterThanOrEqual(0)
+        expect(callIndex(calls, "POST", `/purchases/${APPROVAL.run_id}/approval`)).toBe(-1)
+        expect(callIndex(calls, "POST", "/complete")).toBe(-1)
       })
     }
 

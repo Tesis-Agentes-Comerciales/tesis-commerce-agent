@@ -113,14 +113,15 @@ export const FreshnessConfirmed: Story = {
   },
 }
 
+/** Lo que no ocurrió, igual en las dos etapas. */
+const STOPPED = "No se registró ninguna aprobación ni se firmó ninguna autorización."
+
 /** S04, al aprobar: el precio cambió y el control detuvo la aprobación antes de firmar. */
 export const FreshnessBlocked: Story = {
   args: { step: CHANGED },
   play: async ({ canvas, canvasElement }) => {
     await expect(canvas.getByText("Las condiciones del comercio cambiaron")).toBeVisible()
-    await expect(
-      canvas.getByText("Tu aprobación no se registró y no se firmó ninguna autorización."),
-    ).toBeVisible()
+    await expect(canvas.getByText(STOPPED)).toBeVisible()
     // Escudo ámbar como cualquier bloqueo, pero sin atribuirlo a la política.
     await expect(canvasElement.querySelector("li")).toHaveAttribute("data-state", "blocked")
     await expect(canvas.getByText("Detenido")).toHaveClass("sr-only")
@@ -129,15 +130,25 @@ export const FreshnessBlocked: Story = {
     await expect(total).toHaveTextContent(/En el checkout\$\s?1\.924\.000(,00)? COP/)
     await expect(total).toHaveTextContent(/Oferta actual\$\s?2\.024\.000(,00)? COP/)
     await expect(within(changes).getByText("Precio del producto")).toBeVisible()
+    // S04 también renueva la vigencia: en el mismo minuto, los segundos las distinguen.
+    const expiry = within(changes).getByText("Vigencia de la oferta").closest("li")
+    await expect(expiry).toHaveTextContent(/En el checkout\d{2}\/\d{2}\/\d{4},? \d{1,2}:\d{2}:12\b/)
+    await expect(expiry).toHaveTextContent(/Oferta actual\d{2}\/\d{2}\/\d{4},? \d{1,2}:\d{2}:48\b/)
     await expect(canvas.queryByText(NOT_POLICY)).toBeNull()
   },
 }
 
-/** Al presentar: la oferta cambió antes de que vieras los términos. */
-export const FreshnessBlockedWhenPresenting: Story = {
-  args: { step: { ...CHANGED, stage: "present" } },
+/**
+ * S04 en el chat: al pulsar «Aprobar» la UI relee los términos (etapa `present`) y la frescura los
+ * rechaza ahí, después de haberlos mostrado. El texto no dice que no se mostraron.
+ */
+export const FreshnessBlockedWhenRereading: Story = {
+  args: { step: lastStepOf(TRACES.staleTermsReread, "freshness_check") },
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("No se mostraron los términos para aprobar.")).toBeVisible()
+    await expect(canvas.getByText("Las condiciones del comercio cambiaron")).toBeVisible()
+    await expect(canvas.getByText(STOPPED)).toBeVisible()
+    await expect(canvas.queryByText(/No se mostraron/)).toBeNull()
+    await expect(canvas.getByRole("list", { name: "Qué cambió" })).toBeVisible()
   },
 }
 
@@ -165,7 +176,7 @@ export const FreshnessObserved: Story = {
   },
 }
 
-/** Vigencia, días de entrega, unidades y moneda, cada uno con su formato. */
+/** Vigencia, días de entrega, disponibilidad y moneda, cada uno con su formato. */
 export const FreshnessOtherFields: Story = {
   args: {
     step: {
@@ -179,11 +190,38 @@ export const FreshnessOtherFields: Story = {
     },
   },
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("Sin dato")).toBeVisible()
+    const changes = canvas.getByRole("list", { name: "Qué cambió" })
+    const expiry = within(changes).getByText("Vigencia de la oferta").closest("li")
+    await expect(expiry).toHaveTextContent(/En el checkout\d{2}\/\d{2}\/\d{4},? \d{1,2}:\d{2}:31\b/)
+    await expect(expiry).toHaveTextContent(/Oferta actualSin dato/)
     await expect(canvas.getByText("2 días")).toBeVisible()
     await expect(canvas.getByText("1 día")).toBeVisible()
-    await expect(canvas.getByText("Unidades disponibles")).toBeVisible()
+    // El checkout guarda la cantidad pedida, no las existencias: cada valor dice cuál es.
+    const stock = within(changes).getByText("Disponibilidad").closest("li")
+    await expect(stock).toHaveTextContent(/Unidades pedidas1Unidades disponibles0/)
+    await expect(stock).not.toHaveTextContent(/En el checkout|Oferta actual/)
     await expect(canvas.getByText("USD")).toBeVisible()
+  },
+}
+
+/** Dos vigencias en el mismo segundo: se agregan los milisegundos para que no se lean iguales. */
+export const FreshnessSameSecondExpiry: Story = {
+  args: {
+    step: {
+      ...CHANGED,
+      changes: [
+        {
+          field: "expires_at",
+          presented: "2027-10-20T16:10:12.000Z",
+          current: "2027-10-20T16:10:12.250Z",
+        },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    const expiry = canvas.getByText("Vigencia de la oferta").closest("li")
+    await expect(expiry).toHaveTextContent(/En el checkout[^O]*:12,000\b/)
+    await expect(expiry).toHaveTextContent(/Oferta actual.*:12,250\b/)
   },
 }
 

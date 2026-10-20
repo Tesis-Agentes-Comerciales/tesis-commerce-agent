@@ -123,6 +123,11 @@
           "field": "total_minor",
           "presented": 192400000,
           "current": 202400000
+        },
+        {
+          "field": "expires_at",
+          "presented": "2027-10-20T16:10:12.000Z",
+          "current": "2027-10-20T16:10:48.000Z"
         }
       ],
       "currency": "COP",

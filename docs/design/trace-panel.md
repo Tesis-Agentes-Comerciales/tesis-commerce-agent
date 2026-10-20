@@ -306,15 +306,28 @@ oferta y el digest de la evidencia) van al «Detalle técnico».
 | --- | --- | --- |
 | Frescura `fresh` al presentar | «Condiciones confirmadas con el comercio» | «Antes de mostrarte los términos» |
 | Frescura `fresh` al aprobar | «Condiciones confirmadas con el comercio» | «Antes de registrar tu aprobación» |
-| Frescura `changed`, bloqueada, al presentar | «Las condiciones del comercio cambiaron» | «No se mostraron los términos para aprobar.» y la lista de cambios |
-| Frescura `changed`, bloqueada, al aprobar | «Las condiciones del comercio cambiaron» | «Tu aprobación no se registró y no se firmó ninguna autorización.» y la lista de cambios |
+| Frescura `changed`, bloqueada (al presentar o al aprobar) | «Las condiciones del comercio cambiaron» | «No se registró ninguna aprobación ni se firmó ninguna autorización.» y la lista de cambios |
 | Frescura `unavailable`, bloqueada | «No se pudieron confirmar las condiciones con el comercio» | «Por precaución, la compra se detuvo.» |
 | Frescura en `shadow` (`changed` o `unavailable`) | el mismo título | «Solo observando: registra, no detiene» y, si cambió, la lista |
 | Recuperación | «El agente explicó por qué no siguió» | La causa y lo que no pasó, p. ej. «Superaba tu presupuesto de $ 1.000.000,00 COP. Se canceló el checkout antes de cobrar.» o «La opción elegida no estaba entre las verificadas para tu pedido. No se creó ningún checkout.» |
 
 La lista de cambios usa la forma de las reglas (término sobre valor): por cada campo, «En el
 checkout» y «Oferta actual». Campos: «Precio del producto», «Envío», «Total», «Moneda», «Vigencia de
-la oferta», «Días de entrega» y «Unidades disponibles». Los montos llevan la moneda de los términos.
+la oferta», «Días de entrega» y «Disponibilidad». Los montos llevan la moneda de los términos.
+
+- **Vigencia de la oferta:** siempre con segundos (`formatPreciseDateTime`). Una oferta renovada
+  vence un año después de cambiar, así que las dos vigencias suelen caer en el mismo minuto; si aun
+  con segundos se leen iguales, se agregan los milisegundos.
+- **Disponibilidad:** el checkout no guarda existencias sino la cantidad pedida, que se compara con
+  las unidades que el comercio puede vender. Por eso sus valores dicen «Unidades pedidas» y
+  «Unidades disponibles» en vez de «En el checkout» y «Oferta actual».
+
+El detalle de un cambio bloqueado es el mismo en las dos etapas porque la etapa no dice si los
+términos ya se mostraron. Al pulsar «Aprobar», el chat relee los términos con
+`GET /purchases/{run_id}/approval` antes del POST, y esa lectura corre la frescura en `present`. Así
+que en el S04 de la demo la parada es un segundo `present`, después del que confirmó los términos
+al mostrarlos, y el POST nunca sale. La etapa `approve` es la del piloto, cuyo runner envía el POST
+directo. En los dos caminos es cierto que no hubo aprobación ni firma.
 
 Una compra en `stale_terms` dice en la fila de actividad «Detenida: cambiaron las condiciones» o
 «Detenida: condiciones sin confirmar», según la última comprobación; en la etiqueta de estado,
