@@ -18,6 +18,7 @@ from commerce_evaluation.governance_pilot import (
     D1RunKeys,
     PilotCondition,
     agent_environment,
+    agent_log_tail,
     verify_agent_condition,
 )
 from commerce_evaluation.paths import DATA
@@ -140,3 +141,17 @@ def test_agent_started_with_the_condition_passes_the_health_check(
 def test_runner_aborts_when_health_reports_another_condition(health: dict[str, str]) -> None:
     with pytest.raises(ConditionMismatchError, match="condition B2 requires"):
         verify_agent_condition(B2, health)
+
+
+def test_agent_log_tail_never_shows_the_d1_keys(tmp_path: Path) -> None:
+    log = tmp_path / "agent.log"
+    key_line = f"\nloaded {KEYS.aes_hex}\n"
+    # The last 4000 characters start in the middle of the HMAC key.
+    log.write_text(KEYS.hmac_hex + "." * (4000 - 32 - len(key_line)) + key_line, "utf-8")
+
+    tail = agent_log_tail(log, agent_environment(B2, MERCHANT, KEYS))
+
+    assert KEYS.hmac_hex[-32:] not in tail
+    assert KEYS.aes_hex not in tail
+    assert "[redacted]" in tail
+    assert KEYS.hmac_hex not in repr(KEYS)

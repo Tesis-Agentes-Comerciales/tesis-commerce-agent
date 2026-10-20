@@ -14,6 +14,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -88,6 +89,16 @@ CONDITIONS = {
 D1_POLICY_SET_ID = "b2-pilot-v1"
 D1_POLICY_REVISION = "1"
 D1_KEY_ID = "b2-pilot-v1-run"
+# Secrets the agent starts with; its log tail never shows them.
+AGENT_SECRETS = (
+    "MERCHANT_BEARER_TOKEN",
+    "MERCHANT_WEBHOOK_SECRET",
+    "AGENT_APPROVAL_SECRET",
+    "PAYMENT_AGENT_BEARER_TOKEN",
+    "AGENT_AP2_PRIVATE_KEY_PEM",
+    "AGENT_D1_HMAC_KEY_HEX",
+    "AGENT_D1_AES_KEY_HEX",
+)
 
 
 @dataclass(frozen=True)
@@ -511,11 +522,16 @@ def _model_from_env_file() -> str | None:
 def _tail(path: Path, secrets_to_hide: tuple[str, ...]) -> str:
     if not path.is_file():
         return ""
-    value = path.read_text(encoding="utf-8", errors="replace")[-4000:]
+    # Redact before cutting: a cut through a secret would leave part of it behind.
+    value = path.read_text(encoding="utf-8", errors="replace")
     for secret in secrets_to_hide:
         if secret:
             value = value.replace(secret, "[redacted]")
-    return value
+    return value[-4000:]
+
+
+def agent_log_tail(path: Path, agent_variables: Mapping[str, str]) -> str:
+    return _tail(path, tuple(agent_variables.get(name, "") for name in AGENT_SECRETS))
 
 
 def _execute_turn(
@@ -759,15 +775,7 @@ def _execute_repetition(
             }
         except Exception:
             log.flush()
-            tail = _tail(
-                agent_log,
-                (
-                    merchant_token,
-                    environment["AGENT_APPROVAL_SECRET"],
-                    environment["PAYMENT_AGENT_BEARER_TOKEN"],
-                    environment["AGENT_AP2_PRIVATE_KEY_PEM"],
-                ),
-            )
+            tail = agent_log_tail(agent_log, agent_variables)
             if tail:
                 print(f"Agent log tail for {label}:\n{tail}", file=sys.stderr)
             raise
