@@ -75,7 +75,7 @@ branch = true
 skip_empty = true
 
 [tool.pyright]
-include = ["src", "evaluation/src", "tests"]
+include = ["src", "evaluation/src", "tests", "scripts"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 venvPath = "."

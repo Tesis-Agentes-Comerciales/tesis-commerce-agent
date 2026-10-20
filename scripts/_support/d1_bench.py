@@ -1,7 +1,8 @@
 """Synthetic PurchaseService setups for the offline D1 measurement; never a deployment path.
 
 The checkout is an in-memory spy over the versioned test feed. Each mode mirrors the setup used by
-tests/governance/test_enforce_integration.py without importing test modules.
+tests/governance/test_enforce_integration.py without importing test modules; pyright checks this
+copy and tests/governance/test_d1_bench.py runs every mode once.
 """
 
 import secrets
@@ -14,7 +15,13 @@ from typing import Any
 from pydantic import SecretBytes, SecretStr
 
 from commerce_agent.acp import load_product_feed
-from commerce_agent.acp.models import Address, Buyer, CheckoutSession, FulfillmentDetails
+from commerce_agent.acp.models import (
+    Address,
+    Buyer,
+    CheckoutSession,
+    CheckoutUpdateRequest,
+    FulfillmentDetails,
+)
 from commerce_agent.application import CheckoutDetails, PurchaseService
 from commerce_agent.approval import ApprovalService
 from commerce_agent.domain import HardConstraints, PurchaseIntent
@@ -110,21 +117,37 @@ class SpyGateway:
             connection.execute("BEGIN IMMEDIATE")
             connection.rollback()
 
-    def create_checkout(self, variant_id: str, *, currency: str, idempotency_key: str):
+    def create_checkout(
+        self, variant_id: str, *, currency: str, idempotency_key: str
+    ) -> CheckoutSession:
         self._free()
         self.calls.append(("create", idempotency_key))
         return self.current
 
-    def get_checkout(self, checkout_id: str):
+    def get_checkout(self, checkout_id: str) -> CheckoutSession:
         self._free()
         self.calls.append(("get", checkout_id))
         return self.current
 
-    def update_checkout(self, checkout_id, update, *, idempotency_key):
+    def update_checkout(
+        self, checkout_id: str, update: CheckoutUpdateRequest, *, idempotency_key: str
+    ) -> CheckoutSession:
         self._free()
         self.calls.append(("update", idempotency_key))
         self.current = checkout("ready_for_payment")
         return self.current
+
+    # The measured path never signs (no AP2) and never cancels (the total fits the budget).
+    def signed_checkout(self, checkout: CheckoutSession) -> str:
+        raise AssertionError("The D1 bench runs without AP2")
+
+    def verify_signed_checkout(self, token: str, checkout: CheckoutSession) -> None:
+        raise AssertionError("The D1 bench runs without AP2")
+
+    def cancel_checkout(
+        self, checkout_id: str, *, idempotency_key: str, reason_code: str | None = None
+    ) -> CheckoutSession:
+        raise AssertionError("The D1 bench never cancels")
 
 
 class SingleAttemptSpy:
