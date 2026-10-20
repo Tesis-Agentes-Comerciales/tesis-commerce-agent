@@ -121,7 +121,7 @@ def error_response(error: Exception) -> JSONResponse:
         return JSONResponse(body, status_code=status)
     if code == "intent_model_error":
         status = 502
-    elif code == "provider_unavailable":
+    elif code in {"provider_unavailable", "offer_freshness_unavailable"}:
         status = 503
     elif code == "invalid_provider_response":
         status = 502

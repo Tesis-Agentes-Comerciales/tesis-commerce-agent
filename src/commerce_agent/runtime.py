@@ -18,6 +18,7 @@ from commerce_agent.application.governed_recovery import (
     LoggedRecoveryEvidence,
     governed_recovery_enabled,
 )
+from commerce_agent.application.offer_freshness import build_offer_freshness
 from commerce_agent.approval import ApprovalService
 from commerce_agent.completion import CompletionService
 from commerce_agent.config import Settings
@@ -145,6 +146,7 @@ def build_runtime(
         checkout=client,
         store=store,
         approvals=approvals,
+        offer_freshness=build_offer_freshness(configuration, client, clock),
         d1_observer=d1_shadow,
         d1_gate=d1_gate,
     )

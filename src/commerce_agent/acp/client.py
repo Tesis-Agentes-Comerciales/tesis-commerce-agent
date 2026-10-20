@@ -1,6 +1,6 @@
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import httpx
@@ -21,6 +21,9 @@ from commerce_agent.acp.models import (
 )
 from commerce_agent.acp.schema import ACPContractError, validate_acp
 from commerce_agent.config import validate_service_base_url
+
+if TYPE_CHECKING:
+    from commerce_agent.acp.offer_snapshot import DeliveryContext, MerchantOffer
 
 
 class ACPClientError(RuntimeError):
@@ -107,6 +110,26 @@ class ACPClient:
             request_id=request_id,
         )
         return self._parse_checkout(payload)
+
+    def get_offer(self, offer_id: str, delivery_context: "DeliveryContext") -> "MerchantOffer":
+        """Lab extension, not ACP. One attempt: a failed read must surface, never be retried."""
+        # Deferred: offer_snapshot reaches governance, which imports this package.
+        from commerce_agent.acp.offer_snapshot import OfferResponse
+
+        payload = self._request(
+            "POST",
+            "/lab/offers/get",
+            json={
+                "offer_id": self._identifier(offer_id),
+                "delivery_context": delivery_context.model_dump(mode="json"),
+            },
+        )
+        try:
+            return OfferResponse.model_validate(payload).data
+        except ValidationError as error:
+            raise ACPClientError(
+                "Merchant returned an invalid offer", code="invalid_offer"
+            ) from error
 
     def signed_checkout(self, checkout: CheckoutSession) -> str:
         checked_id = self._identifier(checkout.id)
