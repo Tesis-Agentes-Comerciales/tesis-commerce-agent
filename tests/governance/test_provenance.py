@@ -3,6 +3,7 @@
 import json
 import secrets
 import sqlite3
+import tomllib
 from collections.abc import Iterator
 from contextlib import closing
 from datetime import UTC, datetime
@@ -546,6 +547,33 @@ def test_installed_dependency_tamper_is_rejected(monkeypatch: pytest.MonkeyPatch
         return original_read(path)
 
     monkeypatch.setattr(Path, "read_bytes", changed)
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
+    with pytest.raises(GovernanceError, match="GOV_ARTIFACT_MISMATCH"):
+        measure_d1_sources()
+
+
+def test_wheel_layout_measures_package_data_identically(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = Path(__file__).parents[2]
+    wheel = tomllib.loads((checkout / "pyproject.toml").read_text(encoding="utf-8"))
+    assert wheel["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"] == {
+        "uv.lock": "commerce_agent/uv.lock"
+    }
+    package = tmp_path / "site-packages" / "commerce_agent"
+    for path in (*SOURCE_PATHS, "uv.lock"):
+        target = package / path.removeprefix("src/commerce_agent/")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((checkout / path).read_bytes())
+    expected = measure_d1_sources()
+    # No checkout root beside an installed wheel: only package data is available.
+    monkeypatch.setattr(provenance_artifacts, "files", lambda _name: package)
+    monkeypatch.setattr(
+        provenance_artifacts, "__file__", str(package / "governance/provenance_artifacts.py")
+    )
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
+    assert measure_d1_sources() == expected
+    (package / "uv.lock").unlink()
     monkeypatch.setattr(provenance_artifacts, "_memo", None)
     with pytest.raises(GovernanceError, match="GOV_ARTIFACT_MISMATCH"):
         measure_d1_sources()

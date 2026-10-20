@@ -40,6 +40,10 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 packages = ["src/commerce_agent"]
 
+[tool.hatch.build.targets.wheel.force-include]
+# D1 provenance verifies installed dependency versions against the lock it was built with.
+"uv.lock" = "commerce_agent/uv.lock"
+
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]

@@ -15,6 +15,7 @@ import time
 import tomllib
 import unicodedata
 from importlib.metadata import distribution
+from importlib.resources import files
 from pathlib import Path
 from threading import Lock
 from typing import Literal
@@ -111,15 +112,21 @@ def _signature(read: tuple[Path, ...]) -> object:
 
 
 def _measure(read: list[Path]) -> Measured:
-    root = Path(__file__).resolve().parents[3]
-    read.append(root / "uv.lock")
-    lock = lf_source(read[-1].read_bytes())
+    package = Path(str(files("commerce_agent")))
+    # A wheel carries the lock as package data; a source checkout keeps it at its root.
+    lock_path = package / "uv.lock"
+    if not lock_path.is_file():
+        lock_path = Path(__file__).resolve().parents[3] / "uv.lock"
+    read.append(lock_path)
+    lock = lf_source(lock_path.read_bytes())
     locked: dict[str, set[str]] = {}
     for item in tomllib.loads(lock)["package"]:
         locked.setdefault(item["name"].lower().replace("_", "-"), set()).add(item["version"])
     dependencies = [_dependency(name, locked, read) for name in DEPENDENCIES]
-    read.extend(root / path for path in SOURCE_PATHS)
-    source = {path: lf_source((root / path).read_bytes()) for path in SOURCE_PATHS}
+    # Manifest names stay checkout-relative, so identities match in either layout.
+    paths = {path: package / path.removeprefix("src/commerce_agent/") for path in SOURCE_PATHS}
+    read.extend(paths.values())
+    source = {path: lf_source(location.read_bytes()) for path, location in paths.items()}
     common = {
         "schema_version": "d1-source-manifest/1",
         "source_profile": "project-source-utf8-lf/1",
