@@ -79,6 +79,15 @@ carga: `sb.mock` cambia `src/lib/auth-client.ts` por `src/lib/__mocks__/auth-cli
   reproduce frame por frame (`sse` y `frameDelayMs` en `agent-api-mock.ts`) y solo reemplaza las
   imágenes del feed por SVG locales para que ninguna historia pida recursos externos.
 - `Agent/*` y `Purchase/*` cubren los componentes sueltos y los datos de entrega.
+- `Auth/SessionGate` cubre la puerta de sesión: pendiente, sin sesión (el doble rechaza las
+  credenciales), registro, servicio caído y con sesión.
+- `Governance/*` cubre el monitor con la proyección versionada (`evidence.json`, vía
+  `src/storybook/governance.ts`): escenarios HP/HNP-01, el experimento HNP-02 en dry-run con sus dos
+  avisos, cada estado de la fuente (offline, leyendo, leído, obsoleto, desconectado, inconsistente),
+  la ruta con y sin sesión y el error de contrato. Los estados inconsistentes son mutaciones en
+  memoria, las mismas de `tests/`. `SourceMonitor` lee un servidor de snapshots simulado: el
+  parámetro `governanceSnapshot` da la respuesta de cada lectura (`snapshot`, `altered`, `rejected`,
+  `unreachable`) y por defecto no hay servidor.
 
 `npm run build-storybook` genera la versión estática. Ningún módulo de `src/storybook/` ni de
 `src/lib/__mocks__/` entra en el bundle de producción.
