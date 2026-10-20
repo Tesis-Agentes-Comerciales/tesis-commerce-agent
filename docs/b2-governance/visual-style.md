@@ -52,10 +52,22 @@ repite, para que se lea igual en gris o impreso:
 
 | Estado | Borde | Texto de tipo |
 |---|---|---|
-| Hecho (en `org/main`) | continuo, color de su responsabilidad | `[B2 · hecho]` |
-| En curso (piloto de la semana) | discontinuo largo, mismo color | `[B2 · en curso]` |
-| Futuro | punteado corto, gris `#8C8C8C`, nombre en gris | `[B2 · futuro]` |
+| Hecho (en `org/main` y conectado al flujo) | continuo, color de su responsabilidad | `[B2 · hecho]` |
+| Planificado (piezas en `org/main` que el flujo todavía no usa) | discontinuo largo, mismo color | `[B2 · planificado]` |
+| Futuro (sin implementar) | punteado corto, gris `#8C8C8C`, nombre en gris | `[B2 · futuro]` |
+
+Todas las tarjetas y mensajes con estado usan ese texto de tipo, también en la secuencia y en el
+delta. Un elemento de la línea base que aparece en un diagrama B2 lleva `[B0]` o
+`[Componente B0]`; los del experimento HNP usan el prefijo `HNP` (`[HNP · hecho]`). La leyenda
+muestra solo los estados que aparecen en el diagrama.
 
 Las fronteras de sistema siguen siendo punteadas en azul o gris; no llevan estado. En la secuencia
 gobernada, los mensajes que agrega B2 van en azul del agente y los rechazos sin efecto comercial en
-el rojo de fallo.
+el rojo de fallo. Las líneas de vida quedan detrás de las tarjetas y de las etiquetas.
+
+## Resultados
+
+La figura de resultados del piloto (`pilot-results`) se genera desde el `.summary.json` congelado
+y nunca lo modifica. Cada repetición es un cuadro: lleno si cumple el oráculo, vacío con borde gris
+`#BBBBBB` si no. B0' usa el gris `#A3A3A3` y B2 el azul del agente; los conteos van siempre como
+texto (`n/5`) junto a los cuadros, así que el color no es la única pista.
