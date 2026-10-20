@@ -428,12 +428,13 @@ def score_result(
     elif expected == "clarify":
         valid = valid and action == "clarify" and not checkout_created
     elif expected == "reject_stale_approval":
+        # Amendment M2: only the stale-terms rejection counts, not any failed approval.
         valid = (
             valid
             and action == "purchase"
             and checkout_created
             and approval is not None
-            and approval.status >= 400
+            and approval.body.get("code") == "checkout_terms_changed"
         )
     else:
         raise PilotError(f"Unsupported oracle decision: {expected}")
