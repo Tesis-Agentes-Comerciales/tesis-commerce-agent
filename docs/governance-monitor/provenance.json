@@ -9,7 +9,19 @@
   },
   "hnpLedgerEntriesVerified": 65,
   "hnpResultsVerified": 54,
-  "projection_sha256": "4f0a53771e814cd37fc583fd6c9adb14dccb95cbfdca41684ec863da76a99490",
+  "projection_sha256": "dc07e2ea9e2155665f33d8dc76b253b20b1b2727ba18b36b4ebad15748cfe5e4",
   "execution": "artifact verification and projection only; no harness execution",
-  "cryptography": "digest consistency, not a signature or human authorization"
+  "cryptography": "digest consistency, not a signature or human authorization",
+  "hnp02Runs": [
+    {
+      "experimentId": "hnp02-dry_run-20261020T044329Z-s20261022",
+      "executionKind": "llm validator dry-run",
+      "transport": "fake",
+      "episodes": 76,
+      "sha256": {
+        "hnp02-dry_run-20261020T044329Z-s20261022/summary.json": "b53a9d1778ac7e2a2428b5813231774e257119742470f1db629bf0653b1916cf",
+        "hnp02-dry_run-20261020T044329Z-s20261022/traces.jsonl": "acf683bb66765a4dfbc83ce6072b3b3b88751cebaff5512ee321379805b7fc21"
+      }
+    }
+  ]
 }
