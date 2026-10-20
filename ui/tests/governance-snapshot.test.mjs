@@ -79,7 +79,7 @@ test('HTTP GET serves exactly the pinned four-scenario offline bundle, no new ev
 });
 test('demo settings keep the reviewed defaults and are overridable only by the environment', () => {
   const defaults = demoConfig({});
-  assert.deepEqual(defaults, { port: 5183, snapshotUrl: 'http://127.0.0.1:5183/snapshots/hp-hnp-demo-v1', origins: ['http://127.0.0.1:5182', 'http://127.0.0.1:5179'], directory: '.local/mon-02b-2026-10-18' });
+  assert.deepEqual(defaults, { port: 5183, snapshotUrl: 'http://127.0.0.1:5183/snapshots/hp-hnp-demo-v1', origins: ['http://127.0.0.1:5182', 'http://127.0.0.1:5179'], directory: '.local/governance-demo' });
   assert.equal(DEMO_SNAPSHOT_URL, defaults.snapshotUrl);
   const custom = demoConfig({ VITE_GOVERNANCE_SNAPSHOT_PORT: '6200', GOVERNANCE_SNAPSHOT_ORIGINS: ' http://localhost:5173 ,', GOVERNANCE_DEMO_DIR: '.local/other-run' });
   assert.deepEqual(custom, { port: 6200, snapshotUrl: 'http://127.0.0.1:6200/snapshots/hp-hnp-demo-v1', origins: ['http://localhost:5173'], directory: '.local/other-run' });

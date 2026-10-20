@@ -5,7 +5,7 @@ import { DEMO_SNAPSHOT_ID } from "./snapshot-contract.ts"
 export const DEMO_DEFAULTS = {
   VITE_GOVERNANCE_SNAPSHOT_PORT: "5183",
   GOVERNANCE_SNAPSHOT_ORIGINS: "http://127.0.0.1:5182,http://127.0.0.1:5179",
-  GOVERNANCE_DEMO_DIR: ".local/mon-02b-2026-10-18",
+  GOVERNANCE_DEMO_DIR: ".local/governance-demo",
 } as const
 // Loopback is part of the demo boundary, not a setting.
 export const DEMO_HOST = "127.0.0.1"

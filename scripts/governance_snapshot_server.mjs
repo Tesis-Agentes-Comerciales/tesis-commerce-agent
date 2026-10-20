@@ -88,11 +88,6 @@ export function createDemoServer({ fixtureDirectory = FIXTURES, origins = CONFIG
 
 async function main() {
   const flag = process.argv.slice(2).join(' ');
-  // The PowerShell launcher reads host, port and directory here instead of repeating the defaults.
-  if (flag === '--print-config') {
-    console.log(JSON.stringify({ host: DEMO_HOST, port: CONFIG.port, url: CONFIG.snapshotUrl, directory: path.resolve(ROOT, CONFIG.directory) }));
-    return;
-  }
   assertDevelopmentRuntime();
   if (flag !== '--demo-fixtures-only') throw Error('EXPLICIT_DEMO_FLAG_REQUIRED');
   await readAuthorizedSnapshot();

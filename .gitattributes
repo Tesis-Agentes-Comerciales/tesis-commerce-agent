@@ -14,3 +14,9 @@
 
 # Prompt bytes are hashed into every HNP trace; keep them identical on every platform.
 /evaluation/src/commerce_evaluation/hnp/llm/prompts/*.md text eol=lf
+
+# provenance.json pins the SHA-256 of the bundled monitor projection.
+/ui/src/features/governance-monitor/evidence.json text eol=lf
+
+# Byte-exact copies of sealed evidence pinned in provenance.json; some keep their original CRLF.
+/docs/governance-monitor/sources/** -text
