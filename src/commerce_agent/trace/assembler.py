@@ -4,6 +4,7 @@ The trace holds only what happened: the UI deduces the disabled policy and the c
 never reached. A step carries `duration_ms` only when both of its ends were measured.
 """
 
+import logging
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
@@ -12,7 +13,7 @@ from typing import Any
 from pydantic import TypeAdapter
 
 from commerce_agent.config import Settings
-from commerce_agent.governance.evidence import DecisionRecord
+from commerce_agent.governance.evidence import DecisionRecord, EvidenceError
 from commerce_agent.persistence.hp_evidence_sqlite import HpEvidence
 
 from .models import (
@@ -29,8 +30,9 @@ from .models import (
     TraceActor,
     TraceStep,
 )
-from .sources import PurchaseRecords, merchant_origins, read_records
+from .sources import GraphCheckpoints, PurchaseRecords, merchant_origins, read_records
 
+logger = logging.getLogger(__name__)
 STEP: TypeAdapter[TraceStep] = TypeAdapter(TraceStep)
 EFFECTS = {"observed_shadow": "observed", "blocked": "blocked", "transition_committed": "continued"}
 STAGE_STATUS: dict[str, PurchaseStatus] = {
@@ -48,6 +50,11 @@ CANCELED_BY: dict[str, TraceActor] = {"user": "user", "budget": "agent"}
 GATED = {"approval", "authorization_signed", "payment_authorized", "order_confirmed"}
 # Fields offer_freshness.compare_offer compares; a field it adds later stays out of the trace.
 AMOUNT_FIELDS = {"subtotal_minor", "shipping_minor", "total_minor", "delivery_days", "stock"}
+
+
+class TraceUnavailable(Exception):
+    """The trace cannot be built without inventing data: evidence that does not verify, or a
+    stored value outside the contract. The trace answers 503; the history marks the row."""
 
 
 def utc(value: str) -> str:
@@ -205,9 +212,23 @@ def authorization_step(records: PurchaseRecords) -> TraceStep | None:
     return step("authorization_signed", utc(approval["approved_at"]), "user", mandates=mandates)
 
 
+def delegated(records: PurchaseRecords, started: str) -> bool:
+    """The payment provider returned: the completion was claimed, which happens only after it.
+
+    A merchant 4xx to /complete releases the claim back to `approved`. After the approval, only
+    that claim and its release write the purchase row, so a row written after the delegation key
+    proves it; a failed delegation leaves the row as the approval wrote it.
+    """
+    stage = records.purchase["stage"]
+    if stage in DELEGATED_STAGES:
+        return True
+    updated = datetime.fromisoformat(records.purchase["updated_at"])
+    return stage == "approved" and updated > datetime.fromisoformat(started)
+
+
 def payment_step(records: PurchaseRecords) -> TraceStep | None:
     started, terms = records.operations.get("payment.delegate"), records.terms
-    if started is None or terms is None or records.purchase["stage"] not in DELEGATED_STAGES:
+    if started is None or terms is None or not delegated(records, started):
         return None
     return step(
         "payment_authorized",
@@ -347,21 +368,25 @@ def recovery_steps(records: PurchaseRecords) -> list[TraceStep]:
     ]
 
 
-def by_time(steps: list[TraceStep], checks: list[TraceStep]) -> list[TraceStep]:
-    """Insert each check before the first later step; steps without a time keep their place.
+def goes_before(item: TraceStep, current: TraceStep) -> bool:
+    """Times are rounded to milliseconds. A freshness check runs right before the step it gates,
+    so on a tie it goes first; anything else goes after the steps it ties with."""
+    if item.at is None or current.at is None:
+        return False
+    if current.at != item.at:
+        return current.at > item.at
+    return item.kind == "freshness_check" and current.kind in GATED
 
-    Times are rounded to milliseconds, and a check runs right before the approval it gates: on a
-    tie it goes first.
+
+def by_time(steps: list[TraceStep], interleaved: list[TraceStep]) -> list[TraceStep]:
+    """Insert each step before the first later one; steps without a time keep their place.
+
+    Freshness checks and merchant webhooks have their own clock: a webhook can arrive before the
+    agent records the completion the merchant had already confirmed.
     """
     merged = list(steps)
-    for item in checks:
-        later = (
-            index
-            for index, current in enumerate(merged)
-            if item.at is not None
-            and current.at is not None
-            and (current.at > item.at or (current.at == item.at and current.kind in GATED))
-        )
+    for item in interleaved:
+        later = (index for index, current in enumerate(merged) if goes_before(item, current))
         merged.insert(next(later, len(merged)), item)
     return merged
 
@@ -399,11 +424,13 @@ def assemble(records: PurchaseRecords, origins: dict[str, str]) -> PurchaseTrace
         authorization_step(records),
         payment_step(records),
         order_step(records),
-        *order_event_steps(records),
         canceled_step(records),
         failed_step(records),
     )
-    ordered = by_time([item for item in found if item is not None], freshness_steps(records))
+    ordered = by_time(
+        [item for item in found if item is not None],
+        [*order_event_steps(records), *freshness_steps(records)],
+    )
     steps = (*ordered, *recovery_steps(records))
     terms = records.terms
     return PurchaseTrace(
@@ -452,6 +479,26 @@ def summarize(trace: PurchaseTrace) -> PurchaseSummary:
     )
 
 
+def unavailable_summary(purchase: dict[str, Any]) -> PurchaseSummary:
+    """A history row whose trace cannot be built: only what the purchase row itself stores.
+
+    Status, policy, merchant, total, approval and duration come from the evidence and the terms,
+    so they are not guessed.
+    """
+    return PurchaseSummary(
+        run_id=purchase["run_id"],
+        started_at=utc(purchase["created_at"]),
+        request=purchase["request_text"],
+        merchant=None,
+        total=None,
+        status="trace_unavailable",
+        policy=None,
+        approved_at=None,
+        order_id=purchase["order_id"],
+        duration_ms=None,
+    )
+
+
 class PurchaseTraces:
     """Traces and history read from the agent database. Ownership is checked by the caller."""
 
@@ -461,11 +508,17 @@ class PurchaseTraces:
         self._graph = self._database.with_name(f"{self._database.stem}.graph.db")
         self._origins = merchant_origins(settings)
 
-    def trace(self, run_id: str) -> PurchaseTrace:
-        records = read_records(self._database, self._graph, run_id)
-        if records is None:
-            raise LookupError("Purchase run does not exist")
-        return assemble(records, self._origins)
+    def trace(self, run_id: str, *, checkpoints: GraphCheckpoints | None = None) -> PurchaseTrace:
+        """Raises `LookupError` for an unknown run and `TraceUnavailable` instead of a guess."""
+        try:
+            records = read_records(self._database, self._graph, run_id, checkpoints=checkpoints)
+            if records is None:
+                raise LookupError("Purchase run does not exist")
+            # A ValidationError is a ValueError: a stored value the contract rejects.
+            return assemble(records, self._origins)
+        except (EvidenceError, ValueError) as error:
+            logger.warning("Purchase trace unavailable: %s", type(error).__name__)
+            raise TraceUnavailable(run_id) from None
 
     def history(self, owner_id: str, *, limit: int, before: str | None) -> PurchaseHistory | None:
         """A page of the owner's purchases, newest first; None if `before` is not one of them."""
@@ -480,14 +533,24 @@ class PurchaseTraces:
                 ).fetchone()
                 if cursor is None:
                     return None
-            rows = connection.execute(
-                "SELECT run_id FROM purchases WHERE owner_id = ? "
-                "AND (? IS NULL OR (created_at, run_id) < (?, ?)) "
+            query = connection.execute(
+                "SELECT run_id, request_text, order_id, created_at FROM purchases "
+                "WHERE owner_id = ? AND (? IS NULL OR (created_at, run_id) < (?, ?)) "
                 "ORDER BY created_at DESC, run_id DESC LIMIT ?",
                 (owner_id, before, *cursor, limit + 1),
-            ).fetchall()
-        page = [row[0] for row in rows[:limit]]
+            )
+            columns = [column[0] for column in query.description]
+            rows = [dict(zip(columns, row, strict=True)) for row in query.fetchall()]
+        page = rows[:limit]
+        checkpoints = GraphCheckpoints(self._graph)
         return PurchaseHistory(
-            purchases=tuple(summarize(self.trace(run_id)) for run_id in page),
-            next_cursor=page[-1] if len(rows) > limit else None,
+            purchases=tuple(self._summary(purchase, checkpoints) for purchase in page),
+            next_cursor=page[-1]["run_id"] if len(rows) > limit else None,
         )
+
+    def _summary(self, purchase: dict[str, Any], checkpoints: GraphCheckpoints) -> PurchaseSummary:
+        """One broken purchase marks its own row instead of taking the whole history down."""
+        try:
+            return summarize(self.trace(purchase["run_id"], checkpoints=checkpoints))
+        except TraceUnavailable:
+            return unavailable_summary(purchase)

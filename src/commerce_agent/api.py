@@ -33,10 +33,9 @@ from commerce_agent.buyer_auth import (
 )
 from commerce_agent.completion import CompletionError
 from commerce_agent.config import Settings, get_settings
-from commerce_agent.governance.evidence import EvidenceError
 from commerce_agent.llm import ConversationRouter, IntentInterpretationError
 from commerce_agent.runtime import build_runtime
-from commerce_agent.trace import PurchaseHistory, PurchaseTrace, PurchaseTraces
+from commerce_agent.trace import PurchaseHistory, PurchaseTrace, PurchaseTraces, TraceUnavailable
 from commerce_agent.webhooks import register_webhook_receiver
 
 
@@ -306,7 +305,7 @@ def create_app(
         owned_purchase(run_id, buyer)
         try:
             return traces.trace(run_id)
-        except EvidenceError:
+        except TraceUnavailable:
             raise HTTPException(status_code=503, detail="Purchase trace unavailable") from None
 
     @app.get("/me/purchases", response_model=PurchaseHistory)
@@ -315,10 +314,8 @@ def create_app(
         limit: Annotated[int, Query(ge=1, le=50)] = 20,
         before: Annotated[str | None, Query(max_length=256)] = None,
     ) -> PurchaseHistory:
-        try:
-            history = traces.history(buyer.id, limit=limit, before=before)
-        except EvidenceError:
-            raise HTTPException(status_code=503, detail="Purchase history unavailable") from None
+        # A purchase whose trace cannot be built marks its own row (`trace_unavailable`).
+        history = traces.history(buyer.id, limit=limit, before=before)
         if history is None:
             raise HTTPException(status_code=400, detail="Unknown purchase cursor")
         return history
