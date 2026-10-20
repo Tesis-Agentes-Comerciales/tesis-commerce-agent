@@ -107,15 +107,23 @@ npm run build
 npm run test
 npm run build-storybook
 npm run test-storybook
+npm run e2e
 ```
 
 `npm run test` ejecuta `tests/*.test.*` con `node --test` (Node 24 quita los tipos de los `.ts`; un hook
 transpila los `.tsx` y resuelve `@/`). No necesita build previo, red ni archivos bajo `.local`; el CI lo
 corre después del build y comprueba que el build por defecto no incluya el monitor.
 
-El smoke de navegador está en `e2e/smoke.py`: enruta `POST /assistant` con los fixtures SSE
-versionados, recorre compra, aprobación y completion, revisa que el cuerpo lleve `details` y
-`turn_id` (y ninguna evidencia de aprobación) y guarda capturas bajo `.local/ui-e2e/`.
+`npm run e2e` corre los tests de Playwright de `e2e/` contra el build de producción
+(`playwright.config.ts` lo genera en `dist-e2e/` con el monitor activo y lo sirve con
+`vite preview`). La red de Better Auth y de la API del agente se simula en cada spec con la sesión
+y los datos de `src/storybook/fixtures.ts`; `POST /assistant` reproduce los mismos streams SSE de
+Storybook. `e2e/chat.spec.ts` recorre compra, aprobación y completion, revisa que el cuerpo lleve
+`details` y `turn_id`, que la aprobación solo viaje por REST con el fingerprint de los términos y
+que en móvil no haya scroll horizontal. `e2e/governance.spec.ts` abre `/governance` con y sin
+sesión y lee el snapshot del servidor real (`scripts/governance_snapshot_server.mjs`, levantado
+con su fixture en `.local/governance-e2e/`), incluida la lectura obsoleta y la fuente desconectada.
+Usa puertos propios (5190 y 5191) y el mismo Chromium que `test-storybook`.
 
 La UI no contiene llaves ni tokens. Los datos de entrega se envían a FastAPI, y el único control que
 autoriza la compra usa el fingerprint de términos que devuelve el backend.

@@ -3,7 +3,7 @@ import { expect, mocked } from "storybook/test"
 
 import { SessionGate } from "@/components/session-gate"
 import { authClient } from "@/lib/auth-client"
-import { STORY_SESSION } from "@/storybook/session"
+import { BUYER_SESSION } from "@/storybook/fixtures"
 
 // `authClient` es el doble de src/lib/__mocks__/auth-client.ts: el parámetro `session` decide qué
 // devuelve `useSession` y el formulario nunca llama al servicio de acceso real.
@@ -87,7 +87,7 @@ export const ServiceUnavailable: Story = {
 export const SignedIn: Story = {
   play: async ({ canvas }) => {
     await expect(canvas.getByRole("heading", { name: "Contenido protegido" })).toBeVisible()
-    await expect(canvas.getByText(`Sesión de ${STORY_SESSION.user.email}`)).toBeVisible()
+    await expect(canvas.getByText(`Sesión de ${BUYER_SESSION.user.email}`)).toBeVisible()
     await expect(canvas.queryByRole("textbox")).toBeNull()
   },
 }

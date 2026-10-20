@@ -1,7 +1,36 @@
-import type { ApprovalTerms, CompletedCheckout, PurchasePreparation } from "@/lib/commerce-types"
+import type { authClient } from "../lib/auth-client.ts"
+import type { ApprovalTerms, CompletedCheckout, PurchasePreparation } from "../lib/commerce-types.ts"
 
 // Datos sintéticos que comparten Storybook y los tests de Playwright (e2e/); nunca deben contener
-// datos reales. Solo importa tipos, para que Node pueda cargarlo sin Vite.
+// datos reales. Solo importa tipos y con rutas relativas, para que Node lo cargue sin Vite.
+
+type BuyerSession = NonNullable<ReturnType<typeof authClient.useSession>["data"]>
+
+const ISSUED_AT = new Date("2026-09-20T12:00:00Z")
+
+/** Sesión de Better Auth de la compradora sintética, alineada con DEMO_PROFILE. */
+export const BUYER_SESSION: BuyerSession = {
+  user: {
+    id: "storybook-user",
+    name: "Ana Demo",
+    email: "ana@example.test",
+    emailVerified: true,
+    image: null,
+    createdAt: ISSUED_AT,
+    updatedAt: ISSUED_AT,
+  },
+  session: {
+    id: "storybook-session",
+    userId: "storybook-user",
+    token: "storybook-session-token",
+    expiresAt: new Date("2099-09-20T13:00:00Z"),
+    createdAt: ISSUED_AT,
+    updatedAt: ISSUED_AT,
+  },
+}
+
+/** Lo que devuelve `authClient.token()`; la UI solo lo reenvía como `Bearer` al agente. */
+export const BUYER_TOKEN = "storybook-buyer-token"
 
 export const PURCHASE_REQUEST = "Quiero audífonos negros por menos de 2 millones"
 
