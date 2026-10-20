@@ -21,6 +21,7 @@ from commerce_agent.llm import ConversationRouter, OpenAIConversationRouter
 from commerce_agent.persistence import SqliteAgentStore
 
 if TYPE_CHECKING:
+    from commerce_agent.governance.enforce import SqliteD1EnforceGate
     from commerce_agent.governance.shadow import ShadowD1Observer, UnavailableShadowObserver
 
 
@@ -36,6 +37,7 @@ class AgentRuntime:
     checkpoint_connection: sqlite3.Connection
     mandate_signer: AgentMandateSigner | None = None
     d1_shadow: "ShadowD1Observer | UnavailableShadowObserver | None" = None
+    d1_gate: "SqliteD1EnforceGate | None" = None
 
     def close(self) -> None:
         self.client.close()
@@ -63,6 +65,12 @@ def build_runtime(
         raise RuntimeError("AGENT_APPROVAL_SECRET is required")
     if configuration.payment_agent_bearer_token is None:
         raise RuntimeError("PAYMENT_AGENT_BEARER_TOKEN is required")
+    d1_gate = None
+    if configuration.agent_governance_mode == "enforce":
+        from commerce_agent.governance.bootstrap import build_enforce_gate
+
+        # Before any store or client exists: invalid enforce settings stop startup.
+        d1_gate = build_enforce_gate(configuration, clock)
 
     store = SqliteAgentStore(configuration.agent_database_path)
     store.initialize()
@@ -128,7 +136,12 @@ def build_runtime(
 
         d1_shadow = build_shadow_observer(configuration, clock)
     purchases = PurchaseService(
-        feed=feed, checkout=client, store=store, approvals=approvals, d1_observer=d1_shadow
+        feed=feed,
+        checkout=client,
+        store=store,
+        approvals=approvals,
+        d1_observer=d1_shadow,
+        d1_gate=d1_gate,
     )
     owned_router = None
     router_factory = None
@@ -177,4 +190,5 @@ def build_runtime(
         checkpoint_connection=checkpoint_connection,
         mandate_signer=mandate_signer,
         d1_shadow=d1_shadow,
+        d1_gate=d1_gate,
     )

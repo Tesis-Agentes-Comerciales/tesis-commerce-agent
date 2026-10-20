@@ -637,7 +637,8 @@ def test_no_network_or_runtime_authorization_surface() -> None:
         assert "d1_uow" not in (root / path).read_text()
     from commerce_agent.config import Settings
 
-    assert "enforce" not in str(Settings.model_fields["agent_governance_mode"].annotation)
+    # Runtime enforce is opt-in only, through a gate without dispatch (test_enforce_runtime).
+    assert Settings.model_fields["agent_governance_mode"].default == "off"
 
 
 def test_engine_exception_does_not_admit_or_transition(case: Case, monkeypatch: pytest.MonkeyPatch):
