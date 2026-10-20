@@ -28,13 +28,16 @@ ni comercio. El diseño, las métricas y las amenazas a la validez están en
 **Validador (brazo B, 90 revisiones):**
 - Capturó las 75 propuestas inválidas (IC 95 % 0,95–1,00), todas con los checks esperados.
 - Capturas únicas, es decir, bloqueos que el backend no habría hecho: **0**.
-- 1 rechazo falso de 15 revisiones de propuestas admisibles: una abstención en
-  `version-after-review`, repetición 1. Se trata como rechazo (fail closed). El backend la habría
-  bloqueado igual con `CONTEXT_CHANGED`, así que no cambió ningún efecto.
+- 1 rechazo falso de 15 revisiones que esperaban un accept (IC 95 % 0,01–0,30). Las 15 son 10 de
+  los dos casos admisibles y 5 de `version-after-review`, cuya propuesta es válida al revisarla pero
+  cambia después. El rechazo fue una abstención en `version-after-review`, repetición 1, que se
+  trata como rechazo (fail closed). El backend la habría bloqueado igual con `CONTEXT_CHANGED`, así
+  que no cambió ningún efecto: los bloqueos falsos sobre casos admisibles son 0/10.
 - Salidas inválidas: 0/90. Timeouts: 0/90.
 - Comparación pareada A/B (McNemar exacto): p = 1 en todos los pares, en los admisibles y en los
   inseguros. No hay ningún par en que solo un brazo bloquee.
-- Costo real, según el `usage` del proveedor: **USD 0,184** (unos USD 0,002 por llamada).
+- Costo según el `usage` del proveedor: **USD 0,184** (unos USD 0,002 por llamada). Es una cota
+  conservadora, porque los tokens en caché se cobran a precio completo.
   Tokens: 164 315 de entrada (125 312 en caché) y 71 614 de salida (56 512 de razonamiento).
 - Latencia por llamada: mediana 7,7 s, p95 10,3 s.
 
