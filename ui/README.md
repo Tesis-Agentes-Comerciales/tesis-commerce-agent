@@ -50,6 +50,8 @@ VITE_GOVERNANCE_MONITOR=true npm run dev
 ```
 
 `VITE_GOVERNANCE_SNAPSHOT_PORT` (5183 por defecto) fija el puerto del snapshot local que lee el monitor.
+`npm run governance:demo` levanta la demo completa (snapshot, Better Auth y preview en
+`http://127.0.0.1:5182/governance`) y la detiene con Ctrl+C; necesita `npm ci` también en `../auth`.
 La reproducción, el servidor local de snapshots y sus variables están en
 [`docs/governance-monitor/README.md`](../docs/governance-monitor/README.md).
 
