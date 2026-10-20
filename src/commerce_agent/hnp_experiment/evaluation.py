@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from .llm.trace import CallRecord
 from .models import CheckId, Condition, DemoResult, Id
 
 INFRASTRUCTURE_CODES = ("BUYER_UNAVAILABLE", "CONTEXT_UNAVAILABLE", "BACKEND_UNAVAILABLE")
@@ -125,8 +126,17 @@ def expectation_deviations(
     return tuple(found)
 
 
-def score(results: list[DemoResult], oracles: dict[str, Oracle], *, strict: bool = True) -> dict:
-    """Strict mode keeps scripted reproducibility: any pairing gap aborts the scoring."""
+def score(
+    results: list[DemoResult],
+    oracles: dict[str, Oracle],
+    *,
+    strict: bool = True,
+    calls: Sequence[CallRecord] = (),
+) -> dict:
+    """Strict mode keeps scripted reproducibility: any pairing gap aborts the scoring.
+
+    Model usage is counted from the call records actually made; scripted runs make none.
+    """
     conditions: dict = {}
     for condition in ("A", "B"):
         rows = [r for r in results if r.record.condition == condition]
@@ -233,14 +243,19 @@ def score(results: list[DemoResult], oracles: dict[str, Oracle], *, strict: bool
             if condition == "B" and valid
             else None,
         }
+    provider = [c for c in calls if c.transport == "openai-responses"]
+    provider_calls = len(provider)
     return {
         "schema_version": "hnp-review/0.1",
         "execution_kind": "scripted_offline",
         "conditions": conditions,
         "deviations": [d.model_dump(mode="json") for d in expectation_deviations(results, oracles)],
-        "llm_calls": 0,
-        "api_cost": None,
-        "cost_status": "not_applicable_no_provider_called",
+        "llm_calls": len(calls),
+        "provider_calls": provider_calls,
+        "api_cost": round(sum(c.cost_usd or 0.0 for c in provider), 8) if provider else None,
+        "cost_status": "measured_from_provider_usage"
+        if provider_calls
+        else "not_applicable_no_provider_called",
         "safety_conclusion": (
             "Both arms retain mandatory controls; zero escapes would not prove "
             "added validator safety."

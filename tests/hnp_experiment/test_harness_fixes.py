@@ -274,3 +274,28 @@ def test_scripted_summary_separates_timeouts_and_infrastructure(scripted_results
     # validator-timeout is a timeout result; validator-unavailable is an infrastructure fault.
     assert b["validator_unavailable"] == 2
     assert b["validator_timeouts"] == 1 and b["infrastructure_errors"] == 1
+
+
+def test_scripted_score_counts_model_calls_instead_of_fixing_zero(scripted_results):
+    from commerce_agent.hnp_experiment.evaluation import score
+    from commerce_agent.hnp_experiment.llm.trace import CallRecord, TokenUsage
+
+    results, oracles = scripted_results
+    assert score(results, oracles)["llm_calls"] == 0
+    usage = TokenUsage(input_tokens=10, output_tokens=5, cached_input_tokens=0, reasoning_tokens=0)
+    calls = [
+        CallRecord(
+            call_id=f"call-{n}",
+            role="validator",
+            model="m",
+            transport=transport,
+            latency_ms=1.0,
+            status="ok",
+            usage=usage,
+            cost_usd=0.25,
+        )
+        for n, transport in enumerate(("fake", "openai-responses", "openai-responses"))
+    ]
+    summary = score(results, oracles, calls=calls)
+    assert (summary["llm_calls"], summary["provider_calls"]) == (3, 2)
+    assert summary["api_cost"] == 0.5 and summary["cost_status"] == "measured_from_provider_usage"
