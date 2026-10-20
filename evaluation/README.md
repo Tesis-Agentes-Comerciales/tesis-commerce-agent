@@ -100,6 +100,38 @@ El runner le pasa al agente la condición como variables de proceso, que ganan s
 - B2 no arranca si el `.env` local define `AGENT_D1_POLICY_PATH` o `AGENT_D1_POLICY_DIGEST`,
   porque enforce no acepta archivo de política y lista de comercios a la vez.
 
+### Evidencia gobernada, checkouts del comercio y latencia de política
+
+El oráculo (`score_result`) no cambia. Cada fila evaluada suma tres campos:
+
+- `merchant_checkouts` (enmienda M3): tras la repetición, el runner corre
+  `python -m commerce_lab.db run-checkouts <merchant_run_id>` en el comercio y registra `count`,
+  `by_status`, `order_count` y la lista (`checkout_id`, `status`, `offer_id`). Es el estado
+  persistido: un checkout que el runner canceló al final aparece como `canceled`. Al arrancar, el
+  runner verifica que el comercio tenga ese subcomando; si no, se detiene antes de levantar
+  servicios.
+- `governed_evidence`: cuando el agente ya terminó, el runner abre su `agent.db` en solo lectura
+  (`mode=ro`). `d1_decisions` trae, de `governance_evidence`, `record_kind`, `outcome`, `origin`,
+  `reason_codes` y `latency_ms`. `hp_evidence` trae el `record_kind` y solo los campos de resultado
+  del cuerpo (frescura: `stage`, `outcome`, `decision`, `changed_fields`, `reason`,
+  `governance_mode`, `observed_revision`; recuperación: `control`, `kind`, `cause`), sin
+  identificadores ni montos. `hp_evidence_chain_verified` dice si la cadena de digests verifica.
+  Una tabla que no existe es `null` (no disponible), nunca un error.
+- `mechanism_evidence`: para B2, cada mecanismo que `attribution.mechanism_by_scenario` del
+  manifiesto asigna al escenario queda `recorded`, `missing` (la tabla existe pero no hay registro),
+  `unavailable` (la tabla no existe) o `not_recorded` (no tiene registro propio: la continuación
+  gobernada reutiliza el allow de D1). `d1_dispatch` busca un `decision_record` de D1,
+  `offer_freshness` un `freshness_check` y `governed_recovery` un `governed_recovery`. Para B0' es
+  `not_applicable`. Mientras la recuperación gobernada escriba solo en el log, S02 en B2 muestra
+  `governed_recovery: missing`.
+
+El resumen agrega, por condición y por condición × escenario: `http_5xx`; `merchant_checkouts`
+(corridas medidas, corridas con checkouts, total, `by_status` y órdenes); `approval_response_codes`
+(conteo por código entre las aprobaciones enviadas; `none` si la respuesta no trae código);
+`policy_latency_ms` (`n`, `median`, `max` de los `decision_record` con `origin: policy`, con
+resolución de 1 ms, truncada), aparte de `mean_latency_ms`, que es la latencia del turno con el
+modelo; y `mechanism_evidence`, el conteo de estados por mecanismo.
+
 ## Archivos
 
 - `data/b0-baseline.json`: commits, etiquetas, toolchain, modelo, fixtures y evidencia disponible.
