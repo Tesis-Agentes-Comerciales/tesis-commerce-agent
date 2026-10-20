@@ -1,5 +1,14 @@
 # EC-GOV-07A — Despacho inicial HP seguro
 
+> **Nota 2026-10-20.** Rutas históricas, no se reescriben. El reporte estaba en
+> `docs/b2-governance/` y hoy está en `docs/archive/b2-governance/`; `tests/e2e/` y su runner se
+> reemplazaron por `tests/integration/test_live_purchase.py` y `test_live_browser.py`
+> ([equivalencias](../../../tests/integration/README.md#equivalencia-con-el-e2e-conjunto)); los
+> módulos live de `tests/integration/` se reemplazaron (`test_initial_dispatch_live.py` →
+> `test_live_07a_initial_dispatch.py`; `test_live_creation_recovery.py` →
+> `test_live_06dc_creation_recovery.py`) y sus workers y arneses `gov*` se retiraron
+> ([equivalencias](../../../tests/integration/README.md#equivalencia-con-la-suite-anterior)).
+
 ## A. Preflight y referencias Git
 
 Agent inició limpio, índice vacío, sin stashes, en governance/ec-gov-06d-c-live-recovery-integration,

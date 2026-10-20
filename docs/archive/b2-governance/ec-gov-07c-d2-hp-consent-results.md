@@ -1,5 +1,16 @@
 # EC-GOV-07C — Consentimiento humano D2-HP vinculado a D17
 
+> **Nota 2026-10-20.** Rutas históricas, no se reescriben. El reporte estaba en
+> `docs/b2-governance/` y hoy está en `docs/archive/b2-governance/`; los módulos live de
+> `tests/integration/` se reemplazaron (`test_guarded_d1_live.py` → `test_live_07bb_guarded_d1.py`;
+> `test_initial_dispatch_live.py` → `test_live_07a_initial_dispatch.py`;
+> `test_live_creation_recovery.py` → `test_live_06dc_creation_recovery.py`;
+> `test_preselection_merchant.py` → `test_live_07bp_preselection.py`) y sus workers y arneses `gov*`
+> se retiraron
+> ([equivalencias](../../../tests/integration/README.md#equivalencia-con-la-suite-anterior));
+> `ec-gov-07b-d17-offer-freshness-results.md` y `ec-gov-07b-b-d17-agent-integration-results.md`,
+> listados como `??`, nunca se versionaron.
+
 Estado: **READY_FOR_REVIEW**. Implementación experimental backend-only, validada offline
 con humanos sintéticos autenticados. No constituye integración con humanos reales en UI,
 autorización para ejecutar comercio ni habilitación del runtime enforce.

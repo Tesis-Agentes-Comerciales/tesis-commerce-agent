@@ -1,5 +1,10 @@
 # EC-GOV-07B-Q — Binding preselección a D1 sin despacho
 
+> **Nota 2026-10-20.** Rutas históricas, no se reescriben. El reporte estaba en
+> `docs/b2-governance/` y hoy está en `docs/archive/b2-governance/`;
+> `ec-gov-07b-d17-offer-freshness-results.md` y `ec-gov-07b-b-d17-agent-integration-results.md`,
+> listados como `??`, nunca se versionaron.
+
 ## A. Preflight y SHAs
 
 2026-10-16, Windows. Origin comprobado:

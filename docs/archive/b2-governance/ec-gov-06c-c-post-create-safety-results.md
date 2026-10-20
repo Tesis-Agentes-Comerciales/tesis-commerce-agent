@@ -1,5 +1,10 @@
 # EC-GOV-06C-C — Seguridad posterior a creación
 
+> **Nota 2026-10-20.** Rutas históricas, no se reescriben. El reporte estaba en
+> `docs/b2-governance/` y hoy está en `docs/archive/b2-governance/`; `tests/e2e/` y su runner se
+> reemplazaron por `tests/integration/test_live_purchase.py` y `test_live_browser.py`
+> ([equivalencias](../../../tests/integration/README.md#equivalencia-con-el-e2e-conjunto)).
+
 ## A. Git y alcance
 
 Base exacta comprobada: `982c41ff39fe3df25ba7b70c921cc049650ee7a5`.

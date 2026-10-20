@@ -1,5 +1,10 @@
 # EC-GOV-07B-P — Observación autoritativa anterior a una nueva selección
 
+> **Nota 2026-10-20.** Rutas históricas, no se reescriben. Los módulos live de `tests/integration/`
+> se reemplazaron (`test_preselection_merchant.py` → `test_live_07bp_preselection.py`) y sus workers
+> y arneses `gov*` se retiraron
+> ([equivalencias](../../../tests/integration/README.md#equivalencia-con-la-suite-anterior)).
+
 ## A. Preflight y aislamiento de worktrees
 
 16 de octubre de 2026, Windows. Agent base exacta

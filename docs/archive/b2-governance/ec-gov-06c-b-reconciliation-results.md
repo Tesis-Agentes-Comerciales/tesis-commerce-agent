@@ -1,5 +1,8 @@
 # EC-GOV-06C-B — Núcleo transaccional de reconciliación segura
 
+> **Nota 2026-10-20.** Rutas históricas, no se reescriben. El reporte estaba en
+> `docs/b2-governance/` y hoy está en `docs/archive/b2-governance/`.
+
 ## A. Estado Git inicial y final
 
 Base comprobada: `c1202a5a0a2e62137beca8c75c0369f5765b49db`.

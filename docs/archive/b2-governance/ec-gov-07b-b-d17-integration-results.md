@@ -1,5 +1,13 @@
 # EC-GOV-07B-B — Integración D1/07A/D17
 
+> **Nota 2026-10-20.** Rutas históricas, no se reescriben. El reporte estaba en
+> `docs/b2-governance/` y hoy está en `docs/archive/b2-governance/`; los módulos live de
+> `tests/integration/` se reemplazaron (`test_guarded_d1_live.py` → `test_live_07bb_guarded_d1.py`)
+> y sus workers y arneses `gov*` se retiraron
+> ([equivalencias](../../../tests/integration/README.md#equivalencia-con-la-suite-anterior));
+> `ec-gov-07b-d17-offer-freshness-results.md` y `ec-gov-07b-b-d17-agent-integration-results.md`,
+> listados como `??`, nunca se versionaron.
+
 ## A. Preflight y dependencias congeladas
 
 2026-10-16. Agent base exacta d47b3da04b42b7c288162b8882b8ae59ef2b778a,

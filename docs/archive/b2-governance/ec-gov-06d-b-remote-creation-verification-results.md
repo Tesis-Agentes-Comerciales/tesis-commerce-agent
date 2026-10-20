@@ -1,5 +1,11 @@
 # EC-GOV-06D-B — Verificación remota de creación histórica ACP
 
+> **Nota 2026-10-20.** Rutas históricas, no se reescriben. El reporte estaba en
+> `docs/b2-governance/` y hoy está en `docs/archive/b2-governance/`; `tests/e2e/` y su runner se
+> reemplazaron por `tests/integration/test_live_purchase.py` y `test_live_browser.py`
+> ([equivalencias](../../../tests/integration/README.md#equivalencia-con-el-e2e-conjunto)), con la
+> activación `RUN_LIVE_STACK`.
+
 ## A. Git y preflight
 
 Base exacta: `95cdcf12d86230206c8f17605214ceb3630219d3`, rama inicial
