@@ -129,8 +129,7 @@ La latencia del turno está dominada por el modelo. **La evaluación de la polí
 aparte:** 18 decisiones, mediana de 1 ms y máximo de 14 ms (resolución de 1 ms). Con n = 5 las
 diferencias de latencia del turno no se interpretan, tampoco la de S02: dentro de B2 las
 repeticiones con checkout creado y cancelado (44–78 s) se solapan con la rep. 2, que tampoco lo
-creó (52 s), y
-el JSONL no registra tiempos por etapa.
+creó (52 s), y el JSONL no registra tiempos por etapa.
 
 ## Evidencia por mecanismo (B2)
 
