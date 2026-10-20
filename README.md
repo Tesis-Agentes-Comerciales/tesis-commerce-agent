@@ -256,8 +256,11 @@ Flujo:
 4. `POST /purchases/{run_id}/cancel` cancela un checkout que aún espera aprobación.
 5. `POST /purchases/{run_id}/complete` ejecuta el gateway determinista.
 6. `GET /purchases/{run_id}` consulta el estado local.
-7. `POST /agentic_checkout/webhooks/order_events` recibe eventos firmados del merchant.
-8. `POST /assistant` expone el mismo pipeline como stream Assistant Transport para
+7. `GET /purchases/{run_id}/trace` devuelve la traza de controles de la compra y
+   `GET /me/purchases` el historial paginado del comprador, sin tokens, mandatos ni datos del dueño;
+   ver [`docs/design/trace-panel.md`](docs/design/trace-panel.md).
+8. `POST /agentic_checkout/webhooks/order_events` recibe eventos firmados del merchant.
+9. `POST /assistant` expone el mismo pipeline como stream Assistant Transport para
    `useAssistantTransportRuntime`: cada paso (`interpret_request`, `search_catalog`,
    `select_product`, `prepare_checkout`, `request_approval`) llega como tool call con argumentos y
    resultado, y `purchase` se relee de SQLite. El estado del cliente no es autoritativo; ver

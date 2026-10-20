@@ -7,7 +7,7 @@ from typing import Annotated
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,8 +33,10 @@ from commerce_agent.buyer_auth import (
 )
 from commerce_agent.completion import CompletionError
 from commerce_agent.config import Settings, get_settings
+from commerce_agent.governance.evidence import EvidenceError
 from commerce_agent.llm import ConversationRouter, IntentInterpretationError
 from commerce_agent.runtime import build_runtime
+from commerce_agent.trace import PurchaseHistory, PurchaseTrace, PurchaseTraces
 from commerce_agent.webhooks import register_webhook_receiver
 
 
@@ -163,6 +165,7 @@ def create_app(
     store = runtime.store
     purchase_service = runtime.purchases
     conversation = runtime.conversation
+    traces = PurchaseTraces(configuration)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -275,6 +278,30 @@ def create_app(
             checkout_id=purchase["checkout_id"],
             order_id=purchase["order_id"],
         )
+
+    @app.get("/purchases/{run_id}/trace", response_model=PurchaseTrace)
+    def purchase_trace(
+        run_id: str, buyer: Annotated[BuyerPrincipal, Depends(current_buyer)]
+    ) -> PurchaseTrace:
+        owned_purchase(run_id, buyer)
+        try:
+            return traces.trace(run_id)
+        except EvidenceError:
+            raise HTTPException(status_code=503, detail="Purchase trace unavailable") from None
+
+    @app.get("/me/purchases", response_model=PurchaseHistory)
+    def purchase_history(
+        buyer: Annotated[BuyerPrincipal, Depends(current_buyer)],
+        limit: Annotated[int, Query(ge=1, le=50)] = 20,
+        before: Annotated[str | None, Query(max_length=256)] = None,
+    ) -> PurchaseHistory:
+        try:
+            history = traces.history(buyer.id, limit=limit, before=before)
+        except EvidenceError:
+            raise HTTPException(status_code=503, detail="Purchase history unavailable") from None
+        if history is None:
+            raise HTTPException(status_code=400, detail="Unknown purchase cursor")
+        return history
 
     @app.get("/purchases/{run_id}/approval", response_model=ApprovalTerms)
     def approval_terms(
