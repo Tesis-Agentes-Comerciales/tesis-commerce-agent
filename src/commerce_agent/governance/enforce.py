@@ -568,8 +568,13 @@ class SqliteD1EnforceGate:
         except Exception:
             if record is not None and uow is not None:
                 self._diagnose(record, owner_id)
+            if record is not None and record.decision.outcome == "allow":
+                # The policy allowed; committing, verifying or claiming it failed before any POST.
+                raise PurchaseServiceError(
+                    "D1 allow could not be applied before dispatch", code="d1_allow_unapplied"
+                ) from None
             raise PurchaseServiceError(
-                "D1 authorization unavailable", code="d1_unavailable"
+                "D1 policy review unavailable", code="d1_unavailable"
             ) from None
 
     def _diagnose(self, record: DecisionRecord, owner_id: str) -> None:

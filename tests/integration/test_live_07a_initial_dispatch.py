@@ -168,7 +168,7 @@ def test_07a_backend_identity_must_match_before_initial_post(stack, proxy, fault
     case, gate, dispatch, attempt = provision(stack, credential_fault=fault)
     try:
         before = stack.rpc("snapshot")
-        assert attempt() == "d1_unavailable"
+        assert attempt() == "d1_allow_unapplied"
         assert not proxy.calls
         status = gate.recovery_status(case.local_run)
         assert status is not None and status[0] == "reserved"

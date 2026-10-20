@@ -396,9 +396,11 @@ def test_commit_failure_blocks_http(tmp_path: Path, phase: str, failure: str):
     case = make_case(
         path, connection_factory=lambda: sqlite3.connect(path, factory=Connection, timeout=10)
     )
-    with pytest.raises(PurchaseServiceError):
+    with pytest.raises(PurchaseServiceError) as error:
         start(case)
     assert fired and case.gateway.calls == []
+    # The policy had allowed: the buyer is not told that it could not be reviewed.
+    assert error.value.code == "d1_allow_unapplied"
 
 
 @pytest.mark.parametrize("phase", ["before_commit", "before_claim", "after_claim"])
@@ -827,7 +829,7 @@ def test_retry_after_unavailable_keeps_diagnostics_and_authorizes_once(
     monkeypatch.setattr(SqliteD1UnitOfWork, "prepare", prepare)
     with pytest.raises(PurchaseServiceError) as error:
         start(case)
-    assert error.value.code == "d1_unavailable" and case.gateway.calls == []
+    assert error.value.code == "d1_allow_unapplied" and case.gateway.calls == []
     diagnosed = records(case)
     assert [item.record_kind for item in diagnosed] == ["decision_record", "application_failure"]
     monkeypatch.setattr(SqliteD1UnitOfWork, "prepare", original)
@@ -838,6 +840,36 @@ def test_retry_after_unavailable_keeps_diagnostics_and_authorizes_once(
     assert history[2].application.disposition == "transition_committed"
     assert [row[0] for row in attempts(case)] == [1, 2]
     assert sum(name == "create" for name, _ in case.gateway.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    [
+        ("before_review", "d1_unavailable"),
+        ("deny_unrecorded", "d1_unavailable"),
+        ("allow_unrecorded", "d1_allow_unapplied"),
+    ],
+)
+def test_an_unavailable_gate_says_whether_the_policy_had_allowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str, code: str
+):
+    case = make_case(tmp_path / "agent.db", deny=failure == "deny_unrecorded")
+    original = SqliteD1UnitOfWork.prepare
+
+    def assemble(*args, **kwargs):
+        raise EvidenceError("GOV_FACTS_UNAVAILABLE")
+
+    def prepare(uow, request):
+        original(uow, request)
+        raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE")
+
+    if failure == "before_review":
+        monkeypatch.setattr(SqliteD1EnforceGate, "_assemble", assemble)
+    else:
+        monkeypatch.setattr(SqliteD1UnitOfWork, "prepare", prepare)
+    with pytest.raises(PurchaseServiceError) as error:
+        start(case)
+    assert error.value.code == code and case.gateway.calls == []
 
 
 def test_duplicate_of_reserved_attempt_appends_nothing(tmp_path: Path):
