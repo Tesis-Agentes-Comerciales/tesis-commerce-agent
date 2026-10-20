@@ -61,6 +61,8 @@ PURCHASE_ROUTES = frozenset(
         ("POST", "/checkout_sessions/*/complete"),
         ("POST", "/checkout_sessions/*/ap2/complete"),
         ("GET", "/orders/*"),
+        # Governed offer freshness reads the live offer before presenting and approving.
+        ("POST", "/lab/offers/get"),
     }
 )
 
