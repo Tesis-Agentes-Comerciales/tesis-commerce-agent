@@ -190,7 +190,6 @@ class BuyerUi:
             | {
                 "AUTH_DEV_UPSTREAM": self.auth.origin,
                 "VITE_AGENT_API_URL": self.agent.origin,
-                "VITE_GOVERNANCE_MONITOR": "false",
             },
             ui_port,
             "/",

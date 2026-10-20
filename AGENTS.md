@@ -31,7 +31,7 @@ fixtures, Storybook-first UI, test-first backend, integration, one topic per PR.
 - Evaluation entrypoints: `uv run hnp-matrix --dry-run --env-file .env.example`,
   `uv run governance-pilot --dry-run`.
 - Auth: `cd auth && npm ci && npm test`.
-- UI: `cd ui && npm ci && npm run lint && npm run test && npm run test-storybook && npm run e2e`.
+- UI: `cd ui && npm ci && npm run lint && npm run build && npm run test-storybook && npm run e2e`.
 - Layer 4 (`tests/integration`, `RUN_LIVE_STACK=1`) runs in `nightly.yml` or by hand; see
   `tests/integration/README.md`.
 

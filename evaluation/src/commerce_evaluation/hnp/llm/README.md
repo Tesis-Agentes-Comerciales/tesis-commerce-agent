@@ -72,9 +72,9 @@ cuando el gasto podría superar el tope. Las salidas (`summary.json`, `traces.js
 `evidence.jsonl`) van a `HNP_OUTPUT_DIR/<experiment_id>/`, que debe estar bajo `.local/`.
 `--no-strict` registra las desviaciones de arnés en vez de abortar.
 
-El monitor de gobernanza proyecta `summary.json` y `traces.jsonl` de una corrida en el contrato
-`governance-monitor/3` con `scripts/export_governance_monitor.py --versioned-sources --hnp02-run
-<directorio>`, sin razones del modelo ni prompts; ver `docs/governance-monitor/README.md`.
+La corrida dry-run `hnp02-dry_run-20261020T044329Z-s20261022` se conserva como evidencia
+histórica en `docs/governance-monitor/sources/hnp02/`, con los SHA-256 de `summary.json` y
+`traces.jsonl` en `provenance.json`; ver `docs/governance-monitor/README.md`.
 
 ## Diseño de la matriz y métricas
 
