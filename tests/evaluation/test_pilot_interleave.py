@@ -13,16 +13,16 @@ import pytest
 from commerce_evaluation import governance_pilot
 from commerce_evaluation.governance_pilot import (
     CONDITIONS,
-    AgentProvenance,
     ConditionMismatchError,
     D1RunKeys,
     PilotError,
     PlannedRun,
-    agent_provenance,
+    RepositoryProvenance,
     build_plan,
     condition_environments,
     parse_conditions,
     pilot_manifest_id,
+    repository_provenance,
     require_clean_worktree,
     run_directory,
     run_plan,
@@ -177,16 +177,16 @@ def test_provenance_reads_the_commit_and_a_clean_tree(repository: Path) -> None:
     # Result files the runner writes are untracked: they do not make the agent dirty.
     (repository / "results.jsonl").write_text("{}\n", encoding="utf-8")
 
-    provenance = agent_provenance(repository)
+    provenance = repository_provenance(repository)
 
-    assert provenance == AgentProvenance(git(repository, "rev-parse", "HEAD"), False)
+    assert provenance == RepositoryProvenance(git(repository, "rev-parse", "HEAD"), False)
     require_clean_worktree(provenance, allow_dirty=False)
 
 
 def test_a_modified_agent_aborts_unless_dirty_runs_are_allowed(repository: Path) -> None:
     (repository / "agent.py").write_text("print('changed')\n", encoding="utf-8")
 
-    provenance = agent_provenance(repository)
+    provenance = repository_provenance(repository)
 
     assert provenance.worktree_dirty is True
     with pytest.raises(PilotError, match="--allow-dirty"):
@@ -196,7 +196,7 @@ def test_a_modified_agent_aborts_unless_dirty_runs_are_allowed(repository: Path)
 
 def test_provenance_outside_git_is_a_pilot_error(tmp_path: Path) -> None:
     with pytest.raises(PilotError, match="commit"):
-        agent_provenance(tmp_path)
+        repository_provenance(tmp_path)
 
 
 def test_manifest_id_needs_both_conditions_on_its_scenario_matrix(tmp_path: Path) -> None:
@@ -304,7 +304,7 @@ def test_dry_run_prints_the_interleaved_plan(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(
-        governance_pilot, "agent_provenance", lambda _: AgentProvenance("a" * 40, True)
+        governance_pilot, "repository_provenance", lambda _: RepositoryProvenance("a" * 40, True)
     )
 
     code = run_main(
@@ -331,7 +331,7 @@ def test_dry_run_of_one_condition_keeps_its_keys(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(
-        governance_pilot, "agent_provenance", lambda _: AgentProvenance("b" * 40, False)
+        governance_pilot, "repository_provenance", lambda _: RepositoryProvenance("b" * 40, False)
     )
 
     run_main(["--dry-run", "--condition", "B2", "--scenario", "S04"], monkeypatch)
@@ -349,7 +349,7 @@ def test_a_dirty_agent_stops_a_real_run_before_any_service_starts(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(
-        governance_pilot, "agent_provenance", lambda _: AgentProvenance("c" * 40, True)
+        governance_pilot, "repository_provenance", lambda _: RepositoryProvenance("c" * 40, True)
     )
     started: list[object] = []
     forbidden: Callable[..., object] = lambda *args, **kwargs: started.append(args)  # noqa: E731

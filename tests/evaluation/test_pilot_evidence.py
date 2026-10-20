@@ -20,11 +20,11 @@ from commerce_agent.persistence.hp_evidence_sqlite import HpRecordKind, SqliteHp
 from commerce_evaluation import governance_pilot
 from commerce_evaluation.governance_pilot import (
     CONDITIONS,
-    AgentProvenance,
     AuthClient,
     HttpResult,
     PilotError,
     PlannedRun,
+    RepositoryProvenance,
     mechanism_evidence,
     mechanisms_by_scenario,
     merchant_checkouts,
@@ -322,7 +322,7 @@ def test_the_pilot_checks_the_merchant_before_starting_any_service(
         (tmp_path / name / "pyproject.toml").write_text("", encoding="utf-8")
     monkeypatch.setenv("OPENAI_MODEL", "gpt-5-mini")
     monkeypatch.setattr(
-        governance_pilot, "agent_provenance", lambda _: AgentProvenance("d" * 40, False)
+        governance_pilot, "repository_provenance", lambda _: RepositoryProvenance("d" * 40, False)
     )
     commands: list[list[str]] = []
 
@@ -384,6 +384,44 @@ class FakeAuth(AuthClient):
         return "buyer-jwt"
 
 
+# The PSP's own table (tesis_payment_provider/store.py), which the runner reads for payments.
+PSP_DELEGATIONS = """CREATE TABLE IF NOT EXISTS delegations (
+    key_hash TEXT PRIMARY KEY,
+    request_hash TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    merchant_id TEXT NOT NULL,
+    checkout_id TEXT NOT NULL,
+    max_amount INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    confirmation_key_hash TEXT,
+    confirmation_hash TEXT,
+    result_json TEXT,
+    payment_mandate_hash TEXT)"""
+
+
+def psp_database(path: Path, *delegations: tuple[str, str | None]) -> Path:
+    """A PSP database with one delegated token per (checkout_id, confirmed status or None)."""
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(PSP_DELEGATIONS)
+        for index, (checkout_id, status) in enumerate(delegations):
+            result = (
+                None
+                if status is None
+                else json.dumps({"id": f"pay_{index}", "status": status, "amount": 100})
+            )
+            connection.execute(
+                "INSERT INTO delegations (key_hash, request_hash, token_hash, created_at, "
+                "merchant_id, checkout_id, max_amount, currency, expires_at, outcome, result_json) "
+                "VALUES (?, 'request', ?, '2026-09-10T14:05:00+00:00', 'tesis_merchant', ?, 100, "
+                "'cop', '2026-09-10T15:05:00+00:00', 'approved', ?)",
+                (f"key-{index}", f"token-{index}", checkout_id, result),
+            )
+    return path
+
+
 def s04() -> dict[str, Any]:
     matrix = json.loads((DATA / "pilot-scenarios.json").read_text(encoding="utf-8"))
     return next(item for item in matrix["scenarios"] if item["id"] == "S04")
@@ -405,7 +443,10 @@ def fake_merchant(report: dict[str, Any], calls: list[str]) -> Callable[..., dic
 
 
 def fake_agent_http(
-    condition_health: dict[str, str], final_stage: str, calls: list[str]
+    condition_health: dict[str, str],
+    final_stage: str,
+    calls: list[str],
+    on_request: Callable[[str], None] = lambda _: None,
 ) -> Callable[..., HttpResult]:
     terms = {"fingerprint": "f" * 64, "checkout_jwt": "jwt", "total_minor": 1}
     responses = {
@@ -428,6 +469,7 @@ def fake_agent_http(
     def request_json(url: str, **_: Any) -> HttpResult:
         path = url.removeprefix("http://127.0.0.1:43125")
         calls.append(path)
+        on_request(path)
         return responses[path]
 
     return request_json
@@ -441,6 +483,8 @@ def execute_s04(
     *,
     final_stage: str = "awaiting_confirmation",
     calls: list[str] | None = None,
+    on_request: Callable[[str], None] = lambda _: None,
+    payment_database: Path | None = None,
 ) -> dict[str, Any]:
     processes: list[FakeAgentProcess] = []
     calls = [] if calls is None else calls
@@ -460,7 +504,9 @@ def execute_s04(
     monkeypatch.setattr(
         governance_pilot,
         "_request_json",
-        fake_agent_http({"governance_mode": "enforce", "hp_flow": "governed"}, final_stage, calls),
+        fake_agent_http(
+            {"governance_mode": "enforce", "hp_flow": "governed"}, final_stage, calls, on_request
+        ),
     )
     monkeypatch.setattr(governance_pilot, "_wait_http", lambda *_, **__: None)
     monkeypatch.setattr(governance_pilot, "read_governed_evidence", read_after_exit)
@@ -476,6 +522,7 @@ def execute_s04(
         actor_id="buyer",
         auth=FakeAuth(),
         agent_port=43125,
+        payment_database=payment_database or psp_database(tmp_path / "payments.db"),
     )
 
 
