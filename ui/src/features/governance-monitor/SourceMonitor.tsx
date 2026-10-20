@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import type { EvidenceBundle } from "./adapter.ts"
 import { GovernanceMonitor } from "./GovernanceMonitor.tsx"
+import { OPEN_GATES } from "./gates.ts"
 import { loadLocalSnapshot, SnapshotReadError } from "./snapshot-reader.ts"
 import { offlineSource, beginLocalRead, acceptLocalRead, rejectLocalRead, sourceDescription, type SourceState } from "./source-state.ts"
 
@@ -21,7 +22,7 @@ export function SourceView({ state, onOffline, onLocal }: { state: SourceState; 
       {!state.bundle && <p className="text-sm">No hay evidencia mostrable de esta lectura. Puedes seleccionar Reproducción offline.</p>}
     </section>
     {state.bundle && <GovernanceMonitor key={state.mode} bundle={state.bundle} embedded />}
-    <footer className="mx-auto max-w-6xl px-4 py-4 text-xs sm:px-8">PARTIAL · I10/D08/D09 parciales · AUDIT-MERCHANT-CANCEL-01 con gate histórico sin aprobar.</footer>
+    <footer className="mx-auto max-w-6xl px-4 py-4 text-xs sm:px-8">{OPEN_GATES}</footer>
   </main>
 }
 

@@ -1,12 +1,15 @@
 import "./monitor-test-loader.mjs"
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import test from "node:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 
 const { parseEvidence, scenarioBadge } = await import("../src/features/governance-monitor/adapter.ts")
 const { GovernanceMonitor, ScenarioDetails } = await import("../src/features/governance-monitor/GovernanceMonitor.tsx")
+const { SourceView } = await import("../src/features/governance-monitor/SourceMonitor.tsx")
+const { offlineSource } = await import("../src/features/governance-monitor/source-state.ts")
+const { OPEN_GATES } = await import("../src/features/governance-monitor/gates.ts")
 const raw = JSON.parse(readFileSync(new URL("../src/features/governance-monitor/evidence.json", import.meta.url), "utf8"))
 const bundle = parseEvidence(raw)
 const copy = () => structuredClone(raw)
@@ -263,4 +266,16 @@ test("MON-02A uncertain recovery does not receive favorable confirmation badge",
 test("MON-02A an observed HP POST cannot make creation not applicable", () => {
   const x = strictCopy(); Object.assign(x.scenarios[0], { creation: "not_applicable", recovery: "not_applicable", effectOccurred: false })
   assert.throws(() => parseEvidence(x), /Evidencia inconsistente/)
+})
+test("PARTIAL gate notices have a single source shared by every view", () => {
+  const dir = new URL("../src/features/governance-monitor/", import.meta.url)
+  const owners = readdirSync(dir).filter((f) => /\.tsx?$/.test(f) && /I10\/D08\/D09|AUDIT-MERCHANT-CANCEL-01/.test(readFileSync(new URL(f, dir), "utf8")))
+  assert.deepEqual(owners, ["gates.ts"])
+  const inconsistent = structuredClone(scenario("hp-denied")); inconsistent.effectOccurred = true
+  const views = [
+    renderToStaticMarkup(createElement(GovernanceMonitor, { bundle })),
+    renderToStaticMarkup(createElement(SourceView, { state: offlineSource(bundle), onOffline() {}, onLocal() {} })),
+    htmlFor(inconsistent),
+  ]
+  for (const html of views) assert.ok(html.includes(OPEN_GATES))
 })

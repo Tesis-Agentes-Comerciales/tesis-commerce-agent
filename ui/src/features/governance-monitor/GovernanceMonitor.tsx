@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { OPEN_GATES } from "./gates.ts"
 import { unavailable, scenarioIssue, scenarioBadge, executionText, creationText, recoveryText, sourceText, validatorText, type EvidenceBundle, type PhaseEvidence, type Scenario } from "./adapter.ts"
 
 function Fact({ label, value }: { label: string; value: string | null }) {
@@ -19,7 +20,7 @@ function Decision({ title, value, explanation }: { title: string; value: PhaseEv
 
 export function ScenarioDetails({ scenario: s }: { scenario: Scenario }) {
   const issue = scenarioIssue(s)
-  if (issue) return <section aria-label="Detalle del escenario"><h2>{s.label}</h2><p role="alert">Evidencia inconsistente: {issue}. No se presenta una creación confirmada.</p><p>PARTIAL · I10/D08/D09 parciales · AUDIT-MERCHANT-CANCEL-01 sin aprobar.</p></section>
+  if (issue) return <section aria-label="Detalle del escenario"><h2>{s.label}</h2><p role="alert">Evidencia inconsistente: {issue}. No se presenta una creación confirmada.</p><p>{OPEN_GATES}</p></section>
   const confirmed = s.recovery === "confirmed" || (s.creation === "confirmed" && s.recovery === "not_applicable")
   const disagreement = s.validator?.checks.filter((c) => c.result === "pass" && s.backend.failures.includes(c.id)) ?? []
   const validatorCopy = validatorText(s)
@@ -65,9 +66,9 @@ export function GovernanceMonitor({ bundle, embedded = false }: { bundle: Eviden
   const [selected, setSelected] = useState(bundle.scenarios[0].id)
   const scenario = bundle.scenarios.find((s) => s.id === selected) ?? bundle.scenarios[0]
   return <section aria-label="Monitor de gobernanza" className={`${embedded ? "" : "h-svh overflow-y-auto"} bg-muted/30 px-4 py-8 text-foreground sm:px-8`}><div className="mx-auto max-w-6xl space-y-7">
-    <header className="space-y-3"><div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-widest"><span className="rounded-full bg-primary/10 px-3 py-1 text-primary">Solo lectura</span><span className="rounded-full bg-amber-100 px-3 py-1 text-amber-950">PARTIAL</span><span>Sin LLM en vivo · sin ejecución comercial</span></div><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Monitor de gobernanza</h1><p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">Reproducción de evidencia HP y HNP existente. Esta pantalla no autoriza, despacha ni completa compras. Los datos ausentes se muestran como no disponibles.</p></header>
+    <header className="space-y-3"><div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-widest"><span className="rounded-full bg-primary/10 px-3 py-1 text-primary">Solo lectura</span><span className="rounded-full bg-amber-100 px-3 py-1 text-amber-950">{bundle.status}</span><span>Sin LLM en vivo · sin ejecución comercial</span></div><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Monitor de gobernanza</h1><p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">Reproducción de evidencia HP y HNP existente. Esta pantalla no autoriza, despacha ni completa compras. Los datos ausentes se muestran como no disponibles.</p></header>
     <nav aria-label="Escenarios de evidencia" className="flex flex-wrap gap-2">{bundle.scenarios.map((s) => <Button key={s.id} type="button" variant={scenario.id === s.id ? "default" : "outline"} aria-pressed={scenario.id === s.id} onClick={() => setSelected(s.id)}>{s.label}</Button>)}</nav>
     <ScenarioDetails scenario={scenario} />
-    <footer className="border-t pt-4 text-xs leading-relaxed text-muted-foreground">HNP: {bundle.hnpLedgerEntriesVerified} entradas de ledger verificadas offline por el exportador; digests no equivalen a firmas. AUDIT-MERCHANT-CANCEL-01 conserva sus dos ejecuciones y su gate histórico sin aprobar. I10/D08/D09 siguen parciales. No es compra gobernada completa, UI humana de autorización ni validación de dos LLM.</footer>
+    <footer className="border-t pt-4 text-xs leading-relaxed text-muted-foreground">HNP: {bundle.hnpLedgerEntriesVerified} entradas de ledger verificadas offline por el exportador; digests no equivalen a firmas. {OPEN_GATES} No es compra gobernada completa, UI humana de autorización ni validación de dos LLM.</footer>
   </div></section>
 }
