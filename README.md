@@ -1,8 +1,43 @@
 # Tesis Commerce Agent
 
-Buyer Agent experimental que compra contra un ecommerce externo mediante ACP `2026-04-17`.
-El merchant conserva la verdad de catálogo, stock, precios, checkout y orden; este repositorio
-implementa intención, selección, aprobación humana, ejecución idempotente y recepción de eventos.
+Buyer Agent experimental de una tesis de maestría sobre agentes de comercio gobernables. Compra
+contra un ecommerce externo mediante ACP `2026-04-17`. El merchant conserva la verdad de catálogo,
+stock, precios, checkout y orden; este repositorio implementa intención, selección, aprobación
+humana, ejecución idempotente, recepción de eventos y la gobernanza experimental de la decisión
+(B2), además de los experimentos que la evalúan.
+
+El Merchant ([`tesis-commerce-merchant`](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-merchant))
+y el proveedor de pagos sandbox (`tesis-payment-provider-sandbox`) son repositorios y procesos
+separados. Este repositorio nunca importa `commerce_lab` ni accede a la base de datos del merchant.
+
+## Arranque rápido
+
+Requiere Python 3.12, `uv` y Node.js 24 o posterior. Desde la raíz del clon:
+
+```sh
+uv sync --frozen --all-groups   # agente y miembro evaluation/ del workspace
+uv run pytest                   # unitarias, contratos y evaluación en dry-run; sin red ni modelo
+cd ui && npm ci && npm test
+```
+
+Sin más servicios se pueden abrir el [monitor de gobernanza](#demo-del-monitor-de-gobernanza)
+y las [corridas de evaluación en dry-run](#evaluación). Para conversar con el agente hacen falta
+el Merchant y el proveedor de pagos: ver [Stack con el Merchant](#stack-con-el-merchant).
+
+## Mapa del repositorio
+
+La carpeta decide el papel del código: `src/` es el producto, `evaluation/` son los experimentos
+y `tests/` es la verificación de ambos.
+
+| Carpeta | Contenido |
+| --- | --- |
+| `src/commerce_agent/` | El producto: dominio, cliente ACP, AP2, LLM, gobernanza B2 (`governance/`), persistencia SQLite, grafo LangGraph y API FastAPI. Es lo único que entra al wheel y a la imagen del `Dockerfile`. |
+| `evaluation/` | Miembro `tesis-commerce-evaluation` del workspace uv: código (`src/commerce_evaluation/`), datos (`data/`), resultados (`results/`) y scripts (`scripts/`) del piloto B0/B2, HNP-01 y HNP-02. Depende del producto; el producto nunca lo importa. Ver [evaluation/README.md](evaluation/README.md). |
+| `tests/` | Pruebas de producto y evaluación. `tests/integration/` es la suite de sistema opt-in, `tests/evaluation/` la de los experimentos y `tests/support/` los dobles compartidos. |
+| `ui/` | Interfaz React + Vite con `assistant-ui`, Storybook, pruebas de Node, E2E de Playwright (`ui/e2e/`) y el monitor de gobernanza opt-in. Ver [ui/README.md](ui/README.md). |
+| `auth/` | Servicio Better Auth (correo y contraseña) que emite los JWT del comprador; pruebas en `auth/test/`. |
+| `scripts/` | Exportadores (fixtures SSE de Storybook, proyección del monitor), lanzador y servidor de snapshots de la demo del monitor, medición offline de D1 y herramientas puntuales en `scripts/tools/`. |
+| `docs/` | Estrategia de pruebas, contrato UI–agente, perfil AP2, matriz de compatibilidad, despliegue, diseño B2 (`b2-governance/`), monitor (`governance-monitor/`), HNP-01 (`hnp-experiment/`), diagramas y reportes históricos (`archive/`). |
 
 ## Alcance implementado
 
@@ -22,7 +57,13 @@ implementa intención, selección, aprobación humana, ejecución idempotente y 
   monotónica;
 - API FastAPI para preparar, revisar, aprobar y completar compras;
 - interfaz React basada en `assistant-ui`, con perfil sandbox y aprobación Human Present;
-- harness E2E contra merchant y proveedor de pagos como procesos y repositorios separados.
+- gobernanza B2 experimental: D1 detrás de `AGENT_GOVERNANCE_MODE` (`off` por defecto, `shadow`, o
+  `enforce` opt-in que solo aplica el deny), creación ACP guardada D17 solo en backend y
+  consentimiento D2-HP como aplicación separada que `api.py` no monta. Estado y límites en
+  [docs/b2-governance](docs/b2-governance/README.md) y en la
+  [guía de enforce](docs/b2-governance/d1-enforce-runtime-optin.md);
+- suite de sistema contra el Merchant y el proveedor de pagos reales como procesos y repositorios
+  separados ([tests/integration](tests/integration/README.md)).
 
 El modelo recibe los mensajes del chat y vocabulario validado del feed. Primero produce una decisión
 tipada con una intención estructurada. Puede invocar `lookup_catalog`, una herramienta de solo lectura
@@ -50,69 +91,129 @@ Los nodos llaman a servicios tipados existentes. La única herramienta invocable
 `lookup_catalog`: no crea checkouts ni accede a pagos, aprobación o datos de entrega.
 LangGraph guarda el estado conversacional en un segundo archivo (por ejemplo,
 `.local/agent.db` → `.local/agent.graph.db`). La base principal sigue siendo la autoridad de compras,
-aprobaciones e idempotencia. El package `commerce_agent` nunca importa
-`commerce_lab` ni accede a la base de datos del merchant.
+aprobaciones e idempotencia.
 
 La UI conserva `conversation_id` durante el montaje actual; una recarga inicia un hilo nuevo,
 pero recupera la compra pendiente y su tarjeta de aprobación desde el backend. No hay todavía una
 vista de historial completo de conversaciones.
 
-Para la demo pública sintética, Better Auth (`auth/`) ofrece acceso por correo y contraseña.
-La UI envía JWT cortos y la API valida identidad antes de cada conversación y operación de compra.
-Los IDs de hilo y turno se separan por comprador, y las compras se autorizan por propietario.
-El registro no verifica correos: no usar cuentas ni pagos reales. Véanse el
-[runbook de despliegue](docs/deployment-railway.md) y el [perfil AP2 Human Present](docs/ap2-profile.md).
+Better Auth (`auth/`) ofrece acceso por correo y contraseña; la UI exige sesión antes de mostrar
+el chat y envía JWT cortos. Con `AGENT_AUTH_MODE=jwt` la API los valida antes de cada conversación
+y operación de compra; con `local` (predeterminado) el backend usa `AGENT_PRINCIPAL_ID`. Los IDs
+de hilo y turno se separan por comprador, y las compras se autorizan por propietario. El registro
+no verifica correos: no usar cuentas ni pagos reales. Véanse el [runbook de despliegue](docs/deployment-railway.md) y el
+[perfil AP2 Human Present](docs/ap2-profile.md).
 
-## Desarrollo
+## Pruebas
 
-Requiere Python 3.12 y `uv`:
+La estrategia completa (capas, markers, variables, workflows y cobertura) está en
+[docs/testing.md](docs/testing.md). En resumen:
 
-```sh
-uv sync --frozen --all-groups
-uv run ruff format --check .
-uv run ruff check .
-uv run pyright
-uv run pytest
-uv build
-```
+- `uv run pytest` corre las unitarias y de contrato y la evaluación en dry-run, sin red, modelo
+  ni Merchant. `tests/integration` se recoge y se omite.
+- `cd auth && npm ci && npm test` prueba el servicio de autenticación.
+- En `ui/`: `npm run lint`, `npm run test`, `npm run test-storybook` (historias en Chromium con axe)
+  y `npm run e2e` (Playwright sobre el build, con backends simulados).
+- La suite de sistema (`tests/integration`) solo corre con `RUN_LIVE_STACK=1`; ver
+  [Stack con el Merchant](#stack-con-el-merchant).
 
-`uv sync --frozen --all-groups` instala también el miembro `evaluation/` del workspace uv: el
-código de los experimentos (piloto B0/B2, HNP-01 y HNP-02), que no entra en el wheel ni en la
-imagen; comandos y datos en [evaluation/README.md](evaluation/README.md).
+Antes de entregar cambios en Python: `uv run ruff format --check .`, `uv run ruff check .`,
+`uv run pyright` y `uv run pytest`. En CI, `ci.yml` corre los jobs `python-lint`, `python-tests`,
+`auth` y `ui` en cada PR; `nightly.yml` corre la suite de sistema cada noche si existe el secreto
+`MERCHANT_REPO_TOKEN`. Ningún workflow llama a un LLM real.
 
-Las pruebas E2E quedan omitidas en la suite normal. Las unitarias y de contrato no requieren red,
-modelo ni merchant. Las de integración real con PostgreSQL en Docker y el Merchant son opt-in
-(`RUN_LIVE_STACK=1` y `MERCHANT_REPO`); el procedimiento en macOS y Linux está en
-[tests/integration](tests/integration/README.md).
+## Demo del monitor de gobernanza
 
-## Inspección con LangGraph Studio
-
-Studio permite ver los nodos, las rutas y el estado de ejecución del mismo grafo. Usa un Agent Server
-local separado de FastAPI; sus hilos no son los de la UI y no comparte sus checkpoints. Esta
-configuración es deliberadamente de solo lectura: puede explorar el catálogo y ver la selección
-propuesta, pero nunca prepara un checkout ni completa una compra. Para probar la aprobación y el
-checkout se usa la UI/API del agente. Studio carga el feed al iniciar; reinícielo para ver cambios
-posteriores del merchant. La UI/API sí consulta una instantánea nueva antes de cada turno.
-
-Con `OPENAI_API_KEY`, `OPENAI_MODEL` y el merchant disponibles en `.env`:
+El monitor `/governance` muestra en solo lectura evidencia histórica sanitizada de gobernanza HP y
+HNP y una corrida HNP-02 en dry-run. La demo no necesita credenciales, Merchant ni bases de datos:
 
 ```sh
-LANGSMITH_TRACING=false uv run langgraph dev --no-browser --host 127.0.0.1 --port 2024
+npm ci --prefix ui
+npm ci --prefix auth
+cd ui && npm run governance:demo
 ```
 
-Abra [LangGraph Studio](https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024) y seleccione
-`commerce_agent`. Use la vista de grafo e ingrese, por ejemplo:
+`npm run governance:demo` ejecuta `scripts/governance_demo.mjs`: prepara la fixture del snapshot,
+construye la UI con el monitor activo y levanta el servidor de snapshots (`127.0.0.1:5183`),
+Better Auth con secreto y base efímeros (`127.0.0.1:4210`) y el preview en
+<http://127.0.0.1:5182/governance>, donde se crea una cuenta sintética. La caché queda en
+`.local/governance-demo`; Ctrl+C detiene los tres procesos. Detalles, fuentes y límites en
+[docs/governance-monitor/README.md](docs/governance-monitor/README.md).
 
-```json
-{
-  "incoming_messages": [{"role": "user", "content": "¿Qué audífonos Sonora tienes?"}],
-  "turn_id": "demo-1"
-}
+## Evaluación
+
+El código de los experimentos vive en `evaluation/` y se instala con `uv sync --frozen --all-groups`.
+Estos entrypoints no abren conexiones a proveedores ni al Merchant; las salidas HNP quedan en
+`.local/`:
+
+```sh
+uv run hnp-matrix --dry-run --env-file .env.example   # HNP-02 con FakeTransport, en .local/hnp02
+uv run governance-pilot --dry-run                     # plan del piloto B0; --condition B2 para el tratado
+uv run hnp-review-demo                                # HNP-01 guionado, en .local/hnp01/demo
 ```
 
-Para otro turno en el mismo hilo, envíe solo el nuevo mensaje de usuario y un `turn_id` nuevo.
-La CLI y su almacenamiento local se instalaron solo como dependencias de desarrollo. No exponga el
-servidor local fuera de `127.0.0.1`; `LANGSMITH_TRACING=false` evita subir trazas de prueba.
+Las corridas reales se lanzan a mano, nunca en CI, y gastan dinero del modelo configurado:
+
+- `uv run hnp-matrix --env-file .env` llama al proveedor solo si no hay `--dry-run`, `HNP_LIVE=1`,
+  existe `OPENAI_API_KEY`, hay precios del validador y `HNP_MAX_COST_USD` cubre la cota superior que
+  imprime antes de empezar (`--estimate-only` solo imprime el plan y el costo). Con
+  `HNP_MAX_COST_USD=0` se niega a correr.
+- `uv run governance-pilot` sin `--dry-run` levanta Merchant, proveedor y agente desde los checkouts
+  hermanos (`--merchant-repo`, `--payment-repo`) y exige el `OPENAI_MODEL` fijado en la matriz.
+- `uv run evaluate-conversation` evalúa un agente local ya activo (`--base-url`, por defecto
+  `http://127.0.0.1:43120`) con su LLM y cancela los checkouts sandbox que prepara.
+
+Solo HNP-02 tiene tope de costo propio. Datos, resultados y protocolo en
+[evaluation/README.md](evaluation/README.md); el validador HNP-02 en
+[evaluation/src/commerce_evaluation/hnp/llm/README.md](evaluation/src/commerce_evaluation/hnp/llm/README.md).
+
+## Stack con el Merchant
+
+### Automático: suite de sistema
+
+`tests/integration` levanta en cada ejecución PostgreSQL en Docker, el Merchant y el proveedor de
+pagos desde sus checkouts, el agente, `auth/` y la UI, con credenciales y claves AP2 sintéticas por
+ejecución. Es la forma reproducible de recorrer una compra B0 completa. Requiere macOS o Linux y
+Docker; con ambos repositorios clonados junto a este:
+
+```sh
+(cd ../tesis-commerce-merchant && uv sync --frozen --all-groups)
+(cd ../tesis-payment-provider-sandbox && uv sync --frozen --all-groups)
+(cd auth && npm ci) && (cd ui && npm ci) && uv run playwright install --only-shell chromium
+RUN_LIVE_STACK=1 MERCHANT_REPO="$PWD/../tesis-commerce-merchant" \
+  PAYMENT_REPO="$PWD/../tesis-payment-provider-sandbox" uv run pytest tests/integration -rs
+```
+
+La suite completa tarda unos 12 minutos; `-m "not slow"` deja un subconjunto de unos 2. Requisitos,
+evidencia y limpieza en [tests/integration/README.md](tests/integration/README.md).
+
+### Manual: servicios locales para la UI
+
+1. **Merchant**, en su checkout (detalles en su README):
+
+   ```sh
+   uv sync --frozen
+   docker compose up -d --wait postgres
+   uv run python -m commerce_lab.db migrate
+   uv run python -m commerce_lab.managed_catalog import-current   # imprime el run_id
+   uv run python -m commerce_lab.db issue-session <run_id> merchant-agent
+   uv run uvicorn commerce_lab.api:app --host 127.0.0.1 --port 4120
+   ```
+
+   `issue-session` imprime un Bearer sintético de una hora (`--ttl-seconds` lo cambia) para
+   `MERCHANT_BEARER_TOKEN`; `merchant-agent` es el actor del catálogo administrado.
+2. **Proveedor de pagos**, según el README de `tesis-payment-provider-sandbox`, en el origen de
+   `PAYMENT_PROVIDER_URL` (`http://127.0.0.1:4130` en `.env.example`).
+3. **Agente**: `cp -n .env.example .env`, completar la [configuración local](#configuración-local)
+   y arrancar la [API](#api-del-agente).
+4. **Autenticación**: `cd auth && npm ci && cp -n .env.example .env`, poner un
+   `BETTER_AUTH_SECRET` aleatorio de al menos 32 caracteres y `node --env-file=.env server.js`
+   (puerto 4210; Vite reenvía `/api/auth` allí).
+5. **UI**: ver [Interfaz web](#interfaz-web).
+
+Los secretos compartidos (webhook del merchant, credenciales del proveedor, `PAYMENT_MERCHANT_ID`
+y claves AP2) deben coincidir entre los tres servicios; la lista está en
+[Variables que deben coincidir](docs/deployment-railway.md#variables-que-deben-coincidir).
 
 ## Configuración local
 
@@ -146,7 +247,8 @@ Configure en `.env`:
   razonamiento para modelos que lo soportan. Sin estas dos variables los requests no cambian.
 
 Use valores aleatorios de al menos 32 caracteres para los secretos. No copie valores reales a
-Git, logs, prompts, fixtures o artefactos.
+Git, logs, prompts, fixtures o artefactos. Las variables `HNP_*` de `.env.example` solo las lee
+`hnp-matrix`.
 
 ## API del agente
 
@@ -180,13 +282,6 @@ Flujo:
 Los fixtures SSE de Storybook se regeneran con `uv run python scripts/export_assistant_fixtures.py`;
 un test falla si los archivos versionados quedan desactualizados.
 
-Con el agente y el merchant locales activos, la evaluación conversacional opcional usa el LLM
-configurado y cancela todos los checkouts sandbox que prepara:
-
-```sh
-uv run evaluate-conversation
-```
-
 `complete` devuelve conflicto si el episodio no está aprobado. Dos intentos concurrentes no pueden
 adquirir la misma reserva local. Un timeout posterior al despacho queda `uncertain`; el siguiente
 intento consulta primero el checkout y conserva la misma clave idempotente.
@@ -199,72 +294,52 @@ merchant o pago se entrega al navegador.
 ```sh
 cd ui
 cp -n .env.example .env.local
-npm install
+npm ci
 npm run dev
 ```
 
-Abra `http://127.0.0.1:5173` después de iniciar FastAPI. El perfil incluido es sintético y editable;
-el chat prepara el checkout, pero la compra solo se completa al pulsar el botón que muestra el total
-y el fingerprint autoritativos.
+Abra `http://127.0.0.1:5173` con la API del agente y `auth/` activos. El perfil incluido es
+sintético y editable; el chat prepara el checkout, pero la compra solo se completa al pulsar el
+botón que muestra el total y el fingerprint autoritativos. Storybook, pruebas y monitor en
+[ui/README.md](ui/README.md).
 
-## Integración entre los tres servicios
+## Inspección con LangGraph Studio
 
-El smoke compartido levanta merchant y proveedor de pagos en procesos separados:
+Studio permite ver los nodos, las rutas y el estado de ejecución del mismo grafo. Usa un Agent Server
+local separado de FastAPI; sus hilos no son los de la UI y no comparte sus checkpoints. Esta
+configuración es deliberadamente de solo lectura: puede explorar el catálogo y ver la selección
+propuesta, pero nunca prepara un checkout ni completa una compra. Para probar la aprobación y el
+checkout se usa la UI/API del agente. Studio carga el feed al iniciar; reinícielo para ver cambios
+posteriores del merchant. La UI/API sí consulta una instantánea nueva antes de cada turno.
 
-```sh
-uv run python scripts/run_joint_e2e.py \
-  --merchant-repo ../tesis-commerce-merchant \
-  --payment-repo ../tesis-payment-provider-sandbox
-```
-
-El runner levanta PostgreSQL si hace falta, migra, crea un episodio B0, exporta el feed, emite un
-Bearer efímero para cada frontera, inicia ambos servicios, completa una compra y verifica:
-
-- replay local y replay idempotente remoto;
-- permalink sin PII ni token sandbox;
-- `order_create` firmado;
-- `order_update` firmado y transición a `processing`.
-
-Para verificar además el perfil AP2 Human Present con claves efímeras, mandatos y recibos firmados:
+Con `OPENAI_API_KEY`, `OPENAI_MODEL` y el merchant disponibles en `.env`:
 
 ```sh
-uv run python scripts/run_joint_e2e.py --ap2 \
-  --merchant-repo ../tesis-commerce-merchant \
-  --payment-repo ../tesis-payment-provider-sandbox
+LANGSMITH_TRACING=false uv run langgraph dev --no-browser --host 127.0.0.1 --port 2024
 ```
 
-Si PostgreSQL ya está levantado, agregue `--skip-postgres-start`. Los puertos se cambian con
-`--merchant-port`, `--payment-port` y `--webhook-port`. El checkout usa el reloj sintético del
-episodio; el runner sincroniza ese reloj con el proveedor.
+Abra [LangGraph Studio](https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024) y seleccione
+`commerce_agent`. Use la vista de grafo e ingrese, por ejemplo:
 
-Para probar el recorrido AP2 desde un navegador real —registro, conversación con el LLM,
-aprobación explícita y orden sandbox— instale Chromium para Playwright (`uv run playwright
-install chromium`) y ejecute:
-
-```sh
-uv run python scripts/run_joint_e2e.py --ap2 --ui --skip-postgres-start \
-  --merchant-port 4125 --payment-port 4135 --webhook-port 43126 \
-  --agent-port 43125 --auth-port 4215 --ui-port 5175
+```json
+{
+  "incoming_messages": [{"role": "user", "content": "¿Qué audífonos Sonora tienes?"}],
+  "turn_id": "demo-1"
+}
 ```
 
-El runner crea claves, cuentas y bases temporales. Los puertos alternos permiten mantener la demo
-local en ejecución; cambie cualquiera que esté ocupado. La prueba deja una captura en `../output/`.
-
-Para incluir la extracción de intención con el modelo OpenAI configurado en `.env`:
-
-```sh
-uv run python scripts/run_joint_e2e.py \
-  --merchant-repo ../tesis-commerce-merchant \
-  --payment-repo ../tesis-payment-provider-sandbox \
-  --live-llm
-```
+Para otro turno en el mismo hilo, envíe solo el nuevo mensaje de usuario y un `turn_id` nuevo.
+La CLI y su almacenamiento local se instalaron solo como dependencias de desarrollo. No exponga el
+servidor local fuera de `127.0.0.1`; `LANGSMITH_TRACING=false` evita subir trazas de prueba.
 
 ## Límites deliberados
 
 Este P0 usa un solo merchant registrado por configuración, una moneda, cantidad uno, SQLite y pago
-sandbox independiente. No procesa dinero real ni datos de tarjetas reales. El modelo conversacional es una integración externa, pero su
-salida se valida antes del ranking y nunca autoriza completion. B2, OPA, mandatos externos, Stripe
-real y operación multi-instancia quedan fuera de este incremento.
+sandbox independiente. No procesa dinero real ni datos de tarjetas reales. El modelo conversacional
+es una integración externa, pero su salida se valida antes del ranking y nunca autoriza completion.
+La gobernanza B2 es experimental y opt-in: su evaluador es la referencia en Python, sin OPA, y D17 y
+D2-HP no están conectados al flujo público. Mandatos externos, Stripe real y operación
+multi-instancia quedan fuera de este incremento.
 
 La matriz de contrato, amenazas e hipótesis está en
 [`docs/compatibility.md`](docs/compatibility.md).
