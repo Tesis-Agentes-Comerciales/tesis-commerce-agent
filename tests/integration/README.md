@@ -45,7 +45,7 @@ Un módulo o un escenario: pase su archivo, o filtre por el identificador que ll
 (`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`). Con `--basetemp=<dir>` la evidencia queda
 en un lugar conocido.
 
-La suite completa (56 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B:
+La suite completa (56 pruebas) tarda unos 11 minutos en macOS con OrbStack. Casi todo es 07B-B:
 cada escenario hace una selección nueva sobre el catálogo completo del Merchant (cientos de
 lecturas de Offer por fase) y el Merchant reconstruye el catálogo en cada lectura.
 
@@ -60,12 +60,13 @@ Cada ejecución deja bajo `<basetemp>/live-stack0/`:
   exportan tipos y códigos de error, nunca mensajes, credenciales ni cuerpos.
 
 Al terminar la sesión se detiene el Merchant (SIGTERM al grupo de procesos) y se elimina el
-contenedor con sus volúmenes. Si la ejecución se interrumpe con `kill -9`, los restos se ven y se
-eliminan así:
+contenedor con sus volúmenes. Si pytest muere con `kill -9`, la limpieza no corre; los restos se
+ven y se eliminan así:
 
 ```sh
 docker ps -a --filter label=tesis-live=1
 docker rm --force --volumes $(docker ps -aq --filter label=tesis-live=1)
+pgrep -fl "commerce_lab.api:app --fd"   # Merchant huérfano, si quedó alguno
 ```
 
 ## Piezas
