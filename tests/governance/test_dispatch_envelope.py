@@ -10,7 +10,7 @@ from threading import Barrier
 
 import httpx
 import pytest
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretBytes, SecretStr, ValidationError
 
 from commerce_agent.acp.client import ACPClient, ACPClientError
 from commerce_agent.acp.creation import build_checkout_create
@@ -20,6 +20,7 @@ from commerce_agent.governance.dispatch_envelope import (
     CheckoutCreationEnvelope,
     ExpectedRemoteBinding,
     creation_body,
+    creation_idempotency_key,
     merchant_creation_digest,
 )
 from commerce_agent.governance.enforce import SqliteD1EnforceGate
@@ -138,6 +139,62 @@ def test_wire_constructor_and_merchant_fingerprint_match_offline(reserved):
     ).hexdigest()
     assert envelope.body_digest == "sha256:" + expected
     assert "synthetic-authentication-marker" not in envelope.storage_bytes().decode()
+
+
+def test_creation_key_is_stable_and_separates_creation_intents():
+    def key(
+        secret=b"k" * 32,
+        run="run-a",
+        owner=OWNER,
+        origin="http://127.0.0.1:4120",
+        variant="SON-01",
+        currency="COP",
+    ):
+        return creation_idempotency_key(
+            SecretBytes(secret),
+            run_id=run,
+            owner_id=owner,
+            merchant_origin=origin,
+            request=build_checkout_create(variant, currency),
+        )
+
+    assert key() == key() and key().startswith("agent_") and len(key()) <= 128
+    assert OWNER not in key()
+    others = {
+        key(run="run-b"),
+        key(owner="other-owner"),
+        key(origin="http://127.0.0.1:4999"),
+        key(variant="SON-07"),
+        key(currency="USD"),
+        key(secret=b"j" * 32),
+    }
+    assert key() not in others and len(others) == 6
+
+
+def test_lost_store_reproduces_creation_key_with_new_attempt_identity(reserved, tmp_path):
+    original = recover(reserved)
+    case = make_case(tmp_path / "fresh.db", blocked=True)
+    gate = SqliteD1EnforceGate(
+        case.path, reserved.gate._configuration, reserved.keys, reserved.gate._clocks
+    )
+    case.keys, case.gate, case.service._d1_gate = reserved.keys, gate, gate
+    with pytest.raises(PurchaseServiceError) as error:
+        start(case)
+    assert error.value.code == "d1_dispatch_blocked" and not case.gateway.calls
+    fresh = recover(case)
+    assert fresh.operation_id != original.operation_id
+    assert fresh.decision_id != original.decision_id and fresh.evidence_id != original.evidence_id
+    assert (
+        fresh.idempotency_key.get_secret_value()
+        == original.idempotency_key.get_secret_value()
+        == creation_idempotency_key(
+            reserved.keys.pseudonym_key,
+            run_id="run-a",
+            owner_id=OWNER,
+            merchant_origin=original.merchant_origin,
+            request=build_checkout_create("SON-01", "COP"),
+        )
+    )
 
 
 def test_omitted_and_explicit_optional_fields_have_different_identity(reserved):

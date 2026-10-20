@@ -6,7 +6,7 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -23,12 +23,14 @@ from commerce_agent.governance.guarded_creation import (
     LOOKUP_PATH,
     LOOKUP_SCHEMA,
     GuardedEnvelope,
+    GuardedInput,
     GuardedProof,
     Rejection,
 )
 from commerce_agent.governance.models import SCHEMA, D1PolicyArtifact, PolicyBinding
 from commerce_agent.governance.provenance import ClockReader, D1EnforceConfiguration
 from commerce_agent.governance.remote_creation import CreationFound, original_response_sha256
+from commerce_agent.persistence import guarded_d1_sqlite
 from commerce_agent.persistence.d1_envelope_sqlite import SqliteD1EnvelopeStore
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.persistence.guarded_d1_sqlite import SqliteGuardedD1
@@ -179,6 +181,42 @@ class Wire:
             json=body,
             headers={"Cache-Control": "no-store"},
         )
+
+
+class IdempotentMerchant(Wire):
+    """Merchant 0dca108 guarded semantics: scope + key hash, durable replay or 409."""
+
+    def __init__(self):
+        super().__init__()
+        self.keys: list[str] = []
+        self.created: dict[tuple[str, str], tuple[str, GuardedProof]] = {}
+
+    def handle(self, request):
+        if request.url.path != CREATE_PATH:
+            return super().handle(request)
+        key = hashlib.sha256(request.headers["Idempotency-Key"].encode()).hexdigest()
+        self.keys.append(key)
+        scope = (request.headers["Authorization"], key)
+        fingerprint = parse_model(GuardedInput, request.content).fingerprint()
+        if scope not in self.created:
+            response = super().handle(request)
+            assert self.proof is not None
+            self.created[scope] = (fingerprint, self.proof)
+            return response
+        original, proof = self.created[scope]
+        if original != fingerprint:
+            return httpx.Response(
+                409,
+                json={"code": "idempotency_conflict", "historical": False, "request_id": "r"},
+                headers={"Cache-Control": "no-store"},
+            )
+        body = {
+            "schema_version": "merchant-guarded-acp-create/1",
+            "result": "replayed",
+            "request_id": "replay",
+            "proof": proof.model_dump(mode="json"),
+        }
+        return httpx.Response(200, json=body, headers={"Cache-Control": "no-store"})
 
 
 def open_case(root, link, seal, wire, **options):
@@ -387,6 +425,39 @@ def test_crash_after_merchant_commit_and_reopened_sqlite(tmp_path):
     with pytest.raises(ObservationBlocked):
         reopened.dispatch(request)
     assert wire.calls.count(("POST", CREATE_PATH)) == 1
+    reopened.transport.close()
+
+
+def test_lost_applied_store_resends_same_key_and_merchant_replays(tmp_path, monkeypatch):
+    link, request, seal, _registry, _grant = setup_case(tmp_path)
+    link.evaluate(request)
+    merchant = IdempotentMerchant()
+    case = open_case(tmp_path, link, seal, merchant)
+    case.initialize()
+    guard = case.prepare(request)
+    assert case.dispatch(request).result == "found"
+    case.transport.close()
+    (tmp_path / "applied.sqlite").unlink()
+
+    class Later(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + timedelta(hours=1)
+
+    # The retry happens later than the original Merchant check.
+    monkeypatch.setattr(guarded_d1_sqlite, "datetime", Later)
+    reopened = open_case(tmp_path, open_link(tmp_path), seal, merchant)
+    reopened.initialize()
+    retry = reopened.prepare(request)
+    assert retry.idempotency_key_sha256 == guard.idempotency_key_sha256
+    assert (retry.operation_id, retry.decision_id) != (guard.operation_id, guard.decision_id)
+    observation = reopened.dispatch(request)
+    assert merchant.keys == [guard.idempotency_key_sha256] * 2 and len(merchant.created) == 1
+    # The replayed proof predates the new guard: fail closed, no continuation.
+    assert observation.result == "error" and not observation.continuation_allowed
+    with pytest.raises(ObservationBlocked):
+        reopened.dispatch(request)
+    assert len(merchant.keys) == 2
     reopened.transport.close()
 
 

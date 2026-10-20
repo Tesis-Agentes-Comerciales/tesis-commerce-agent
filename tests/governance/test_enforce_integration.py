@@ -21,7 +21,7 @@ from commerce_agent.application import PurchaseService, PurchaseServiceError
 from commerce_agent.application.purchase import CheckoutGateway
 from commerce_agent.approval import ApprovalService
 from commerce_agent.config import Settings
-from commerce_agent.domain import HardConstraints, PurchaseIntent
+from commerce_agent.domain import HardConstraints, PurchaseIntent, rank_candidates
 from commerce_agent.governance.canonical import canonical_bytes
 from commerce_agent.governance.enforce import InitialCheckoutDispatch, SqliteD1EnforceGate
 from commerce_agent.governance.evaluator import ReferencePolicyEvaluator
@@ -222,6 +222,16 @@ def snapshot(case: Case) -> tuple:
                 )
             ),
             tuple(connection.execute("SELECT * FROM d1_checkout_results")),
+        )
+
+
+def attempts(case: Case) -> tuple:
+    with closing(connect(case.path)) as connection:
+        return tuple(
+            connection.execute(
+                "SELECT attempt,operation_id,evidence_id,idempotency_key FROM d1_enforce_inputs "
+                "WHERE run_id='run-a' ORDER BY attempt"
+            )
         )
 
 
@@ -717,6 +727,142 @@ def test_retry_after_authorization_rollback_keeps_operation_and_key(
             == attempt
         )
     assert sum(name == "create" for name, _ in case.gateway.calls) == 1
+    # Same attempt continued: no second input identity and a single decision.
+    assert len(attempts(case)) == len(records(case)) == 1
+
+
+def test_retry_after_deny_appends_attempt_and_keeps_history(tmp_path: Path):
+    case = make_case(tmp_path / "agent.db", deny=True)
+    with pytest.raises(PurchaseServiceError) as first:
+        start(case)
+    denied = records(case)
+    with pytest.raises(PurchaseServiceError) as retry:
+        start(case)
+    assert first.value.code == retry.value.code == "d1_denied" and case.gateway.calls == []
+    history = records(case)
+    assert history[:1] == denied and [item.sequence for item in history] == [1, 2]
+    assert all(
+        isinstance(item, DecisionRecord)
+        and item.decision.outcome == "deny"
+        and item.application.disposition == "blocked"
+        for item in history
+    )
+    assert (
+        len({item.decision.decision_id for item in history if isinstance(item, DecisionRecord)})
+        == 2
+    )
+    rows = attempts(case)
+    assert [row[0] for row in rows] == [1, 2]
+    assert len({row[1] for row in rows}) == len({row[2] for row in rows}) == 2
+    # Same candidate and body: the creation intent, and therefore its key, is unchanged.
+    assert rows[0][3] == rows[1][3]
+    assert snapshot(case) == (("received", 1, None), (), ())
+
+
+def test_retry_with_other_candidate_has_its_own_attempt_and_key(tmp_path: Path):
+    case = make_case(tmp_path / "agent.db", deny=True)
+    feed = load_product_feed(FEED)
+    for product in feed.products:
+        for variant in product.variants:
+            variant.availability.available = True
+    for variant_id in ("SON-01", "SON-07"):
+        with pytest.raises(PurchaseServiceError) as error:
+            start(case, feed=feed, selected_variant_id=variant_id)
+        assert error.value.code == "d1_denied"
+    rows = attempts(case)
+    assert [row[0] for row in rows] == [1, 2] and rows[0][3] != rows[1][3]
+    assert [
+        item.policy_input().selected_variant_id
+        for item in records(case)
+        if isinstance(item, DecisionRecord)
+    ] == ["SON-01", "SON-07"]
+
+
+def test_retry_after_engine_failure_authorizes_once(tmp_path: Path):
+    failures = [RuntimeError(MARKER)]
+
+    class Engine:
+        def __init__(self, policy: bytes, binding: PolicyBinding, metadata: EvaluationMetadata):
+            from commerce_agent.governance.evaluator import measure_reference_engine
+
+            self.reference = ReferencePolicyEvaluator(
+                artifact_bytes=policy,
+                binding=binding,
+                metadata=metadata,
+                identity=measure_reference_engine(),
+            )
+
+        def evaluate(self, data):
+            if failures:
+                raise failures.pop()
+            return self.reference.evaluate(data)
+
+    case = make_case(tmp_path / "agent.db", evaluator_factory=Engine)
+    with pytest.raises(PurchaseServiceError) as error:
+        start(case)
+    assert error.value.code == "d1_denied" and case.gateway.calls == []
+    assert start(case).stage == "awaiting_confirmation"
+    first, second = records(case)
+    assert isinstance(first, DecisionRecord) and first.decision.origin == "runtime_guard"
+    assert isinstance(second, DecisionRecord) and second.decision.outcome == "allow"
+    assert second.application.disposition == "transition_committed"
+    rows = attempts(case)
+    operations = snapshot(case)[1]
+    assert [row[0] for row in rows] == [1, 2]
+    assert operations == ((rows[1][1], "claimed", rows[1][3]),)
+    assert sum(name == "create" for name, _ in case.gateway.calls) == 1
+    status = case.gate.recovery_status("run-a")
+    assert status is not None and status[0:2] == ("confirmed", "cs_1")
+
+
+def test_retry_after_unavailable_keeps_diagnostics_and_authorizes_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    case = make_case(tmp_path / "agent.db")
+    original = SqliteD1UnitOfWork.prepare
+
+    def prepare(uow, request):
+        original(uow, request)
+        raise EvidenceError("GOV_ARTIFACT_MISMATCH")
+
+    monkeypatch.setattr(SqliteD1UnitOfWork, "prepare", prepare)
+    with pytest.raises(PurchaseServiceError) as error:
+        start(case)
+    assert error.value.code == "d1_unavailable" and case.gateway.calls == []
+    diagnosed = records(case)
+    assert [item.record_kind for item in diagnosed] == ["decision_record", "application_failure"]
+    monkeypatch.setattr(SqliteD1UnitOfWork, "prepare", original)
+    assert start(case).stage == "awaiting_confirmation"
+    history = records(case)
+    assert history[:2] == diagnosed and [item.sequence for item in history] == [1, 2, 3]
+    assert isinstance(history[2], DecisionRecord)
+    assert history[2].application.disposition == "transition_committed"
+    assert [row[0] for row in attempts(case)] == [1, 2]
+    assert sum(name == "create" for name, _ in case.gateway.calls) == 1
+
+
+def test_duplicate_of_reserved_attempt_appends_nothing(tmp_path: Path):
+    case = make_case(tmp_path / "agent.db", blocked=True)
+    with pytest.raises(PurchaseServiceError) as error:
+        start(case)
+    assert error.value.code == "d1_dispatch_blocked"
+    before = (records(case), attempts(case), snapshot(case))
+    # Bypass PurchaseService's stage guard: the gate itself never opens another attempt.
+    feed = load_product_feed(FEED)
+    intent = PurchaseIntent(hard=HardConstraints(currency="COP"))
+    selection = rank_candidates(feed, intent)
+    assert selection.selected is not None
+    with pytest.raises(PurchaseServiceError):
+        case.gate.create_checkout(
+            case.gate.capture(feed, intent, rank_candidates),
+            run_id="run-a",
+            owner_id=OWNER,
+            selection=selection,
+            candidate=selection.selected,
+            gateway=case.gateway,
+        )
+    assert (records(case), attempts(case), snapshot(case)) == before
+    assert case.gateway.calls == []
 
 
 def test_gate_cannot_be_combined_with_shadow(tmp_path: Path):
