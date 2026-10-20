@@ -1,8 +1,36 @@
-import type { ApprovalTerms, CompletedCheckout, PurchasePreparation } from "@/lib/commerce-types"
-import type { AgentApiMock } from "@/storybook/agent-api-mock"
-import { recordPurchaseOutcome, scriptedAssistant } from "@/storybook/assistant-transport"
+import type { authClient } from "../lib/auth-client.ts"
+import type { ApprovalTerms, CompletedCheckout, PurchasePreparation } from "../lib/commerce-types.ts"
 
-// Datos sintéticos alineados con e2e/smoke.py; nunca deben contener datos reales.
+// Datos sintéticos que comparten Storybook y los tests de Playwright (e2e/); nunca deben contener
+// datos reales. Solo importa tipos y con rutas relativas, para que Node lo cargue sin Vite.
+
+type BuyerSession = NonNullable<ReturnType<typeof authClient.useSession>["data"]>
+
+const ISSUED_AT = new Date("2026-09-20T12:00:00Z")
+
+/** Sesión de Better Auth de la compradora sintética, alineada con DEMO_PROFILE. */
+export const BUYER_SESSION: BuyerSession = {
+  user: {
+    id: "storybook-user",
+    name: "Ana Demo",
+    email: "ana@example.test",
+    emailVerified: true,
+    image: null,
+    createdAt: ISSUED_AT,
+    updatedAt: ISSUED_AT,
+  },
+  session: {
+    id: "storybook-session",
+    userId: "storybook-user",
+    token: "storybook-session-token",
+    expiresAt: new Date("2099-09-20T13:00:00Z"),
+    createdAt: ISSUED_AT,
+    updatedAt: ISSUED_AT,
+  },
+}
+
+/** Lo que devuelve `authClient.token()`; la UI solo lo reenvía como `Bearer` al agente. */
+export const BUYER_TOKEN = "storybook-buyer-token"
 
 export const PURCHASE_REQUEST = "Quiero audífonos negros por menos de 2 millones"
 
@@ -50,6 +78,17 @@ export const TERMS: ApprovalTerms = {
   fingerprint: "a".repeat(64),
 }
 
+/** Lo que registra `POST /purchases/{run_id}/approval`. */
+export function approvalRecord(runId: string) {
+  return {
+    run_id: runId,
+    checkout_id: TERMS.checkout_id,
+    principal_id: "local-human",
+    approved_at: "2026-09-20T12:00:00Z",
+    stage: "approved",
+  }
+}
+
 export const COMPLETED: CompletedCheckout = {
   ...PREPARATION.checkout,
   status: "completed",
@@ -64,27 +103,3 @@ export const COMPLETED: CompletedCheckout = {
 
 export const PURCHASE_REPLY =
   "Elegí los Sonora negros porque cumplen el presupuesto y están disponibles."
-
-export const DEFAULT_AGENT_API: AgentApiMock = {
-  "GET /health": { body: { status: "ok" } },
-  // Streams reales del backend (fixtures/assistant-transport), elegidos por el texto del mensaje.
-  "POST /assistant": (request) => scriptedAssistant(request),
-  "POST /purchases/:runId/approval": ({ params }) => ({
-    delayMs: 600,
-    body: {
-      run_id: params.runId,
-      checkout_id: TERMS.checkout_id,
-      principal_id: "local-human",
-      approved_at: "2026-09-20T12:00:00Z",
-      stage: "approved",
-    },
-  }),
-  "POST /purchases/:runId/cancel": ({ params }) => {
-    recordPurchaseOutcome(params.runId ?? "", "canceled")
-    return { delayMs: 400, body: { run_id: params.runId, stage: "canceled" } }
-  },
-  "POST /purchases/:runId/complete": ({ params }) => {
-    recordPurchaseOutcome(params.runId ?? "", "completed")
-    return { delayMs: 900, body: COMPLETED }
-  },
-}

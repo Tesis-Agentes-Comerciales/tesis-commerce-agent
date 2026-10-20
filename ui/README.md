@@ -61,10 +61,13 @@ La reproducción, el servidor local de snapshots y sus variables están en
 npm run storybook
 ```
 
-Queda en `http://127.0.0.1:6006` y no necesita la API del agente. `.storybook/preview.tsx`
-intercepta `fetch` hacia `VITE_AGENT_API_URL` con las rutas de `src/storybook/fixtures.ts`; cada
-historia puede sobrescribir rutas con el parámetro `agentApi`, y una ruta sin mock responde 501 en
-vez de tocar un backend real.
+Queda en `http://127.0.0.1:6006` y no necesita la API del agente ni el servicio de acceso.
+`.storybook/preview.tsx` intercepta `fetch` hacia `VITE_AGENT_API_URL` con las rutas de
+`src/storybook/default-agent-api.ts`; cada historia puede sobrescribir rutas con el parámetro
+`agentApi`, y una ruta sin mock responde 501 en vez de tocar un backend real. Better Auth tampoco se
+carga: `sb.mock` cambia `src/lib/auth-client.ts` por `src/lib/__mocks__/auth-client.ts` y el parámetro
+`session` (`authenticated` por defecto, `anonymous` o `pending`) elige qué devuelve
+(`src/storybook/session.ts`).
 
 - `Pages/App` monta la app completa. `Online` es interactiva: saluda, pide detalles, prepara una
   compra o recuerda la pendiente según el texto. Las demás historias (`PurchaseFlow`, `CancelFlow`,
@@ -78,9 +81,24 @@ vez de tocar un backend real.
   reproduce frame por frame (`sse` y `frameDelayMs` en `agent-api-mock.ts`) y solo reemplaza las
   imágenes del feed por SVG locales para que ninguna historia pida recursos externos.
 - `Agent/*` y `Purchase/*` cubren los componentes sueltos y los datos de entrega.
+- `Auth/SessionGate` cubre la puerta de sesión: pendiente, sin sesión (el doble rechaza las
+  credenciales), registro, servicio caído y con sesión.
+- `Governance/*` cubre el monitor con la proyección versionada (`evidence.json`, vía
+  `src/storybook/governance.ts`): escenarios HP/HNP-01, el experimento HNP-02 en dry-run con sus dos
+  avisos, cada estado de la fuente (offline, leyendo, leído, obsoleto, desconectado, inconsistente),
+  la ruta con y sin sesión y el error de contrato. Los estados inconsistentes son mutaciones en
+  memoria, las mismas de `tests/`. `SourceMonitor` lee un servidor de snapshots simulado: el
+  parámetro `governanceSnapshot` da la respuesta de cada lectura (`snapshot`, `altered`, `rejected`,
+  `unreachable`) y por defecto no hay servidor.
 
-`npm run build-storybook` genera la versión estática. Ningún módulo de `src/storybook/` entra en el
-bundle de producción.
+`npm run build-storybook` genera la versión estática. Ningún módulo de `src/storybook/` ni de
+`src/lib/__mocks__/` entra en el bundle de producción.
+
+`npm run test-storybook` corre cada historia como un test de Vitest en Chromium headless
+(`@storybook/addon-vitest`, `vitest.config.ts`): render, `play` y axe de `addon-a11y`. Cualquier
+violación de accesibilidad hace fallar la historia (`a11y.test: "error"`); una historia solo puede
+bajarla a `"todo"` con una razón escrita. No necesita Storybook levantado. La primera vez hace falta el
+navegador de Playwright: `npx playwright install chromium` (en Linux/CI, `--with-deps`).
 
 ## Verificación
 
@@ -89,15 +107,25 @@ npx tsc -b
 npm run lint
 npm run build
 npm run test
+npm run build-storybook
+npm run test-storybook
+npm run e2e
 ```
 
 `npm run test` ejecuta `tests/*.test.*` con `node --test` (Node 24 quita los tipos de los `.ts`; un hook
 transpila los `.tsx` y resuelve `@/`). No necesita build previo, red ni archivos bajo `.local`; el CI lo
 corre después del build y comprueba que el build por defecto no incluya el monitor.
 
-El smoke de navegador está en `e2e/smoke.py`: enruta `POST /assistant` con los fixtures SSE
-versionados, recorre compra, aprobación y completion, revisa que el cuerpo lleve `details` y
-`turn_id` (y ninguna evidencia de aprobación) y guarda capturas bajo `.local/ui-e2e/`.
+`npm run e2e` corre los tests de Playwright de `e2e/` contra el build de producción
+(`playwright.config.ts` lo genera en `dist-e2e/` con el monitor activo y lo sirve con
+`vite preview`). La red de Better Auth y de la API del agente se simula en cada spec con la sesión
+y los datos de `src/storybook/fixtures.ts`; `POST /assistant` reproduce los mismos streams SSE de
+Storybook. `e2e/chat.spec.ts` recorre compra, aprobación y completion, revisa que el cuerpo lleve
+`details` y `turn_id`, que la aprobación solo viaje por REST con el fingerprint de los términos y
+que en móvil no haya scroll horizontal. `e2e/governance.spec.ts` abre `/governance` con y sin
+sesión y lee el snapshot del servidor real (`scripts/governance_snapshot_server.mjs`, levantado
+con su fixture en `.local/governance-e2e/`), incluida la lectura obsoleta y la fuente desconectada.
+Usa puertos propios (5190 y 5191) y el mismo Chromium que `test-storybook`.
 
 La UI no contiene llaves ni tokens. Los datos de entrega se envían a FastAPI, y el único control que
 autoriza la compra usa el fingerprint de términos que devuelve el backend.

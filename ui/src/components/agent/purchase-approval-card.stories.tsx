@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useEffect, useRef, useState } from "react"
 import { expect, fn, waitFor } from "storybook/test"
 
+import { formatMoneyParts } from "@/components/agent/agent-format"
 import {
   PurchaseApprovalCard,
   PurchaseApprovalCardSkeleton,
@@ -87,25 +88,70 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+type PlayContext = Parameters<NonNullable<Story["play"]>>[0]
+
+const SETTLE = { timeout: 4000 }
+
+/** El total sale solo de los términos autoritativos, nunca del catálogo. */
+async function expectTermsTotal({ args, canvas }: PlayContext) {
+  const total = formatMoneyParts(args.terms.total_minor, args.terms.currency)
+  // Intl separa el símbolo con un espacio duro; Testing Library normaliza el texto del DOM, no el buscado.
+  await expect(canvas.getByText(total.amount.replace(/\s+/g, " "))).toBeVisible()
+  await expect(canvas.getByText(total.code)).toBeVisible()
+}
+
+/** Mientras hay una petición en curso nada se puede pulsar dos veces. */
+async function expectBusy({ canvas, canvasElement }: PlayContext, live: string) {
+  await expect(canvasElement.querySelector("[data-testid=purchase-approval-card]")).toHaveAttribute(
+    "aria-busy",
+    "true",
+  )
+  await expect(canvas.getByRole("status")).toHaveTextContent(live)
+  for (const button of canvas.getAllByRole("button")) await expect(button).toBeDisabled()
+}
+
 /** Aprobar recorre los estados con temporizadores locales hasta "completed". */
 export const AwaitingApproval: Story = {
-  play: async ({ args, canvas, userEvent }) => {
+  play: async (context) => {
+    const { args, canvas, userEvent } = context
+    await expect(canvas.getByRole("heading", { name: "Aprueba la compra" })).toBeVisible()
+    await expectTermsTotal(context)
+    await expect(canvas.getByText(/No mueve dinero real/)).toBeVisible()
     // Las filas etiqueta/valor son un <dl> real (el recibo anterior dejaba dt/dd sueltos).
     await expect(canvas.getAllByRole("term").length).toBeGreaterThan(0)
     await userEvent.click(canvas.getByRole("button", { name: "Aprobar y comprar" }))
     await expect(args.onApprove).toHaveBeenCalledOnce()
-    await waitFor(() => expect(canvas.getByText("Compra completada")).toBeVisible(), {
-      timeout: 4000,
-    })
+    await waitFor(() => expect(canvas.getByText("Compra completada")).toBeVisible(), SETTLE)
+    await expect(args.onCancel).not.toHaveBeenCalled()
+    await expect(canvas.getByRole("link", { name: /Ver orden/ })).toBeVisible()
+  },
+}
+
+/** Cancelar antes de aprobar libera el checkout y no registra ninguna aprobación. */
+export const CancelBeforeApproval: Story = {
+  play: async ({ args, canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Cancelar" }))
+    await expect(args.onCancel).toHaveBeenCalledOnce()
+    await waitFor(() => expect(canvas.getByText("Compra cancelada")).toBeVisible(), SETTLE)
+    await expect(args.onApprove).not.toHaveBeenCalled()
+    await expect(canvas.queryByTestId("approve-purchase")).toBeNull()
+    await expect(canvas.getByText("No se registró ninguna aprobación ni cargo.")).toBeVisible()
   },
 }
 
 export const Approving: Story = {
   args: { status: "approving" },
+  play: async (context) => expectBusy(context, "Registrando aprobación…"),
 }
 
+/** La aprobación ya está registrada: cancelar desaparece y solo queda completar. */
 export const Completing: Story = {
   args: { status: "completing", approvalRecorded: true },
+  play: async (context) => {
+    await expectBusy(context, "Completando compra…")
+    await expect(context.canvas.getByRole("heading", { name: "Aprobación registrada" })).toBeVisible()
+    await expect(context.canvas.queryByRole("button", { name: /Cancelar/ })).toBeNull()
+  },
 }
 
 /** La aprobación quedó registrada pero completar falló: solo se puede reintentar. */
@@ -121,19 +167,36 @@ export const RetryAfterRecordedApproval: Story = {
   },
 }
 
+/** Sin aprobación registrada el error deja volver a aprobar o cancelar. */
 export const ApprovalError: Story = {
   args: {
     status: "error",
     error: "Los términos cambiaron. Vuelve a revisarlos antes de aprobar.",
   },
+  play: async ({ args, canvas }) => {
+    await expect(canvas.getByRole("alert")).toHaveTextContent(args.error ?? "")
+    await expect(canvas.getByRole("button", { name: "Aprobar y comprar" })).toBeEnabled()
+    await expect(canvas.getByRole("button", { name: "Cancelar" })).toBeEnabled()
+  },
 }
 
 export const Canceling: Story = {
   args: { status: "canceling" },
+  play: async (context) => expectBusy(context, "Cancelando la compra…"),
 }
 
+/** Empezar otra compra borra la conversación, así que pide confirmación. */
 export const Canceled: Story = {
   args: { status: "canceled" },
+  play: async ({ args, canvas, userEvent }) => {
+    await expect(canvas.queryByTestId("approve-purchase")).toBeNull()
+    await userEvent.click(canvas.getByRole("button", { name: "Nueva compra" }))
+    await expect(args.onNewPurchase).not.toHaveBeenCalled()
+    await userEvent.click(canvas.getByRole("button", { name: "Seguir aquí" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Nueva compra" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Empezar otra" }))
+    await expect(args.onNewPurchase).toHaveBeenCalledOnce()
+  },
 }
 
 export const Completed: Story = {
@@ -152,8 +215,13 @@ export const CompletedWithoutOrderLink: Story = {
   },
 }
 
+/** El precio del checkout difiere del catálogo: se avisa y el total sigue siendo el de los términos. */
 export const PriceChanged: Story = {
   args: { terms: TERMS_PRICE_CHANGED, priceChanged: true },
+  play: async (context) => {
+    await expect(context.canvas.getByText(/El precio cambió desde que consulté el catálogo/)).toBeVisible()
+    await expectTermsTotal(context)
+  },
 }
 
 export const MultipleLines: Story = {
@@ -175,6 +243,9 @@ export const ProductWithoutImage: Story = {
 
 export const WithoutAddress: Story = {
   args: { terms: TERMS_NO_ADDRESS },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Sin dirección")).toBeVisible()
+  },
 }
 
 export const Loading: Story = {
