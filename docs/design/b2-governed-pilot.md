@@ -121,9 +121,13 @@ shadow con frescura y recuperación activas. Nunca se presenta como enforce.
   tesis lo declara como límite.
 - **Comparación primaria.** B0' en el mismo commit. B0-2026-10-06 queda como histórico.
 - **Enmiendas.** M1, M2 y M3 quedan pre-registradas en el manifiesto antes de correr.
-- **Re-presentación** (PR-8, solo para la demo). Cuando la frescura detecta un cambio, el agente
-  actualiza el checkout, vuelve a aplicar el presupuesto y presenta los términos nuevos. Hace falta
-  una aprobación nueva.
+- **Re-presentación** (PR-8, solo para la demo). Para la demo se eligió «visible y cancelable», no
+  re-presentación. Cuando la frescura rechaza los términos, el agente no actualiza el checkout ni
+  lo cancela por su cuenta. `GET /me/pending-purchase` sigue mostrando la compra, con
+  `approval_terms: null` y `terms_status` en `changed` (la oferta cambió) o `unavailable` (no se
+  pudo leer). El comprador la cancela, lo que nunca depende de la frescura, y vuelve a pedirla:
+  obtiene un checkout nuevo con el precio actual, que pasa otra vez por D1 y requiere una
+  aprobación nueva.
 - **Regla de presupuesto total en D1.** Queda para la siguiente revisión de política.
 
 ## Riesgos
