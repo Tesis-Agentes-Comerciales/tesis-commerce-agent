@@ -2,8 +2,8 @@
 
 B0 is the baseline the thesis compares against: ACP plus AP2 Human Present, explicit human
 approval, signed mandates and receipts, idempotent completion and signed order webhooks. The
-`acp` lane keeps the plain ACP completion and the conversational API covered. Formerly the
-joint E2E of tests/e2e and scripts/run_joint_e2e.py.
+`acp` lane keeps the plain ACP completion and the conversational API covered. Replaces the
+September joint E2E; the mapping is in tests/integration/README.md.
 """
 
 import os
