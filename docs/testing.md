@@ -28,12 +28,12 @@ clasificada por dónde se crea, sin `pytestmark` ni `skipif` propios:
 
 | Capa | Qué verifica | Dónde | Cuándo | En local |
 | --- | --- | --- | --- | --- |
-| 1. Unitarias y contratos | Dominio, aplicación, gobernanza, persistencia, ACP/AP2 congelados, frontera del repositorio | `tests/` sin `integration/` | Cada PR (`python-tests`) | `uv run pytest` |
+| 1. Unitarias y contratos | Dominio, aplicación, gobernanza, persistencia, ACP/AP2 congelados, hashes de la evidencia histórica de gobernanza, frontera del repositorio | `tests/` sin `integration/` | Cada PR (`python-tests`) | `uv run pytest` |
 | 1. Autenticación | Registro, sesión y JWT verificable con JWKS contra el servidor real | `auth/test/` | Cada PR (`auth`) | `cd auth && npm ci && npm test` |
 | 2. Merchant + PostgreSQL | Persistencia, D17, ACP HTTP del Merchant | Repositorio del Merchant | Cada PR del Merchant | Ver su `docs/testing.md` |
-| 3. UI | Lint, build, pruebas de Node, historias de Storybook con interacción y axe en Chromium | `ui/` | Cada PR (`ui`) | `cd ui && npm ci && npm run lint && npm run test && npm run test-storybook` |
+| 3. UI | Lint, build, historias de Storybook con interacción y axe en Chromium | `ui/` | Cada PR (`ui`) | `cd ui && npm ci && npm run lint && npm run build && npm run test-storybook` |
 | 4. Sistema | Agent ↔ Merchant ↔ proveedor de pagos con PostgreSQL desechable; gobernanza con fallos inyectados, compras B0 y ACP, compra B0 desde el navegador | `tests/integration/` | Cada noche y a pedido (`nightly.yml`) | [`tests/integration/README.md`](../tests/integration/README.md) |
-| 3. UI E2E | Recorridos de chat y monitor en el navegador con Playwright, sobre el build y con backends simulados | `ui/e2e/` | Cada PR (`ui`) | `cd ui && npm run e2e` |
+| 3. UI E2E | Recorridos de chat en el navegador con Playwright, sobre el build y con backends simulados | `ui/e2e/` | Cada PR (`ui`) | `cd ui && npm run e2e` |
 | 5. Evaluación | Experimento HNP y piloto de gobernanza sin red ni modelo (dry-run): forma de resultados, costos, trazas, guardas de gasto | `tests/evaluation/` y entrypoints | Cada PR, dentro de `python-tests` | `uv run pytest -m evaluation`, `uv run hnp-matrix --dry-run --env-file .env.example`, `uv run governance-pilot --dry-run` |
 
 Las corridas reales de evaluación (`HNP_LIVE=1`, modelo pagado) nunca corren en CI: se lanzan a
@@ -70,9 +70,8 @@ prueba está en las secciones de equivalencia de [`tests/integration/README.md`]
   cobertura del producto, los dry-run de `hnp-matrix` y `governance-pilot` (sin red; escriben en
   `.local/`) y un resumen de cobertura en la página del job.
 - `auth`: `npm ci` y `npm test` en `auth/`.
-- `ui`: `npm ci`, lint, build (y que el monitor de gobernanza no entre al build por defecto),
-  `npm run test`, `build-storybook`, `test-storybook` y `npm run e2e` en Chromium. Playwright
-  sale de `ui/package-lock.json` (`npx --no-install`), nunca de una versión sin fijar.
+- `ui`: `npm ci`, lint, build, `build-storybook`, `test-storybook` y `npm run e2e` en Chromium.
+  Playwright sale de `ui/package-lock.json` (`npx --no-install`), nunca de una versión sin fijar.
 
 `nightly.yml` corre a las 06:23 UTC y con `workflow_dispatch`, donde se puede elegir la rama o
 commit del Merchant (`merchant_ref`) y del proveedor (`payment_ref`). Su job `live-stack` clona
@@ -115,7 +114,7 @@ En macOS con OrbStack, 2026-10-20:
 
 | Selección | Pruebas | Tiempo |
 | --- | --- | --- |
-| `uv run pytest` (capas 1 y 5) | ~1290 (62 omitidas) | ~1 min |
+| `uv run pytest` (capas 1 y 5) | ~1270 (62 omitidas) | ~1 min |
 | `tests/integration` completa | 62 | ~12 min |
 | `tests/integration -m "not slow"` | 51 | ~2 min |
 

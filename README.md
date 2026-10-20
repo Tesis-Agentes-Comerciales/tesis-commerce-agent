@@ -17,12 +17,12 @@ Requiere Python 3.12, `uv` y Node.js 24 o posterior. Desde la raíz del clon:
 ```sh
 uv sync --frozen --all-groups   # agente y miembro evaluation/ del workspace
 uv run pytest                   # unitarias, contratos y evaluación en dry-run; sin red ni modelo
-cd ui && npm ci && npm test
+cd ui && npm ci && npm run lint && npm run build
 ```
 
-Sin más servicios se pueden abrir el [monitor de gobernanza](#demo-del-monitor-de-gobernanza)
-y las [corridas de evaluación en dry-run](#evaluación). Para conversar con el agente hacen falta
-el Merchant y el proveedor de pagos: ver [Stack con el Merchant](#stack-con-el-merchant).
+Sin más servicios se pueden lanzar las [corridas de evaluación en dry-run](#evaluación) y abrir
+Storybook (`cd ui && npm run storybook`). Para conversar con el agente hacen falta el Merchant y
+el proveedor de pagos: ver [Stack con el Merchant](#stack-con-el-merchant).
 
 ## Mapa del repositorio
 
@@ -34,10 +34,10 @@ y `tests/` es la verificación de ambos.
 | `src/commerce_agent/` | El producto: dominio, cliente ACP, AP2, LLM, gobernanza B2 (`governance/`), persistencia SQLite, grafo LangGraph y API FastAPI. Es lo único que entra al wheel y a la imagen del `Dockerfile`. |
 | `evaluation/` | Miembro `tesis-commerce-evaluation` del workspace uv: código (`src/commerce_evaluation/`), datos (`data/`), resultados (`results/`) y scripts (`scripts/`) del piloto B0/B2, HNP-01 y HNP-02. Depende del producto; el producto nunca lo importa. Ver [evaluation/README.md](evaluation/README.md). |
 | `tests/` | Pruebas de producto y evaluación. `tests/integration/` es la suite de sistema opt-in, `tests/evaluation/` la de los experimentos y `tests/support/` los dobles compartidos. |
-| `ui/` | Interfaz React + Vite con `assistant-ui`, Storybook, pruebas de Node, E2E de Playwright (`ui/e2e/`) y el monitor de gobernanza opt-in. Ver [ui/README.md](ui/README.md). |
+| `ui/` | Interfaz React + Vite con `assistant-ui`, Storybook con pruebas de interacción y axe, y E2E de Playwright (`ui/e2e/`). Ver [ui/README.md](ui/README.md). |
 | `auth/` | Servicio Better Auth (correo y contraseña) que emite los JWT del comprador; pruebas en `auth/test/`. |
-| `scripts/` | Exportadores (fixtures SSE de Storybook, proyección del monitor), lanzador y servidor de snapshots de la demo del monitor, medición offline de D1 y herramientas puntuales en `scripts/tools/`. |
-| `docs/` | Estrategia de pruebas, contrato UI–agente, perfil AP2, matriz de compatibilidad, despliegue, diseño B2 (`b2-governance/`), monitor (`governance-monitor/`), HNP-01 (`hnp-experiment/`), diagramas y reportes históricos (`archive/`). |
+| `scripts/` | Exportador de los fixtures SSE de Storybook, medición offline de D1 y herramientas puntuales en `scripts/tools/`. |
+| `docs/` | Estrategia de pruebas, contrato UI–agente, perfil AP2, matriz de compatibilidad, despliegue, diseño B2 (`b2-governance/`), evidencia histórica HP/HNP (`governance-monitor/`), HNP-01 (`hnp-experiment/`), diagramas y reportes históricos (`archive/`). |
 
 ## Alcance implementado
 
@@ -112,8 +112,8 @@ La estrategia completa (capas, markers, variables, workflows y cobertura) está 
 - `uv run pytest` corre las unitarias y de contrato y la evaluación en dry-run, sin red, modelo
   ni Merchant. `tests/integration` se recoge y se omite.
 - `cd auth && npm ci && npm test` prueba el servicio de autenticación.
-- En `ui/`: `npm run lint`, `npm run test`, `npm run test-storybook` (historias en Chromium con axe)
-  y `npm run e2e` (Playwright sobre el build, con backends simulados).
+- En `ui/`: `npm run lint`, `npm run build`, `npm run test-storybook` (historias en Chromium con
+  axe) y `npm run e2e` (Playwright sobre el build, con backends simulados).
 - La suite de sistema (`tests/integration`) solo corre con `RUN_LIVE_STACK=1`; ver
   [Stack con el Merchant](#stack-con-el-merchant).
 
@@ -121,24 +121,6 @@ Antes de entregar cambios en Python: `uv run ruff format --check .`, `uv run ruf
 `uv run pyright` y `uv run pytest`. En CI, `ci.yml` corre los jobs `python-lint`, `python-tests`,
 `auth` y `ui` en cada PR; `nightly.yml` corre la suite de sistema cada noche si existe el secreto
 `MERCHANT_REPO_TOKEN`. Ningún workflow llama a un LLM real.
-
-## Demo del monitor de gobernanza
-
-El monitor `/governance` muestra en solo lectura evidencia histórica sanitizada de gobernanza HP y
-HNP y una corrida HNP-02 en dry-run. La demo no necesita credenciales, Merchant ni bases de datos:
-
-```sh
-npm ci --prefix ui
-npm ci --prefix auth
-cd ui && npm run governance:demo
-```
-
-`npm run governance:demo` ejecuta `scripts/governance_demo.mjs`: prepara la fixture del snapshot,
-construye la UI con el monitor activo y levanta el servidor de snapshots (`127.0.0.1:5183`),
-Better Auth con secreto y base efímeros (`127.0.0.1:4210`) y el preview en
-<http://127.0.0.1:5182/governance>, donde se crea una cuenta sintética. La caché queda en
-`.local/governance-demo`; Ctrl+C detiene los tres procesos. Detalles, fuentes y límites en
-[docs/governance-monitor/README.md](docs/governance-monitor/README.md).
 
 ## Evaluación
 
@@ -166,6 +148,8 @@ Las corridas reales se lanzan a mano, nunca en CI, y gastan dinero del modelo co
 Solo HNP-02 tiene tope de costo propio. Datos, resultados y protocolo en
 [evaluation/README.md](evaluation/README.md); el validador HNP-02 en
 [evaluation/src/commerce_evaluation/hnp/llm/README.md](evaluation/src/commerce_evaluation/hnp/llm/README.md).
+La evidencia histórica HP/HNP del 17 al 20 de octubre de 2026, con sus hashes, está en
+[docs/governance-monitor/](docs/governance-monitor/README.md).
 
 ## Stack con el Merchant
 
@@ -300,7 +284,7 @@ npm run dev
 
 Abra `http://127.0.0.1:5173` con la API del agente y `auth/` activos. El perfil incluido es
 sintético y editable; el chat prepara el checkout, pero la compra solo se completa al pulsar el
-botón que muestra el total y el fingerprint autoritativos. Storybook, pruebas y monitor en
+botón que muestra el total y el fingerprint autoritativos. Storybook y pruebas en
 [ui/README.md](ui/README.md).
 
 ## Inspección con LangGraph Studio
