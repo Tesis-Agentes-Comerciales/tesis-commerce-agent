@@ -9,11 +9,12 @@ checks is invalid (fail closed); it is never repaired.
 import hashlib
 import json
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from random import Random
 from threading import Condition, Lock
 from time import perf_counter_ns
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -76,13 +77,22 @@ def review_input(proposal: ProposalView, context: ReviewerContext) -> str:
     return json.dumps(document, indent=2, ensure_ascii=False)
 
 
+def verdict_for(outcomes: Iterable[CheckOutcome]) -> Literal["accept", "reject", "abstain"]:
+    results = set(outcomes)
+    return "reject" if "fail" in results else ("abstain" if "unresolved" in results else "accept")
+
+
 def assessment_from_decision(
     decision: ValidatorDecision,
     proposal: ProposalView,
     context: ReviewerContext,
     adapter_id: str,
 ) -> ValidatorAssessment:
-    outcomes: dict[CheckId, CheckOutcome] = {**decision.checks.outcomes()}
+    business = decision.checks.outcomes()
+    # The model is held to its own ten checks; it never sees the binding bookkeeping.
+    if decision.decision != verdict_for(business.values()):
+        raise RoleOutputError("VALIDATOR_OUTPUT_INCONSISTENT")
+    outcomes: dict[CheckId, CheckOutcome] = {**business}
     # Protocol bookkeeping, not a judgement: the reviewed proposal belongs to this context.
     outcomes["binding"] = (
         "pass"
@@ -98,12 +108,7 @@ def assessment_from_decision(
         )
         for check in CHECKS
     )
-    results = {c.result for c in checks}
-    verdict = (
-        "reject" if "fail" in results else ("abstain" if "unresolved" in results else "accept")
-    )
-    if decision.decision != verdict:
-        raise RoleOutputError("VALIDATOR_OUTPUT_INCONSISTENT")
+    verdict = verdict_for(c.result for c in checks)
     return ValidatorAssessment(
         proposal_digest=proposal.proposal_digest,
         context_ref=context.context_ref,

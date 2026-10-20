@@ -224,6 +224,32 @@ def test_malformed_or_inconsistent_output_fails_closed(reply, status):
     assert agent.calls()[0].status == status
 
 
+def test_binding_is_adapter_bookkeeping_and_never_makes_a_model_answer_inconsistent():
+    from commerce_agent.governance.canonical import parse_model
+    from commerce_agent.hnp_experiment.context import (
+        assemble,
+        proposal_envelope,
+        proposal_view,
+        reviewer_context,
+    )
+    from commerce_agent.hnp_experiment.llm.validator import assessment_from_decision
+    from commerce_agent.hnp_experiment.models import BuyerDraft, wire_bytes
+
+    case = CASES["valid"]
+    context = reviewer_context(assemble(case.source))
+    draft = parse_model(BuyerDraft, wire_bytes(case.buyer_payload))
+    proposal = proposal_view(proposal_envelope(assemble(case.source), draft, "scripted-buyer:1"))
+    foreign = proposal.model_copy(
+        update={"episode_ref": proposal.episode_ref.model_copy(update={"id": "other-episode"})}
+    )
+    decision = ValidatorDecision.model_validate(accept_all())
+    assert assessment_from_decision(decision, proposal, context, "a").verdict == "accept"
+    # The model answered its ten checks consistently; the adapter's binding check rejects.
+    bound = assessment_from_decision(decision, foreign, context, "a")
+    assert bound.verdict == "reject"
+    assert [c.check_id for c in bound.checks if c.result == "fail"] == ["binding"]
+
+
 def test_transport_error_is_infrastructure_without_message():
     from commerce_agent.hnp_experiment.evaluation import is_infrastructure_failure
 
