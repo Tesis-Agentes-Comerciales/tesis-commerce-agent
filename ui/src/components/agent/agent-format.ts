@@ -55,10 +55,28 @@ export function formatElapsed(ms: number) {
   return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`
 }
 
+/** Como `formatElapsed`, pero un control de milisegundos no se redondea a "0 s". */
+export function formatDuration(ms: number) {
+  if (!Number.isFinite(ms) || ms < 0) return null
+  if (ms >= 1000) return formatElapsed(ms)
+  return new Intl.NumberFormat(LOCALE, { style: "unit", unit: "millisecond" }).format(ms)
+}
+
 export function formatDateTime(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   return new Intl.DateTimeFormat(LOCALE, { dateStyle: "medium", timeStyle: "short" }).format(date)
+}
+
+/** Hora local en 24 h ("10:42"), para recibos y pasos de la traza. */
+export function formatTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return new Intl.DateTimeFormat(LOCALE, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date)
 }
 
 export function compactFingerprint(value: string) {

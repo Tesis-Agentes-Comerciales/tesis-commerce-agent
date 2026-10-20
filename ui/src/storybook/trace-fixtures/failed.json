@@ -1,0 +1,122 @@
+{
+  "run_id": "f1b6d3a9-7c0e-4e25-8f4b-1a3d7e9c5b02",
+  "status": "failed",
+  "policy_mode": "shadow",
+  "request": "Quiero audífonos negros por menos de 2 millones",
+  "merchant": "http://127.0.0.1:4120",
+  "total": {
+    "minor": 164990000,
+    "currency": "COP"
+  },
+  "started_at": "2026-10-20T16:55:20.412Z",
+  "updated_at": "2026-10-20T16:56:07.648Z",
+  "steps": [
+    {
+      "id": "request",
+      "at": "2026-10-20T16:55:20.412Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "request"
+    },
+    {
+      "id": "selection",
+      "at": "2026-10-20T16:55:29.130Z",
+      "duration_ms": 8718,
+      "actor": "agent",
+      "state": "done",
+      "kind": "selection",
+      "product": "Sony WH-1000XM6 negro",
+      "total_minor": 164990000,
+      "currency": "COP"
+    },
+    {
+      "id": "policy_decision",
+      "at": "2026-10-20T16:55:29.134Z",
+      "duration_ms": 4,
+      "actor": "policy",
+      "state": "done",
+      "kind": "policy_decision",
+      "decision": {
+        "mode": "shadow",
+        "outcome": "allow",
+        "effect": "observed",
+        "policy": {
+          "set_id": "d1-demo-policy",
+          "revision": 3
+        },
+        "rules": [
+          {
+            "id": "POL-01",
+            "result": "pass",
+            "observed": "SON-XM6-BLK",
+            "expected": "BOS-QCU-BLK, SON-XM6-BLK"
+          },
+          {
+            "id": "POL-02",
+            "result": "pass",
+            "observed": "http://127.0.0.1:4120",
+            "expected": "http://127.0.0.1:4120"
+          }
+        ],
+        "reason_codes": [
+          "ALL_APPLICABLE_POLICIES_SATISFIED"
+        ],
+        "latency_ms": 4,
+        "decision_id": "decision:5e8b2f0a7d3c91466d0f3b9e1a5c8e27",
+        "evidence_id": "evidence:72e8c5a1e9b3f0d66419c3d7a0f2b8e5"
+      }
+    },
+    {
+      "id": "checkout_created",
+      "at": "2026-10-20T16:55:30.548Z",
+      "duration_ms": 1414,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "checkout_created",
+      "checkout_id": "cs_5e8b2f0a7d3c"
+    },
+    {
+      "id": "approval",
+      "at": "2026-10-20T16:56:05.208Z",
+      "duration_ms": 34660,
+      "actor": "user",
+      "state": "done",
+      "kind": "approval",
+      "fingerprint": "9c1f4e7a2b8d06c3f5e91a4d7b2c8e0f6a3d9b1c4e7f2a5d8b0c3e6f9a2d5b8c",
+      "expires_at": "2026-10-20T17:10:31.020Z",
+      "approved_at": "2026-10-20T16:56:05.208Z"
+    },
+    {
+      "id": "authorization_signed",
+      "at": "2026-10-20T16:56:05.640Z",
+      "duration_ms": 432,
+      "actor": "user",
+      "state": "done",
+      "kind": "authorization_signed",
+      "mandates": [
+        "checkout",
+        "payment"
+      ]
+    },
+    {
+      "id": "payment_authorized",
+      "at": "2026-10-20T16:56:06.118Z",
+      "duration_ms": 478,
+      "actor": "payment",
+      "state": "done",
+      "kind": "payment_authorized",
+      "max_minor": 164990000,
+      "currency": "COP"
+    },
+    {
+      "id": "failed",
+      "at": "2026-10-20T16:56:07.648Z",
+      "duration_ms": 1530,
+      "actor": "merchant",
+      "state": "error",
+      "kind": "failed",
+      "code": "payment_declined"
+    }
+  ]
+}

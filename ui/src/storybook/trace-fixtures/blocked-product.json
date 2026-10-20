@@ -1,0 +1,68 @@
+{
+  "run_id": "5a2f7d19-8c4e-4e6a-b1d3-7f0c9e2a8b45",
+  "status": "blocked",
+  "policy_mode": "enforce",
+  "request": "Quiero audífonos negros por menos de 2 millones",
+  "merchant": "http://127.0.0.1:4120",
+  "total": null,
+  "started_at": "2026-10-20T16:19:20.412Z",
+  "updated_at": "2026-10-20T16:19:29.134Z",
+  "steps": [
+    {
+      "id": "request",
+      "at": "2026-10-20T16:19:20.412Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "request"
+    },
+    {
+      "id": "selection",
+      "at": "2026-10-20T16:19:29.130Z",
+      "duration_ms": 8718,
+      "actor": "agent",
+      "state": "done",
+      "kind": "selection",
+      "product": "Sony WH-1000XM6 plata",
+      "total_minor": 164990000,
+      "currency": "COP"
+    },
+    {
+      "id": "policy_decision",
+      "at": "2026-10-20T16:19:29.134Z",
+      "duration_ms": 4,
+      "actor": "policy",
+      "state": "blocked",
+      "kind": "policy_decision",
+      "decision": {
+        "mode": "enforce",
+        "outcome": "deny",
+        "effect": "blocked",
+        "policy": {
+          "set_id": "d1-demo-policy",
+          "revision": 3
+        },
+        "rules": [
+          {
+            "id": "POL-01",
+            "result": "fail",
+            "observed": "SON-XM6-SLV",
+            "expected": "BOS-QCU-BLK, SON-XM6-BLK"
+          },
+          {
+            "id": "POL-02",
+            "result": "pass",
+            "observed": "http://127.0.0.1:4120",
+            "expected": "http://127.0.0.1:4120"
+          }
+        ],
+        "reason_codes": [
+          "SELECTION_NOT_ELIGIBLE"
+        ],
+        "latency_ms": 4,
+        "decision_id": "decision:1d7b3e9f0a6c42e58b9d1f4a7c3e0b26",
+        "evidence_id": "evidence:62b0e3c7a4f1d9b85e24c6a0f9e3b7d1"
+      }
+    }
+  ]
+}

@@ -166,7 +166,10 @@ interface PurchaseSummary {       // filas de GET /me/purchases
 - **Sin datos sensibles:** nunca se devuelven JWT, mandatos, tokens de pago, entradas canónicas,
   fuentes cifradas ni el id del dueño. Solo identificadores, digests, códigos, montos, comercios y
   productos. Un test lo verifica.
-- **Textos:** se arman en la UI a partir de los datos.
+- **Textos:** se arman en la UI a partir de los datos, en `ui/src/components/trace/trace-copy.ts`.
+- **Validación en la UI:** `parsePurchaseTrace` comprueba la forma exacta (un campo de más también
+  falla). Las fixtures JSON no se pueden comprobar con `satisfies`, porque TypeScript ensancha sus
+  literales a `string`; la historia `Trace/Contract` valida cada archivo de la carpeta.
 - **Dueño:** se valida con `purchase_for_owner`. Un run de otro usuario o que no existe responde 404.
   `GET /me/purchases` solo lista las compras propias, paginadas.
 
@@ -210,6 +213,12 @@ historias por estado con `play` y axe. Usan el sistema visual de `docs/workflow.
 | `ControlTimeline` | Lista de `ControlStep`, incluidos los pasos no ejecutados | Completa, bloqueada, en curso, política desactivada |
 | `PolicyRuleTable` | Reglas con resultado, valor observado y esperado | Todas cumplen, una falla, no evaluada |
 | `EvidenceRefs` | Identificadores en mono con botón de copiar | Con y sin ids; `play` para copiar |
+
+La traza solo trae lo que pasó. `ControlTimeline` deduce dos filas que no vienen en ella: la
+política desactivada (`policy_mode: off`), entre la elección y el checkout, y, si la compra terminó
+bloqueada, cancelada o fallida, los controles que no alcanzó («No se ejecutó»). Una compra por
+confirmar no las agrega, porque no se sabe qué pasó. En el chat, `PolicyRuleTable` muestra el valor
+observado y el esperado solo de las reglas que fallan; la auditoría los muestra todos.
 
 ### Chat en vivo (`ui/src/components/agent/`)
 
