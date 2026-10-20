@@ -334,7 +334,7 @@ class C4Page(Page):
 def write(name: str, pages: list[Page]) -> None:
     root = ET.Element(
         "mxfile",
-        {"host": "app.diagrams.net", "agent": "Codex", "version": "31.4.5", "type": "device"},
+        {"host": "app.diagrams.net", "version": "31.4.5", "type": "device"},
     )
     for page in pages:
         root.append(page.diagram)
