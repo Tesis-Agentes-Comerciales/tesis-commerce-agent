@@ -199,11 +199,14 @@ def test_provenance_outside_git_is_a_pilot_error(tmp_path: Path) -> None:
         agent_provenance(tmp_path)
 
 
-def test_manifest_id_applies_to_its_conditions_on_its_scenario_matrix(tmp_path: Path) -> None:
+def test_manifest_id_needs_both_conditions_on_its_scenario_matrix(tmp_path: Path) -> None:
     matrix = DATA / "pilot-scenarios.json"
 
     assert pilot_manifest_id((B0_PRIME, B2), matrix) == "B2-PILOT-v1"
-    assert pilot_manifest_id((B2,), matrix) == "B2-PILOT-v1"
+    assert pilot_manifest_id((B2, B0_PRIME), matrix) == "B2-PILOT-v1"
+    # One condition alone is not the pre-registered paired design.
+    assert pilot_manifest_id((B2,), matrix) is None
+    assert pilot_manifest_id((B0_PRIME,), matrix) is None
     assert pilot_manifest_id((B0_PRIME, B2), tmp_path / "other-matrix.json") is None
 
 
@@ -278,7 +281,7 @@ def test_summary_of_one_condition_keeps_todays_totals() -> None:
 
     assert summary["condition"] == "B0prime"
     assert summary["oracle_passes"] == 2
-    assert summary["mean_trace_completeness"] == 0.5
+    assert summary["trace_completeness"] == "not_evaluated"
     assert summary["by_condition"]["B0prime"]["oracle_passes"] == 2
 
 

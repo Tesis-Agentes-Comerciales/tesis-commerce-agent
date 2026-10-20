@@ -37,12 +37,13 @@ DEFAULT_RESULTS = RESULTS
 # Pre-registered B0'/B2 pilot: its conditions, execution order and acceptance criteria.
 PILOT_MANIFEST = DATA / "b2-pilot-v1.json"
 INTERLEAVED = "interleaved_by_repetition_alternating_first_condition"
-# Where each B2 mechanism leaves its own record in agent.db. The governed continuation reuses the
-# committed D1 allow and has no record of its own, so it is reported as not_recorded.
-MECHANISM_RECORDS = {
-    "d1_dispatch": ("d1_decisions", "decision_record"),
-    "offer_freshness": ("hp_evidence", "freshness_check"),
-    "governed_recovery": ("hp_evidence", "governed_recovery"),
+# Where each B2 mechanism leaves its own record in agent.db: source, record kind and, when it
+# matters, the outcome. Only a D1 allow dispatches. The governed continuation reuses the committed
+# allow and has no record of its own, so it is reported as not_recorded.
+MECHANISM_RECORDS: dict[str, tuple[str, str, str | None]] = {
+    "d1_dispatch": ("d1_decisions", "decision_record", "allow"),
+    "offer_freshness": ("hp_evidence", "freshness_check", None),
+    "governed_recovery": ("hp_evidence", "governed_recovery", None),
 }
 # Result fields of each HP record. Identifiers, compared amounts and digests stay in agent.db.
 HP_RESULT_FIELDS = {
@@ -230,10 +231,12 @@ def require_clean_worktree(provenance: AgentProvenance, *, allow_dirty: bool) ->
 
 
 def pilot_manifest_id(conditions: tuple[PilotCondition, ...], matrix_path: Path) -> str | None:
-    """B2-PILOT-v1 only for its conditions on its scenario matrix; otherwise no manifest."""
+    """B2-PILOT-v1 only for exactly its conditions, interleaved, on its scenario matrix."""
     manifest = json.loads(PILOT_MANIFEST.read_text(encoding="utf-8"))
     on_manifest_matrix = matrix_path.resolve() == (ROOT / manifest["scenario_manifest"]).resolve()
-    manifest_conditions = all(condition.name in manifest["conditions"] for condition in conditions)
+    manifest_conditions = {condition.name for condition in conditions} == set(
+        manifest["conditions"]
+    )
     return str(manifest["manifest_id"]) if on_manifest_matrix and manifest_conditions else None
 
 
@@ -343,10 +346,11 @@ def read_governed_evidence(database: Path) -> dict[str, Any]:
                 "SELECT run_id, record_kind, body FROM hp_evidence ORDER BY run_id, sequence"
             ).fetchall()
             evidence["hp_evidence"] = [_hp_result(kind, body) for _, kind, body in rows]
-            store = _ReadOnlyHpEvidence(database)
-            evidence["hp_evidence_chain_verified"] = all(
-                store.verify_chain(run_id) for run_id in dict.fromkeys(row[0] for row in rows)
-            )
+            if rows:
+                store = _ReadOnlyHpEvidence(database)
+                evidence["hp_evidence_chain_verified"] = all(
+                    store.verify_chain(run_id) for run_id in dict.fromkeys(row[0] for row in rows)
+                )
     return evidence
 
 
@@ -354,10 +358,15 @@ def _mechanism_status(mechanism: str, governed: dict[str, Any]) -> str:
     source = MECHANISM_RECORDS.get(mechanism)
     if source is None:
         return "not_recorded"
-    rows = governed[source[0]]
+    table, record_kind, outcome = source
+    rows = governed[table]
     if rows is None:
         return "unavailable"
-    return "recorded" if any(row["record_kind"] == source[1] for row in rows) else "missing"
+    recorded = any(
+        row["record_kind"] == record_kind and (outcome is None or row.get("outcome") == outcome)
+        for row in rows
+    )
+    return "recorded" if recorded else "missing"
 
 
 def mechanism_evidence(
@@ -986,6 +995,9 @@ def _execute_repetition(
                         bearer=auth.token(),
                     )
 
+            # Before the cleanup below: a checkout the agent left open must not count as canceled.
+            checkouts = merchant_checkouts(merchant, environment, merchant_run_id)
+            runner_canceled = False
             final_status: dict[str, Any] | None = None
             if purchase_run_id is not None:
                 status = _request_json(
@@ -1004,7 +1016,7 @@ def _execute_repetition(
                         payload={},
                         bearer=auth.token(),
                     )
-            checkouts = merchant_checkouts(merchant, environment, merchant_run_id)
+                    runner_canceled = True
             metrics, evidence, errors = score_result(
                 scenario,
                 response,
@@ -1047,6 +1059,7 @@ def _execute_repetition(
                 ),
                 "final_purchase_status": final_status,
                 "merchant_checkouts": checkouts,
+                "runner_canceled": runner_canceled,
                 "evidence_presence": evidence,
                 "metrics": metrics,
                 "oracle_errors": errors,
@@ -1131,8 +1144,8 @@ def _rate(count: int, total: int) -> float | None:
     return round(count / total, 4) if total else None
 
 
-def _mean(values: list[int | float], digits: int | None) -> int | float | None:
-    return round(sum(values) / len(values), digits) if values else None
+def _mean(values: list[int]) -> int | None:
+    return round(sum(values) / len(values)) if values else None
 
 
 def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1154,8 +1167,9 @@ def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         "prompt_injection_compliance": sum(
             metric["prompt_injection_compliance"] for metric in metrics
         ),
-        "mean_trace_completeness": _mean([metric["trace_completeness"] for metric in evaluated], 4),
-        "mean_latency_ms": _mean([metric["latency_ms"] for metric in evaluated], None),
+        # Amendment M1: the legacy per-row trace_completeness has ceilings and is not comparable.
+        "trace_completeness": "not_evaluated",
+        "mean_latency_ms": _mean([metric["latency_ms"] for metric in evaluated]),
         **_governed_summary([record for record in records if "harness_error" not in record]),
     }
 
@@ -1181,6 +1195,7 @@ def _checkouts_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         by_status.update(checkouts["by_status"])
     return {
         "runs_measured": len(measured),
+        "runs_runner_canceled": sum(bool(row.get("runner_canceled")) for row in rows),
         "runs_with_checkouts": sum(checkouts["count"] > 0 for checkouts in measured),
         "total": sum(checkouts["count"] for checkouts in measured),
         "by_status": dict(by_status),
@@ -1244,6 +1259,38 @@ def summarize(
     }
 
 
+def _execution_order(conditions: tuple[PilotCondition, ...]) -> str:
+    return INTERLEAVED if len(conditions) > 1 else "sequential"
+
+
+def summary_document(
+    records: list[dict[str, Any]],
+    *,
+    matrix: dict[str, Any],
+    run_metadata: dict[str, Any],
+    conditions: tuple[PilotCondition, ...],
+    scenarios: list[str],
+    repetitions: int,
+    output: Path,
+) -> dict[str, Any]:
+    """The .summary.json: what was planned, where its rows are and their summary."""
+    return {
+        "matrix_id": matrix["matrix_id"],
+        "baseline_id": matrix["baseline_id"],
+        **run_metadata,
+        "conditions": [condition.name for condition in conditions],
+        "execution_order": _execution_order(conditions),
+        "scenarios": scenarios,
+        "repetitions": repetitions,
+        "created_at": datetime.now(UTC).isoformat(),
+        # Relative inside the checkout, so committed summaries carry no machine path.
+        "output": (
+            output.relative_to(ROOT).as_posix() if output.is_relative_to(ROOT) else str(output)
+        ),
+        **summarize(records, conditions),
+    }
+
+
 def _run_pilot() -> int:
     arguments = _parser().parse_args()
     conditions = parse_conditions(arguments.conditions)
@@ -1273,7 +1320,6 @@ def _run_pilot() -> int:
         }
         for condition in conditions
     ]
-    execution_order = INTERLEAVED if len(conditions) > 1 else "sequential"
     if arguments.dry_run:
         print(
             json.dumps(
@@ -1281,7 +1327,7 @@ def _run_pilot() -> int:
                     **(described[0] if len(conditions) == 1 else {}),
                     **run_metadata,
                     "conditions": described,
-                    "execution_order": execution_order,
+                    "execution_order": _execution_order(conditions),
                     "runs": len(plan),
                     "scenarios": [scenario["id"] for scenario in scenarios],
                     "repetitions": repetitions,
@@ -1463,21 +1509,15 @@ def _run_pilot() -> int:
                     run_metadata=run_metadata,
                     result_file=result_file,
                 )
-            summary = {
-                "matrix_id": matrix["matrix_id"],
-                "baseline_id": matrix["baseline_id"],
-                **run_metadata,
-                "conditions": [condition.name for condition in conditions],
-                "execution_order": execution_order,
-                "created_at": datetime.now(UTC).isoformat(),
-                # Relative inside the checkout, so committed summaries carry no machine path.
-                "output": (
-                    output.relative_to(ROOT).as_posix()
-                    if output.is_relative_to(ROOT)
-                    else str(output)
-                ),
-                **summarize(records, conditions),
-            }
+            summary = summary_document(
+                records,
+                matrix=matrix,
+                run_metadata=run_metadata,
+                conditions=conditions,
+                scenarios=[scenario["id"] for scenario in scenarios],
+                repetitions=repetitions,
+                output=output,
+            )
             summary_path.write_text(
                 json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",

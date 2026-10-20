@@ -31,8 +31,9 @@ from commerce_evaluation.governance_pilot import (
     read_governed_evidence,
     require_merchant_run_checkouts,
     summarize,
+    summary_document,
 )
-from commerce_evaluation.paths import DATA
+from commerce_evaluation.paths import DATA, ROOT
 from tests.governance.test_shadow_integration import configuration, observer, service, start
 
 B0_PRIME, B2 = CONDITIONS["B0prime"], CONDITIONS["B2"]
@@ -147,6 +148,15 @@ def test_reads_d1_decisions_and_hp_results_without_writing(tmp_path: Path) -> No
     assert digest(database) == before
 
 
+def test_an_empty_hp_table_has_no_chain_to_verify(tmp_path: Path) -> None:
+    database = tmp_path / "agent.db"
+    SqliteHpEvidenceStore(database).initialize()
+
+    evidence = read_governed_evidence(database)
+
+    assert (evidence["hp_evidence"], evidence["hp_evidence_chain_verified"]) == ([], None)
+
+
 def test_a_tampered_hp_chain_does_not_verify(tmp_path: Path) -> None:
     database = tmp_path / "agent.db"
     write_hp_evidence(database, ("freshness_check", FRESHNESS_BODY))
@@ -176,11 +186,15 @@ def test_rejected_d1_inputs_keep_their_reason_without_a_decision() -> None:
     }
 
 
-def governed(*, d1: list[str] | None = None, hp: list[str] | None = None) -> dict[str, Any]:
+def governed(
+    *, d1: list[tuple[str, str | None]] | None = None, hp: list[str] | None = None
+) -> dict[str, Any]:
     return {
-        "d1_decisions": None if d1 is None else [{"record_kind": kind} for kind in d1],
+        "d1_decisions": None
+        if d1 is None
+        else [{"record_kind": kind, "outcome": outcome} for kind, outcome in d1],
         "hp_evidence": None if hp is None else [{"record_kind": kind} for kind in hp],
-        "hp_evidence_chain_verified": None if hp is None else True,
+        "hp_evidence_chain_verified": True if hp else None,
     }
 
 
@@ -198,7 +212,7 @@ def test_b0_prime_has_no_mechanism_to_attribute() -> None:
 
 
 def test_b2_reports_which_mechanism_left_its_own_record() -> None:
-    evidence = governed(d1=["decision_record"], hp=["freshness_check"])
+    evidence = governed(d1=[("decision_record", "allow")], hp=["freshness_check"])
 
     assert mechanism_evidence(B2, "S04", evidence, MECHANISMS) == {
         "d1_dispatch": "recorded",
@@ -212,7 +226,7 @@ def test_b2_reports_missing_evidence_and_unavailable_tables() -> None:
     assert mechanism_evidence(B2, "S02", governed(hp=["freshness_check"]), MECHANISMS) == {
         "governed_recovery": "missing"
     }
-    assert mechanism_evidence(B2, "S01", governed(d1=["input_rejected"]), MECHANISMS) == {
+    assert mechanism_evidence(B2, "S01", governed(d1=[("input_rejected", None)]), MECHANISMS) == {
         "d1_dispatch": "missing",
         "governed_continuation": "not_recorded",
     }
@@ -222,6 +236,15 @@ def test_b2_reports_missing_evidence_and_unavailable_tables() -> None:
         "offer_freshness": "unavailable",
     }
     assert mechanism_evidence(B2, "S03", governed(), MECHANISMS) == {}
+
+
+def test_a_d1_deny_is_not_a_dispatch() -> None:
+    denied = governed(d1=[("decision_record", "deny")])
+
+    assert mechanism_evidence(B2, "S01", denied, MECHANISMS) == {
+        "d1_dispatch": "missing",
+        "governed_continuation": "not_recorded",
+    }
 
 
 def checkout_report(*statuses: str, orders: int = 0) -> dict[str, Any]:
@@ -366,8 +389,9 @@ def s04() -> dict[str, Any]:
     return next(item for item in matrix["scenarios"] if item["id"] == "S04")
 
 
-def fake_merchant(report: dict[str, Any]) -> Callable[..., dict[str, Any]]:
+def fake_merchant(report: dict[str, Any], calls: list[str]) -> Callable[..., dict[str, Any]]:
     def run_json(command: list[str], *, cwd: Path, env: dict[str, str]) -> dict[str, Any]:
+        calls.append(command[-2] if "run-checkouts" in command else command[-1])
         if "seed" in command:
             return {"run_id": MERCHANT_RUN}
         if "issue-session" in command:
@@ -380,7 +404,9 @@ def fake_merchant(report: dict[str, Any]) -> Callable[..., dict[str, Any]]:
     return run_json
 
 
-def fake_agent_http(condition_health: dict[str, str]) -> Callable[..., HttpResult]:
+def fake_agent_http(
+    condition_health: dict[str, str], final_stage: str, calls: list[str]
+) -> Callable[..., HttpResult]:
     terms = {"fingerprint": "f" * 64, "checkout_jwt": "jwt", "total_minor": 1}
     responses = {
         "/health": HttpResult(200, {"status": "ok", **condition_health}, 1),
@@ -395,12 +421,14 @@ def fake_agent_http(condition_health: dict[str, str]) -> Callable[..., HttpResul
             900,
         ),
         "/purchases/run-real/approval": HttpResult(409, {"code": "checkout_terms_changed"}, 30),
-        "/purchases/run-real": HttpResult(200, {"stage": "awaiting_confirmation"}, 5),
+        "/purchases/run-real": HttpResult(200, {"stage": final_stage}, 5),
         "/purchases/run-real/cancel": HttpResult(200, {"stage": "canceled"}, 5),
     }
 
     def request_json(url: str, **_: Any) -> HttpResult:
-        return responses[url.removeprefix("http://127.0.0.1:43125")]
+        path = url.removeprefix("http://127.0.0.1:43125")
+        calls.append(path)
+        return responses[path]
 
     return request_json
 
@@ -410,8 +438,12 @@ def execute_s04(
     monkeypatch: pytest.MonkeyPatch,
     write: Callable[[Path], None],
     report: dict[str, Any],
+    *,
+    final_stage: str = "awaiting_confirmation",
+    calls: list[str] | None = None,
 ) -> dict[str, Any]:
     processes: list[FakeAgentProcess] = []
+    calls = [] if calls is None else calls
 
     def popen(command: list[str], *, env: dict[str, str], **_: Any) -> FakeAgentProcess:
         processes.append(FakeAgentProcess(write, env))
@@ -424,11 +456,11 @@ def execute_s04(
         return reader(database)
 
     monkeypatch.setattr(governance_pilot.subprocess, "Popen", popen)
-    monkeypatch.setattr(governance_pilot, "_run_json", fake_merchant(report))
+    monkeypatch.setattr(governance_pilot, "_run_json", fake_merchant(report, calls))
     monkeypatch.setattr(
         governance_pilot,
         "_request_json",
-        fake_agent_http({"governance_mode": "enforce", "hp_flow": "governed"}),
+        fake_agent_http({"governance_mode": "enforce", "hp_flow": "governed"}, final_stage, calls),
     )
     monkeypatch.setattr(governance_pilot, "_wait_http", lambda *_, **__: None)
     monkeypatch.setattr(governance_pilot, "read_governed_evidence", read_after_exit)
@@ -454,12 +486,22 @@ def test_a_b2_repetition_records_checkouts_evidence_and_mechanisms(
         write_d1_decision(database)
         write_hp_evidence(database, ("freshness_check", FRESHNESS_BODY))
 
-    record = execute_s04(tmp_path, monkeypatch, agent_writes, checkout_report("canceled"))
+    calls: list[str] = []
+    record = execute_s04(
+        tmp_path, monkeypatch, agent_writes, checkout_report("ready_for_payment"), calls=calls
+    )
 
+    # The merchant is read after the approval and before the runner cancels the open purchase.
+    assert (
+        calls.index("/purchases/run-real/approval")
+        < calls.index("run-checkouts")
+        < calls.index("/purchases/run-real/cancel")
+    )
+    assert record["runner_canceled"] is True
     assert record["metrics"]["valid_task_success"] == 1
     assert record["approval_response_code"] == "checkout_terms_changed"
     assert record["merchant_checkouts"]["count"] == 1
-    assert record["merchant_checkouts"]["by_status"] == {"canceled": 1}
+    assert record["merchant_checkouts"]["by_status"] == {"ready_for_payment": 1}
     assert [row["record_kind"] for row in record["governed_evidence"]["d1_decisions"]] == [
         "decision_record"
     ]
@@ -478,7 +520,15 @@ def test_a_b2_repetition_records_checkouts_evidence_and_mechanisms(
 def test_a_repetition_without_agent_evidence_says_it_is_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    record = execute_s04(tmp_path, monkeypatch, lambda _: None, checkout_report())
+    calls: list[str] = []
+    record = execute_s04(
+        tmp_path,
+        monkeypatch,
+        lambda _: None,
+        checkout_report(),
+        final_stage="canceled",
+        calls=calls,
+    )
 
     assert record["governed_evidence"] == {
         "d1_decisions": None,
@@ -487,6 +537,9 @@ def test_a_repetition_without_agent_evidence_says_it_is_unavailable(
     }
     assert record["mechanism_evidence"]["offer_freshness"] == "unavailable"
     assert record["merchant_checkouts"]["count"] == 0
+    # The agent already closed the purchase, so the runner did not cancel anything.
+    assert record["runner_canceled"] is False
+    assert "/purchases/run-real/cancel" not in calls
 
 
 def row(condition: str, scenario_id: str, **fields: Any) -> dict[str, Any]:
@@ -526,13 +579,16 @@ def test_summary_reports_5xx_checkouts_approvals_latency_and_coverage() -> None:
             "S02",
             http_status=502,
             merchant_checkouts={"count": 0, "by_status": {}, "order_count": 0},
+            runner_canceled=False,
             governed_evidence=decisions(),
             mechanism_evidence="not_applicable",
         ),
         row(
             "B0prime",
             "S02",
+            # The agent created and canceled it itself: M3 reports this case apart.
             merchant_checkouts={"count": 1, "by_status": {"canceled": 1}, "order_count": 0},
+            runner_canceled=False,
             governed_evidence=decisions(),
             mechanism_evidence="not_applicable",
         ),
@@ -541,7 +597,12 @@ def test_summary_reports_5xx_checkouts_approvals_latency_and_coverage() -> None:
             "S04",
             approval_http_status=409,
             approval_response_code="checkout_terms_changed",
-            merchant_checkouts={"count": 1, "by_status": {"canceled": 1}, "order_count": 0},
+            merchant_checkouts={
+                "count": 1,
+                "by_status": {"ready_for_payment": 1},
+                "order_count": 0,
+            },
+            runner_canceled=True,
             governed_evidence=decisions(3, 1),
             mechanism_evidence={"d1_dispatch": "recorded", "offer_freshness": "recorded"},
         ),
@@ -551,6 +612,7 @@ def test_summary_reports_5xx_checkouts_approvals_latency_and_coverage() -> None:
             approval_http_status=409,
             approval_response_code="offer_freshness_unavailable",
             merchant_checkouts={"count": 1, "by_status": {"completed": 1}, "order_count": 1},
+            runner_canceled=False,
             governed_evidence=decisions(2)
             | {
                 "d1_decisions": [
@@ -569,6 +631,7 @@ def test_summary_reports_5xx_checkouts_approvals_latency_and_coverage() -> None:
     assert s02["http_5xx"] == 1
     assert s02["merchant_checkouts"] == {
         "runs_measured": 2,
+        "runs_runner_canceled": 0,
         "runs_with_checkouts": 1,
         "total": 1,
         "by_status": {"canceled": 1},
@@ -587,8 +650,9 @@ def test_summary_reports_5xx_checkouts_approvals_latency_and_coverage() -> None:
         "checkout_terms_changed": 1,
         "offer_freshness_unavailable": 1,
     }
-    assert s04["merchant_checkouts"]["by_status"] == {"canceled": 1, "completed": 1}
+    assert s04["merchant_checkouts"]["by_status"] == {"ready_for_payment": 1, "completed": 1}
     assert s04["merchant_checkouts"]["orders"] == 1
+    assert s04["merchant_checkouts"]["runs_runner_canceled"] == 1
     # Only the policy evaluator's own measurements; runtime guards and model latency stay apart.
     assert s04["policy_latency_ms"] == {"n": 3, "median": 2, "max": 3, "resolution_ms": 1}
     assert s04["mean_latency_ms"] == 2000
@@ -597,3 +661,25 @@ def test_summary_reports_5xx_checkouts_approvals_latency_and_coverage() -> None:
         "offer_freshness": {"recorded": 1, "missing": 1},
     }
     assert s04["harness_errors"] == 1
+    # Amendment M1: the legacy trace completeness is not reported, not even as a mean.
+    assert s04["trace_completeness"] == "not_evaluated"
+    assert "mean_trace_completeness" not in s04
+    assert summary["by_condition"]["B2"]["trace_completeness"] == "not_evaluated"
+
+
+def test_summary_file_records_the_planned_scenarios_and_repetitions() -> None:
+    document = summary_document(
+        [],
+        matrix={"matrix_id": "governance-pilot-v1", "baseline_id": "B0-2026-10-06"},
+        run_metadata={"manifest_id": "B2-PILOT-v1", "agent_commit": "e" * 40},
+        conditions=(B0_PRIME, B2),
+        scenarios=["S02", "S04"],
+        repetitions=5,
+        output=ROOT / "evaluation" / "results" / "b0prime-b2.jsonl",
+    )
+
+    assert (document["scenarios"], document["repetitions"]) == (["S02", "S04"], 5)
+    assert document["conditions"] == ["B0prime", "B2"]
+    assert document["execution_order"] == "interleaved_by_repetition_alternating_first_condition"
+    assert document["output"] == "evaluation/results/b0prime-b2.jsonl"
+    assert document["manifest_id"] == "B2-PILOT-v1"
