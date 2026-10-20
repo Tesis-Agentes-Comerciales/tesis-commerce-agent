@@ -422,6 +422,7 @@ def test_openai_transport_sends_temperature_only_when_configured(no_sockets):
         (response_body('{"checks":'), "schema_invalid"),
         (response_body(None), "refusal"),
         (response_body(json.dumps(accept_all()), status="incomplete"), "incomplete"),
+        (response_body('{"checks":', status="incomplete"), "incomplete"),
     ),
 )
 def test_openai_transport_reports_answer_failures_with_usage(no_sockets, body, failure):

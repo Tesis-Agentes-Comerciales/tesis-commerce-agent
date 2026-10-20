@@ -123,10 +123,12 @@ class OpenAIResponsesTransport:
         usage = usage_from_body(body)
         model = body.get("model") if isinstance(body, dict) else None
         response_model = model if isinstance(model, str) else None
+        if isinstance(body, dict) and body.get("status") == "incomplete":
+            # Cut by max_output_tokens or a content filter: report that, not the broken JSON.
+            return LlmResult(None, "incomplete", usage, response_model)
         try:
             response = raw.parse()
         except ValidationError:
-            # Typically JSON cut by max_output_tokens: the model's answer, not the network.
             return LlmResult(None, "schema_invalid", usage, response_model)
         except OpenAIError as error:
             raise TransportError(type(error).__name__) from None
@@ -136,8 +138,6 @@ class OpenAIResponsesTransport:
             for part in getattr(item, "content", ())
         ):
             return LlmResult(None, "refusal", usage, response_model)
-        if response.status == "incomplete":
-            return LlmResult(None, "incomplete", usage, response_model)
         parsed = response.output_parsed
         if parsed is None:
             return LlmResult(None, "schema_invalid", usage, response_model)
