@@ -59,10 +59,13 @@ La reproducción, el servidor local de snapshots y sus variables están en
 npm run storybook
 ```
 
-Queda en `http://127.0.0.1:6006` y no necesita la API del agente. `.storybook/preview.tsx`
-intercepta `fetch` hacia `VITE_AGENT_API_URL` con las rutas de `src/storybook/fixtures.ts`; cada
-historia puede sobrescribir rutas con el parámetro `agentApi`, y una ruta sin mock responde 501 en
-vez de tocar un backend real.
+Queda en `http://127.0.0.1:6006` y no necesita la API del agente ni el servicio de acceso.
+`.storybook/preview.tsx` intercepta `fetch` hacia `VITE_AGENT_API_URL` con las rutas de
+`src/storybook/default-agent-api.ts`; cada historia puede sobrescribir rutas con el parámetro
+`agentApi`, y una ruta sin mock responde 501 en vez de tocar un backend real. Better Auth tampoco se
+carga: `sb.mock` cambia `src/lib/auth-client.ts` por `src/lib/__mocks__/auth-client.ts` y el parámetro
+`session` (`authenticated` por defecto, `anonymous` o `pending`) elige qué devuelve
+(`src/storybook/session.ts`).
 
 - `Pages/App` monta la app completa. `Online` es interactiva: saluda, pide detalles, prepara una
   compra o recuerda la pendiente según el texto. Las demás historias (`PurchaseFlow`, `CancelFlow`,
@@ -77,8 +80,14 @@ vez de tocar un backend real.
   imágenes del feed por SVG locales para que ninguna historia pida recursos externos.
 - `Agent/*` y `Purchase/*` cubren los componentes sueltos y los datos de entrega.
 
-`npm run build-storybook` genera la versión estática. Ningún módulo de `src/storybook/` entra en el
-bundle de producción.
+`npm run build-storybook` genera la versión estática. Ningún módulo de `src/storybook/` ni de
+`src/lib/__mocks__/` entra en el bundle de producción.
+
+`npm run test-storybook` corre cada historia como un test de Vitest en Chromium headless
+(`@storybook/addon-vitest`, `vitest.config.ts`): render, `play` y axe de `addon-a11y`. Cualquier
+violación de accesibilidad hace fallar la historia (`a11y.test: "error"`); una historia solo puede
+bajarla a `"todo"` con una razón escrita. No necesita Storybook levantado. La primera vez hace falta el
+navegador de Playwright: `npx playwright install chromium` (en Linux/CI, `--with-deps`).
 
 ## Verificación
 
@@ -87,6 +96,8 @@ npx tsc -b
 npm run lint
 npm run build
 npm run test
+npm run build-storybook
+npm run test-storybook
 ```
 
 `npm run test` ejecuta `tests/*.test.*` con `node --test` (Node 24 quita los tipos de los `.ts`; un hook

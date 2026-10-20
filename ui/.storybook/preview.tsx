@@ -1,17 +1,25 @@
 import type { Preview } from "@storybook/react-vite"
+import { sb } from "storybook/test"
 
 import "../src/index.css"
 import "./storybook.css"
 
 import { mockAgentApi, type AgentApiMock } from "../src/storybook/agent-api-mock"
-import { DEFAULT_AGENT_API } from "../src/storybook/fixtures"
+import { DEFAULT_AGENT_API } from "../src/storybook/default-agent-api"
+import { mockSession, type StorySession } from "../src/storybook/session"
+
+// Better Auth se reemplaza por src/lib/__mocks__/auth-client.ts: ninguna historia llama a /api/auth.
+sb.mock(import("../src/lib/auth-client.ts"))
 
 const preview: Preview = {
   parameters: {
     layout: "centered",
     // Toda llamada al agente se resuelve localmente; las historias sobrescriben rutas puntuales.
     agentApi: DEFAULT_AGENT_API,
-    a11y: { test: "todo" },
+    // Sesión de Better Auth simulada: "authenticated", "anonymous" o "pending".
+    session: "authenticated",
+    // Una violación de axe hace fallar la historia en `npm run test-storybook`.
+    a11y: { test: "error" },
     backgrounds: {
       options: {
         white: { name: "Blanco", value: "#ffffff" },
@@ -29,7 +37,10 @@ const preview: Preview = {
   initialGlobals: {
     backgrounds: { value: "white" },
   },
-  beforeEach: ({ parameters }) => mockAgentApi(parameters.agentApi as AgentApiMock),
+  beforeEach: ({ parameters }) => {
+    mockSession(parameters.session as StorySession)
+    return mockAgentApi(parameters.agentApi as AgentApiMock)
+  },
 }
 
 export default preview
