@@ -1,8 +1,12 @@
 """Fixtures of the opt-in live stack. Nothing starts unless a RUN_LIVE_STACK test runs."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import pytest
 
-from tests.integration.live_stack import LiveStack, missing_requirements
+from tests.integration.live_purchase import PurchaseLane, payment_requirements
+from tests.integration.live_stack import FaultProxy, LiveStack, missing_requirements
 
 
 @pytest.fixture(scope="session")
@@ -17,13 +21,54 @@ def stack(tmp_path_factory: pytest.TempPathFactory):
         live.close()
 
 
-@pytest.fixture
-def proxy(stack: LiveStack):
-    """The stack's proxy, transparent and with an empty call log for this test."""
-    stack.proxy.reset()
-    yield stack.proxy
-    errors = list(stack.proxy.errors)
-    blocked = [(call.method, call.path) for call in stack.proxy.calls if call.fault == "blocked"]
-    stack.proxy.reset()
+@contextmanager
+def checked(proxy: FaultProxy) -> Iterator[FaultProxy]:
+    """The proxy, transparent and with an empty call log for one test, verified after it."""
+    proxy.reset()
+    yield proxy
+    errors = list(proxy.errors)
+    blocked = [(call.method, call.path) for call in proxy.calls if call.fault == "blocked"]
+    proxy.reset()
     assert not errors, errors
     assert not blocked, blocked
+
+
+@pytest.fixture
+def proxy(stack: LiveStack):
+    with checked(stack.proxy) as transparent:
+        yield transparent
+
+
+def lane(stack: LiveStack, profile: str) -> Iterator[PurchaseLane]:
+    if problems := payment_requirements():
+        pytest.fail("Live purchases also require " + "; ".join(problems), pytrace=False)
+    started = PurchaseLane(stack, profile)
+    try:
+        started.start()
+        yield started
+    finally:
+        started.close()
+
+
+@pytest.fixture(scope="session")
+def b0_lane(stack: LiveStack):
+    yield from lane(stack, "b0")
+
+
+@pytest.fixture(scope="session")
+def acp_lane(stack: LiveStack):
+    yield from lane(stack, "acp")
+
+
+@pytest.fixture
+def b0(b0_lane: PurchaseLane):
+    """B0: ACP + AP2 Human Present against the real Merchant and payment provider."""
+    with checked(b0_lane.proxy):
+        yield b0_lane
+
+
+@pytest.fixture
+def acp(acp_lane: PurchaseLane):
+    """Plain ACP completion (AP2 off) against the real Merchant and payment provider."""
+    with checked(acp_lane.proxy):
+        yield acp_lane

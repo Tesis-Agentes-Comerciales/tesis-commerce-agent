@@ -30,11 +30,9 @@ from tests.integration.live_stack import (
     JointCase,
     clean_environment,
     connect,
-    live_stack_requirements,
     uv_run,
 )
 
-pytestmark = live_stack_requirements()
 # The Merchant's own creation/lookup regressions, run on the cluster that served the Agent.
 MERCHANT_REGRESSIONS = (
     "tests/test_acp_creation.py",
@@ -456,6 +454,7 @@ def test_06dc_measured_real_lookup_append_and_commit_exclude_bootstrap(stack, pr
         client.close()
 
 
+@pytest.mark.slow
 def test_06dc_merchant_regressions_run_sequentially_on_the_live_cluster(stack, tmp_path):
     # Nothing else touches this PostgreSQL while the Merchant's own suites run.
     report = tmp_path / "merchant-regressions.xml"

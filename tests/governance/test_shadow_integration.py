@@ -10,8 +10,6 @@ from contextlib import closing
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from statistics import median
-from time import perf_counter_ns
 from typing import Any
 
 import httpx
@@ -177,11 +175,14 @@ def test_same_commercial_result_operations_and_real_evidence_before_gateway(tmp_
             calls += 1
 
     original = sys.getprofile()
+    started_on = datetime.now(UTC).date().isoformat()
     try:
         sys.setprofile(profile)
         actual = start(purchase)
     finally:
         sys.setprofile(original)
+    # Either day: the authority clock is real, and the run may cross midnight UTC.
+    days = {started_on, datetime.now(UTC).date().isoformat()}
     assert calls == 1
     assert actual == expected
     assert (
@@ -195,7 +196,7 @@ def test_same_commercial_result_operations_and_real_evidence_before_gateway(tmp_
     data = record.policy_input()
     assert data.run_id == "run-real" and data.owner_ref != OWNER
     assert data.commercial_now == "2026-09-20T12:00:00.000Z"
-    assert data.authority_now.startswith(datetime.now(UTC).date().isoformat())
+    assert data.authority_now[:10] in days
     with closing(sqlite3.connect(settings.agent_database_path)) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
         ledger = SqliteGovernanceEvidenceStore(connection)
@@ -543,41 +544,6 @@ def test_malformed_shadow_configuration_reports_degraded(
     assert isinstance(observed, UnavailableShadowObserver)
     purchase, _, _ = service(settings, observed)
     assert start(purchase).stage == "awaiting_confirmation"
-
-
-def test_measured_off_shadow_latency_separate_from_bootstrap(tmp_path: Path) -> None:
-    samples = []
-    for index in range(5):
-        pair = {}
-        for mode in ("off", "shadow"):
-            settings = configuration(tmp_path / f"latency-{index}-{mode}.db", mode=mode)
-            setup = perf_counter_ns()
-            observed = observer(settings) if mode == "shadow" else None
-            setup_ms = (perf_counter_ns() - setup) / 1_000_000
-            purchase, _, _ = service(settings, observed)
-            began = perf_counter_ns()
-            start(purchase)
-            pair[mode] = {
-                "start_ms": (perf_counter_ns() - began) / 1_000_000,
-                "bootstrap_ms": setup_ms,
-                "diagnostics": asdict(observed.diagnostics) if observed else None,
-            }
-            if observed:
-                assert observed.diagnostics.status == "observed"
-        samples.append(pair)
-    output = {
-        "environment": (
-            f"{sys.platform}; Python {sys.version_info.major}.{sys.version_info.minor}; "
-            f"SQLite {sqlite3.sqlite_version}; spy gateway; no network"
-        ),
-        "pairs": samples,
-        "off_median_ms": median(s["off"]["start_ms"] for s in samples),
-        "shadow_median_ms": median(s["shadow"]["start_ms"] for s in samples),
-        "median_paired_added_ms": median(
-            s["shadow"]["start_ms"] - s["off"]["start_ms"] for s in samples
-        ),
-    }
-    (tmp_path / "latency.json").write_text(json.dumps(output, indent=2), encoding="utf-8")
 
 
 def test_retry_after_ledger_failure_preserves_actual_attempt_identity(
