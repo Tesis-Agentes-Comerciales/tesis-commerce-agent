@@ -33,14 +33,28 @@ export type PurchaseStatusLabelProps = {
   className?: string
 }
 
-export function PurchaseStatusLabel({ status, className }: PurchaseStatusLabelProps) {
-  const { tone, Icon } = STATUS_VIEW[status]
+/** Solo el icono, para filas donde el texto ya dice el estado. */
+export function PurchaseStatusIcon({ status, className }: PurchaseStatusLabelProps) {
+  const { Icon } = STATUS_VIEW[status]
   return (
-    <span className={cn(chip({ tone, size: "sm" }), "font-medium", className)} data-status={status}>
-      <Icon
-        className={cn("size-3.5 shrink-0", status === "in_progress" && "motion-safe:animate-spin")}
-        aria-hidden
-      />
+    <Icon
+      className={cn(
+        "size-4 shrink-0",
+        status === "in_progress" && "motion-safe:animate-spin",
+        className,
+      )}
+      aria-hidden
+    />
+  )
+}
+
+export function PurchaseStatusLabel({ status, className }: PurchaseStatusLabelProps) {
+  return (
+    <span
+      className={cn(chip({ tone: STATUS_VIEW[status].tone, size: "sm" }), "font-medium", className)}
+      data-status={status}
+    >
+      <PurchaseStatusIcon status={status} className="size-3.5" />
       {PURCHASE_STATUS_LABEL[status]}
     </span>
   )

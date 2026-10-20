@@ -28,6 +28,10 @@ export {
 } from "@/components/agent/policy-blocked-card"
 export { ProductCarousel, type ProductCarouselProps } from "@/components/agent/product-carousel"
 export {
+  PurchaseActivity,
+  type PurchaseActivityProps,
+} from "@/components/agent/purchase-activity"
+export {
   PurchaseApprovalCard,
   PurchaseApprovalCardSkeleton,
   type ApprovalCardOrder,

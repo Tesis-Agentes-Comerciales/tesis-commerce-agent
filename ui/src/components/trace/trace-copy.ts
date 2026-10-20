@@ -1,4 +1,4 @@
-import { formatMoney, formatTime } from "@/components/agent/agent-format"
+import { formatElapsed, formatMoney, formatTime } from "@/components/agent/agent-format"
 import type { EvidenceRef } from "@/components/trace/evidence-refs"
 import type {
   PolicyDecision,
@@ -234,6 +234,22 @@ export function skippedDetail(control: SkippedControl) {
   return control.reason === "policy_off" ? "No se revisó esta compra" : null
 }
 
+const PURCHASE_SUMMARY: Record<Exclude<PurchaseStatus, "completed">, string> = {
+  in_progress: "Comprando…",
+  awaiting_approval: "Esperando tu aprobación",
+  blocked: "Bloqueada por la política de compra",
+  canceled: "Compra cancelada",
+  failed: "La compra no se pudo completar",
+  uncertain: "Compra por confirmar con el comercio",
+}
+
+/** Línea de la fila de actividad en el chat. */
+export function purchaseSummary(trace: PurchaseTrace) {
+  if (trace.status !== "completed") return PURCHASE_SUMMARY[trace.status]
+  const elapsed = formatElapsed(Date.parse(trace.updated_at) - Date.parse(trace.started_at))
+  return elapsed ? `Compra completada en ${elapsed}` : "Compra completada"
+}
+
 /** Identificadores de una decisión para el detalle técnico: aquí sí van los códigos internos. */
 export function decisionRefs(decision: PolicyDecision): EvidenceRef[] {
   const failedRules = decision.rules.filter((rule) => rule.result === "fail").map((rule) => rule.id)
@@ -248,4 +264,23 @@ export function decisionRefs(decision: PolicyDecision): EvidenceRef[] {
 
 function listRef(label: string, values: string[]): EvidenceRef[] {
   return values.length > 0 ? [{ label, value: values.join(", ") }] : []
+}
+
+function stepRefs(step: TraceStep): EvidenceRef[] {
+  switch (step.kind) {
+    case "policy_decision":
+      return decisionRefs(step.decision)
+    case "checkout_created":
+      return [{ label: "Checkout", value: step.checkout_id }]
+    case "order_confirmed":
+      return [{ label: "Orden", value: step.order_id }]
+    case "failed":
+      return [{ label: "Código de error", value: step.code }]
+    default:
+      return []
+  }
+}
+
+export function traceRefs(trace: PurchaseTrace): EvidenceRef[] {
+  return [{ label: "Compra", value: trace.run_id }, ...trace.steps.flatMap(stepRefs)]
 }
