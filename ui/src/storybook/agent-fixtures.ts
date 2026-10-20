@@ -17,8 +17,9 @@ import type {
 import type { ApprovalTerms } from "@/lib/commerce-types"
 import { COMPLETED, PREPARATION, PURCHASE_REPLY, PURCHASE_REQUEST, TERMS } from "@/storybook/fixtures"
 
-// Datos sintéticos alineados con fixtures.ts (run_storybook_1, cs_storybook_1, SON-01). Las
-// imágenes son SVG locales servidos por Storybook: ninguna historia pide recursos externos.
+// Datos sintéticos alineados con fixtures.ts (PREPARATION.run_id, cs_storybook_1, SON-01). Los
+// `run_id` tienen la forma real del backend, `run_<hex>`. Las imágenes son SVG locales servidos por
+// Storybook: ninguna historia pide recursos externos.
 
 const PRODUCT_BASE = "https://merchant.example.test/products"
 

@@ -34,8 +34,9 @@ export const BUYER_TOKEN = "storybook-buyer-token"
 
 export const PURCHASE_REQUEST = "Quiero audífonos negros por menos de 2 millones"
 
+/** `run_id` con la forma que genera el backend (`run_` + uuid4 en hex). */
 export const PREPARATION: PurchasePreparation = {
-  run_id: "run_storybook_1",
+  run_id: "run_3f9a6c2e8d1b4f7a9c0e5b2d7f4a1c86",
   stage: "awaiting_confirmation",
   selected_candidate: {
     product_id: "prod-sony-wh-1000xm6",
