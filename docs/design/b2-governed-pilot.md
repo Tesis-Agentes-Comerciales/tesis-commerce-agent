@@ -48,13 +48,13 @@ la produjo otro control.
 | --- | --- | --- | --- |
 | **Despacho D1** | Un allow comprometido crea el checkout con la clave HMAC del sobre, un solo POST y sin reintentos. Un timeout deja la operación `uncertain` | S01, S04, S05 | D1 (PDP + aplicación) |
 | **Continuación gobernada** | Reemplaza el bloqueo general. Aprobar, cancelar y completar continúan solo si hay un allow comprometido, la operación quedó `confirmed` con el mismo `checkout_id` y el post-create llegó a `awaiting_confirmation` | S01, S04, S05 | Aplicación |
-| **Frescura de la oferta** | Al presentar y al aprobar, relee la oferta vigente (`POST /lab/offers/get`) y la compara con el checkout con el mismo predicado que usa el comercio al completar: moneda, subtotal, envío, total, vigencia y stock. Si cambió, responde 409 `checkout_terms_changed`: no se firman mandatos ni se guarda la aprobación. Si no puede leer, falla cerrado con `offer_freshness_unavailable` | S04 | Control de aplicación (insumo futuro de POL-04/D2) |
-| **POL-02 desde la configuración** | La lista de comercios permitidos sale de `Settings`. Un comercio fuera de la lista da `d1_denied` antes de cualquier POST | Demo, suite live | D1 (PDP) |
-| **Recuperación gobernada** | Cuando no hay candidatos, el modelo elige una variante fuera de la lista o el presupuesto se excede después del checkout, el agente explica la causa con un texto canónico y responde 200 en vez de 5xx. B0' conserva su comportamiento | S02 | Control de aplicación, no PDP |
+| **Frescura de la oferta** | Al presentar y al aprobar, relee la oferta vigente (`POST /lab/offers/get`) y la compara con el checkout con el mismo predicado que usa el comercio al completar: moneda, subtotal, envío, total, vigencia, días de entrega y stock. Si cambió, responde 409 `checkout_terms_changed`: no se firman mandatos ni se guarda la aprobación. Un cambio solo de revisión, con los mismos términos, no bloquea; la revisión queda como evidencia. Si no puede leer la oferta, falla cerrado con 503 `offer_freshness_unavailable` | S04 | Control de aplicación (insumo futuro de POL-04/D2) |
+| **POL-02 desde la configuración** | La lista de comercios permitidos ya se lee de `Settings` (`AGENT_D1_ALLOWED_MERCHANT_ORIGINS`, en `governance/bootstrap.py`). Un comercio fuera de la lista da `d1_denied` antes de cualquier POST. Falta la prueba live (PR-5) | Demo, suite live | D1 (PDP) |
+| **Recuperación gobernada** | Cuando no hay candidatos, el modelo elige una variante fuera de la lista o el presupuesto se excede después del checkout, el agente explica la causa con un texto canónico y responde 200 en vez de 5xx. Cada recuperación queda en `hp_evidence` (`governed_recovery`); si no se puede escribir, el agente responde como B0 (502, 409 o la recuperación del modelo) y deja el aviso `governed_recovery_evidence_unavailable`. B0' conserva su comportamiento | S02 | Control de aplicación, no PDP |
 | **Evidencia HP** | Tabla `hp_evidence` de solo inserción, encadenada por digest, con `freshness_check` y `governed_recovery`. D1 sigue en `governance_evidence` | Todos | Evidencia |
 
-En `off` ninguno de estos mecanismos existe: B0' es B0. En `shadow` la frescura y la recuperación
-solo registran.
+En `off` ninguno de estos mecanismos existe: B0' es B0. En `shadow` la frescura solo registra y la
+recuperación no actúa ni registra.
 
 ## Criterios pre-registrados
 

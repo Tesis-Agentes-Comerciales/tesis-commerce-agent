@@ -13,11 +13,7 @@ from commerce_agent.acp.published_feed import PublishedFeedClient
 from commerce_agent.ap2 import AgentMandateSigner
 from commerce_agent.application import PurchaseService
 from commerce_agent.application.conversation import ConversationService
-from commerce_agent.application.governed_recovery import (
-    GovernedRecovery,
-    LoggedRecoveryEvidence,
-    governed_recovery_enabled,
-)
+from commerce_agent.application.governed_recovery import build_governed_recovery
 from commerce_agent.application.offer_freshness import build_offer_freshness
 from commerce_agent.approval import ApprovalService
 from commerce_agent.completion import CompletionService
@@ -185,9 +181,7 @@ def build_runtime(
         checkpointer=checkpointer,
         feed_provider=published_feed.get if published_feed is not None else None,
         router_factory=router_factory,
-        recovery=GovernedRecovery(LoggedRecoveryEvidence())
-        if governed_recovery_enabled(configuration)
-        else None,
+        recovery=build_governed_recovery(configuration),
     )
     return AgentRuntime(
         store=store,
