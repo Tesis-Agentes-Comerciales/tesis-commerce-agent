@@ -4,7 +4,7 @@
 
 ## Reproducir en Windows PowerShell 5.1
 
-Requiere Git, Node.js 24 (probado con 24.15.0), npm y Python 3.12 para los ocho tests de artefactos. No se necesitan credenciales, servicios comerciales ni bases de datos. Ejecutar desde la raíz del clon:
+Requiere Git, Node.js 24 (probado con 24.15.0), npm y Python 3.12 para los 23 tests de artefactos. No se necesitan credenciales, servicios comerciales ni bases de datos. Ejecutar desde la raíz del clon:
 
 ```powershell
 git clone --branch codex/hnp-ui-readonly-monitor --single-branch https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent.git
@@ -42,7 +42,30 @@ Stop comprueba la identidad del proceso registrado; no detiene todos los proceso
 | HNP accept erróneo contenido | sources/hnp-false-accept-selected.json y ledger | HNP-01 scripted offline; accept/budget pass guionado frente a BACKEND_DENIED/budget, 13000 > 12500, sin efecto ficticio. No ejecutó PDP D1. |
 | HP respuesta perdida | sources/agent-lost.json | Timeout inicial, creación incierta, recuperación found posterior; un POST histórico, sin reenvío. |
 
-Se separan ejecución, creación, recuperación y efecto observado; ausencia de dato no significa éxito. El adaptador rechaza contradicciones, incluido deny con efecto o confirmación sin inicio. El exportador emite directamente `governance-monitor/2`: bloqueo y no inicio quedan como creación/recuperación no aplicables sin traducción en el navegador, y la UI solo acepta v2. Los JSON originales de `sources/` no cambian; un test Python comprueba que reproducen byte a byte el bundle incluido. El validador HNP y el backend se muestran separadamente.
+Se separan ejecución, creación, recuperación y efecto observado; ausencia de dato no significa éxito. El adaptador rechaza contradicciones, incluido deny con efecto o confirmación sin inicio. El exportador emite directamente `governance-monitor/3`: bloqueo y no inicio quedan como creación/recuperación no aplicables sin traducción en el navegador, y la UI solo acepta v3. Los cuatro escenarios conservan exactamente su significado de v2; v3 solo añade `experiments`. Los JSON originales de `sources/` no cambian; un test Python comprueba que reproducen byte a byte el bundle incluido. El validador HNP y el backend se muestran separadamente.
+
+## Experimento HNP-02 (dry-run)
+
+Un quinto botón, en una navegación aparte («Experimentos HNP-02»), muestra una corrida HNP-02 Fase 1: brazo A con payload guionado y controles backend frente a brazo B con lo mismo más un validador LLM, sobre un sink ficticio en memoria. No es un escenario: no tiene creación, recuperación ni badge de confirmación. La vista abre siempre con «Experimento en entorno ficticio, sink ficticio, no es operación real.» y, salvo que el transporte declarado sea `provider`, con «Cifras de transporte simulado, no miden ningún modelo.». Muestra actores, métricas por brazo con IC de Wilson al 95 %, tablas pareadas con McNemar exacto, costo y latencia, desviaciones y, por caso, agregados de todas las repeticiones más la repetición 1 de ambos brazos con las declaraciones del validador frente a los controles backend.
+
+| Campo | dry-run incluido | corrida con proveedor |
+|---|---|---|
+| `executionKind` | `llm validator dry-run` | `llm validator provider` |
+| `transport` / transporte del validador | `fake` / `fake` | `provider` / `openai-responses` |
+| Base de costo | `fake_transport_estimate` | `provider_reported_usage` |
+
+Cualquier otra combinación, tipo o transporte se rechaza. La regla HNP de los escenarios (solo `scripted offline` con validador) no cambia: los tipos LLM solo se aceptan como experimentos, con sus propias invariantes (A sin validador, B nunca admite lo que A bloqueó, B ⊆ A en efectos, Wilson coherente con k/n, pares que suman). La UI, el exportador y [governance-monitor-3.schema.json](governance-monitor-3.schema.json) (JSON Schema 2020-12) comparten vocabularios; los tests de Python y Node comprueban que esquema y parsers aceptan y rechazan lo mismo.
+
+La corrida incluida es `hnp02-dry_run-20261020T044329Z-s20261022`: FakeTransport, `.env.example`, semilla 20261022 y `HNP_REPETITIONS=2` (19 casos × 2 repeticiones × 2 brazos = 76 episodios; 36 llamadas simuladas, 0 al proveedor; USD 0,0234 estimados). Sus `summary.json` y `traces.jsonl` están en `sources/hnp02/<run>/`; `evidence.jsonl` no se versiona. La proyección no copia razones del modelo, prompts, settings ni entorno: solo códigos, estados y conteos, y rechaza la corrida entera ante cadenas con forma de secreto, claves duplicadas o números no finitos. Para generar y proyectar otra corrida sin llamadas reales:
+
+```bash
+env -u OPENAI_API_KEY HNP_REPETITIONS=2 uv run python scripts/run_hnp_llm_matrix.py --dry-run --env-file .env.example
+# copiar summary.json y traces.jsonl de .local/.../<run> a docs/governance-monitor/sources/hnp02/<run>/
+uv run python scripts/export_governance_monitor.py --versioned-sources --hnp02-run docs/governance-monitor/sources/hnp02/<run>
+uv run python scripts/export_governance_monitor.py --versioned-sources --hnp02-run docs/governance-monitor/sources/hnp02/<run> --verify-only
+```
+
+El exportador nunca copia corridas por su cuenta: versionar una es una decisión explícita. Las corridas con proveedor se proyectan igual desde `.local`, pero el snapshot de demostración solo admite experimentos dry-run.
 
 ## GET de demostración
 
@@ -54,7 +77,7 @@ Los valores locales viven solo en `ui/src/features/governance-monitor/demo-confi
 
 La UI valida también hash, tamaño y contrato. Distingue leído, desconectado, obsoleto e inconsistente; no cambia a offline automáticamente ni mezcla campos. Un error tras una lectura válida conserva el último snapshot completo marcado obsoleto; una inconsistencia oculta toda la evidencia de esa fuente. El retorno offline requiere selección explícita. La hora de lectura del navegador no es la hora del evento.
 
-## Verificación segura: 82 tests distintos
+## Verificación segura: 110 tests distintos
 
 ```powershell
 npm.cmd --prefix ui run test
@@ -68,7 +91,7 @@ npm.cmd --prefix ui run build
 if ($LASTEXITCODE -ne 0) { throw 'Build fallido' }
 ```
 
-33 adaptador/render/copy + 28 snapshots/configuración + 9 routing hermético con y sin flag + 4 puerta de sesión + 8 artefactos = 82. `npm run test` prepara la fixture en memoria desde la evidencia versionada (sin `.local`) y el CI lo ejecuta junto a lint y build; los ocho tests Python entran en `uv run pytest`. Los 28 incluyen transporte HTTP real limitado al servidor de fixtures de prueba y casos con dobles; no constituyen integración Agent–Merchant. Los POST negativos prueban 405 en ese servidor, no son POST comerciales. No ejecutar suites comerciales opt-in para esta demo. [RESULTS.md](RESULTS.md) detalla resultados y límites.
+33 adaptador/render/copy + 13 experimento HNP-02 y esquema compartido + 28 snapshots/configuración + 9 routing hermético con y sin flag + 4 puerta de sesión + 23 artefactos (8 HP/HNP-01 + 15 HNP-02) = 110. `npm run test` prepara la fixture en memoria desde la evidencia versionada (sin `.local`) y el CI lo ejecuta junto a lint y build; los 23 tests Python entran en `uv run pytest`. Con Python sin dependencias, los tres que validan con `jsonschema` se omiten; el test Node equivalente usa un verificador del subconjunto de palabras clave del esquema que rechaza cualquier otra. Los 28 incluyen transporte HTTP real limitado al servidor de fixtures de prueba y casos con dobles; no constituyen integración Agent–Merchant. Los POST negativos prueban 405 en ese servidor, no son POST comerciales. No ejecutar suites comerciales opt-in para esta demo. [RESULTS.md](RESULTS.md) detalla resultados y límites.
 
 ## Fuentes y trazabilidad
 
@@ -76,9 +99,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Build fallido' }
 
 HP procede del candidato documental v2 cerrado, evidencia `prior/agent-received.json`, `prior/agent-lost.json` y `http-deny.json`, ejecutada sobre Agent `83510f8dd5fbe5026d909df2b4949802b8b2aa1a`. HNP procede del programa [HNP-01 a633a04](https://github.com/Maldinho18/tesis-commerce-agent/commit/a633a043337286406f9a3e859809556ce46bcba1), condición B / validator-false-accept, sink ficticio y roles programados. No se portó ni ejecutó el harness original.
 
-El bundle v2 incluido tiene el SHA-256 que registra `provenance.json` (`projection_sha256`, hoy `4f0a53771e814cd37fc583fd6c9adb14dccb95cbfdca41684ec863da76a99490`); el snapshot determinista tiene SHA-256 `b51798061cf2258d20d51d00c05addc697656549188fdf7c3e5c6a502b90097e`. Los atributos Git limitados a los archivos del monitor conservan sus bytes (incluido JSON/JSONL) al clonar en Windows, sin cambiar reglas de otros componentes. [PUBLICATION-SHA256SUMS](PUBLICATION-SHA256SUMS) cubre los archivos publicados salvo el propio manifiesto.
+El bundle v3 incluido tiene el SHA-256 que registra `provenance.json` (`projection_sha256`, hoy `dc07e2ea9e2155665f33d8dc76b253b20b1b2727ba18b36b4ebad15748cfe5e4`, junto a los hashes de la corrida HNP-02 en `hnp02Runs`); el snapshot determinista tiene SHA-256 `40ae9fb0f38d50322eb984c725c6532fe588acfe3f7124c1d16151be6c78e132`. El ID sigue siendo `hp-hnp-demo-v1`: una caché `.local` preparada con el bundle v2 hace fallar la preparación con `EXISTING_FIXTURE_NOT_OVERWRITTEN`; borrarla y volver a preparar. Los atributos Git limitados a los archivos del monitor conservan sus bytes (incluido JSON/JSONL) al clonar en Windows, sin cambiar reglas de otros componentes. [PUBLICATION-SHA256SUMS](PUBLICATION-SHA256SUMS) cubre los archivos publicados salvo el propio manifiesto.
 
-El exportador Python se conserva para auditoría opcional con `--hp-root <directorio-evidence> --hnp-root <directorio-hnp> --verify-only`. Requiere originales fijados, no necesarios para ejecutar la demo; sin ellos, `tests/governance_monitor` reproduce el bundle desde las copias de `sources/`. No regenerar ni modificar la evidencia para adaptar resultados. No se incluyen DB, logs, ZIP, capturas, credenciales ni cachés.
+El exportador Python se conserva para auditoría opcional con `--hp-root <directorio-evidence> --hnp-root <directorio-hnp> [--hnp02-run <dir>] --verify-only`. Requiere originales fijados, no necesarios para ejecutar la demo; sin ellos, `--versioned-sources` y `tests/governance_monitor` reproducen el bundle desde las copias de `sources/`. No regenerar ni modificar la evidencia para adaptar resultados. No se incluyen DB, logs, ZIP, capturas, credenciales ni cachés.
 
 ## Integración pendiente
 
@@ -86,4 +109,4 @@ El exportador Python se conserva para auditoría opcional con `--hp-root <direct
 
 Conservar **PARTIAL**, I10/D08/D09 parciales y **AUDIT-MERCHANT-CANCEL-01**: dos ejecuciones de cancelación conservadas y gate histórico sin aprobar. ASGI, identidad sintética y las limitaciones de recuperación histórica no se resuelven con esta UI. En evidencias D2, commercial_posts=0 significa cero POST adicionales iniciados por D2, no ausencia de POST D17 previos. Los siete hashes de nodeids redactados corresponden a originales y no se recalculan desde sus identificadores sanitizados.
 
-[HANDOFF-YAIR.md](HANDOFF-YAIR.md) y [CHANGELOG.md](CHANGELOG.md) separan lo implementado de MON-02C (observabilidad autenticada) y HNP-02 (dos LLM independientes), ambos pendientes y no autorizados aquí.
+[HANDOFF-YAIR.md](HANDOFF-YAIR.md) y [CHANGELOG.md](CHANGELOG.md) separan lo implementado de MON-02C (observabilidad autenticada) y HNP-02 con proveedor (dos LLM independientes), ambos pendientes y no autorizados aquí; el monitor solo proyecta el dry-run versionado.

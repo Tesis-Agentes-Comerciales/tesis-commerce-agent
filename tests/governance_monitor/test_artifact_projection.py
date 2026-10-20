@@ -46,16 +46,19 @@ class ArtifactProjectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "hash mismatch"):
                 module.read_pinned(source, "agent-received.json")
 
-    def test_versioned_sources_reproduce_the_bundled_v2_projection(self):
+    def test_versioned_sources_reproduce_the_bundled_v3_projection(self):
         values = {
             name: module.read_pinned(SOURCES / name, name)
             for name in ("agent-received.json", "agent-lost.json", "http-deny.json")
         }
         selected = json.loads((SOURCES / "hnp-false-accept-selected.json").read_text())
         entries = module.verify_hnp([selected], SOURCES / "hnp-evidence.jsonl")
-        output = module.render(module.project(values, selected, entries))
+        runs = sorted((SOURCES / "hnp02").iterdir())
+        experiments = [module.hnp02(module.read_hnp02_run(run)) for run in runs]
+        output = module.render(module.project(values, selected, entries, experiments))
         self.assertEqual(output, module.DATA.read_bytes())
-        self.assertEqual(json.loads(output)["schema"], "governance-monitor/2")
+        self.assertEqual(json.loads(output)["schema"], "governance-monitor/3")
+        module.export_versioned(runs, verify_only=True)
 
     def test_provenance_pins_the_bundled_projection(self):
         provenance = json.loads((SOURCES.parent / "provenance.json").read_text())

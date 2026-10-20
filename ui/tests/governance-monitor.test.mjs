@@ -70,7 +70,7 @@ test("rendering is read-only and visibly states replay, limits and unavailable f
     const html = renderToStaticMarkup(createElement(GovernanceMonitor, { bundle }))
     for (const text of ["Solo lectura", "PARTIAL", "Sin LLM en vivo", "replay", "Q · shadow", "D1 · enforce", "No disponible en la fuente", "AUDIT-MERCHANT-CANCEL-01", "I10/D08/D09"]) assert.ok(html.includes(text), text)
     assert.ok(!html.includes("<form"))
-    assert.equal((html.match(/aria-pressed=/g) ?? []).length, 4)
+    assert.equal((html.match(/aria-pressed=/g) ?? []).length, bundle.scenarios.length + bundle.experiments.length)
   } finally { globalThis.fetch = previous }
 })
 test("HNP rendering exposes accept versus BACKEND_DENIED and no fictitious effect", () => {

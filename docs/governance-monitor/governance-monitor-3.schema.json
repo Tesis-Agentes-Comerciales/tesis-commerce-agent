@@ -1,0 +1,501 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tesis-commerce-agent:governance-monitor:3",
+  "title": "governance-monitor/3",
+  "description": "Read-only monitor projection: HP and HNP-01 scenarios unchanged from v2, plus HNP-02 LLM-validator experiments over a fictitious sink. Structure only; cross-field invariants live in the exporter and the UI parser. Shared by the Python and UI tests.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "sourcePins", "hnpLedgerEntriesVerified", "scenarios", "experiments"],
+  "properties": {
+    "schema": { "const": "governance-monitor/3" },
+    "status": { "const": "PARTIAL" },
+    "sourcePins": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/text" },
+      "additionalProperties": { "$ref": "#/$defs/sha256" }
+    },
+    "hnpLedgerEntriesVerified": { "$ref": "#/$defs/count" },
+    "scenarios": { "type": "array", "minItems": 1, "maxItems": 200, "items": { "$ref": "#/$defs/scenario" } },
+    "experiments": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/experiment" } }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 5000 },
+    "nullableText": { "type": ["string", "null"], "minLength": 1, "maxLength": 5000 },
+    "texts": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/text" } },
+    "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "nullableCount": { "type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991 },
+    "measure": { "type": "number", "minimum": 0 },
+    "nullableMeasure": { "type": ["number", "null"], "minimum": 0 },
+    "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "nullableRatio": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "decimal": { "type": "string", "pattern": "^[0-9]{1,12}(\\.[0-9]{1,12})?$" },
+    "checkId": {
+      "enum": ["selection", "merchant", "budget", "offer", "consent", "validity", "revocation", "usage", "constraints", "scope", "binding"]
+    },
+    "checkResult": { "enum": ["pass", "fail", "unresolved"] },
+    "caseKind": { "enum": ["admissible", "changed_after_review", "invalid", "not_reviewable"] },
+    "phase": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["outcome", "decisionId", "evidenceId", "digest", "reason"],
+      "properties": {
+        "outcome": { "enum": ["allow", "deny", null] },
+        "decisionId": { "$ref": "#/$defs/text" },
+        "evidenceId": { "$ref": "#/$defs/text" },
+        "digest": { "$ref": "#/$defs/text" },
+        "reason": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "scenario": {
+      "description": "One HP or HNP-01 observation, byte-identical in meaning to governance-monitor/2.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "label", "mode", "executionKind", "scope", "intent", "constraints", "proposal", "proposedAction",
+        "runId", "operationId", "requestId", "shadow", "enforce", "validator", "backend", "execution", "creation",
+        "recovery", "sourceKind", "budgetLimitMinor", "commercialPosts", "effectOccurred", "totalMinor", "currency",
+        "notes", "evidence"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "label": { "$ref": "#/$defs/text" },
+        "mode": { "enum": ["HP", "HNP"] },
+        "executionKind": { "enum": ["replay", "scripted offline"] },
+        "scope": { "$ref": "#/$defs/text" },
+        "intent": { "$ref": "#/$defs/nullableText" },
+        "constraints": { "$ref": "#/$defs/nullableText" },
+        "proposal": { "$ref": "#/$defs/nullableText" },
+        "proposedAction": { "$ref": "#/$defs/nullableText" },
+        "runId": { "$ref": "#/$defs/nullableText" },
+        "operationId": { "$ref": "#/$defs/nullableText" },
+        "requestId": { "$ref": "#/$defs/nullableText" },
+        "shadow": { "$ref": "#/$defs/phase" },
+        "enforce": { "$ref": "#/$defs/phase" },
+        "validator": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["verdict", "adapterId", "checks"],
+          "properties": {
+            "verdict": { "enum": ["accept", "reject", "abstain"] },
+            "adapterId": { "$ref": "#/$defs/text" },
+            "checks": {
+              "type": "array",
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "result"],
+                "properties": { "id": { "$ref": "#/$defs/text" }, "result": { "$ref": "#/$defs/checkResult" } }
+              }
+            }
+          }
+        },
+        "backend": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "failures", "executedPolicyIds"],
+          "properties": {
+            "code": { "$ref": "#/$defs/text" },
+            "failures": { "$ref": "#/$defs/texts" },
+            "executedPolicyIds": { "type": ["array", "null"], "maxItems": 200, "items": { "$ref": "#/$defs/text" } }
+          }
+        },
+        "execution": { "enum": ["not_started", "blocked", "started", "unknown"] },
+        "creation": { "enum": ["confirmed", "rejected", "uncertain", "not_applicable"] },
+        "recovery": { "enum": ["confirmed", "not_found", "uncertain", "not_applicable"] },
+        "sourceKind": { "enum": ["historical_http_postgresql", "scripted_offline", "unavailable"] },
+        "budgetLimitMinor": { "$ref": "#/$defs/nullableCount" },
+        "commercialPosts": { "$ref": "#/$defs/nullableCount" },
+        "effectOccurred": { "type": ["boolean", "null"] },
+        "totalMinor": { "$ref": "#/$defs/nullableCount" },
+        "currency": { "$ref": "#/$defs/nullableText" },
+        "notes": { "$ref": "#/$defs/texts" },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["artifact", "sha256", "pointer", "codeCommit", "recordDigest"],
+            "properties": {
+              "artifact": { "$ref": "#/$defs/text" },
+              "sha256": { "$ref": "#/$defs/sha256" },
+              "pointer": { "$ref": "#/$defs/text" },
+              "codeCommit": { "$ref": "#/$defs/commit" },
+              "recordDigest": { "$ref": "#/$defs/nullableText" }
+            }
+          }
+        }
+      }
+    },
+    "wilson": {
+      "description": "k of n with its 95% Wilson interval; rate and bounds are null only when n is 0.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["k", "n", "rate", "low", "high"],
+      "properties": {
+        "k": { "$ref": "#/$defs/count" },
+        "n": { "$ref": "#/$defs/count" },
+        "rate": { "$ref": "#/$defs/nullableRatio" },
+        "low": { "$ref": "#/$defs/nullableRatio" },
+        "high": { "$ref": "#/$defs/nullableRatio" }
+      }
+    },
+    "latency": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["n", "medianMs", "p95Ms", "maxMs"],
+      "properties": {
+        "n": { "$ref": "#/$defs/count" },
+        "medianMs": { "$ref": "#/$defs/measure" },
+        "p95Ms": { "$ref": "#/$defs/measure" },
+        "maxMs": { "$ref": "#/$defs/measure" }
+      }
+    },
+    "arm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "episodes", "scoredEpisodes", "infrastructureErrors", "caseMix", "simulatedEffects", "escapes", "falseBlocks",
+        "backendBlocksOnInvalid", "episodeLatencyMs"
+      ],
+      "properties": {
+        "episodes": { "$ref": "#/$defs/count" },
+        "scoredEpisodes": { "$ref": "#/$defs/count" },
+        "infrastructureErrors": { "$ref": "#/$defs/count" },
+        "caseMix": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["admissible", "changed_after_review", "invalid", "not_reviewable"],
+          "properties": {
+            "admissible": { "$ref": "#/$defs/count" },
+            "changed_after_review": { "$ref": "#/$defs/count" },
+            "invalid": { "$ref": "#/$defs/count" },
+            "not_reviewable": { "$ref": "#/$defs/count" }
+          }
+        },
+        "simulatedEffects": { "$ref": "#/$defs/count" },
+        "escapes": { "$ref": "#/$defs/wilson" },
+        "falseBlocks": { "$ref": "#/$defs/wilson" },
+        "backendBlocksOnInvalid": { "$ref": "#/$defs/count" },
+        "episodeLatencyMs": { "$ref": "#/$defs/latency" }
+      }
+    },
+    "pairTable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pairs", "bothAdmitted", "bothBlocked", "onlyBBlocked", "onlyABlocked", "mcnemarExactP"],
+      "properties": {
+        "pairs": { "$ref": "#/$defs/count" },
+        "bothAdmitted": { "$ref": "#/$defs/count" },
+        "bothBlocked": { "$ref": "#/$defs/count" },
+        "onlyBBlocked": { "$ref": "#/$defs/count" },
+        "onlyABlocked": { "$ref": "#/$defs/count" },
+        "mcnemarExactP": { "$ref": "#/$defs/ratio" }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role", "kind", "adapterId", "transport", "model", "promptVersion", "promptSha256", "reasoningEffort",
+        "temperature", "maxOutputTokens", "timeoutSeconds"
+      ],
+      "properties": {
+        "role": { "enum": ["buyer", "validator"] },
+        "kind": { "enum": ["scripted", "llm"] },
+        "adapterId": { "$ref": "#/$defs/identifier" },
+        "transport": { "enum": ["none", "fake", "openai-responses"] },
+        "model": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$" },
+        "promptVersion": { "type": ["string", "null"], "pattern": "^[a-z]+-v[0-9]+$" },
+        "promptSha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "reasoningEffort": { "enum": ["minimal", "low", "medium", "high", null] },
+        "temperature": { "type": ["number", "null"], "minimum": 0, "maximum": 2 },
+        "maxOutputTokens": { "$ref": "#/$defs/nullableCount" },
+        "timeoutSeconds": { "$ref": "#/$defs/nullableMeasure" }
+      }
+    },
+    "episode": {
+      "description": "One sampled episode. Model reasons are never projected, only their count.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["episodeId", "admissionCode", "effect", "outcomeClass", "backendFailures", "latencyMs", "validator"],
+      "properties": {
+        "episodeId": { "$ref": "#/$defs/identifier" },
+        "admissionCode": {
+          "enum": [
+            "SIMULATED_ONLY", "BUYER_INVALID", "BUYER_UNAVAILABLE", "CONTEXT_UNAVAILABLE", "VALIDATOR_UNAVAILABLE",
+            "VALIDATOR_INVALID", "VALIDATOR_REJECTED", "BACKEND_DENIED", "BACKEND_UNAVAILABLE", "CONTEXT_CHANGED",
+            "EVIDENCE_UNAVAILABLE", "SINK_UNAVAILABLE", "RECEIPT_UNAVAILABLE"
+          ]
+        },
+        "effect": { "type": "boolean" },
+        "outcomeClass": { "enum": ["experimental", "infrastructure"] },
+        "backendFailures": { "type": "array", "maxItems": 11, "uniqueItems": true, "items": { "$ref": "#/$defs/checkId" } },
+        "latencyMs": { "$ref": "#/$defs/measure" },
+        "validator": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": [
+            "outcome", "callStatus", "errorKind", "declaredDecision", "nonPassChecks", "reasonCount", "latencyMs",
+            "inputTokens", "outputTokens", "costUsd"
+          ],
+          "properties": {
+            "outcome": { "enum": ["accept", "reject", "abstain", "invalid", "timeout", "unavailable", "not_called"] },
+            "callStatus": {
+              "enum": ["ok", "refusal", "incomplete", "schema_invalid", "inconsistent", "timeout", "transport_error", null]
+            },
+            "errorKind": { "type": ["string", "null"], "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$" },
+            "declaredDecision": { "enum": ["accept", "reject", "abstain", null] },
+            "nonPassChecks": {
+              "description": "Business checks the answer did not pass; the rest of the ten were declared pass. null: no parsed answer.",
+              "type": ["object", "null"],
+              "propertyNames": {
+                "enum": ["selection", "merchant", "budget", "offer", "consent", "validity", "revocation", "usage", "constraints", "scope"]
+              },
+              "additionalProperties": { "enum": ["fail", "unresolved"] }
+            },
+            "reasonCount": { "$ref": "#/$defs/nullableCount" },
+            "latencyMs": { "$ref": "#/$defs/nullableMeasure" },
+            "inputTokens": { "$ref": "#/$defs/nullableCount" },
+            "outputTokens": { "$ref": "#/$defs/nullableCount" },
+            "costUsd": { "$ref": "#/$defs/nullableMeasure" }
+          }
+        }
+      }
+    },
+    "caseArm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["episodes", "infrastructure", "effects"],
+      "properties": {
+        "episodes": { "$ref": "#/$defs/count" },
+        "infrastructure": { "$ref": "#/$defs/count" },
+        "effects": { "$ref": "#/$defs/count" }
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseId", "caseKind", "arms", "validatorOutcomes", "sample"],
+      "properties": {
+        "caseId": { "$ref": "#/$defs/identifier" },
+        "caseKind": { "$ref": "#/$defs/caseKind" },
+        "arms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["A", "B"],
+          "properties": { "A": { "$ref": "#/$defs/caseArm" }, "B": { "$ref": "#/$defs/caseArm" } }
+        },
+        "validatorOutcomes": {
+          "description": "Arm B outcomes over every repetition of the case; outcomes that did not occur are omitted.",
+          "type": "object",
+          "propertyNames": { "enum": ["accept", "reject", "abstain", "invalid", "timeout", "unavailable", "not_called"] },
+          "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+        },
+        "sample": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pairId", "A", "B"],
+          "properties": {
+            "pairId": { "$ref": "#/$defs/identifier" },
+            "A": { "$ref": "#/$defs/episode" },
+            "B": { "$ref": "#/$defs/episode" }
+          }
+        }
+      }
+    },
+    "experiment": {
+      "description": "One HNP-02 run: arm A (scripted buyer + backend controls) against arm B (the same + an LLM validator). Never an operation.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "label", "mode", "executionKind", "transport", "scope", "phase", "sink", "operationalEffects",
+        "commercialPosts", "createdAt", "seed", "repetitions", "excludedCases", "actors", "arms", "validator",
+        "comparison", "cost", "deviations", "sampleRule", "cases", "implementationSha256", "corpusSha256", "notes",
+        "evidence"
+      ],
+      "anyOf": [
+        {
+          "properties": {
+            "executionKind": { "const": "llm validator dry-run" },
+            "transport": { "const": "fake" },
+            "cost": { "properties": { "basis": { "const": "fake_transport_estimate" }, "providerCalls": { "const": 0 } } }
+          }
+        },
+        {
+          "properties": {
+            "executionKind": { "const": "llm validator provider" },
+            "transport": { "const": "provider" },
+            "cost": { "properties": { "basis": { "const": "provider_reported_usage" }, "fakeCalls": { "const": 0 } } }
+          }
+        }
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "label": { "$ref": "#/$defs/text" },
+        "mode": { "const": "HNP" },
+        "executionKind": { "enum": ["llm validator dry-run", "llm validator provider"] },
+        "transport": { "enum": ["fake", "provider"] },
+        "scope": { "$ref": "#/$defs/text" },
+        "phase": { "$ref": "#/$defs/text" },
+        "sink": { "const": "fictitious_in_memory" },
+        "operationalEffects": { "const": false },
+        "commercialPosts": { "const": 0 },
+        "createdAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(Z|[+-][0-9]{2}:[0-9]{2})$" },
+        "seed": { "$ref": "#/$defs/count" },
+        "repetitions": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "excludedCases": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/identifier" } },
+        "actors": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/actor" } },
+        "arms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["A", "B"],
+          "properties": { "A": { "$ref": "#/$defs/arm" }, "B": { "$ref": "#/$defs/arm" } }
+        },
+        "validator": {
+          "description": "Arm B only: what the validator added (captures) and what it cost (false rejections, invalid outputs, timeouts).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reviewed", "outcomes", "captures", "capturesWithExpectedChecks", "uniqueCaptures",
+            "missesContainedByBackend", "falseRejections", "abstentions", "invalidOutputs", "timeouts"
+          ],
+          "properties": {
+            "reviewed": { "$ref": "#/$defs/count" },
+            "outcomes": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["accept", "reject", "abstain", "invalid", "timeout"],
+              "properties": {
+                "accept": { "$ref": "#/$defs/count" },
+                "reject": { "$ref": "#/$defs/count" },
+                "abstain": { "$ref": "#/$defs/count" },
+                "invalid": { "$ref": "#/$defs/count" },
+                "timeout": { "$ref": "#/$defs/count" }
+              }
+            },
+            "captures": { "$ref": "#/$defs/wilson" },
+            "capturesWithExpectedChecks": { "$ref": "#/$defs/wilson" },
+            "uniqueCaptures": { "$ref": "#/$defs/count" },
+            "missesContainedByBackend": { "$ref": "#/$defs/count" },
+            "falseRejections": { "$ref": "#/$defs/wilson" },
+            "abstentions": { "$ref": "#/$defs/wilson" },
+            "invalidOutputs": { "$ref": "#/$defs/wilson" },
+            "timeouts": { "$ref": "#/$defs/wilson" }
+          }
+        },
+        "comparison": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["excludedPairs", "all", "admissible", "unsafe"],
+          "properties": {
+            "excludedPairs": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["incomplete", "infrastructure"],
+              "properties": { "incomplete": { "$ref": "#/$defs/count" }, "infrastructure": { "$ref": "#/$defs/count" } }
+            },
+            "all": { "$ref": "#/$defs/pairTable" },
+            "admissible": { "$ref": "#/$defs/pairTable" },
+            "unsafe": { "$ref": "#/$defs/pairTable" }
+          }
+        },
+        "cost": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "basis", "llmCalls", "providerCalls", "fakeCalls", "callsByStatus", "callsWithUnknownUsage", "pendingCalls",
+            "tokens", "costUsd", "callLatencyMs", "estimateUsd", "pricesUsdPerMtok"
+          ],
+          "properties": {
+            "basis": { "enum": ["fake_transport_estimate", "provider_reported_usage"] },
+            "llmCalls": { "$ref": "#/$defs/count" },
+            "providerCalls": { "$ref": "#/$defs/count" },
+            "fakeCalls": { "$ref": "#/$defs/count" },
+            "callsByStatus": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["ok", "refusal", "incomplete", "schema_invalid", "inconsistent", "timeout", "transport_error"],
+              "properties": {
+                "ok": { "$ref": "#/$defs/count" },
+                "refusal": { "$ref": "#/$defs/count" },
+                "incomplete": { "$ref": "#/$defs/count" },
+                "schema_invalid": { "$ref": "#/$defs/count" },
+                "inconsistent": { "$ref": "#/$defs/count" },
+                "timeout": { "$ref": "#/$defs/count" },
+                "transport_error": { "$ref": "#/$defs/count" }
+              }
+            },
+            "callsWithUnknownUsage": { "$ref": "#/$defs/count" },
+            "pendingCalls": { "$ref": "#/$defs/count" },
+            "tokens": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["input", "output", "cachedInput", "reasoning"],
+              "properties": {
+                "input": { "$ref": "#/$defs/count" },
+                "output": { "$ref": "#/$defs/count" },
+                "cachedInput": { "$ref": "#/$defs/count" },
+                "reasoning": { "$ref": "#/$defs/count" }
+              }
+            },
+            "costUsd": { "$ref": "#/$defs/measure" },
+            "callLatencyMs": { "$ref": "#/$defs/latency" },
+            "estimateUsd": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["min", "max"],
+              "properties": { "min": { "$ref": "#/$defs/decimal" }, "max": { "$ref": "#/$defs/decimal" } }
+            },
+            "pricesUsdPerMtok": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["input", "output"],
+              "properties": { "input": { "$ref": "#/$defs/decimal" }, "output": { "$ref": "#/$defs/decimal" } }
+            }
+          }
+        },
+        "deviations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["harness", "infrastructure", "validator"],
+          "properties": {
+            "harness": { "$ref": "#/$defs/count" },
+            "infrastructure": { "$ref": "#/$defs/count" },
+            "validator": { "$ref": "#/$defs/count" }
+          }
+        },
+        "sampleRule": { "$ref": "#/$defs/text" },
+        "cases": { "type": "array", "minItems": 1, "maxItems": 200, "items": { "$ref": "#/$defs/case" } },
+        "implementationSha256": { "$ref": "#/$defs/sha256" },
+        "corpusSha256": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cases", "oracle"],
+          "properties": { "cases": { "$ref": "#/$defs/sha256" }, "oracle": { "$ref": "#/$defs/sha256" } }
+        },
+        "notes": { "$ref": "#/$defs/texts" },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["artifact", "sha256", "pointer"],
+            "properties": {
+              "artifact": { "$ref": "#/$defs/text" },
+              "sha256": { "$ref": "#/$defs/sha256" },
+              "pointer": { "$ref": "#/$defs/text" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

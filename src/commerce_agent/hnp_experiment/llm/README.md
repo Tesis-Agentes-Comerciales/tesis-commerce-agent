@@ -71,6 +71,10 @@ cuando el gasto podría superar el tope. Las salidas (`summary.json`, `traces.js
 `evidence.jsonl`) van a `HNP_OUTPUT_DIR/<experiment_id>/`, que debe estar bajo `.local/`.
 `--no-strict` registra las desviaciones de arnés en vez de abortar.
 
+El monitor de gobernanza proyecta `summary.json` y `traces.jsonl` de una corrida en el contrato
+`governance-monitor/3` con `scripts/export_governance_monitor.py --versioned-sources --hnp02-run
+<directorio>`, sin razones del modelo ni prompts; ver `docs/governance-monitor/README.md`.
+
 ## Diseño de la matriz y métricas
 
 - Casos de negocio: los 19 fixtures con `validator_behavior == "normal"`. Los 8 fixtures que

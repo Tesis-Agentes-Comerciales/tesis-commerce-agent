@@ -3,10 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { OPEN_GATES } from "./gates.ts"
 import { unavailable, scenarioIssue, scenarioBadge, executionText, creationText, recoveryText, sourceText, validatorText, type EvidenceBundle, type PhaseEvidence, type Scenario } from "./adapter.ts"
-
-function Fact({ label, value }: { label: string; value: string | null }) {
-  return <div className="space-y-1"><dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt><dd className="break-words text-sm [overflow-wrap:anywhere]">{unavailable(value)}</dd></div>
-}
+import { ExperimentDetails } from "./ExperimentDetails.tsx"
+import { Fact } from "./Fact.tsx"
 
 function Decision({ title, value, explanation }: { title: string; value: PhaseEvidence | null; explanation: string }) {
   return <Card><CardHeader><CardTitle>{title}</CardTitle><p className="text-sm text-muted-foreground">{explanation}</p></CardHeader><CardContent className="space-y-4">
@@ -64,11 +62,13 @@ export function ScenarioDetails({ scenario: s }: { scenario: Scenario }) {
 
 export function GovernanceMonitor({ bundle, embedded = false }: { bundle: EvidenceBundle; embedded?: boolean }) {
   const [selected, setSelected] = useState(bundle.scenarios[0].id)
+  const experiment = bundle.experiments.find((e) => e.id === selected) ?? null
   const scenario = bundle.scenarios.find((s) => s.id === selected) ?? bundle.scenarios[0]
   return <section aria-label="Monitor de gobernanza" className={`${embedded ? "" : "h-svh overflow-y-auto"} bg-muted/30 px-4 py-8 text-foreground sm:px-8`}><div className="mx-auto max-w-6xl space-y-7">
     <header className="space-y-3"><div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-widest"><span className="rounded-full bg-primary/10 px-3 py-1 text-primary">Solo lectura</span><span className="rounded-full bg-amber-100 px-3 py-1 text-amber-950">{bundle.status}</span><span>Sin LLM en vivo · sin ejecución comercial</span></div><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Monitor de gobernanza</h1><p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">Reproducción de evidencia HP y HNP existente. Esta pantalla no autoriza, despacha ni completa compras. Los datos ausentes se muestran como no disponibles.</p></header>
-    <nav aria-label="Escenarios de evidencia" className="flex flex-wrap gap-2">{bundle.scenarios.map((s) => <Button key={s.id} type="button" variant={scenario.id === s.id ? "default" : "outline"} aria-pressed={scenario.id === s.id} onClick={() => setSelected(s.id)}>{s.label}</Button>)}</nav>
-    <ScenarioDetails scenario={scenario} />
+    <nav aria-label="Escenarios de evidencia" className="flex flex-wrap gap-2">{bundle.scenarios.map((s) => <Button key={s.id} type="button" variant={!experiment && scenario.id === s.id ? "default" : "outline"} aria-pressed={!experiment && scenario.id === s.id} onClick={() => setSelected(s.id)}>{s.label}</Button>)}</nav>
+    {bundle.experiments.length > 0 && <nav aria-label="Experimentos HNP-02" className="flex flex-wrap items-center gap-2"><span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Experimentos · sink ficticio</span>{bundle.experiments.map((e) => <Button key={e.id} type="button" variant={experiment?.id === e.id ? "default" : "outline"} aria-pressed={experiment?.id === e.id} onClick={() => setSelected(e.id)}>{e.label}</Button>)}</nav>}
+    {experiment ? <ExperimentDetails experiment={experiment} /> : <ScenarioDetails scenario={scenario} />}
     <footer className="border-t pt-4 text-xs leading-relaxed text-muted-foreground">HNP: {bundle.hnpLedgerEntriesVerified} entradas de ledger verificadas offline por el exportador; digests no equivalen a firmas. {OPEN_GATES} No es compra gobernada completa, UI humana de autorización ni validación de dos LLM.</footer>
   </div></section>
 }

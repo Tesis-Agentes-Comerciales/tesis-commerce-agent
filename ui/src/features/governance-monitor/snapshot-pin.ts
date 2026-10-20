@@ -1,2 +1,2 @@
 // Reviewed closed fixture, not a user-controlled manifest.
-export const DEMO_SNAPSHOT_SHA256 = "b51798061cf2258d20d51d00c05addc697656549188fdf7c3e5c6a502b90097e"
+export const DEMO_SNAPSHOT_SHA256 = "40ae9fb0f38d50322eb984c725c6532fe588acfe3f7124c1d16151be6c78e132"

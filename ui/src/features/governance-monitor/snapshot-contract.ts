@@ -27,5 +27,7 @@ export function parseDemoSnapshot(value: unknown): DemoSnapshot {
   const bundle = parseEvidence(s.bundle)
   const expected = ["hp-created", "hp-denied", "hnp-false-accept", "hp-uncertain"]
   if (bundle.scenarios.length !== expected.length || expected.some((id, i) => bundle.scenarios[i].id !== id)) throw Error("Escenarios fuera de la fixture autorizada")
+  // Only simulated-transport HNP-02 runs are cleared for the demo; a provider run needs its own review first.
+  if (bundle.experiments.some((e) => e.executionKind !== "llm validator dry-run" || e.transport !== "fake")) throw Error("Experimentos fuera de la fixture autorizada")
   return { schema: "governance-demo-snapshot/1", snapshotId: DEMO_SNAPSHOT_ID, classification: "sanitized_demo_fixture", temporalScope: "historical_closed_artifacts", liveEvents: false, authenticatedUserEvidence: false, bundle }
 }
