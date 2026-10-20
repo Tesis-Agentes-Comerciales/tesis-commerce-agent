@@ -23,6 +23,7 @@ from commerce_agent.domain import PurchaseIntent
 from commerce_agent.governance.hp_continuation import GovernedContinuation, governed_continuation
 from commerce_agent.llm import CandidateDecision, CommerceDecision
 from commerce_agent.persistence import SqliteAgentStore
+from tests.governance.test_enforce_runtime import decisions
 from tests.governance.test_runtime_dispatch import UNLISTED, Merchant, governed
 from tests.governance.test_shadow_integration import configuration
 from tests.test_api import StubConversationRouter, checkout_details
@@ -121,8 +122,9 @@ def approve(client: TestClient, run_id: str):
 
 
 def test_s01_governed_purchase_reaches_an_order(tmp_path: Path) -> None:
+    settings = governed(tmp_path / "agent.db")
     merchant = StoreMerchant()
-    with app_client(governed(tmp_path / "agent.db"), merchant) as client:
+    with app_client(settings, merchant) as client:
         turn = ask(client, "turn-s01")
         assert turn.status_code == 200, turn.text
         assert turn.json()["action"] == "purchase"
@@ -134,6 +136,9 @@ def test_s01_governed_purchase_reaches_an_order(tmp_path: Path) -> None:
         assert completed.status_code == 200, completed.text
         assert completed.json()["order"]["id"] == "ord_api_1"
         assert client.get(f"/purchases/{run_id}").json()["stage"] == "completed"
+    (record,) = decisions(settings.agent_database_path)
+    assert record.decision.outcome == "allow"
+    assert record.application.disposition == "transition_committed"
     assert merchant.creations() == 1
     assert merchant.effects() == [("POST", "/checkout_sessions/cs_api_1/complete")]
 
