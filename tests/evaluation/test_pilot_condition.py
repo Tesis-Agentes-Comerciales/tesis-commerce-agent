@@ -13,6 +13,7 @@ from commerce_agent.api import create_app
 from commerce_agent.config import Settings
 from commerce_agent.governance.bootstrap import build_enforce_gate
 from commerce_evaluation.governance_pilot import (
+    AGENT_SECRETS,
     CONDITIONS,
     ConditionMismatchError,
     D1RunKeys,
@@ -155,3 +156,15 @@ def test_agent_log_tail_never_shows_the_d1_keys(tmp_path: Path) -> None:
     assert KEYS.aes_hex not in tail
     assert "[redacted]" in tail
     assert KEYS.hmac_hex not in repr(KEYS)
+
+
+@pytest.mark.parametrize("name", AGENT_SECRETS)
+def test_agent_log_tail_hides_every_agent_secret(tmp_path: Path, name: str) -> None:
+    secret = f"secret-value-of-{name.lower()}"
+    log = tmp_path / "agent.log"
+    log.write_text(f"starting with {secret}\n", "utf-8")
+
+    tail = agent_log_tail(log, {name: secret})
+
+    assert secret not in tail
+    assert "[redacted]" in tail
