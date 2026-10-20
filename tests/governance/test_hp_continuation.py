@@ -143,6 +143,33 @@ def test_s01_governed_purchase_reaches_an_order(tmp_path: Path) -> None:
     assert merchant.effects() == [("POST", "/checkout_sessions/cs_api_1/complete")]
 
 
+def test_s04_governed_approval_rejects_a_changed_live_offer(tmp_path: Path) -> None:
+    settings = governed(tmp_path / "agent.db")
+    merchant = StoreMerchant()
+    with app_client(settings, merchant) as client:
+        turn = ask(client, "turn-s04")
+        assert turn.status_code == 200, turn.text
+        run_id = turn.json()["purchase"]["run_id"]
+        fingerprint = turn.json()["approval_terms"]["fingerprint"]
+        # The merchant reprices the offer after the terms were presented (S04 stimulus).
+        merchant.offer = {
+            **merchant.offer,
+            "revision": 2,
+            "pricing": {
+                **merchant.offer["pricing"],
+                "items_total_minor": 80_000,
+                "total_minor": 82_000,
+            },
+        }
+        approval = client.post(
+            f"/purchases/{run_id}/approval", json={"expected_fingerprint": fingerprint}
+        )
+        assert approval.status_code == 409, approval.text
+        assert approval.json()["code"] == "checkout_terms_changed"
+        assert client.post(f"/purchases/{run_id}/complete").status_code >= 400
+    assert merchant.effects() == []
+
+
 def test_governed_purchase_can_be_canceled_and_frees_the_buyer(tmp_path: Path) -> None:
     merchant = StoreMerchant()
     with app_client(governed(tmp_path / "agent.db"), merchant) as client:
