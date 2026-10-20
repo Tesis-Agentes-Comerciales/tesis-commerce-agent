@@ -68,15 +68,20 @@ uv run governance-pilot --condition B0prime --condition B2
   `--condition` el plan es el de antes (escenario y repetición).
 - Cada corrida arranca un agente nuevo con su propio directorio (`<condición>-<escenario>-<n>`), su
   `agent.db` y su corrida del comercio.
-- **Procedencia.** Cada fila y el resumen registran `manifest_id` (`B2-PILOT-v1` cuando las
-  condiciones y la matriz son las del manifiesto; si no, `null`), `agent_commit` y
-  `agent_worktree_dirty`. Si hay cambios sin commit en archivos versionados del agente, el runner
+- **Procedencia.** Cada fila y el resumen registran `manifest_id` (`B2-PILOT-v1` solo cuando corren
+  exactamente B0' y B2 sobre la matriz del manifiesto; con una sola condición u otra matriz,
+  `null`), `agent_commit` y `agent_worktree_dirty`. Si hay cambios sin commit en archivos versionados del agente, el runner
   aborta antes de levantar servicios, salvo con `--allow-dirty`. Los archivos sin versionar (como
   los resultados) no cuentan.
-- **Resumen** (`.summary.json`): `by_condition` y `by_condition_scenario`. Las filas con
-  `harness_error` se cuentan en `harness_errors`; `oracle_pass_rate` y las medias se calculan sobre
-  las filas evaluadas y `oracle_pass_rate_all_runs`, sobre todas. Con una condición, el resumen
-  conserva además los totales de antes en la raíz; con varias no se agrega una tasa común.
+- **Resumen** (`.summary.json`): los escenarios y repeticiones planeados (`scenarios`,
+  `repetitions`), `by_condition` y `by_condition_scenario`. Las filas con `harness_error` se cuentan
+  en `harness_errors`; `oracle_pass_rate` y `mean_latency_ms` se calculan sobre las filas evaluadas
+  y `oracle_pass_rate_all_runs`, sobre todas. Con una condición, el resumen conserva además los
+  totales en la raíz; con varias no se agrega una tasa común.
+- **Traza (enmienda M1).** La métrica heredada `trace_completeness` de cada fila tiene techos de
+  0,25 a 1,0 según el escenario y no es comparable, así que el resumen no publica su media:
+  `trace_completeness` es `"not_evaluated"`. La cobertura de evidencia gobernada por mecanismo
+  (`mechanism_evidence`, abajo) se reporta aparte.
 
 El runner le pasa al agente la condición como variables de proceso, que ganan sobre su `.env`:
 
@@ -99,6 +104,40 @@ El runner le pasa al agente la condición como variables de proceso, que ganan s
   `checkout_terms_changed`. Cualquier otro error no cuenta.
 - B2 no arranca si el `.env` local define `AGENT_D1_POLICY_PATH` o `AGENT_D1_POLICY_DIGEST`,
   porque enforce no acepta archivo de política y lista de comercios a la vez.
+
+### Evidencia gobernada, checkouts del comercio y latencia de política
+
+El oráculo (`score_result`) no cambia. Cada fila evaluada suma tres campos:
+
+- `merchant_checkouts` (enmienda M3): después del turno (y, en S04, de la aprobación) y **antes**
+  de que el runner cancele la compra que el agente haya dejado abierta, corre
+  `python -m commerce_lab.db run-checkouts <merchant_run_id>` en el comercio y registra `count`,
+  `by_status`, `order_count` y la lista (`checkout_id`, `status`, `offer_id`). Así un `canceled`
+  es un checkout que el agente creó y canceló, y uno abierto aparece como `prepared` o
+  `ready_for_payment`. La fila registra aparte `runner_canceled` (si el runner llamó a cancelar).
+  Al arrancar, el runner verifica que el comercio tenga ese subcomando; si no, se detiene antes de
+  levantar servicios.
+- `governed_evidence`: cuando el agente ya terminó, el runner abre su `agent.db` en solo lectura
+  (`mode=ro`). `d1_decisions` trae, de `governance_evidence`, `record_kind`, `outcome`, `origin`,
+  `reason_codes` y `latency_ms`. `hp_evidence` trae el `record_kind` y solo los campos de resultado
+  del cuerpo (frescura: `stage`, `outcome`, `decision`, `changed_fields`, `reason`,
+  `governance_mode`, `observed_revision`; recuperación: `control`, `kind`, `cause`), sin
+  identificadores ni montos. `hp_evidence_chain_verified` dice si la cadena de digests verifica;
+  sin filas es `null`. Una tabla que no existe es `null` (no disponible), nunca un error.
+- `mechanism_evidence`: para B2, cada mecanismo que `attribution.mechanism_by_scenario` del
+  manifiesto asigna al escenario queda `recorded`, `missing` (la tabla existe pero no hay registro),
+  `unavailable` (la tabla no existe) o `not_recorded` (no tiene registro propio: la continuación
+  gobernada reutiliza el allow de D1). `d1_dispatch` busca un `decision_record` de D1 con
+  `outcome: allow` (un deny no despacha), `offer_freshness` un `freshness_check` y
+  `governed_recovery` un `governed_recovery`. Para B0' es `not_applicable`.
+
+El resumen agrega, por condición y por condición × escenario: `http_5xx`; `merchant_checkouts`
+(corridas medidas, corridas en que canceló el runner, corridas con checkouts, total, `by_status` y
+órdenes); `approval_response_codes`
+(conteo por código entre las aprobaciones enviadas; `none` si la respuesta no trae código);
+`policy_latency_ms` (`n`, `median`, `max` de los `decision_record` con `origin: policy`, con
+resolución de 1 ms, truncada), aparte de `mean_latency_ms`, que es la latencia del turno con el
+modelo; y `mechanism_evidence`, el conteo de estados por mecanismo.
 
 ## Archivos
 

@@ -8,13 +8,17 @@ import http.cookiejar
 import json
 import os
 import secrets
+import sqlite3
+import statistics
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections import Counter
 from collections.abc import Callable, Mapping
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +29,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from jwcrypto.jwk import JWK
 
+from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
 from commerce_evaluation.paths import DATA, EVALUATION, RESULTS, ROOT
 
 DEFAULT_MATRIX = DATA / "pilot-scenarios.json"
@@ -32,6 +37,29 @@ DEFAULT_RESULTS = RESULTS
 # Pre-registered B0'/B2 pilot: its conditions, execution order and acceptance criteria.
 PILOT_MANIFEST = DATA / "b2-pilot-v1.json"
 INTERLEAVED = "interleaved_by_repetition_alternating_first_condition"
+# Where each B2 mechanism leaves its own record in agent.db: source, record kind and, when it
+# matters, the outcome. Only a D1 allow dispatches. The governed continuation reuses the committed
+# allow and has no record of its own, so it is reported as not_recorded.
+MECHANISM_RECORDS: dict[str, tuple[str, str, str | None]] = {
+    "d1_dispatch": ("d1_decisions", "decision_record", "allow"),
+    "offer_freshness": ("hp_evidence", "freshness_check", None),
+    "governed_recovery": ("hp_evidence", "governed_recovery", None),
+}
+# Result fields of each HP record. Identifiers, compared amounts and digests stay in agent.db.
+HP_RESULT_FIELDS = {
+    "freshness_check": (
+        "stage",
+        "outcome",
+        "decision",
+        "changed_fields",
+        "reason",
+        "governance_mode",
+        "observed_revision",
+    ),
+    "governed_recovery": ("control", "kind", "cause"),
+}
+# D1 stores latency_ms as whole milliseconds, truncated (governance/enforce.py).
+POLICY_LATENCY_RESOLUTION_MS = 1
 # Runs with the merchant's environment, which owns commerce_lab and psycopg.
 MUTATE_OFFER = EVALUATION / "scripts" / "evaluation_mutate_offer.py"
 
@@ -203,11 +231,157 @@ def require_clean_worktree(provenance: AgentProvenance, *, allow_dirty: bool) ->
 
 
 def pilot_manifest_id(conditions: tuple[PilotCondition, ...], matrix_path: Path) -> str | None:
-    """B2-PILOT-v1 only for its conditions on its scenario matrix; otherwise no manifest."""
+    """B2-PILOT-v1 only for exactly its conditions, interleaved, on its scenario matrix."""
     manifest = json.loads(PILOT_MANIFEST.read_text(encoding="utf-8"))
     on_manifest_matrix = matrix_path.resolve() == (ROOT / manifest["scenario_manifest"]).resolve()
-    manifest_conditions = all(condition.name in manifest["conditions"] for condition in conditions)
+    manifest_conditions = {condition.name for condition in conditions} == set(
+        manifest["conditions"]
+    )
     return str(manifest["manifest_id"]) if on_manifest_matrix and manifest_conditions else None
+
+
+def mechanisms_by_scenario() -> dict[str, list[str]]:
+    manifest = json.loads(PILOT_MANIFEST.read_text(encoding="utf-8"))
+    return manifest["attribution"]["mechanism_by_scenario"]
+
+
+def _merchant_db(*arguments: str) -> list[str]:
+    return ["uv", "run", "python", "-m", "commerce_lab.db", *arguments]
+
+
+def require_merchant_run_checkouts(merchant: Path, environment: dict[str, str]) -> None:
+    try:
+        _run(_merchant_db("run-checkouts", "--help"), cwd=merchant, env=environment, capture=True)
+    except PilotError as error:
+        raise PilotError(
+            f"The merchant at {merchant} has no `python -m commerce_lab.db run-checkouts`; the "
+            "pilot needs it to count merchant checkouts per run (amendment M3). "
+            "Update the merchant."
+        ) from error
+
+
+def merchant_checkouts(
+    merchant: Path, environment: dict[str, str], merchant_run_id: str
+) -> dict[str, Any]:
+    """Checkouts the merchant persisted for the run, whatever the agent answered (M3)."""
+    report = _run_json(
+        _merchant_db("run-checkouts", merchant_run_id), cwd=merchant, env=environment
+    )
+    checkouts = report.get("checkouts")
+    if report.get("run_id") != merchant_run_id or not isinstance(checkouts, list):
+        raise PilotError("Merchant run-checkouts did not report the requested run")
+    return {
+        "count": len(checkouts),
+        "by_status": dict(Counter(str(item["status"]) for item in checkouts)),
+        "order_count": report.get("order_count"),
+        "checkouts": [
+            {key: item[key] for key in ("checkout_id", "status", "offer_id")} for item in checkouts
+        ],
+    }
+
+
+class _ReadOnlyHpEvidence(SqliteHpEvidenceStore):
+    """The agent's own chain check, on a connection that cannot write."""
+
+    def _connect(self) -> sqlite3.Connection:
+        return _read_only(self._path)
+
+
+def _read_only(database: Path) -> sqlite3.Connection:
+    return sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
+
+
+def _d1_decision(record_kind: str, body: str) -> dict[str, Any]:
+    content = json.loads(body)
+    decision = content.get("decision")
+    if record_kind == "decision_record" and isinstance(decision, dict):
+        return {
+            "record_kind": record_kind,
+            "outcome": decision.get("outcome"),
+            "origin": decision.get("origin"),
+            "reason_codes": list(decision.get("reason_codes", [])),
+            "latency_ms": decision.get("latency_ms"),
+        }
+    reason = content.get("reason_code")
+    return {
+        "record_kind": record_kind,
+        "outcome": None,
+        "origin": None,
+        "reason_codes": [reason] if reason else [],
+        "latency_ms": None,
+    }
+
+
+def _hp_result(record_kind: str, body: str) -> dict[str, Any]:
+    content = json.loads(body)
+    fields = HP_RESULT_FIELDS.get(record_kind, ())
+    return {"record_kind": record_kind} | {
+        field: content[field] for field in fields if field in content
+    }
+
+
+def read_governed_evidence(database: Path) -> dict[str, Any]:
+    """D1 decisions and HP results the agent left, read only. A missing table is null."""
+    evidence: dict[str, Any] = {
+        "d1_decisions": None,
+        "hp_evidence": None,
+        "hp_evidence_chain_verified": None,
+    }
+    if not database.is_file():
+        return evidence
+    with closing(_read_only(database)) as connection:
+        tables = {
+            name
+            for (name,) in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if "governance_evidence" in tables:
+            evidence["d1_decisions"] = [
+                _d1_decision(kind, body)
+                for kind, body in connection.execute(
+                    "SELECT record_kind, body FROM governance_evidence ORDER BY run_id, sequence"
+                )
+            ]
+        if "hp_evidence" in tables:
+            rows = connection.execute(
+                "SELECT run_id, record_kind, body FROM hp_evidence ORDER BY run_id, sequence"
+            ).fetchall()
+            evidence["hp_evidence"] = [_hp_result(kind, body) for _, kind, body in rows]
+            if rows:
+                store = _ReadOnlyHpEvidence(database)
+                evidence["hp_evidence_chain_verified"] = all(
+                    store.verify_chain(run_id) for run_id in dict.fromkeys(row[0] for row in rows)
+                )
+    return evidence
+
+
+def _mechanism_status(mechanism: str, governed: dict[str, Any]) -> str:
+    source = MECHANISM_RECORDS.get(mechanism)
+    if source is None:
+        return "not_recorded"
+    table, record_kind, outcome = source
+    rows = governed[table]
+    if rows is None:
+        return "unavailable"
+    recorded = any(
+        row["record_kind"] == record_kind and (outcome is None or row.get("outcome") == outcome)
+        for row in rows
+    )
+    return "recorded" if recorded else "missing"
+
+
+def mechanism_evidence(
+    condition: PilotCondition,
+    scenario_id: str,
+    governed: dict[str, Any],
+    mechanisms: Mapping[str, list[str]],
+) -> dict[str, str] | str:
+    """For B2, whether each mechanism the manifest attributes to the scenario left evidence."""
+    if condition.governance_mode == "off":
+        return "not_applicable"
+    return {
+        mechanism: _mechanism_status(mechanism, governed)
+        for mechanism in mechanisms.get(scenario_id, [])
+    }
 
 
 def agent_environment(
@@ -670,6 +844,7 @@ def _execute_repetition(
     *,
     run: PlannedRun,
     condition_environment: dict[str, str],
+    mechanisms: Mapping[str, list[str]],
     agent: Path,
     merchant: Path,
     environment: dict[str, str],
@@ -820,6 +995,9 @@ def _execute_repetition(
                         bearer=auth.token(),
                     )
 
+            # Before the cleanup below: a checkout the agent left open must not count as canceled.
+            checkouts = merchant_checkouts(merchant, environment, merchant_run_id)
+            runner_canceled = False
             final_status: dict[str, Any] | None = None
             if purchase_run_id is not None:
                 status = _request_json(
@@ -838,6 +1016,7 @@ def _execute_repetition(
                         payload={},
                         bearer=auth.token(),
                     )
+                    runner_canceled = True
             metrics, evidence, errors = score_result(
                 scenario,
                 response,
@@ -847,7 +1026,7 @@ def _execute_repetition(
                 mutation=mutation,
                 final_status=final_status,
             )
-            return {
+            record = {
                 "matrix_id": "governance-pilot-v1",
                 "baseline_id": "B0-2026-10-06",
                 "condition": condition.name,
@@ -879,6 +1058,8 @@ def _execute_repetition(
                     else None
                 ),
                 "final_purchase_status": final_status,
+                "merchant_checkouts": checkouts,
+                "runner_canceled": runner_canceled,
                 "evidence_presence": evidence,
                 "metrics": metrics,
                 "oracle_errors": errors,
@@ -891,6 +1072,12 @@ def _execute_repetition(
             raise
         finally:
             _terminate(process)
+    # Read once the agent has exited, so every write it made is committed and closed.
+    governed = read_governed_evidence(run_dir / "agent.db")
+    return record | {
+        "governed_evidence": governed,
+        "mechanism_evidence": mechanism_evidence(condition, scenario["id"], governed, mechanisms),
+    }
 
 
 def _harness_error_record(
@@ -957,8 +1144,8 @@ def _rate(count: int, total: int) -> float | None:
     return round(count / total, 4) if total else None
 
 
-def _mean(values: list[int | float], digits: int | None) -> int | float | None:
-    return round(sum(values) / len(values), digits) if values else None
+def _mean(values: list[int]) -> int | None:
+    return round(sum(values) / len(values)) if values else None
 
 
 def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -980,9 +1167,70 @@ def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         "prompt_injection_compliance": sum(
             metric["prompt_injection_compliance"] for metric in metrics
         ),
-        "mean_trace_completeness": _mean([metric["trace_completeness"] for metric in evaluated], 4),
-        "mean_latency_ms": _mean([metric["latency_ms"] for metric in evaluated], None),
+        # Amendment M1: the legacy per-row trace_completeness has ceilings and is not comparable.
+        "trace_completeness": "not_evaluated",
+        "mean_latency_ms": _mean([metric["latency_ms"] for metric in evaluated]),
+        **_governed_summary([record for record in records if "harness_error" not in record]),
     }
+
+
+def _governed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """HTTP 5xx, merchant checkouts (M3), approval codes (M2), policy latency and coverage."""
+    approvals = [row for row in rows if row.get("approval_http_status") is not None]
+    return {
+        "http_5xx": sum((row.get("http_status") or 0) >= 500 for row in rows),
+        "merchant_checkouts": _checkouts_summary(rows),
+        "approval_response_codes": dict(
+            Counter(str(row.get("approval_response_code") or "none") for row in approvals)
+        ),
+        "policy_latency_ms": _policy_latency(rows),
+        "mechanism_evidence": _mechanism_coverage(rows),
+    }
+
+
+def _checkouts_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    measured = [row["merchant_checkouts"] for row in rows if row.get("merchant_checkouts")]
+    by_status: Counter[str] = Counter()
+    for checkouts in measured:
+        by_status.update(checkouts["by_status"])
+    return {
+        "runs_measured": len(measured),
+        "runs_runner_canceled": sum(bool(row.get("runner_canceled")) for row in rows),
+        "runs_with_checkouts": sum(checkouts["count"] > 0 for checkouts in measured),
+        "total": sum(checkouts["count"] for checkouts in measured),
+        "by_status": dict(by_status),
+        "orders": sum(checkouts.get("order_count") or 0 for checkouts in measured),
+    }
+
+
+def _policy_latency(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """The policy evaluator's own D1 measurements, apart from the turn's model latency."""
+    values = [
+        decision["latency_ms"]
+        for row in rows
+        for decision in (row.get("governed_evidence") or {}).get("d1_decisions") or []
+        if decision.get("record_kind") == "decision_record"
+        and decision.get("origin") == "policy"
+        and isinstance(decision.get("latency_ms"), int)
+    ]
+    return {
+        "n": len(values),
+        "median": statistics.median(values) if values else None,
+        "max": max(values, default=None),
+        "resolution_ms": POLICY_LATENCY_RESOLUTION_MS,
+    }
+
+
+def _mechanism_coverage(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]] | str:
+    attributed = [row["mechanism_evidence"] for row in rows if "mechanism_evidence" in row]
+    if attributed and all(item == "not_applicable" for item in attributed):
+        return "not_applicable"
+    coverage: dict[str, Counter[str]] = {}
+    for item in attributed:
+        if isinstance(item, dict):
+            for mechanism, status in item.items():
+                coverage.setdefault(mechanism, Counter())[status] += 1
+    return {mechanism: dict(statuses) for mechanism, statuses in coverage.items()}
 
 
 def summarize(
@@ -1008,6 +1256,38 @@ def summarize(
     return totals | {
         "by_condition": by_condition,
         "by_condition_scenario": by_condition_scenario,
+    }
+
+
+def _execution_order(conditions: tuple[PilotCondition, ...]) -> str:
+    return INTERLEAVED if len(conditions) > 1 else "sequential"
+
+
+def summary_document(
+    records: list[dict[str, Any]],
+    *,
+    matrix: dict[str, Any],
+    run_metadata: dict[str, Any],
+    conditions: tuple[PilotCondition, ...],
+    scenarios: list[str],
+    repetitions: int,
+    output: Path,
+) -> dict[str, Any]:
+    """The .summary.json: what was planned, where its rows are and their summary."""
+    return {
+        "matrix_id": matrix["matrix_id"],
+        "baseline_id": matrix["baseline_id"],
+        **run_metadata,
+        "conditions": [condition.name for condition in conditions],
+        "execution_order": _execution_order(conditions),
+        "scenarios": scenarios,
+        "repetitions": repetitions,
+        "created_at": datetime.now(UTC).isoformat(),
+        # Relative inside the checkout, so committed summaries carry no machine path.
+        "output": (
+            output.relative_to(ROOT).as_posix() if output.is_relative_to(ROOT) else str(output)
+        ),
+        **summarize(records, conditions),
     }
 
 
@@ -1040,7 +1320,6 @@ def _run_pilot() -> int:
         }
         for condition in conditions
     ]
-    execution_order = INTERLEAVED if len(conditions) > 1 else "sequential"
     if arguments.dry_run:
         print(
             json.dumps(
@@ -1048,7 +1327,7 @@ def _run_pilot() -> int:
                     **(described[0] if len(conditions) == 1 else {}),
                     **run_metadata,
                     "conditions": described,
-                    "execution_order": execution_order,
+                    "execution_order": _execution_order(conditions),
                     "runs": len(plan),
                     "scenarios": [scenario["id"] for scenario in scenarios],
                     "repetitions": repetitions,
@@ -1136,6 +1415,8 @@ def _run_pilot() -> int:
     _run(["uv", "sync", "--frozen", "--all-groups"], cwd=agent, env=environment)
     _run(["uv", "sync", "--frozen", "--all-groups"], cwd=merchant, env=environment)
     _run(["uv", "sync", "--frozen", "--all-groups"], cwd=payment, env=environment)
+    require_merchant_run_checkouts(merchant, environment)
+    mechanisms = mechanisms_by_scenario()
     if not arguments.skip_postgres_start:
         _run(
             ["docker", "compose", "up", "-d", "--wait", "postgres"],
@@ -1210,6 +1491,7 @@ def _run_pilot() -> int:
                 return _execute_repetition(
                     run=run,
                     condition_environment=environments[run.condition.name],
+                    mechanisms=mechanisms,
                     agent=agent,
                     merchant=merchant,
                     environment=environment,
@@ -1227,21 +1509,15 @@ def _run_pilot() -> int:
                     run_metadata=run_metadata,
                     result_file=result_file,
                 )
-            summary = {
-                "matrix_id": matrix["matrix_id"],
-                "baseline_id": matrix["baseline_id"],
-                **run_metadata,
-                "conditions": [condition.name for condition in conditions],
-                "execution_order": execution_order,
-                "created_at": datetime.now(UTC).isoformat(),
-                # Relative inside the checkout, so committed summaries carry no machine path.
-                "output": (
-                    output.relative_to(ROOT).as_posix()
-                    if output.is_relative_to(ROOT)
-                    else str(output)
-                ),
-                **summarize(records, conditions),
-            }
+            summary = summary_document(
+                records,
+                matrix=matrix,
+                run_metadata=run_metadata,
+                conditions=conditions,
+                scenarios=[scenario["id"] for scenario in scenarios],
+                repetitions=repetitions,
+                output=output,
+            )
             summary_path.write_text(
                 json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
