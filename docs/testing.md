@@ -114,9 +114,11 @@ En macOS con OrbStack, 2026-10-20:
 
 | Selección | Pruebas | Tiempo |
 | --- | --- | --- |
-| `uv run pytest` (capas 1 y 5) | ~1270 (64 omitidas) | ~1 min |
-| `tests/integration` completa | 64 | ~12 min |
-| `tests/integration -m "not slow"` | 53 | ~2 min |
+| `uv run pytest` (capas 1 y 5) | ~1620: ~1560 pasan y 66 se omiten | ~1 min |
+| `tests/integration` completa | 66 | ~12 min |
+| `tests/integration -m "not slow"` | 55 | ~2 min |
+
+Los conteos salen de `uv run pytest --collect-only -q` con la selección de cada fila.
 
 ## Al escribir una prueba
 

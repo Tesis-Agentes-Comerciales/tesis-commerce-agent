@@ -7,25 +7,30 @@ en `evaluation/results/b2-pilot-v1-report.md`.
 ## Problema
 
 La pregunta de la tesis se responde comparando la línea base B0 con B2 (B0 más gobernanza) en el
-piloto pareado S01–S05 × 5. Hoy esa comparación no se puede hacer:
+piloto pareado S01–S05 × 5. Al aprobar esta spec esa comparación no se podía hacer; cada punto
+dice qué PR lo resolvió:
 
 1. **El runner no aplica B2.** `governance_pilot.py` exporta `GOVERNANCE_MODE`, pero el agente lee
    `AGENT_GOVERNANCE_MODE` e ignora las variables desconocidas (`config.py`). Toda corrida «B2»
-   hasta hoy habría sido B0.
+   hasta hoy habría sido B0. *Resuelto en #32.*
 2. **Enforce no completa una compra válida.** Un allow de D1 termina en `d1_dispatch_blocked`
    porque no hay adaptador de despacho (`governance/bootstrap.py`, `governance/enforce.py`). Además,
    `_block_d1_continuation` bloquea aprobar, cancelar y completar cualquier compra con D1
    (`application/purchase.py`, `completion.py`). Con enforce, S01 y S05 darían 0/5 por una
-   limitación de implementación, no de diseño.
+   limitación de implementación, no de diseño. *Resuelto en #36 y #37:* con
+   `AGENT_HP_FLOW=governed` un allow crea el checkout y la compra continúa a la aprobación, la
+   cancelación y la orden. `d1_dispatch_blocked` queda solo con el valor por defecto, `blocked`.
 3. **Nada detecta términos obsoletos al aprobar.** En S04 el comercio cambia la oferta (revisión
    y precio) después de presentar los términos. El checkout guarda una foto de la oferta, así que
    la huella que compara el agente no cambia. El agente acepta la aprobación y firma los mandatos
-   AP2. Por eso B0 aceptó 5/5 aprobaciones obsoletas.
+   AP2. Por eso B0 aceptó 5/5 aprobaciones obsoletas. *Resuelto en #33* (frescura de la oferta).
 4. **S02 falla antes de cualquier política.** En 4 de 5 repeticiones el modelo elige una variante
    fuera de la lista corta y la API responde 502. D1 nunca evalúa. En la quinta, el checkout se
-   crea y luego se cancela por presupuesto.
+   crea y luego se cancela por presupuesto. *Resuelto en #34 y #42* (recuperación gobernada), sin
+   evitar los checkouts creados y cancelados (ver el reporte del piloto).
 5. **POL-02 nunca bloqueó con la configuración real.** El bloqueo de la evidencia usó una política
    inyectada. Sin lista de comercios, la política por defecto permite el comercio configurado.
+   *Resuelto:* la lista sale de `Settings` y la prueba live de #48 bloquea con ella.
 
 ## Condiciones
 
@@ -45,14 +50,17 @@ la produjo otro control.
 
 ## Mecanismos de B2
 
-| Mecanismo | Qué hace | Escenarios | Tipo |
-| --- | --- | --- | --- |
-| **Despacho D1** | Un allow comprometido crea el checkout con la clave HMAC del sobre, un solo POST y sin reintentos. Un timeout deja la operación `uncertain` | S01, S04, S05 | D1 (PDP + aplicación) |
-| **Continuación gobernada** | Reemplaza el bloqueo general. Aprobar, cancelar y completar continúan solo si hay un allow comprometido, la operación quedó `confirmed` con el mismo `checkout_id` y el post-create llegó a `awaiting_confirmation` | S01, S04, S05 | Aplicación |
-| **Frescura de la oferta** | Al presentar y al aprobar, relee la oferta vigente (`POST /lab/offers/get`) y la compara con el checkout con el mismo predicado que usa el comercio al completar: moneda, subtotal, envío, total, vigencia, días de entrega y stock. Si cambió, responde 409 `checkout_terms_changed`: no se firman mandatos ni se guarda la aprobación. Un cambio solo de revisión, con los mismos términos, no bloquea; la revisión queda como evidencia. Si no puede leer la oferta, falla cerrado con 503 `offer_freshness_unavailable` | S04 | Control de aplicación (insumo futuro de POL-04/D2) |
-| **POL-02 desde la configuración** | La lista de comercios permitidos ya se lee de `Settings` (`AGENT_D1_ALLOWED_MERCHANT_ORIGINS`, en `governance/bootstrap.py`). Un comercio fuera de la lista da `d1_denied` antes de cualquier POST. Falta la prueba live (PR-5) | Demo, suite live | D1 (PDP) |
-| **Recuperación gobernada** | Cuando no hay candidatos, el modelo elige una variante fuera de la lista o el presupuesto se excede después del checkout, el agente explica la causa con un texto canónico y responde 200 en vez de 5xx. Cada recuperación queda en `hp_evidence` (`governed_recovery`); si no se puede escribir, el agente responde como B0 (502, 409 o la recuperación del modelo) y deja el aviso `governed_recovery_evidence_unavailable`. B0' conserva su comportamiento | S02 | Control de aplicación, no PDP |
-| **Evidencia HP** | Tabla `hp_evidence` de solo inserción, encadenada por digest, con `freshness_check` y `governed_recovery`. D1 sigue en `governance_evidence` | Todos | Evidencia |
+Estado al 20-oct-2026: los seis están en `main`. El piloto los ejercitó todos menos el bloqueo de
+POL-02, que tiene su prueba live.
+
+| Mecanismo | Qué hace | Escenarios | Tipo | Estado |
+| --- | --- | --- | --- | --- |
+| **Despacho D1** | Un allow comprometido crea el checkout con la clave HMAC del sobre, un solo POST y sin reintentos. Un timeout deja la operación `uncertain` | S01, S04, S05 | D1 (PDP + aplicación) | Hecho (#36). Prueba live con el comercio real (`tests/integration/test_live_b2_governed_purchase.py`); en el piloto, allow en 15/15 |
+| **Continuación gobernada** | Reemplaza el bloqueo general. Aprobar, cancelar y completar continúan solo si hay un allow comprometido, la operación quedó `confirmed` con el mismo `checkout_id` y el post-create llegó a `awaiting_confirmation` | S01, S04, S05 | Aplicación | Hecho (#37). La misma prueba live llega a la orden con los recibos firmados |
+| **Frescura de la oferta** | Al presentar y al aprobar, relee la oferta vigente (`POST /lab/offers/get`) y la compara con el checkout con el mismo predicado que usa el comercio al completar: moneda, subtotal, envío, total, vigencia, días de entrega y stock. Si cambió, responde 409 `checkout_terms_changed`: no se firman mandatos ni se guarda la aprobación. Un cambio solo de revisión, con los mismos términos, no bloquea; la revisión queda como evidencia. Si no puede leer la oferta, falla cerrado con 503 `offer_freshness_unavailable` | S04 | Control de aplicación (insumo futuro de POL-04/D2) | Hecho (#33). En el piloto, 5/5 `checkout_terms_changed` en S04. La compra rechazada queda visible y cancelable (#43, #45) |
+| **POL-02 desde la configuración** | La lista de comercios permitidos se lee de `Settings` (`AGENT_D1_ALLOWED_MERCHANT_ORIGINS`, `governance/bootstrap.py:94`); nada la inyecta. Un comercio fuera de la lista da `d1_denied` antes de cualquier POST | Demo (`pol02-deny`), suite live | D1 (PDP) | Hecho. Prueba live (#48, `tests/integration/test_live_b2_pol02_allowlist.py`) con los modos `b2` y `pol02-deny` de `demo-stack`: deniega sin POST de creación y permite con un solo POST. En el piloto POL-02 siempre pasa, porque la lista de B2 incluye al comercio |
+| **Recuperación gobernada** | Cuando no hay candidatos, el modelo elige una variante fuera de la lista o el presupuesto se excede después del checkout, el agente explica la causa con un texto canónico y responde 200 en vez de 5xx. Cada recuperación queda en `hp_evidence` (`governed_recovery`); si no se puede escribir, el agente responde como B0 (502, 409 o la recuperación del modelo) y deja el aviso `governed_recovery_evidence_unavailable`. B0' conserva su comportamiento | S02 | Control de aplicación, no PDP | Hecho (#34; la evidencia en `hp_evidence`, #42). En el piloto, 0 respuestas 5xx en S02, pero 3/5 con checkout creado y cancelado |
+| **Evidencia HP** | Tabla `hp_evidence` de solo inserción, encadenada por digest, con `freshness_check` y `governed_recovery`. D1 sigue en `governance_evidence` | Todos | Evidencia | Hecho (#33 y #42). La traza de la compra muestra sus pasos (#50) |
 
 En `off` ninguno de estos mecanismos existe: B0' es B0. En `shadow` la frescura solo registra y la
 recuperación no actúa ni registra.
@@ -93,19 +101,19 @@ D1. Ninguno es necesario para los criterios de arriba.
 Repo del agente. Cada PR es pequeño, lleva sus tests y lo revisa un agente independiente según
 `docs/workflow.md`.
 
-| PR | Título | Depende de | Para |
-| --- | --- | --- | --- |
-| 0 | `docs(design): governed B2 pilot and pre-registered manifest` | — | Piloto |
-| 1 | `fix(evaluation): deliver the B2 condition to the agent` | 0 | Piloto |
-| 2 | `feat(governance): dispatch allowed D1 checkouts through the ACP client` | — | Piloto |
-| 3 | `feat(purchase): continue governed purchases to approval, cancel and completion` | 2 | Piloto |
-| 4 | `feat(approval): reject approvals when the live offer changed` | 3 | Piloto (S04) |
-| 5 | `test(integration): enforce POL-02 from settings in the live stack` | 2 | Demo y evidencia |
-| 6 | `feat(conversation): explain rejected selections without technical errors in governed mode` | — | Piloto (S02) |
-| 7 | `feat(evaluation): score governed evidence, merchant checkouts and policy latency` | 1, 4, 6 | Piloto (traza, M3) |
-| 8 | `feat(api): keep a purchase with changed terms visible and cancelable` (ver Decisiones) | 4 | Demo |
-| 9 | `feat(ui): Spanish messages for governed purchase errors` | 3 | Demo |
-| 10 | `docs(evaluation): B2 pilot v1 results` | corrida | Tesis |
+| PR | Título | Depende de | Para | Fusionado |
+| --- | --- | --- | --- | --- |
+| 0 | `docs(design): governed B2 pilot and pre-registered manifest` | — | Piloto | #28 |
+| 1 | `fix(evaluation): deliver the B2 condition to the agent` | 0 | Piloto | #32 |
+| 2 | `feat(governance): dispatch allowed D1 checkouts through the ACP client` | — | Piloto | #36 |
+| 3 | `feat(purchase): continue governed purchases to approval, cancel and completion` | 2 | Piloto | #37 |
+| 4 | `feat(approval): reject approvals when the live offer changed` | 3 | Piloto (S04) | #33 |
+| 5 | `test(integration): enforce POL-02 from settings in the live stack` | 2 | Demo y evidencia | #48 |
+| 6 | `feat(conversation): explain rejected selections without technical errors in governed mode` | — | Piloto (S02) | #34, con la evidencia en #42 |
+| 7 | `feat(evaluation): score governed evidence, merchant checkouts and policy latency` | 1, 4, 6 | Piloto (traza, M3) | #41 |
+| 8 | `feat(api): keep a purchase with changed terms visible and cancelable` (ver Decisiones) | 4 | Demo | #43, y la tarjeta del chat en #45 |
+| 9 | `feat(ui): Spanish messages for governed purchase errors` | 3 | Demo | #40, como `feat(api): explain governance stops in the chat` |
+| 10 | `docs(evaluation): B2 pilot v1 results` | corrida | Tesis | #47 |
 
 PR-1 tiene tests que fallan sobre el código actual: toda variable `AGENT_*` que exporta el runner
 existe en `Settings`, y el entorno de B2 produce `enforce` con D1 configurado.
