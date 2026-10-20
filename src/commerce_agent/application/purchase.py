@@ -314,7 +314,6 @@ class PurchaseService:
         logging.getLogger(__name__).warning("D1 shadow observation unavailable")
 
     def approval_terms(self, run_id: str) -> ApprovalTerms:
-        self._block_d1_continuation(run_id)
         checkout = self._current_checkout(run_id)
         self._check_offer(run_id, checkout, "present")
         signed = self._checkout.signed_checkout(checkout) if self._approvals.requires_ap2 else None
@@ -332,7 +331,7 @@ class PurchaseService:
         purchase = self._require_purchase(run_id)
         if purchase.get("stage") != PurchaseStage.AWAITING_CONFIRMATION:
             raise PurchaseServiceError("Purchase is not awaiting approval", code="invalid_stage")
-        checkout = self._current_checkout(run_id)
+        checkout = self._checkout_of(purchase)
         if self._approvals.requires_ap2:
             if checkout_jwt is None:
                 raise ApprovalError("Signed checkout is required", code="ap2_checkout_required")
@@ -355,7 +354,7 @@ class PurchaseService:
             return
         if purchase.get("stage") != PurchaseStage.AWAITING_CONFIRMATION:
             raise PurchaseServiceError("Purchase cannot be canceled", code="invalid_stage")
-        checkout = self._current_checkout(run_id)
+        checkout = self._checkout_of(purchase)
         key = self._store.idempotency_key(run_id, "checkout.cancel.user")
         canceled = self._checkout.cancel_checkout(
             checkout.id,
@@ -506,7 +505,10 @@ class PurchaseService:
 
     def _current_checkout(self, run_id: str) -> CheckoutSession:
         self._block_d1_continuation(run_id)
-        purchase = self._require_purchase(run_id)
+        return self._checkout_of(self._require_purchase(run_id))
+
+    def _checkout_of(self, purchase: dict[str, str | None]) -> CheckoutSession:
+        """Only after `_block_d1_continuation`, which each step runs once: it verifies journals."""
         checkout_id = purchase.get("checkout_id")
         if not isinstance(checkout_id, str):
             raise PurchaseServiceError("Purchase has no checkout", code="checkout_missing")

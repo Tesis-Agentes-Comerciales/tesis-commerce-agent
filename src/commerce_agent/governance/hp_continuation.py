@@ -5,6 +5,7 @@ governed flow, presenting terms, approving, canceling and completing continue on
 checkout D1 itself created and verified. Any other purchase keeps the refusal.
 """
 
+import logging
 from typing import TYPE_CHECKING
 
 from commerce_agent.config import Settings
@@ -12,6 +13,8 @@ from commerce_agent.persistence import SqliteAgentStore
 
 if TYPE_CHECKING:
     from .enforce import SqliteD1EnforceGate
+
+logger = logging.getLogger(__name__)
 
 
 class GovernedContinuation:
@@ -22,10 +25,12 @@ class GovernedContinuation:
         self._store = store
 
     def admits(self, run_id: str) -> bool:
-        # Fail closed: an unreadable or tampered fact refuses rather than raising.
+        # Fail closed: an unreadable or tampered fact refuses rather than raising. The warning
+        # names only the failure type: never the run, the buyer or a stored fact.
         try:
             return self._facts_hold(run_id)
-        except Exception:
+        except Exception as error:
+            logger.warning("governed_continuation_unreadable error=%s", type(error).__name__)
             return False
 
     def _facts_hold(self, run_id: str) -> bool:

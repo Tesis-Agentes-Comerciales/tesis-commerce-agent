@@ -55,9 +55,15 @@ los puertos de `governance/runtime_dispatch.py`:
 
 - **Creación.** Después de comprometer el allow y reclamar la operación, el gate envía un
   solo `POST /checkout_sessions` con el cliente ACP y la clave de idempotencia del sobre.
-  No hay reintentos. Un timeout, un error HTTP o una respuesta inválida dejan la operación
-  `uncertain` y la compra en `uncertain`; la siguiente compra del mismo `run_id` responde
-  `d1_recovery_required` sin otro POST.
+  No hay reintentos. Un timeout, un fallo de transporte (también una conexión rechazada),
+  cualquier error HTTP (4xx o 5xx) o una respuesta inválida dejan la operación `uncertain`
+  con `DISPATCH_UNCERTAIN` y la compra en `uncertain`: ninguno prueba que el checkout no
+  exista. La siguiente compra del mismo `run_id` responde `d1_recovery_required` sin otro POST.
+- **Fallos antes del POST.** Si la revisión no se completa (contexto, evidencia o un deny que
+  no se pudo registrar), la compra responde `d1_unavailable`. Si la política ya permitió y lo
+  que falló fue comprometer el allow, verificarlo, validar la sesión o reclamar la operación,
+  responde `d1_allow_unapplied`, cuyo texto dice que la política permitió la compra. En los
+  dos casos no hubo POST.
 - **Verificación.** El gate lee el checkout con un GET y exige que sea idéntico a la
   respuesta del POST. Con el Merchant real lo es (prueba live
   `test_b2_governed_purchase_creates_once_and_awaits_approval`), así que se mantiene la
@@ -83,9 +89,22 @@ Con enforce, presentar los términos, aprobar, cancelar y completar responden
    `checkout_id` que la compra;
 3. el diario de post-creación terminó en `awaiting_confirmation` con ese checkout.
 
-Si un hecho falta, no se puede leer o no coincide, la regla rechaza. Con
+Si un hecho falta, no se puede leer o no coincide, la regla rechaza. Si no se puede leer
+(diario ilegible o manipulado), deja además el aviso `governed_continuation_unreadable` con
+solo el tipo de error, sin `run_id` ni datos de la compra. Con
 `AGENT_HP_FLOW=blocked` la regla no existe y todo sigue bloqueado, también para una
-compra que se preparó antes en el flujo gobernado. La aprobación, la cancelación del
+compra que se preparó antes en el flujo gobernado.
+
+Cada paso (presentar, aprobar, cancelar, completar) evalúa la regla una sola vez. Una
+evaluación lee la compra y verifica el ledger de D1, el resultado del despacho y el diario
+de post-creación: unos 4 ms en local, la mitad en el diario
+(`test_the_continuation_rule_costs_milliseconds`). Antes, presentar, aprobar y cancelar la
+evaluaban dos veces.
+
+El rechazo responde 409 `d1_continuation_blocked` también por REST, con el texto en español
+del chat. Ese texto no promete que no hubo cobro, porque `/complete` también lo usa y puede
+llegar después de un intento `uncertain`. Todos los códigos `d1_*` llegan por REST con ese
+mismo texto, nunca con el mensaje interno. La aprobación, la cancelación del
 comprador y la finalización usan los mismos servicios que B0 (`approval.py`,
 `completion.py`) y dejan su evidencia en las tablas de B0, no en el diario de D1.
 
