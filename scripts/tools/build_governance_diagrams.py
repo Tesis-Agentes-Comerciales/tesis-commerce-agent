@@ -2,8 +2,8 @@
 
 Reuses the primitives and palette of build_presentation_diagrams.py. Each diagram marks what
 is done in org/main, what is planned (experimental pieces in org/main that the flow does not use
-yet) and what is future work. pilot-results reads the frozen summary of the B2 pilot and never
-writes it.
+yet) and what is future work. pilot-results reads the frozen summary of the B2 pilot and its
+JSONL and never writes them. One-slide diagrams export at exactly 1920 x 1080.
 
     uv run python scripts/tools/build_governance_diagrams.py            # .drawio only
     uv run python scripts/tools/build_governance_diagrams.py --export   # + .svg and .png
@@ -42,8 +42,10 @@ BASELINE_GRAY = "#A3A3A3"
 EMPTY_GRAY = "#BBBBBB"
 PNG_WIDTH = 1920
 TIMES = "\u00d7"  # multiplication sign, spelled out for ruff RUF001
+# One-slide diagrams: a page-sized backdrop and no export border give exactly 1920 x 1080.
+SLIDES = frozenset({"b0-vs-b2-delta", "pilot-results"})
 
-# Frozen result of the B2 pilot (B2-PILOT-v1); pilot-results only reads it.
+# Frozen result of the B2 pilot (B2-PILOT-v1) and, through its `output`, the JSONL; read only.
 PILOT_SUMMARY = OUT.parents[1] / "evaluation/results/b0prime-b2-20261020T201055Z.summary.json"
 
 DONE, PLANNED, FUTURE = "hecho", "planificado", "futuro"
@@ -63,6 +65,11 @@ STATUS_NOTE = {
 def tag(status: str, scope: str = "B2") -> str:
     """Type text of a status card, as visual-style.md spells it: `B2 · hecho`."""
     return f"{scope} · {status}"
+
+
+def nowrap(text: str) -> str:
+    """Keep a term such as POL-03..06 on one line: draw.io wraps HTML labels at hyphens."""
+    return f'<span style="white-space:nowrap">{text}</span>'
 
 
 class Sheet(C4Page):
@@ -198,8 +205,36 @@ class Sheet(C4Page):
     def color_legend(self, text: str, x: int, y: int, width: int) -> None:
         self.text(text, x, y, width, 34, size=17, color=MUTED, align="left")
 
+    def to_back(self) -> None:
+        """Move the last cell behind everything drawn so far."""
+        cell = self.root[-1]
+        self.root.remove(cell)
+        self.root.insert(2, cell)
+
+    def slide_canvas(self) -> None:
+        """White page-sized backdrop: the export then covers exactly the page, no more."""
+        outside = [
+            geometry
+            for geometry in self.root.iter("mxGeometry")
+            if geometry.get("width")
+            and (
+                float(geometry.get("x", 0)) < 0
+                or float(geometry.get("y", 0)) < 0
+                or float(geometry.get("x", 0)) + float(geometry.get("width", 0)) > self.width
+                or float(geometry.get("y", 0)) + float(geometry.get("height", 0)) > self.height
+            )
+        ]
+        if outside:
+            raise SystemExit(f"{self.name}: {len(outside)} cells fall outside the slide")
+        # draw.io pads the exported bounds by one pixel per side, so the backdrop is inset by one.
+        style = "rounded=0;fillColor=#FFFFFF;strokeColor=none;"
+        self.vertex("", style, 1, 1, self.width - 2, self.height - 2)
+        self.to_back()
+
 
 def write_one(name: str, page: Sheet) -> None:
+    if name in SLIDES:
+        page.slide_canvas()
     write(f"{name}.drawio", [page])
 
 
@@ -327,7 +362,14 @@ B2_CONTROLS: dict[str, tuple[tuple[int, int, int, str, str, str], ...]] = {
             "before_signing: si cambió, 409 y no se firma (S04)",
             DONE,
         ),
-        (0, 2, 1, "D2-HP", "Autorización al aprobar: challenge, identidad, POL-03..06", PLANNED),
+        (
+            0,
+            2,
+            1,
+            "Consentimiento e identidad",
+            f"D2-HP al aprobar; {nowrap('POL-03..06')} sin evaluador",
+            PLANNED,
+        ),
     ),
     "completion": (
         (
@@ -1173,10 +1215,11 @@ def governed_sequence() -> Sheet:
     s.note(
         3,
         4,
-        "Frontera exactly-once",
-        "Un solo intento: timeout o respuesta inválida → uncertain; nunca se reenvía el POST",
+        "Como máximo un POST",
+        "Un solo intento: timeout o respuesta inválida → uncertain, sin resolver; nunca se "
+        "reenvía el POST. Resolverlo con lookup (D17) está planificado",
         DONE,
-        height=86,
+        height=92,
     )
 
     s.phase("3 · PRESENTACIÓN DE TÉRMINOS")
@@ -1261,7 +1304,8 @@ def governed_sequence() -> Sheet:
                 0,
                 2,
                 "Planificado",
-                "D2-HP: autorización al aprobar (challenge, identidad, POL-03..06) · "
+                "Consentimiento e identidad al aprobar (D2-HP); "
+                f"{nowrap('POL-03..06')} definidas en policy-v1, sin evaluador · "
                 "recuperación D17 con lookup",
                 PLANNED,
                 tag(PLANNED),
@@ -1738,6 +1782,26 @@ def load_pilot_summary() -> dict[str, Any]:
     return summary
 
 
+def load_pilot_runs(summary: dict[str, Any]) -> dict[tuple[str, str], dict[int, dict[str, Any]]]:
+    """The summary's JSONL, by (condition, scenario) and repetition; checked against the summary."""
+    runs: dict[tuple[str, str], dict[int, dict[str, Any]]] = {}
+    source = OUT.parents[1] / summary["output"]
+    for line in source.read_text(encoding="utf-8").splitlines():
+        record = json.loads(line)
+        cell = runs.setdefault((record["condition"], record["scenario_id"]), {})
+        cell[record["repetition"]] = record
+    for condition, cells in summary["by_condition_scenario"].items():
+        for code, cell in cells.items():
+            records = runs.get((condition, code), {})
+            passes = sum(record["metrics"]["valid_task_success"] for record in records.values())
+            if (
+                sorted(records) != list(range(1, cell["runs"] + 1))
+                or passes != cell["oracle_passes"]
+            ):
+                raise SystemExit(f"{source.name} does not match {PILOT_SUMMARY.name}")
+    return runs
+
+
 def _ready(cell: dict[str, Any]) -> int:
     return cell["merchant_checkouts"]["by_status"].get("ready_for_payment", 0)
 
@@ -1763,7 +1827,9 @@ def criterion_met(code: str, b2: dict[str, Any]) -> tuple[str, str]:
     return ("Sí", "") if b2["oracle_passes"] == runs else ("No", "")
 
 
-def result_reading(code: str, b0: dict[str, Any], b2: dict[str, Any]) -> str:
+def result_reading(
+    code: str, b0: dict[str, Any], b2: dict[str, Any], b0_runs: dict[int, dict[str, Any]]
+) -> str:
     runs = b2["runs"]
     if code == "S01":
         return (
@@ -1772,10 +1838,17 @@ def result_reading(code: str, b0: dict[str, Any], b2: dict[str, Any]) -> str:
         )
     if code == "S02":
         canceled = b2["merchant_checkouts"]["by_status"].get("canceled", 0)
+        clarified = sum(record["action"] == "clarify" for record in b0_runs.values())
+        b0_checkouts = (
+            "sin checkouts"
+            if b0["merchant_checkouts"]["total"] == 0
+            else f"{b0['merchant_checkouts']['total']} checkouts"
+        )
         return (
-            f"B0': {b0['http_5xx']}/{runs} respuestas 5xx. B2: {b2['http_5xx']}/{runs} 5xx; "
-            f"recuperación registrada en {_recorded(b2, 'governed_recovery')}/{runs} y "
-            f"{canceled}/{runs} checkouts creados y cancelados por presupuesto."
+            f"B0': {b0['http_5xx']}/{runs} respuestas 5xx y {clarified} aclaración, "
+            f"{b0_checkouts}. B2: {b2['http_5xx']}/{runs} 5xx; recuperación registrada en "
+            f"{_recorded(b2, 'governed_recovery')}/{runs} y {canceled}/{runs} checkouts "
+            "creados y cancelados por presupuesto, con la validación que comparten B0' y B2."
         )
     if code == "S03":
         return (
@@ -1799,6 +1872,7 @@ def result_reading(code: str, b0: dict[str, Any], b2: dict[str, Any]) -> str:
 
 def pilot_results() -> Sheet:
     summary = load_pilot_summary()
+    pilot_runs = load_pilot_runs(summary)
     cells = summary["by_condition_scenario"]
     totals = summary["by_condition"]
     width, height = 1920, 1080
@@ -1841,15 +1915,16 @@ def pilot_results() -> Sheet:
             name_w,
             96,
         )
-        for line, (condition, cell, fill) in enumerate(
-            (("B0'", b0, BASELINE_GRAY), ("B2", b2, AGENT_BLUE))
+        for line, (condition, key, cell, fill) in enumerate(
+            (("B0'", "B0prime", b0, BASELINE_GRAY), ("B2", "B2", b2, AGENT_BLUE))
         ):
             line_y = y + 20 + line * 46
             p.text(condition, unit_x - 56, line_y, 50, square, size=18, bold=True, align="left")
-            for rep in range(cell["runs"]):
-                passed = rep < cell["oracle_passes"]
+            # One square per repetition, in the JSONL's repetition order (1..5).
+            for rep, record in sorted(pilot_runs[(key, code)].items()):
+                passed = bool(record["metrics"]["valid_task_success"])
                 p.box(
-                    unit_x + rep * (square + square_gap),
+                    unit_x + (rep - 1) * (square + square_gap),
                     line_y,
                     square,
                     square,
@@ -1867,7 +1942,15 @@ def pilot_results() -> Sheet:
                 bold=True,
                 align="left",
             )
-        p.text(result_reading(code, b0, b2), read_x, y + 8, read_w, 96, size=17, align="left")
+        p.text(
+            result_reading(code, b0, b2, pilot_runs[("B0prime", code)]),
+            read_x,
+            y + 8,
+            read_w,
+            96,
+            size=17,
+            align="left",
+        )
         verdict, detail = criterion_met(code, b2)
         p.vertex(
             f'<div style="font-family:Arial"><div style="font-size:22px;color:{INK}">'
@@ -1949,21 +2032,23 @@ def pilot_results() -> Sheet:
         f"({where('governed_recovery')}); la continuación no tiene registro propio. S04 y S02 "
         "los resuelven controles de aplicación, no el PDP"
         + (f": D1 permitió las {latency['n']} compras que evaluó" if all_allowed else "")
-        + ". S02 queda parcial porque la política v1 no tiene regla de presupuesto total.",
+        + ". S02 queda parcial y no es una regresión de B2: la lista corta solo compara el máximo "
+        "por unidad, la política v1 no tiene regla de presupuesto total y el total se valida "
+        "después de crear el checkout, con código que comparten las dos condiciones.",
         50,
         bottom + 146,
         width - 100,
-        52,
+        76,
         size=16,
         color=INK,
         align="left",
     )
     p.text(
-        "Cada cuadro cuenta una repetición: lleno, cumple el oráculo; vacío, no cumple. Gris: B0' "
-        f"· azul: B2. Fuente: evaluation/results/{PILOT_SUMMARY.name} (informe: "
-        "b2-pilot-v1-report.md).",
+        "Cada cuadro es una repetición, en su orden (1 a 5): lleno, cumple el oráculo; vacío, no "
+        f"cumple. Gris: B0' · azul: B2. Fuente: evaluation/results/{PILOT_SUMMARY.name} y su "
+        ".jsonl (informe: b2-pilot-v1-report.md).",
         50,
-        bottom + 202,
+        bottom + 226,
         width - 100,
         30,
         size=15,
@@ -2015,7 +2100,7 @@ def export(names: list[str]) -> None:
                     fmt,
                     *options,
                     "-b",
-                    "24",
+                    "0" if name in SLIDES else "24",
                     "-o",
                     str(OUT / f"{name}.{fmt}"),
                     str(source),

@@ -5,6 +5,9 @@
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
+        <mxCell id="49" value="" style="rounded=0;fillColor=#FFFFFF;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="1" y="1" width="1918" height="1078" as="geometry" />
+        </mxCell>
         <mxCell id="2" value="Qué agrega B2 al flujo Human Present, y en qué punto" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=31;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="50" y="26" width="1820" height="46" as="geometry" />
         </mxCell>
