@@ -126,7 +126,8 @@ async function mockedFetch(input: RequestInfo | URL, init?: RequestInit): Promis
     const frames = typeof reply.sse === "string" ? splitSseFrames(reply.sse) : reply.sse
     return sseResponse(frames, reply.frameDelayMs ?? 80, request.signal)
   }
-  return jsonResponse(reply.status ?? 200, reply.body ?? {})
+  // `body: null` es una respuesta válida (p. ej. sin compra pendiente); solo la ausencia da `{}`.
+  return jsonResponse(reply.status ?? 200, reply.body === undefined ? {} : reply.body)
 }
 
 /**

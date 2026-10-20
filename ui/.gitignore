@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-e2e
 dist-ssr
 *.local
 
@@ -26,3 +27,7 @@ dist-ssr
 # Storybook
 storybook-static
 *storybook.log
+
+# Playwright
+test-results
+playwright-report

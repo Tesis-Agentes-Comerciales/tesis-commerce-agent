@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect } from "storybook/test"
 
+import { formatMoneyParts } from "@/components/agent/agent-format"
 import { ProductCard, ProductCardSkeleton } from "@/components/agent/product-card"
 import {
   BRISA,
@@ -33,17 +34,29 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+/** La recomendación de `select_product`: precio de catálogo, opciones y por qué se eligió. */
 export const Hero: Story = {
-  play: async ({ canvas }) => {
+  play: async ({ args, canvas }) => {
+    const { product } = args
+    await expect(canvas.getByRole("heading", { name: product.title })).toBeVisible()
+    await expect(canvas.getByText("Disponible")).toBeVisible()
+    const price = formatMoneyParts(product.observed_unit_amount_minor, product.currency)
+    await expect(canvas.getByText(price.amount.replace(/\s+/g, " "))).toBeVisible()
+    // El catálogo no es el total: ese solo sale de los términos de aprobación.
+    await expect(canvas.getByText(/Precio de catálogo/)).toBeVisible()
+    for (const option of product.options) await expect(canvas.getByText(option.value)).toBeVisible()
+    await expect(canvas.getByText("Por qué lo elegí")).toBeVisible()
     const link = canvas.getByRole("link", { name: /Ver en la tienda/ })
     await expect(link).toHaveAttribute("target", "_blank")
     await expect(link).toHaveAttribute("rel", "noopener noreferrer")
-    await expect(canvas.getByText(/Precio de catálogo/)).toBeVisible()
   },
 }
 
 export const HeroWithoutRationale: Story = {
   args: { rationale: null },
+  play: async ({ canvas }) => {
+    await expect(canvas.queryByText("Por qué lo elegí")).toBeNull()
+  },
 }
 
 export const Compact: Story = {
@@ -52,6 +65,14 @@ export const Compact: Story = {
 
 export const CompactSelected: Story = {
   args: { variant: "compact", selected: true },
+  play: async ({ args, canvas }) => {
+    await expect(canvas.getByText("Elegido")).toBeVisible()
+    // En la variante compacta el título es el enlace a la tienda.
+    await expect(canvas.getByRole("link", { name: new RegExp(args.product.title) })).toHaveAttribute(
+      "rel",
+      "noopener noreferrer",
+    )
+  },
 }
 
 /** `image: null` en el contrato: el placeholder toma un tono estable por producto. */
@@ -77,16 +98,27 @@ export const InsecureImageRejected: Story = {
 
 export const Unavailable: Story = {
   args: { product: BRISA, rationale: null },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Agotado")).toBeVisible()
+    await expect(canvas.queryByText("Disponible")).toBeNull()
+  },
 }
 
 export const CompactMissingImage: Story = {
   args: { variant: "compact", product: ESTUDIO },
 }
 
+/** Una descripción larga se recorta y se expande con un botón que anuncia su estado. */
 export const LongText: Story = {
   args: {
     product: SONORA_LONG,
     rationale: `${SELECT_RATIONALE} También tiene la mejor relación entre batería y peso de las opciones que quedaron después de aplicar tus condiciones.`,
+  },
+  play: async ({ canvas, userEvent }) => {
+    const toggle = canvas.getByRole("button", { name: "Mostrar más" })
+    await expect(toggle).toHaveAttribute("aria-expanded", "false")
+    await userEvent.click(toggle)
+    await expect(canvas.getByRole("button", { name: "Mostrar menos" })).toHaveAttribute("aria-expanded", "true")
   },
 }
 

@@ -71,7 +71,9 @@ const UNKNOWN_PURCHASE_REPLY: AgentAssistantMessage = {
 export const Empty: Story = {
   play: async ({ canvas }) => {
     await expect(await canvas.findByRole("group", { name: "Sugerencias para empezar" })).toBeVisible()
-    await expect(canvas.getByRole("button", { name: /Audífonos negros por menos de 2 millones/ })).toBeVisible()
+    await expect(
+      canvas.getByRole("button", { name: /Audífonos con cancelación de ruido por menos de 2 millones/ }),
+    ).toBeVisible()
   },
 }
 
