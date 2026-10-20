@@ -1,12 +1,23 @@
 # Suite viva portable (opt-in)
 
+Es la capa 4 de [`docs/testing.md`](../../docs/testing.md): la única suite de sistema del Agent.
 Estos módulos levantan un stack propio y desechable en cada ejecución: PostgreSQL en Docker con
 la misma imagen y digest que el CI del Merchant (`postgres:18.4-alpine@sha256:9a8a…5de15`), el
 Merchant real (`uvicorn commerce_lab.api:app`, lanzado con `uv run --project $MERCHANT_REPO` y
-su propio intérprete y lock) y procesos del Agent de este checkout. Todo el tráfico del Agent al
-Merchant pasa por HTTP real de loopback a través de `FaultProxy`, que es transparente salvo
-cuando una prueba arma un fallo etiquetado. La suite normal y `ci.yml` los omiten; el workflow
-`live-stack.yml` los ejecuta a pedido y cada noche.
+su propio intérprete y lock), el proveedor de pagos real (`tesis_payment_provider`, desde
+`$PAYMENT_REPO`) y procesos del Agent de este checkout. Todo el tráfico del Agent al Merchant
+pasa por HTTP real de loopback a través de `FaultProxy`, que es transparente salvo cuando una
+prueba arma un fallo etiquetado. La suite normal y `ci.yml` los omiten; el workflow
+`nightly.yml` los ejecuta cada noche y a pedido.
+
+Hay dos grupos sobre el mismo PostgreSQL:
+
+- Gobernanza (06D-C, 07A, 07B-B, 07B-P): el Merchant del stack detrás de su proxy, con fallos
+  inyectados.
+- Compras (`test_live_purchase.py`): carriles con su propio Merchant, proxy y proveedor de
+  pagos. `b0` es la línea base B0 (ACP + AP2 Human Present: mandatos y recibos firmados,
+  webhooks de orden); `acp` es la finalización ACP sin AP2 y la API conversacional. Reemplazan
+  al E2E conjunto de septiembre (`tests/e2e` y `scripts/run_joint_e2e.py`).
 
 ## Requisitos
 
@@ -15,20 +26,24 @@ cuando una prueba arma un fallo etiquetado. La suite normal y `ci.yml` los omite
 - Docker accesible con el CLI `docker` sin `sudo` (Docker Desktop, OrbStack, Colima o Docker
   Engine en Linux). La primera ejecución descarga la imagen fijada.
 - `uv`.
-- Un checkout del Merchant en cualquier rama o commit. No hay commits fijados: la suite valida
-  los checkouts actuales y registra el `HEAD` y el estado de ambos en la evidencia.
+- Un checkout del Merchant y otro del proveedor de pagos, en cualquier rama o commit. No hay
+  commits fijados: la suite valida los checkouts actuales y registra el `HEAD` y el estado del
+  Agent y del Merchant en la evidencia.
 
 ## Variables
 
 | Variable | Uso |
 | --- | --- |
 | `RUN_LIVE_STACK` | `1` activa la suite. Con cualquier otro valor, cada prueba se omite e indica el motivo. |
-| `MERCHANT_REPO` | Ruta del checkout del Merchant. Es el mismo nombre que usa el E2E conjunto. |
+| `MERCHANT_REPO` | Ruta del checkout del Merchant. |
+| `PAYMENT_REPO` | Ruta del checkout del proveedor de pagos; solo la usan las compras. |
+| `RUN_LIVE_LLM` | Opcional y manual: `1` pone el modelo de OpenAI del entorno (`OPENAI_API_KEY`, `OPENAI_MODEL`) detrás de la prueba conversacional en vez del router estático. Gasta dinero. |
 
 No hay más variables. Si se activa la suite y falta un requisito (`MERCHANT_REPO`, `docker`,
 `uv` o un sistema POSIX), la fixture `stack` falla con la lista de lo que falta en vez de omitir
-en silencio. Los puertos los asigna el kernel en `127.0.0.1` (PostgreSQL publicado, Merchant y
-proxy) y las credenciales son sintéticas y aleatorias por ejecución; nunca se imprimen. Los
+en silencio; lo mismo hace cada carril de compras sin `PAYMENT_REPO`. Los puertos los asigna el kernel en `127.0.0.1` (PostgreSQL publicado, Merchant y
+proxy) y las credenciales y claves AP2 son sintéticas y aleatorias por ejecución; nunca se
+imprimen. Los
 procesos hijos reciben un entorno limpio (`clean_environment`: sin `OPENAI_*`, `DATABASE_URL`,
 `PG*`, `VIRTUAL_ENV`, etc.) y el Merchant corre con el directorio de la ejecución como `cwd`,
 así que no lee el `.env` de su checkout.
@@ -38,16 +53,21 @@ así que no lee el `.env` de su checkout.
 ```sh
 uv sync --frozen --all-groups
 (cd ../tesis-commerce-merchant && uv sync --frozen --all-groups)
-RUN_LIVE_STACK=1 MERCHANT_REPO="$PWD/../tesis-commerce-merchant" uv run pytest tests/integration -rs
+(cd ../tesis-payment-provider-sandbox && uv sync --frozen --all-groups)
+export RUN_LIVE_STACK=1 MERCHANT_REPO="$PWD/../tesis-commerce-merchant" \
+  PAYMENT_REPO="$PWD/../tesis-payment-provider-sandbox"
+uv run pytest tests/integration -rs
 ```
 
 Un módulo o un escenario: pase su archivo, o filtre por el identificador que llevan los nombres
-(`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`). Con `--basetemp=<dir>` la evidencia queda
-en un lugar conocido.
+(`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`, `-k b0`, `-k acp`). Con
+`--basetemp=<dir>` la evidencia queda en un lugar conocido.
 
-La suite completa (56 pruebas) tarda unos 11 minutos en macOS con OrbStack. Casi todo es 07B-B:
-cada escenario hace una selección nueva sobre el catálogo completo del Merchant (cientos de
-lecturas de Offer por fase) y el Merchant reconstruye el catálogo en cada lectura.
+La suite completa (61 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B
+(marker `slow`): cada escenario hace una selección nueva sobre el catálogo completo del Merchant
+(cientos de lecturas de Offer por fase) y el Merchant reconstruye el catálogo en cada lectura.
+`-m "not slow"` deja 50 pruebas representativas (gobernanza 06D-C/07A/07B-P y las cinco compras)
+en unos 2 minutos.
 
 ## Evidencia y limpieza
 
@@ -58,6 +78,8 @@ Cada ejecución deja bajo `<basetemp>/live-stack0/`:
   del Merchant antes y después), más `shutdown`.
 - `merchant.log`, `merchant-control.log` y un log por proceso del Agent. Los workers solo
   exportan tipos y códigos de error, nunca mensajes, credenciales ni cuerpos.
+- `b0/` y `acp/`: el `merchant.log`, `payment.log` y `merchant-control.log` de cada carril, sus
+  feeds exportados y sus SQLite (Agent y proveedor).
 
 Al terminar la sesión se detiene el Merchant (SIGTERM al grupo de procesos) y se elimina el
 contenedor con sus volúmenes. Si pytest muere con `kill -9`, la limpieza no corre; los restos se
@@ -67,21 +89,29 @@ ven y se eliminan así:
 docker ps -a --filter label=tesis-live=1
 docker rm --force --volumes $(docker ps -aq --filter label=tesis-live=1)
 pgrep -fl "commerce_lab.api:app --fd"   # Merchant huérfano, si quedó alguno
+pgrep -fl "tesis_payment_provider.api:app_factory"   # proveedor huérfano
 ```
 
 ## Piezas
 
-- `live_stack.py`: `PostgresContainer`, `MerchantServer`, `MerchantControl`, `FaultProxy`,
+- `live_stack.py`: `PostgresContainer`, `ServiceServer` (Merchant o proveedor, con listener
+  heredado), `MerchantControl`, `FaultProxy` (rutas exactas o con `*` por segmento),
   `LiveStack`, `AgentProcess` y `JointCase` (episodio 06D-C/07A sobre el Merchant real).
+- `live_purchase.py`: `PurchaseLane` (Merchant, proxy, proveedor de pagos, receptor de webhooks
+  del Agent y control del Merchant de un perfil `b0` o `acp`) y `Episode` (episodio B0 sembrado
+  con su sesión y su feed ACP exportado).
 - `live_merchant_control.py`: corre con el intérprete del Merchant. Aprovisiona con las
   funciones del propio Merchant (migraciones, episodios, sesiones, catálogo gestionado) y toma
-  instantáneas y contadores de efectos. Rechaza cualquier DSN, base, rol o `cluster_name` que no
+  instantáneas y contadores de efectos; para las compras siembra episodios B0, exporta su feed,
+  despacha webhooks y avanza órdenes. Rechaza cualquier DSN, base, rol o `cluster_name` que no
   sean los de la ejecución.
 - `live_agent_worker.py`: proceso del Agent para reinicios y caídas. Un audit hook limita sus
   sockets al proxy y sus escrituras al directorio de la ejecución.
-- `conftest.py`: `stack` (sesión) y `proxy` (por prueba). `proxy` reinicia los fallos y hace
-  fallar la prueba si un hook del proxy falló o si alguien pidió una ruta fuera de la lista
-  permitida (el proxy responde 405 y no la reenvía).
+- `conftest.py`: `stack` (sesión), `proxy` (por prueba) y los carriles `b0` y `acp` (sesión,
+  verificados por prueba). Cada proxy se reinicia antes de la prueba y la hace fallar si un hook
+  falló o si alguien pidió una ruta fuera de la lista permitida (el proxy responde 405 y no la
+  reenvía). La activación por `RUN_LIVE_STACK` y los markers `live`/`slow` vienen de
+  `tests/conftest.py` y de cada módulo.
 
 ## Inyección de fallos
 
@@ -92,7 +122,7 @@ pgrep -fl "commerce_lab.api:app --fd"   # Merchant huérfano, si quedó alguno
 | `delay` | Reenvía y retrasa la respuesta más allá del timeout del Agent. |
 | `status_503` | El proxy responde 503 sin reenviar: el Merchant nunca recibe la solicitud. |
 | `scope`, `digest`, `profile`, `malformed` | Reescribe una respuesta genuina de lookup. |
-| Merchant caído o reiniciado | `MerchantServer.stop/start`: proceso nuevo, mismo puerto y base. |
+| Merchant caído o reiniciado | `ServiceServer.stop/start`: proceso nuevo detrás del mismo proxy, misma base. |
 | PostgreSQL caído o reiniciado | `docker stop` / `docker start` del contenedor, mismo `data_directory`. |
 | Caída del Agent | `AgentProcess.kill_at(cutpoint)`: el worker se detiene en un punto con nombre y el arnés envía SIGKILL. |
 | SQLite alterado | Edición directa del archivo cerrado (sobre, evento antiguo, un byte de un sello). |
@@ -161,3 +191,31 @@ Diferencias deliberadas:
   son pruebas versionadas. `delay` en 07B-B usa el proxy en vez de un retraso dentro del
   Merchant.
 - Los escenarios D2 (D01–D12) usan ASGI en proceso y no forman parte de esta suite.
+
+## Equivalencia con el E2E conjunto
+
+El E2E conjunto de septiembre vivía en `tests/e2e`, con dos activaciones propias
+(`RUN_JOINT_E2E`, `RUN_JOINT_AP2_E2E`), y lo orquestaba `scripts/run_joint_e2e.py` (Docker
+Compose del Merchant, puertos fijos, CLI del Merchant por subproceso) desde `joint-e2e.yml`.
+Ahora lo levanta este mismo arnés con la misma activación.
+
+| Antes | Ahora |
+| --- | --- |
+| `test_ap2_joint_purchase.py::test_human_present_ap2_crosses_all_three_services` | `test_b0_ap2_purchase_completes_once_with_signed_receipts` |
+| `test_joint_purchase.py::test_complete_purchase_and_receive_order_webhooks`: compra, replay local y remoto | `test_acp_purchase_replays_locally_and_at_the_merchant` |
+| ídem: tarjeta rechazada | `test_b0_declined_payment_leaves_the_checkout_open_and_no_order` |
+| ídem: permalink sin PII, `order_create` y `order_update` firmados | `test_b0_order_webhooks_reach_the_agent_and_the_permalink_hides_the_buyer` |
+| `test_conversational_purchase.py::test_natural_request_crosses_the_model_boundary_and_completes` | `test_acp_natural_request_crosses_the_model_boundary_and_completes` |
+| `test_repository_boundary.py` | `tests/contracts/test_repository_boundary.py` (capa 1; no necesita servicios) |
+
+Diferencias deliberadas:
+
+- El rechazo, los webhooks y el permalink pasan al perfil B0 (AP2), que es la línea base de la
+  tesis; el perfil `acp` conserva la finalización ACP sin AP2 y la API conversacional, que
+  exige autenticación JWT para AP2.
+- `SON-01` ya no existe en el catálogo B0 del Merchant actual, así que la prueba AP2 anterior
+  fallaba contra `main`; ahora compra `Q100286751-256GB`.
+- La prueba conversacional ya no fija la variante elegida (con el catálogo actual el ranking
+  elige otra Sony de 256 GB): exige las restricciones duras de la solicitud.
+- El Merchant y el proveedor corren con el directorio de la ejecución como `cwd` y entorno
+  limpio, en puertos que asigna el kernel; ya no hay `docker compose` ni puertos fijos.

@@ -10,8 +10,10 @@ import importlib
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 # Every connection must reach the disposable cluster this run created, by its unique name.
 CLUSTER_NAME = os.environ["LIVE_STACK_CLUSTER"]
@@ -66,6 +68,7 @@ class Control:
         self.context = module("commerce_lab.context")
         self.acp = module("commerce_lab.acp")
         self.checkout = module("commerce_lab.checkout")
+        self.contracts = module("commerce_lab.contracts")
         self.sql = module("psycopg.sql")
         self.jsonb = module("psycopg.types.json").Jsonb
         self.pending: dict[str, Any] = {}
@@ -127,6 +130,30 @@ class Control:
 
     def session(self, command: dict[str, Any]) -> dict[str, Any]:
         return self.issue(command["run_id"], command["actor_id"])
+
+    def purchase_episode(self, command: dict[str, Any]) -> dict[str, Any]:
+        """A B0 episode, its session and its ACP feed, as a buyer agent receives them."""
+        run_id = str(self.db.seed(actor_id=command["actor"], variant="B0")["run_id"])
+        exported = module("commerce_lab.feed").export_feed(
+            Path(command["feed_dir"]), run_id=run_id, base_url=os.environ["ACP_API_BASE_URL"]
+        )
+        return {**self.issue(run_id, command["actor"]), "products": exported["product_count"]}
+
+    def dispatch_webhooks(self, command: dict[str, Any]) -> list[dict[str, Any]]:
+        dispatcher = module("commerce_lab.webhook_delivery").WebhookDispatcher()
+        return dispatcher.dispatch_due(limit=command["limit"])
+
+    def order_update(self, command: dict[str, Any]) -> dict[str, Any]:
+        """The Merchant moves an order forward (the `order-update` command of its CLI)."""
+        context = self.contracts.ExecutionContext(
+            run_id=command["run_id"],
+            actor_id=command["actor_id"],
+            request_id=str(uuid4()),
+            received_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+        result = self.checkout.CheckoutService(context).update_order_status(command["order_id"])
+        assert result.ok is True
+        return result.data.model_dump(mode="json")
 
     def session_state(self, command: dict[str, Any]) -> dict[str, Any]:
         # Halfway between issue and now: already past, yet after created_at (CHECK).
@@ -318,6 +345,9 @@ def main() -> None:
             "identity",
             "episode",
             "session",
+            "purchase_episode",
+            "dispatch_webhooks",
+            "order_update",
             "session_state",
             "snapshot",
             "effects",
