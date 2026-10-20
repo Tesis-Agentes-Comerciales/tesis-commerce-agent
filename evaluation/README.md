@@ -34,6 +34,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | --- | --- |
 | `src/commerce_evaluation/governance_pilot.py` | runner del piloto pareado B0/B2 |
 | `src/commerce_evaluation/conversation.py` | evaluación conversacional contra un agente local |
+| `src/commerce_evaluation/demo_stack.py` | `demo-stack`: stack local de la demo con las condiciones del piloto ([guion](../docs/demo/guion-2026-10-23.md)) |
 | `src/commerce_evaluation/hnp/` | arnés HNP-01 y validador LLM de HNP-02 ([`llm/`](src/commerce_evaluation/hnp/llm/README.md)) |
 | `src/commerce_evaluation/hnp_review_demo.py`, `hnp_matrix.py` | runners de HNP-01 y HNP-02 |
 | `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto lo ejecuta con el entorno del Merchant |
@@ -43,6 +44,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 uv run governance-pilot --dry-run                    # plan de B0'; --condition B2 para el tratado
 uv run governance-pilot --dry-run --condition B0prime --condition B2  # plan intercalado del piloto
 uv run evaluate-conversation                         # con agente y Merchant locales activos
+uv run demo-stack --dry-run                          # plan y requisitos de la demo local, sin arrancar nada
 uv run hnp-review-demo                               # HNP-01 offline, escribe en .local/hnp01/demo
 uv run hnp-matrix --dry-run --env-file .env.example  # HNP-02 con FakeTransport, escribe en .local/hnp02
 uv run --with nbformat python evaluation/scripts/build_b0_analysis_notebook.py
