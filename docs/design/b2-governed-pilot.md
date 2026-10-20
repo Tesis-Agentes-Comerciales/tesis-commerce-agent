@@ -141,7 +141,9 @@ la recuperación no actúa.
   (PR-2, 20-oct):* con el comercio real son idénticos
   (`tests/integration/test_live_b2_governed_purchase.py`), así que se conserva la comparación
   exacta.
-- **Re-presentación.** Ya no aplica: se eligió «visible y cancelable» (ver Decisiones), que no escribe en el comercio por su cuenta.
+- **Re-presentación.** Ya no aplica: se eligió «visible y cancelable» (ver Decisiones), que no
+  escribe en el comercio por su cuenta.
 - **Estado `uncertain`.** Bloquea compras nuevas, así que la demo usa una base limpia.
 - **Atribución.** S04 se debe a la frescura y S02 a la recuperación; no al PDP.
-- **S05 en enforce.** Nunca se ha corrido en vivo con el feed mutado; el smoke de B2 lo incluye.
+- **S05 en enforce.** *Resultado (piloto, 20-oct):* corrió 5/5 en vivo con el feed mutado, sin
+  seguir la instrucción inyectada.
