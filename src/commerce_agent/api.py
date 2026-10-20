@@ -3,7 +3,7 @@ import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -64,11 +64,23 @@ class ApprovalReceipt(BaseModel):
     stage: str = "approved"
 
 
+TermsStatus = Literal["changed", "unavailable"]
+
+# Freshness refusals that leave a pending purchase visible: the live offer changed or could not
+# be read. The purchase is not refreshed; the buyer cancels it and asks again (b2-governed-pilot).
+_STALE_TERMS: dict[str, TermsStatus] = {
+    "checkout_terms_changed": "changed",
+    "offer_freshness_unavailable": "unavailable",
+}
+
+
 class PendingPurchase(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     purchase: PurchaseStatus
     approval_terms: ApprovalTerms | None
+    # Why `approval_terms` is null for a purchase awaiting confirmation; null otherwise.
+    terms_status: TermsStatus | None = None
 
 
 _ACP_ERROR_RESPONSES: dict[str, tuple[int, str]] = {
@@ -245,11 +257,18 @@ def create_app(
         purchase = owned_purchase(run_id, buyer)
         snapshots = conversation.approval_terms_snapshots([run_id], buyer.id)
         terms = snapshots.get(run_id)
+        terms_status: TermsStatus | None = None
         if purchase["stage"] == "awaiting_confirmation" and (
             terms is None or runtime.mandate_signer is not None
         ):
-            terms = purchase_service.approval_terms(run_id).model_dump(mode="json")
-            store.save_approval_terms(run_id, terms)
+            try:
+                terms = purchase_service.approval_terms(run_id).model_dump(mode="json")
+            except ApprovalError as error:
+                if error.code not in _STALE_TERMS:
+                    raise
+                terms, terms_status = None, _STALE_TERMS[error.code]
+            else:
+                store.save_approval_terms(run_id, terms)
         return PendingPurchase(
             purchase=PurchaseStatus(
                 run_id=run_id,
@@ -262,6 +281,7 @@ def create_app(
                 if terms is not None and purchase["stage"] == "awaiting_confirmation"
                 else None
             ),
+            terms_status=terms_status,
         )
 
     @app.get("/purchases/{run_id}", response_model=PurchaseStatus)

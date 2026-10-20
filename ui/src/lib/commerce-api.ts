@@ -71,9 +71,13 @@ export function health(signal?: AbortSignal): Promise<{ status: string }> {
   return requestJson("/health", { signal }, false)
 }
 
+/** Por qué faltan los términos de una compra que espera confirmación: la oferta cambió o no se pudo leer. */
+export type PendingTermsStatus = "changed" | "unavailable"
+
 export type PendingPurchase = {
   purchase: AgentPurchase & { checkout_id: string | null }
   approval_terms: ApprovalTerms | null
+  terms_status: PendingTermsStatus | null
 }
 
 export function pendingPurchase(): Promise<PendingPurchase | null> {
