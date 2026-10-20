@@ -112,4 +112,4 @@ necesarias para implementarlo; no exige volver a justificar ese visto bueno.
 - [Arquitectura original](architecture.md) y [contrato original](policy-contract.md): por reconciliar.
 - [Evaluación](evaluation-plan.md), [amenazas](threat-model.md) y
   [backlog original](implementation-plan.md): por alinear con el diseño v1.
-- `evaluation/b2-design.json`: manifiesto original; se actualiza al cerrar las decisiones.
+- `evaluation/data/b2-design.json`: manifiesto original; se actualiza al cerrar las decisiones.

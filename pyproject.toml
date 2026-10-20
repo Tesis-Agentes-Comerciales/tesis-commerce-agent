@@ -28,7 +28,15 @@ dev = [
   "pyright>=1.1.405,<2",
   "pytest>=8.4,<10",
   "ruff>=0.12,<1",
+  # Experiments live in their own workspace member, outside the product wheel and image.
+  "tesis-commerce-evaluation",
 ]
+
+[tool.uv.workspace]
+members = ["evaluation"]
+
+[tool.uv.sources]
+tesis-commerce-evaluation = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -44,13 +52,16 @@ packages = ["src/commerce_agent"]
 # D1 provenance verifies installed dependency versions against the lock it was built with.
 "uv.lock" = "commerce_agent/uv.lock"
 
+[tool.hatch.build.targets.sdist]
+exclude = ["/evaluation", "/tests/evaluation"]
+
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "evaluation/src", "tests"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 venvPath = "."
@@ -59,6 +70,7 @@ venv = ".venv"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+src = [".", "src", "evaluation/src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

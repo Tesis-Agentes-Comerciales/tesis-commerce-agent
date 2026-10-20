@@ -18,39 +18,39 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from commerce_agent.governance.canonical import sha256_digest
-from commerce_agent.hnp_experiment.evaluation import load_oracles
-from commerce_agent.hnp_experiment.evidence import (
+from commerce_evaluation.hnp.evaluation import load_oracles
+from commerce_evaluation.hnp.evidence import (
     ExperimentalEvidence,
     load_entries,
     verify_entries,
 )
-from commerce_agent.hnp_experiment.harness import load_cases
-from commerce_agent.hnp_experiment.llm.config import HnpSettings
-from commerce_agent.hnp_experiment.llm.cost import estimate
-from commerce_agent.hnp_experiment.llm.matrix import (
+from commerce_evaluation.hnp.harness import load_cases
+from commerce_evaluation.hnp.llm.config import HnpSettings
+from commerce_evaluation.hnp.llm.cost import estimate
+from commerce_evaluation.hnp.llm.matrix import (
     PlannedEpisode,
     business_cases,
     review_inputs,
     run_matrix,
 )
-from commerce_agent.hnp_experiment.llm.prompts import PROMPT_DIRECTORY, load_prompt
-from commerce_agent.hnp_experiment.llm.scoring import build_summary
-from commerce_agent.hnp_experiment.llm.trace import TraceWriter
-from commerce_agent.hnp_experiment.llm.transport import (
+from commerce_evaluation.hnp.llm.prompts import PROMPT_DIRECTORY, load_prompt
+from commerce_evaluation.hnp.llm.scoring import build_summary
+from commerce_evaluation.hnp.llm.trace import TraceWriter
+from commerce_evaluation.hnp.llm.transport import (
     BudgetedTransport,
     FakeTransport,
     OpenAIResponsesTransport,
     StructuredLLM,
 )
-from commerce_agent.hnp_experiment.llm.validator import (
+from commerce_evaluation.hnp.llm.validator import (
     LlmValidatorAgent,
     dry_run_responder,
     review_input,
     sample_decision,
 )
+from commerce_evaluation.paths import LOCAL, ROOT
 
-ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = ROOT / "src/commerce_agent/hnp_experiment"
+PACKAGE = Path(__file__).with_name("hnp")
 REFUSED = 2
 
 
@@ -153,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         transport = FakeTransport(dry_run_responder(settings.seed))
 
     output_root = resolve(settings.output_dir)
-    if not output_root.is_relative_to((ROOT / ".local").resolve()):
+    if not output_root.is_relative_to(LOCAL.resolve()):
         print("HNP_OUTPUT_DIR must stay under this worktree's .local directory", file=sys.stderr)
         return REFUSED
     kind = "llm_live" if live else "llm_dry_run"

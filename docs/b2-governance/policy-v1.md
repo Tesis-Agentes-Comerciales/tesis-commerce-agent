@@ -14,7 +14,7 @@ Se leyeron en orden el [roadmap HP/HNP](system-design-v1/roadmap.md), el
 [revisión D1/D2](design-review.md), el [contrato anterior](policy-contract.md),
 las [amenazas](threat-model.md), el [plan de evaluación](evaluation-plan.md),
 el [cierre de diseño](design-closure-2026-10-11.md) y el
-[manifiesto anterior](../../evaluation/b2-design.json).
+[manifiesto anterior](../../evaluation/data/b2-design.json).
 El roadmap del 11 de octubre prima como propuesta reciente. Este contrato concreta
 D10/D12/D13/D15/D16/D30/D31; no cambia el estado del registro ni cierra D38.
 Complementos: [aceptación](policy-acceptance-v1.md) y [ADR del motor](adr-policy-engine-v1.md).

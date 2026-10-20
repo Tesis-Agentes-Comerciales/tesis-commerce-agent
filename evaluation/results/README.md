@@ -1,7 +1,7 @@
 # Resultados experimentales
 
-El runner crea aquí un archivo JSONL y un resumen JSON por lote. Cada línea corresponde a una
-repetición y no contiene bearer tokens, claves privadas ni tokens de pago.
+El runner (`uv run governance-pilot`) crea aquí un archivo JSONL y un resumen JSON por lote. Cada
+línea corresponde a una repetición y no contiene bearer tokens, claves privadas ni tokens de pago.
 
 Los resultados del piloto se conservan aunque incumplan el oráculo: una desviación es evidencia
 experimental, no un error que deba borrarse o reejecutarse silenciosamente.

@@ -24,7 +24,6 @@ from commerce_agent.governance.human_consent import (
     ConsentCommand,
     ConsentReceipt,
     HumanIdentity,
-    SyntheticHumanIssuer,
     TermsAlreadyDecided,
     timestamp,
 )
@@ -32,6 +31,7 @@ from commerce_agent.persistence.d2_d17_source import VerifiedD17Source
 from commerce_agent.persistence.human_consent_sqlite import SqliteHumanConsent
 from tests.governance import test_guarded_d1 as previous
 from tests.governance.test_preselection_d1 import open_link
+from tests.support.human_consent import SyntheticHumanIssuer
 
 
 @pytest.fixture(scope="module")

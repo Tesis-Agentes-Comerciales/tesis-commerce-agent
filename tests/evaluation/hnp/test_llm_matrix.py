@@ -11,11 +11,11 @@ from typing import Any
 
 import pytest
 
-from commerce_agent.hnp_experiment.evaluation import load_oracles
-from commerce_agent.hnp_experiment.evidence import ExperimentalEvidence, verify_entries
-from commerce_agent.hnp_experiment.harness import load_cases
-from commerce_agent.hnp_experiment.llm.cost import TokenPrices, estimate
-from commerce_agent.hnp_experiment.llm.matrix import (
+from commerce_evaluation.hnp.evaluation import load_oracles
+from commerce_evaluation.hnp.evidence import ExperimentalEvidence, verify_entries
+from commerce_evaluation.hnp.harness import load_cases
+from commerce_evaluation.hnp.llm.cost import TokenPrices, estimate
+from commerce_evaluation.hnp.llm.matrix import (
     MatrixRun,
     PlannedEpisode,
     business_cases,
@@ -23,30 +23,30 @@ from commerce_agent.hnp_experiment.llm.matrix import (
     review_inputs,
     run_matrix,
 )
-from commerce_agent.hnp_experiment.llm.prompts import load_prompt
-from commerce_agent.hnp_experiment.llm.schemas import BUSINESS_CHECKS
-from commerce_agent.hnp_experiment.llm.scoring import (
+from commerce_evaluation.hnp.llm.prompts import load_prompt
+from commerce_evaluation.hnp.llm.schemas import BUSINESS_CHECKS
+from commerce_evaluation.hnp.llm.scoring import (
     build_summary,
     case_kind,
     mcnemar_exact,
     wilson,
 )
-from commerce_agent.hnp_experiment.llm.trace import TraceWriter, load_traces
-from commerce_agent.hnp_experiment.llm.transport import (
+from commerce_evaluation.hnp.llm.trace import TraceWriter, load_traces
+from commerce_evaluation.hnp.llm.transport import (
     FakeReply,
     FakeTransport,
     LlmRequest,
     TransportError,
 )
-from commerce_agent.hnp_experiment.llm.validator import (
+from commerce_evaluation.hnp.llm.validator import (
     LlmValidatorAgent,
     dry_run_responder,
     review_input,
     sample_decision,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = Path(__file__).parent / "fixtures"
+ROOT = Path(__file__).resolve().parents[3]
+FIXTURES = ROOT / "evaluation/data/hnp"
 CASES = load_cases(FIXTURES / "cases.json")
 ORACLES = load_oracles(FIXTURES / "oracle.json")
 PROMPT = load_prompt("validator-v1")
@@ -292,7 +292,7 @@ def test_matrix_runs_without_network(monkeypatch):
 
 
 def test_only_the_transport_module_can_import_a_provider_sdk():
-    package = ROOT / "src/commerce_agent/hnp_experiment"
+    package = ROOT / "evaluation/src/commerce_evaluation/hnp"
     prohibited = (
         "commerce_agent.runtime",
         "commerce_agent.application",
@@ -314,13 +314,12 @@ def test_only_the_transport_module_can_import_a_provider_sdk():
 
 @pytest.fixture
 def script(monkeypatch: pytest.MonkeyPatch):
-    import runpy
+    from commerce_evaluation.hnp_matrix import main
 
     for name in list(os.environ):
         if name.startswith("HNP_") or name == "OPENAI_API_KEY":
             monkeypatch.delenv(name)
-    module = runpy.run_path(str(ROOT / "scripts/run_hnp_llm_matrix.py"))
-    return module["main"]
+    return main
 
 
 def env_file(tmp_path: Path, **overrides: str) -> Path:
@@ -333,7 +332,7 @@ def env_file(tmp_path: Path, **overrides: str) -> Path:
 
 
 def test_script_refuses_live_calls_without_every_gate(script, tmp_path, monkeypatch, capsys):
-    import commerce_agent.hnp_experiment.llm.transport as transport
+    import commerce_evaluation.hnp.llm.transport as transport
 
     def never(*args, **kwargs):
         raise AssertionError("A provider client must not be constructed")

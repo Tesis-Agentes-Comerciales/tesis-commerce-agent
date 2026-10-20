@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Run the paired governance pilot and write one JSONL record per repetition."""
 
 from __future__ import annotations
@@ -25,9 +24,12 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from jwcrypto.jwk import JWK
 
-ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MATRIX = ROOT / "evaluation" / "pilot-scenarios.json"
-DEFAULT_RESULTS = ROOT / "evaluation" / "results"
+from commerce_evaluation.paths import DATA, EVALUATION, RESULTS, ROOT
+
+DEFAULT_MATRIX = DATA / "pilot-scenarios.json"
+DEFAULT_RESULTS = RESULTS
+# Runs with the merchant's environment, which owns commerce_lab and psycopg.
+MUTATE_OFFER = EVALUATION / "scripts" / "evaluation_mutate_offer.py"
 
 DETAILS = {
     "buyer": {
@@ -595,7 +597,7 @@ def _execute_repetition(
                         "uv",
                         "run",
                         "python",
-                        str(agent / "scripts" / "evaluation_mutate_offer.py"),
+                        str(MUTATE_OFFER),
                         "--run-id",
                         merchant_run_id,
                         "--offer-id",
@@ -720,7 +722,7 @@ def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def main() -> int:
+def _run_pilot() -> int:
     arguments = _parser().parse_args()
     matrix = _load_matrix(arguments.matrix.resolve())
     repetitions = arguments.repetitions or int(matrix["repetitions_per_condition"])
@@ -982,9 +984,13 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
+def main() -> int:
     try:
-        raise SystemExit(main())
+        return _run_pilot()
     except PilotError as error:
         print(f"governance pilot failed: {error}", file=sys.stderr)
-        raise SystemExit(1) from None
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,3 +1,5 @@
+"""Evaluate conversation turns of a running local agent with its configured LLM."""
+
 import argparse
 import json
 import re

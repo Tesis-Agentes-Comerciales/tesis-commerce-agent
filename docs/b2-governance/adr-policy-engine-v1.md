@@ -19,7 +19,7 @@ amplía alcance a HNP; no atribuye aprobación de OPA a los asesores.
 Se usan como entradas de diseño el [contrato v1](policy-v1.md), su
 [aceptación](policy-acceptance-v1.md), las [amenazas](threat-model.md), la
 [evaluación anterior](evaluation-plan.md) y el
-[manifiesto anterior](../../evaluation/b2-design.json). Las discrepancias P1–P5,
+[manifiesto anterior](../../evaluation/data/b2-design.json). Las discrepancias P1–P5,
 outcomes, timeout de 100 ms y motor declarado se registran en policy-v1; no se
 reescriben documentos ni resultados históricos para presentar consenso inexistente.
 

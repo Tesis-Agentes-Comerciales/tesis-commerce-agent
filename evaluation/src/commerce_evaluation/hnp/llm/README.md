@@ -32,7 +32,8 @@ Reglas que el código impone, no solo documenta:
 | `matrix.py` | plan pareado sembrado y ejecución de la matriz |
 | `scoring.py` | métricas por brazo, Wilson 95 %, McNemar exacto, desviaciones, resumen `hnp-llm-run/3-draft` |
 
-Script: `scripts/run_hnp_llm_matrix.py`. Pruebas: `tests/hnp_experiment/test_llm_*.py`.
+Comando: `uv run hnp-matrix` (`commerce_evaluation/hnp_matrix.py`). Corpus:
+`evaluation/data/hnp/`. Pruebas: `tests/evaluation/hnp/test_llm_*.py`.
 
 ## Configuración
 
@@ -55,14 +56,14 @@ Los precios de `.env.example` son marcadores; hay que verificarlos antes de cual
 
 ```bash
 # Plan y estimación de costo, sin llamadas
-uv run python scripts/run_hnp_llm_matrix.py --estimate-only --env-file .env.example
+uv run hnp-matrix --estimate-only --env-file .env.example
 
 # Dry-run: FakeTransport, no abre conexiones (~1 s)
-uv run python scripts/run_hnp_llm_matrix.py --dry-run --env-file .env.example
+uv run hnp-matrix --dry-run --env-file .env.example
 
 # Live: solo con presupuesto aprobado. Requiere HNP_LIVE=1, OPENAI_API_KEY, precios
 # verificados y HNP_MAX_COST_USD >= la cota superior que imprime el plan.
-uv run python scripts/run_hnp_llm_matrix.py --env-file .env
+uv run hnp-matrix --env-file .env
 ```
 
 Si falta cualquiera de esos gates el script termina con código 2 antes de crear el cliente. En

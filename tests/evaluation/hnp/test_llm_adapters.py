@@ -10,21 +10,21 @@ import httpx
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from commerce_agent.hnp_experiment.adapters import ScriptedBuyerAgent
-from commerce_agent.hnp_experiment.context import FixtureContextResolver
-from commerce_agent.hnp_experiment.coordinator import ReviewCoordinator
-from commerce_agent.hnp_experiment.evidence import ExperimentalEvidence
-from commerce_agent.hnp_experiment.harness import load_cases
-from commerce_agent.hnp_experiment.llm.config import HnpSettings
-from commerce_agent.hnp_experiment.llm.cost import TokenPrices
-from commerce_agent.hnp_experiment.llm.prompts import PROMPT_DIRECTORY, load_prompt
-from commerce_agent.hnp_experiment.llm.schemas import (
+from commerce_evaluation.hnp.adapters import ScriptedBuyerAgent
+from commerce_evaluation.hnp.context import FixtureContextResolver
+from commerce_evaluation.hnp.coordinator import ReviewCoordinator
+from commerce_evaluation.hnp.evidence import ExperimentalEvidence
+from commerce_evaluation.hnp.harness import load_cases
+from commerce_evaluation.hnp.llm.config import HnpSettings
+from commerce_evaluation.hnp.llm.cost import TokenPrices
+from commerce_evaluation.hnp.llm.prompts import PROMPT_DIRECTORY, load_prompt
+from commerce_evaluation.hnp.llm.schemas import (
     BUSINESS_CHECKS,
     ReviewChecks,
     ValidatorDecision,
 )
-from commerce_agent.hnp_experiment.llm.trace import TokenUsage
-from commerce_agent.hnp_experiment.llm.transport import (
+from commerce_evaluation.hnp.llm.trace import TokenUsage
+from commerce_evaluation.hnp.llm.transport import (
     BudgetedTransport,
     FakeReply,
     FakeTransport,
@@ -33,12 +33,12 @@ from commerce_agent.hnp_experiment.llm.transport import (
     TransportError,
     TransportTimeout,
 )
-from commerce_agent.hnp_experiment.llm.validator import LlmValidatorAgent
-from commerce_agent.hnp_experiment.models import CHECKS
-from commerce_agent.hnp_experiment.sink import SimulatedEffectSink
+from commerce_evaluation.hnp.llm.validator import LlmValidatorAgent
+from commerce_evaluation.hnp.models import CHECKS
+from commerce_evaluation.hnp.sink import SimulatedEffectSink
 
-ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = Path(__file__).parent / "fixtures"
+ROOT = Path(__file__).resolve().parents[3]
+FIXTURES = ROOT / "evaluation/data/hnp"
 CASES = {c.case_id: c for c in load_cases(FIXTURES / "cases.json")}
 PROMPT = load_prompt("validator-v1")
 PRICES = TokenPrices(Decimal("1.5"), Decimal("6"))
@@ -58,8 +58,8 @@ ENVIRONMENT = {
     "HNP_MAX_COST_USD": "2",
     "HNP_VALIDATOR_PROMPT": "validator-v1",
     "HNP_BUYER_PROMPT": "buyer-v1",
-    "HNP_CASES_PATH": "tests/hnp_experiment/fixtures/cases.json",
-    "HNP_ORACLE_PATH": "tests/hnp_experiment/fixtures/oracle.json",
+    "HNP_CASES_PATH": "evaluation/data/hnp/cases.json",
+    "HNP_ORACLE_PATH": "evaluation/data/hnp/oracle.json",
     "HNP_OUTPUT_DIR": ".local/hnp02-test",
 }
 
@@ -226,14 +226,14 @@ def test_malformed_or_inconsistent_output_fails_closed(reply, status):
 
 def test_binding_is_adapter_bookkeeping_and_never_makes_a_model_answer_inconsistent():
     from commerce_agent.governance.canonical import parse_model
-    from commerce_agent.hnp_experiment.context import (
+    from commerce_evaluation.hnp.context import (
         assemble,
         proposal_envelope,
         proposal_view,
         reviewer_context,
     )
-    from commerce_agent.hnp_experiment.llm.validator import assessment_from_decision
-    from commerce_agent.hnp_experiment.models import BuyerDraft, wire_bytes
+    from commerce_evaluation.hnp.llm.validator import assessment_from_decision
+    from commerce_evaluation.hnp.models import BuyerDraft, wire_bytes
 
     case = CASES["valid"]
     context = reviewer_context(assemble(case.source))
@@ -251,7 +251,7 @@ def test_binding_is_adapter_bookkeeping_and_never_makes_a_model_answer_inconsist
 
 
 def test_transport_error_is_infrastructure_without_message():
-    from commerce_agent.hnp_experiment.evaluation import is_infrastructure_failure
+    from commerce_evaluation.hnp.evaluation import is_infrastructure_failure
 
     error = TransportError("APIConnectionError")
     agent = validator(FakeTransport(lambda _: FakeReply(raises=error)))

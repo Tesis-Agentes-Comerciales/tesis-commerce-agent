@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
-EVALUATION = ROOT / "evaluation"
+ROOT = Path(__file__).resolve().parents[2]
+EVALUATION = ROOT / "evaluation" / "data"
 
 
 def load_json(name: str) -> dict[str, Any]:
