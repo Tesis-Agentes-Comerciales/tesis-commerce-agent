@@ -944,7 +944,12 @@ def _run_pilot() -> int:
                 "baseline_id": matrix["baseline_id"],
                 "condition": arguments.condition,
                 "created_at": datetime.now(UTC).isoformat(),
-                "output": str(output),
+                # Relative inside the checkout, so committed summaries carry no machine path.
+                "output": (
+                    output.relative_to(ROOT).as_posix()
+                    if output.is_relative_to(ROOT)
+                    else str(output)
+                ),
                 **_summary(records),
             }
             summary_path.write_text(
