@@ -76,6 +76,10 @@ uv run pytest
 uv build
 ```
 
+`uv sync --frozen --all-groups` instala también el miembro `evaluation/` del workspace uv: el
+código de los experimentos (piloto B0/B2, HNP-01 y HNP-02), que no entra en el wheel ni en la
+imagen; comandos y datos en [evaluation/README.md](evaluation/README.md).
+
 Las pruebas E2E quedan omitidas en la suite normal. Las unitarias y de contrato no requieren red,
 modelo ni merchant. Las de integración real con PostgreSQL en Docker y el Merchant son opt-in
 (`RUN_LIVE_STACK=1` y `MERCHANT_REPO`); el procedimiento en macOS y Linux está en

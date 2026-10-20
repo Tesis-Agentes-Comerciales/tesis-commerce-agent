@@ -2,8 +2,14 @@
 
 ## Scope
 
-This repository contains only the buyer agent. The merchant is an external ACP service and must
-never be imported as a Python package or accessed through its database.
+This repository contains only the buyer agent and its experiments. The merchant is an external ACP
+service and must never be imported as a Python package or accessed through its database.
+
+- `src/commerce_agent` is the product: the buyer agent, its wheel and its image.
+- `evaluation/` is a uv workspace member (`commerce_evaluation`) with the experiments (B0/B2 pilot,
+  HNP-01, HNP-02), their data and results. It depends on the product; the product never imports it.
+- `tests/` verifies both; experiment tests live in `tests/evaluation/`, test doubles in
+  `tests/support/`.
 
 ## Runtime
 
