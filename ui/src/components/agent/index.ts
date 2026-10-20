@@ -40,6 +40,11 @@ export {
   type PurchaseApprovalCardProps,
 } from "@/components/agent/purchase-approval-card"
 export { ReasoningText, type ReasoningTextProps } from "@/components/agent/reasoning-text"
+export {
+  StaleTermsCard,
+  type StaleTermsCardProps,
+  type StaleTermsCardStatus,
+} from "@/components/agent/stale-terms-card"
 export { ThinkingGroup, type ThinkingGroupProps } from "@/components/agent/thinking-group"
 export {
   ThinkingIndicator,
