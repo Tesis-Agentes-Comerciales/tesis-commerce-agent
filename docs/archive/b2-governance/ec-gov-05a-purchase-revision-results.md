@@ -1,5 +1,8 @@
 # EC-GOV-05A — Revisión persistente de purchases y CAS
 
+> **Nota 2026-10-20.** Rutas históricas, no se reescriben. `scripts/evaluation_mutate_offer.py` está
+> en `evaluation/scripts/`.
+
 Dictamen: **READY_FOR_REVIEW**, dentro del alcance de la fila local persistente.
 Validación real: Windows, Python 3.12.6, SQLite 3.45.3, 2026-10-14.
 No se ejecutó Linux. No se implementó D1 shadow ni enforcement.

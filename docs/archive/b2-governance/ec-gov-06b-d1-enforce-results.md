@@ -1,5 +1,9 @@
 # EC-GOV-06B — Integración local D1 y frontera de despacho
 
+> **Nota 2026-10-20.** Rutas históricas, no se reescriben. `tests/e2e/` y su runner se reemplazaron
+> por `tests/integration/test_live_purchase.py` y `test_live_browser.py`
+> ([equivalencias](../../../tests/integration/README.md#equivalencia-con-el-e2e-conjunto)).
+
 ## Dictamen y preparación
 
 **Integración local: READY_FOR_REVIEW. Activación comercial: BLOCKED.**

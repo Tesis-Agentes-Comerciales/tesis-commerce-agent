@@ -18,7 +18,7 @@ clasificada por dónde se crea, sin `pytestmark` ni `skipif` propios:
 | Ruta | Marker | Efecto |
 | --- | --- | --- |
 | `tests/integration/` | `live` | Se omite salvo con `RUN_LIVE_STACK=1`. |
-| `tests/evaluation/` (y `tests/hnp_experiment/` hasta que se mueva) | `evaluation` | Corre siempre, sin red ni modelo. |
+| `tests/evaluation/` | `evaluation` | Corre siempre, sin red ni modelo. |
 | El resto de `tests/` | — | Unitarias y de contrato. |
 
 `slow` lo pone cada módulo vivo que tarda minutos (hoy 07B-B y la regresión del Merchant en
@@ -56,8 +56,9 @@ uv run pytest --cov --cov-report=term # con cobertura, como el CI
 | `RUN_LIVE_LLM` | Manual: pone el modelo de OpenAI del entorno detrás de las pruebas conversacional y de navegador de la capa 4. Gasta dinero. |
 | `HNP_LIVE` | Manual: habilita llamadas reales en la evaluación HNP; además exige tope de costo. |
 
-Se retiraron `RUN_JOINT_E2E`, `RUN_JOINT_AP2_E2E` y `RUN_GOV06DC_REAL`/`RUN_GOV07A_REAL`/
-`RUN_GOV07BB_REAL`/`RUN_GOV07BP_REAL`: todo eso es ahora la capa 4 con `RUN_LIVE_STACK`.
+No hay otras activaciones: las del E2E conjunto de septiembre y las de las suites live por ticket
+se retiraron y su cobertura es ahora la capa 4 con `RUN_LIVE_STACK`. La correspondencia prueba por
+prueba está en las secciones de equivalencia de [`tests/integration/README.md`](../tests/integration/README.md).
 
 ## Workflows
 

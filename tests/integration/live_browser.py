@@ -3,8 +3,8 @@
 The browser signs up through this checkout's auth service, talks to the Agent API with the
 short-lived JWT it issues and approves the purchase the Agent prepares against the lane's
 real Merchant and payment provider. auth/ and ui/ run with `node` after `npm ci`; the Agent
-API runs in this process so the model boundary can be scripted. Formerly
-tests/e2e/ui_ap2_smoke.py behind scripts/run_joint_e2e.py --ui.
+API runs in this process so the model boundary can be scripted. Replaces the September
+browser smoke; the mapping is in tests/integration/README.md.
 """
 
 import os

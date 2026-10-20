@@ -8,7 +8,7 @@ from commerce_agent.config import Settings
 TESTS = Path(__file__).parent
 # Layers follow the directory (docs/testing.md): a new file is classified by where it lives.
 LIVE = TESTS / "integration"
-EVALUATION = (TESTS / "evaluation", TESTS / "hnp_experiment")
+EVALUATION = TESTS / "evaluation"
 LIVE_OPT_IN = "RUN_LIVE_STACK"
 
 
@@ -20,7 +20,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             # Opting in without a requirement fails in the stack fixture, never skips quietly.
             if os.environ.get(LIVE_OPT_IN) != "1":
                 item.add_marker(skip_live)
-        elif any(item.path.is_relative_to(directory) for directory in EVALUATION):
+        elif item.path.is_relative_to(EVALUATION):
             item.add_marker(pytest.mark.evaluation)
 
 

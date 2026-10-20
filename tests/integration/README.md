@@ -18,7 +18,7 @@ Hay tres grupos sobre el mismo PostgreSQL:
 - Compras (`test_live_purchase.py`): carriles con su propio Merchant, proxy y proveedor de
   pagos. `b0` es la línea base B0 (ACP + AP2 Human Present: mandatos y recibos firmados,
   webhooks de orden); `acp` es la finalización ACP sin AP2 y la API conversacional. Reemplazan
-  al E2E conjunto de septiembre (`tests/e2e` y `scripts/run_joint_e2e.py`).
+  al E2E conjunto de septiembre ([equivalencias](#equivalencia-con-el-e2e-conjunto)).
 - Navegador (`test_live_browser.py`): sobre el carril `b0`, Chromium se registra en `auth/`,
   pide la compra en la UI servida por Vite, la aprueba en la tarjeta y ve la orden confirmada;
   el Agent atiende en este mismo proceso con el router guionado y guarda ambos recibos AP2.
@@ -151,8 +151,8 @@ local, commits fijados y cuatro activaciones (`RUN_GOV06DC_REAL`, `RUN_GOV07A_RE
 `RUN_GOV07BB_REAL`, `RUN_GOV07BP_REAL`). Se eliminaron junto con su arnés y sus workers
 (`gov06dc_harness.py`, `gov06dc_agent_worker.py`, `gov06dc_merchant_worker.py`,
 `gov07bb_agent_worker.py`, `gov07bb_merchant_worker.py`, `gov07bp_merchant_worker.py`). Los
-informes de `docs/b2-governance/` los citan como evidencia histórica; siguen en el historial de
-Git.
+informes de [`docs/archive/b2-governance/`](../../docs/archive/b2-governance/README.md) los citan
+como evidencia histórica; siguen en el historial de Git.
 
 | Antes | Ahora |
 | --- | --- |

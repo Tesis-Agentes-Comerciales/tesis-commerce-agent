@@ -1,5 +1,11 @@
 # EC-GOV-06D-C — Integración real de recuperación Agent–Merchant
 
+> **Nota 2026-10-20.** Rutas históricas, no se reescriben. El reporte estaba en
+> `docs/b2-governance/` y hoy está en `docs/archive/b2-governance/`; los módulos live de
+> `tests/integration/` se reemplazaron (`test_live_creation_recovery.py` →
+> `test_live_06dc_creation_recovery.py`) y sus workers y arneses `gov*` se retiraron
+> ([equivalencias](../../../tests/integration/README.md#equivalencia-con-la-suite-anterior)).
+
 ## A. Git y preflight
 
 Agent: rama inicial `governance/ec-gov-06d-b-remote-creation-verification`, HEAD
