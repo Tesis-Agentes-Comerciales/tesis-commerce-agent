@@ -43,7 +43,10 @@ jobs:
           uv run pyright
 
       - name: Build
-        run: uv build
+        run: |
+          uv build
+          # The evaluation workspace member never ships inside the product wheel.
+          if unzip -l dist/*.whl | grep -q "commerce_evaluation/"; then echo "commerce_evaluation leaked into the wheel"; exit 1; fi
 
   python-tests:
     runs-on: ubuntu-24.04
@@ -66,8 +69,9 @@ jobs:
           uv sync --frozen --all-groups
 
       # Live tests (tests/integration) are collected and skipped: RUN_LIVE_STACK is unset.
+      # The floor sits 5 points under the 2026-10-20 baseline (90.0 %, docs/testing.md).
       - name: Tests with coverage
-        run: uv run pytest --cov --cov-report=term --cov-report=xml
+        run: uv run pytest --cov --cov-report=term --cov-fail-under=85
 
       - name: Coverage summary
         if: ${{ !cancelled() }}
