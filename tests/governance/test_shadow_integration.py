@@ -177,11 +177,14 @@ def test_same_commercial_result_operations_and_real_evidence_before_gateway(tmp_
             calls += 1
 
     original = sys.getprofile()
+    started_on = datetime.now(UTC).date().isoformat()
     try:
         sys.setprofile(profile)
         actual = start(purchase)
     finally:
         sys.setprofile(original)
+    # Either day: the authority clock is real, and the run may cross midnight UTC.
+    days = {started_on, datetime.now(UTC).date().isoformat()}
     assert calls == 1
     assert actual == expected
     assert (
@@ -195,7 +198,7 @@ def test_same_commercial_result_operations_and_real_evidence_before_gateway(tmp_
     data = record.policy_input()
     assert data.run_id == "run-real" and data.owner_ref != OWNER
     assert data.commercial_now == "2026-09-20T12:00:00.000Z"
-    assert data.authority_now.startswith(datetime.now(UTC).date().isoformat())
+    assert data.authority_now[:10] in days
     with closing(sqlite3.connect(settings.agent_database_path)) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
         ledger = SqliteGovernanceEvidenceStore(connection)
