@@ -14,6 +14,10 @@ dependencies = [
   "tesis-commerce-agent",
 ]
 
+[project.scripts]
+hnp-matrix = "commerce_evaluation.hnp_matrix:main"
+hnp-review-demo = "commerce_evaluation.hnp_review_demo:main"
+
 [tool.uv.sources]
 tesis-commerce-agent = { workspace = true }
 

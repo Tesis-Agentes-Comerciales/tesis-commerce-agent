@@ -134,7 +134,7 @@ class Hnp02ProjectionTests(unittest.TestCase):
         source = json.dumps([summary, traces])
         projected = json.dumps(module.hnp02(module.read_hnp02_run(RUN)), ensure_ascii=False)
         prompt = (
-            (ROOT / "src/commerce_agent/hnp_experiment/llm/prompts/validator-v1.md")
+            (ROOT / "evaluation/src/commerce_evaluation/hnp/llm/prompts/validator-v1.md")
             .read_text(encoding="utf-8")
             .splitlines()[0]
         )

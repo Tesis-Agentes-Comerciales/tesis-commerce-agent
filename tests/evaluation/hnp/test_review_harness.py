@@ -8,17 +8,17 @@ import pytest
 from pydantic import ValidationError
 
 from commerce_agent.governance.canonical import parse_model
-from commerce_agent.hnp_experiment.adapters import (
+from commerce_evaluation.hnp.adapters import (
     ScriptedBuyerAgent,
     ScriptedValidatorAgent,
     independent_assessment,
 )
-from commerce_agent.hnp_experiment.context import FixtureContextResolver, SyntheticSource, assemble
-from commerce_agent.hnp_experiment.coordinator import ReviewCoordinator
-from commerce_agent.hnp_experiment.evaluation import load_oracles, score, verify_expected
-from commerce_agent.hnp_experiment.evidence import ExperimentalEvidence, verify_entries
-from commerce_agent.hnp_experiment.harness import load_cases, run_case
-from commerce_agent.hnp_experiment.models import (
+from commerce_evaluation.hnp.context import FixtureContextResolver, SyntheticSource, assemble
+from commerce_evaluation.hnp.coordinator import ReviewCoordinator
+from commerce_evaluation.hnp.evaluation import load_oracles, score, verify_expected
+from commerce_evaluation.hnp.evidence import ExperimentalEvidence, verify_entries
+from commerce_evaluation.hnp.harness import load_cases, run_case
+from commerce_evaluation.hnp.models import (
     CHECKS,
     REASONS,
     BuyerContext,
@@ -33,10 +33,10 @@ from commerce_agent.hnp_experiment.models import (
     digest,
     wire_bytes,
 )
-from commerce_agent.hnp_experiment.sink import SimulatedEffectSink, _Permit
+from commerce_evaluation.hnp.sink import SimulatedEffectSink, _Permit
 
-ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = Path(__file__).parent / "fixtures"
+ROOT = Path(__file__).resolve().parents[3]
+FIXTURES = ROOT / "evaluation/data/hnp"
 CASES = load_cases(FIXTURES / "cases.json")
 ORACLES = load_oracles(FIXTURES / "oracle.json")
 BY_ID = {c.case_id: c for c in CASES}
@@ -201,7 +201,7 @@ def test_inconsistent_accept_with_failed_check_is_not_an_accept():
 
 
 def test_validator_comparison_does_not_call_backend_or_receive_oracle(monkeypatch):
-    import commerce_agent.hnp_experiment.coordinator as module
+    import commerce_evaluation.hnp.coordinator as module
 
     monkeypatch.setattr(module, "mandatory_failures", lambda *_: ())
     case = BY_ID["over-total"]
@@ -349,7 +349,7 @@ def test_harness_has_no_network_or_commercial_capability(monkeypatch):
         "commerce_agent.delegated_payment",
         "openai",
     )
-    package = ROOT / "src/commerce_agent/hnp_experiment"
+    package = ROOT / "evaluation/src/commerce_evaluation/hnp"
     for file in package.glob("*.py"):
         tree = ast.parse(file.read_text(encoding="utf-8"))
         imports = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
@@ -367,7 +367,7 @@ def test_source_validation_cannot_accept_forged_offer():
     "case", [c for c in CASES if ORACLES[c.case_id].invalid_at_review], ids=lambda c: c.case_id
 )
 def test_backend_contains_forced_accept_for_every_invalid_business_case(case):
-    from commerce_agent.hnp_experiment.harness import response_for
+    from commerce_evaluation.hnp.harness import response_for
 
     sink = SimulatedEffectSink()
     coordinator = ReviewCoordinator(
@@ -386,7 +386,7 @@ def test_backend_contains_forced_accept_for_every_invalid_business_case(case):
 
 
 def test_readback_verifies_actual_file_bytes(tmp_path, corpus):
-    from commerce_agent.hnp_experiment.evidence import load_entries
+    from commerce_evaluation.hnp.evidence import load_entries
 
     store = ExperimentalEvidence(tmp_path / "readback")
     store.append(corpus[0]["valid", "B"].record)
@@ -399,7 +399,7 @@ def test_readback_verifies_actual_file_bytes(tmp_path, corpus):
 
 
 def test_record_and_effect_cannot_be_exported_inconsistently(corpus):
-    from commerce_agent.hnp_experiment.models import DemoResult
+    from commerce_evaluation.hnp.models import DemoResult
 
     valid = corpus[0]["valid", "B"].model_dump(mode="json")
     valid["effect_occurred"] = False
@@ -430,11 +430,10 @@ def test_slow_scripted_validator_is_classified_as_timeout():
 
 
 def test_output_path_cannot_target_operational_directories(tmp_path):
-    import runpy
+    from commerce_evaluation.hnp_review_demo import run
 
-    module = runpy.run_path(str(ROOT / "scripts/run_hnp_review_demo.py"))
     forbidden = ROOT / "do-not-create-hnp-demo"
     assert not forbidden.exists()
     with pytest.raises(ValueError, match=r"\.local"):
-        module["run"](forbidden)
+        run(forbidden)
     assert not forbidden.exists()

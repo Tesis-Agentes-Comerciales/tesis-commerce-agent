@@ -4,28 +4,28 @@ import argparse
 import json
 from pathlib import Path
 
-from commerce_agent.hnp_experiment.evaluation import (
+from commerce_evaluation.hnp.evaluation import (
     expectation_deviations,
     load_oracles,
     score,
     verify_expected,
 )
-from commerce_agent.hnp_experiment.evidence import (
+from commerce_evaluation.hnp.evidence import (
     ExperimentalEvidence,
     load_entries,
     verify_entries,
 )
-from commerce_agent.hnp_experiment.harness import load_cases, run_case
-from commerce_agent.hnp_experiment.models import Condition, wire_bytes
+from commerce_evaluation.hnp.harness import load_cases, run_case
+from commerce_evaluation.hnp.models import Condition, wire_bytes
+from commerce_evaluation.paths import DATA, LOCAL
 
-ROOT = Path(__file__).resolve().parents[1]
-FIXTURES = ROOT / "tests/hnp_experiment/fixtures"
+FIXTURES = DATA / "hnp"
 
 
 def run(output: Path, strict: bool = True) -> dict:
     """Strict (default) aborts on any oracle deviation; otherwise deviations are recorded."""
     output = output.resolve()
-    if not output.is_relative_to((ROOT / ".local").resolve()):
+    if not output.is_relative_to(LOCAL.resolve()):
         raise ValueError("Experimental evidence must stay under this worktree's .local directory")
     evidence = ExperimentalEvidence(output)
     cases = load_cases(FIXTURES / "cases.json")
@@ -90,7 +90,7 @@ def run(output: Path, strict: bool = True) -> dict:
         "oracle_sha256": sha256_digest((FIXTURES / "oracle.json").read_bytes()),
         "implementation_sha256": {
             p.name: sha256_digest(p.read_bytes())
-            for p in sorted((ROOT / "src/commerce_agent/hnp_experiment").glob("*.py"))
+            for p in sorted(Path(__file__).with_name("hnp").glob("*.py"))
         },
     }
     (output / "results.json").write_bytes(wire_bytes(results) + b"\n")
@@ -101,14 +101,19 @@ def run(output: Path, strict: bool = True) -> dict:
     return summary
 
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=ROOT / ".local/hnp01/demo")
+    parser.add_argument("--output", type=Path, default=LOCAL / "hnp01/demo")
     parser.add_argument(
         "--strict",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="abort on any oracle deviation (scripted reproducibility); --no-strict records them",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     run(args.output, args.strict)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
