@@ -214,6 +214,7 @@ def lab_offer(
     observed_at: str = "2026-09-20T11:30:00Z",
     expires_at: str = "2026-09-20T12:30:00Z",
     stock: int = 3,
+    delivery_days: int = 2,
 ) -> dict[str, Any]:
     """Merchant Offer snapshot as served by the lab extension `POST /lab/offers/get`."""
     return {
@@ -235,7 +236,7 @@ def lab_offer(
             "tax_included": True,
         },
         "delivery_context": {"country": "CO", "city": "Bogota", "postal_code": "110111"},
-        "delivery_days": 2,
+        "delivery_days": delivery_days,
         "observed_at": observed_at,
         "expires_at": expires_at,
     }

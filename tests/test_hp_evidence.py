@@ -54,6 +54,25 @@ def test_rows_cannot_be_rewritten(tmp_path: Path, statement: str) -> None:
     assert evidence.verify_chain("run-a")
 
 
+def test_replace_cannot_evict_a_row_through_its_digest(tmp_path: Path) -> None:
+    evidence = store(tmp_path)
+    evidence.append("run-a", "freshness_check", check("fresh"))
+    last = evidence.append("run-a", "freshness_check", check("changed"))
+
+    with (
+        closing(sqlite3.connect(tmp_path / "agent.db")) as connection,
+        pytest.raises(sqlite3.IntegrityError, match="hp_evidence_chain_conflict"),
+    ):
+        # A valid first link of another run whose digest collides with run-a's last record.
+        connection.execute(
+            "INSERT OR REPLACE INTO hp_evidence VALUES "
+            "('run-x', 1, 'freshness_check', '{}', NULL, ?)",
+            (last.digest,),
+        )
+
+    assert [item.body["outcome"] for item in evidence.for_run("run-a")] == ["fresh", "changed"]
+
+
 def test_insert_outside_the_chain_is_rejected(tmp_path: Path) -> None:
     evidence = store(tmp_path)
     evidence.append("run-a", "freshness_check", check("fresh"))

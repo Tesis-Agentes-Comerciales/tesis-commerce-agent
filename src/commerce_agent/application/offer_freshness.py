@@ -9,12 +9,12 @@ evidence only: a new revision with the same terms is still fresh.
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol
 
 from commerce_agent.acp.client import ACPClientError
 from commerce_agent.acp.models import CheckoutSession
-from commerce_agent.acp.offer_snapshot import DeliveryContext, MerchantOffer
+from commerce_agent.acp.offer_snapshot import DeliveryContext, MerchantOffer, merchant_time
 from commerce_agent.approval import ApprovalError
 from commerce_agent.config import Settings
 from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
@@ -46,6 +46,7 @@ def compare_offer(offer: MerchantOffer, checkout: CheckoutSession) -> FreshnessR
         "shipping_minor": (_total(checkout, "fulfillment"), offer.pricing.shipping_total_minor),
         "total_minor": (checkout.total_minor, offer.pricing.total_minor),
         "expires_at": (checkout.expires_at, offer.expires_at),
+        "delivery_days": (_delivery_days(checkout), offer.delivery_days),
     }
     changed = [name for name, (presented, live) in terms.items() if presented != live]
     sellable = offer.product_status == "active" and offer.availability == "in_stock"
@@ -158,3 +159,21 @@ def _offer_line(checkout: CheckoutSession) -> tuple[str, int]:
 def _total(checkout: CheckoutSession, kind: str) -> int | None:
     amounts = [row.get("amount") for row in checkout.totals if row.get("type") == kind]
     return amounts[0] if len(amounts) == 1 and type(amounts[0]) is int else None
+
+
+def _delivery_days(checkout: CheckoutSession) -> int | None:
+    """The merchant projects earliest_delivery_time as created_at + delivery_days (acp.py)."""
+    options = (checkout.model_extra or {}).get("fulfillment_options")
+    if not isinstance(options, list):
+        return None
+    earliest = {
+        option.get("earliest_delivery_time") for option in options if isinstance(option, dict)
+    }
+    if len(earliest) != 1:
+        return None
+    [delivery_at] = earliest
+    try:
+        delay = merchant_time(str(delivery_at)) - merchant_time(checkout.created_at)
+    except ValueError:
+        return None
+    return delay.days if delay == timedelta(days=delay.days) else None

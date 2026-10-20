@@ -260,6 +260,7 @@ def test_s04_price_change_after_presentation_is_rejected(tmp_path: Path) -> None
         ({"shipping": 3_000_000}, ["shipping_minor", "total_minor"]),
         ({"expires_at": "2026-09-20T12:20:00Z"}, ["expires_at"]),
         ({"stock": 0}, ["stock"]),
+        ({"delivery_days": 7}, ["delivery_days"]),
     ],
 )
 def test_material_change_blocks_approval_before_mandates(

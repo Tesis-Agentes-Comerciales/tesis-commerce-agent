@@ -26,12 +26,14 @@ _SCHEMA = (
         previous_digest TEXT CHECK((sequence = 1) = (previous_digest IS NULL)),
         digest TEXT NOT NULL UNIQUE,
         PRIMARY KEY(run_id, sequence))""",
-    # Also stops INSERT OR REPLACE: a replaced row is never the next link of its run.
+    # Also stops INSERT OR REPLACE: a replaced row is never the next link of its run, and a
+    # repeated digest would evict a row of any run without firing the delete trigger.
     """CREATE TRIGGER IF NOT EXISTS hp_evidence_chain BEFORE INSERT ON hp_evidence
         WHEN NEW.sequence != COALESCE(
                 (SELECT MAX(sequence) + 1 FROM hp_evidence WHERE run_id = NEW.run_id), 1)
             OR NEW.previous_digest IS NOT (SELECT digest FROM hp_evidence
                 WHERE run_id = NEW.run_id ORDER BY sequence DESC LIMIT 1)
+            OR EXISTS (SELECT 1 FROM hp_evidence WHERE digest = NEW.digest)
         BEGIN SELECT RAISE(ABORT, 'hp_evidence_chain_conflict'); END""",
     """CREATE TRIGGER IF NOT EXISTS hp_evidence_no_update BEFORE UPDATE ON hp_evidence
         BEGIN SELECT RAISE(ABORT, 'hp_evidence_append_only'); END""",
