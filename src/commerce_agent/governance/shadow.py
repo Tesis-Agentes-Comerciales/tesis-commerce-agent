@@ -2,7 +2,6 @@
 
 import json
 import logging
-import re
 import secrets
 import sqlite3
 from collections.abc import Callable
@@ -14,14 +13,13 @@ from pathlib import Path
 from time import perf_counter_ns
 from typing import Literal
 
-from pydantic import SecretBytes, SecretStr
-
 from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent, SelectionResult, rank_candidates
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.persistence.provenance_sqlite import SqliteD1ProvenanceStore, _operational_bytes
 
+from .bootstrap import configured_d1
 from .canonical import canonical_bytes, parse_model, sha256_digest
 from .evaluator import (
     GovernanceError,
@@ -40,7 +38,7 @@ from .models import (
     PolicyDecision,
     SelectionPolicyInput,
 )
-from .provenance import ClockProfile, ClockReader, D1Configuration, ProvenanceKeys, utc_milliseconds
+from .provenance import ClockReader, D1Configuration, ProvenanceKeys, utc_milliseconds
 from .provenance_artifacts import measure_d1_sources
 from .shadow_artifacts import verify_loaded_selection
 
@@ -430,6 +428,10 @@ class UnavailableShadowObserver:
         ranking: Callable[[ProductFeed, PurchaseIntent], SelectionResult],
     ) -> object | None:
         self.diagnostics.lost += 1
+        # Once per purchase, not only at startup: a degraded run must not pass as shadow.
+        logging.getLogger(__name__).warning(
+            "D1 shadow observation lost: %s", self.diagnostics.reason
+        )
         return None
 
     def observe(
@@ -450,65 +452,16 @@ def build_shadow_observer(
     if settings.agent_governance_mode == "off":
         return None
     try:
-        revision = settings.agent_d1_policy_revision
-        if revision is None or re.fullmatch(r"[1-9][0-9]*", revision) is None:
-            raise ValueError("Missing policy revision")
-
-        def key(secret: SecretStr | None) -> SecretBytes:
-            raw = secret.get_secret_value() if secret is not None else ""
-            if re.fullmatch(r"(?:[0-9a-fA-F]{2})+", raw) is None:
-                raise ValueError("Invalid secret encoding")
-            return SecretBytes(bytes.fromhex(raw))
-
-        if settings.agent_d1_key_id is None or settings.agent_d1_policy_set_id is None:
-            raise ValueError("Missing shadow configuration")
-        keys = ProvenanceKeys(
-            key_id=settings.agent_d1_key_id,
-            pseudonym_key=key(settings.agent_d1_hmac_key_hex),
-            encryption_key=key(settings.agent_d1_aes_key_hex),
-        )
-        sandbox = settings.agent_sandbox_clock_at
-        profile = ClockProfile(
-            authority_source="system_utc",
-            authority_provider=None,
-            commercial_source="injected_utc"
-            if commercial_clock
-            else "fixed_sandbox"
-            if sandbox
-            else "system_utc",
-            commercial_provider=settings.agent_d1_commercial_clock_id if commercial_clock else None,
-            fixed_commercial_at=utc_milliseconds(sandbox)
-            if sandbox and commercial_clock is None
-            else None,
-        )
-        configuration = D1Configuration(
-            governance_mode="shadow",
-            merchant_base_url=settings.merchant_base_url,
-            policy_set_id=settings.agent_d1_policy_set_id,
-            policy_revision=int(revision),
-            currency="COP",
-            quantity=1,
-            clock=profile,
-        )
-        policy, binding = None, None
-        if settings.agent_d1_policy_path is not None or settings.agent_d1_policy_digest is not None:
-            if settings.agent_d1_policy_path is None or settings.agent_d1_policy_digest is None:
-                raise ValueError("Policy file requires a trusted digest")
-            policy = settings.agent_d1_policy_path.read_bytes()
-            binding = PolicyBinding(
-                schema_version=SCHEMA,
-                policy_set_id=configuration.policy_set_id,
-                version=configuration.policy_revision,
-                artifact_digest=settings.agent_d1_policy_digest,
-            )
-            verify_artifact(policy, binding)
+        configured = configured_d1(settings, commercial_clock)
+        if not isinstance(configured.configuration, D1Configuration):
+            raise ValueError("Shadow configuration required")
         return ShadowD1Observer(
             settings.agent_database_path,
-            configuration,
-            keys,
-            ClockReader(profile, commercial=commercial_clock),
-            policy_bytes=policy,
-            policy_binding=binding,
+            configured.configuration,
+            configured.keys,
+            configured.clocks,
+            policy_bytes=configured.policy_bytes,
+            policy_binding=configured.policy_binding,
         )
     except Exception:
         return UnavailableShadowObserver()

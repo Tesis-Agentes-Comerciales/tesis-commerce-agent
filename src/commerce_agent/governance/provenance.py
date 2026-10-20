@@ -1,5 +1,7 @@
 """Backend-only D1 provenance contracts. No runtime hooks or evaluated decisions."""
 
+import hashlib
+import hmac
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Literal, Self
@@ -85,7 +87,7 @@ class D1Configuration(_D1Configuration):
 
 
 class D1EnforceConfiguration(_D1Configuration):
-    """Explicit backend-only UoW configuration; no Settings/runtime loader."""
+    """Explicit backend UoW configuration; Settings load it only for opt-in enforce."""
 
     governance_mode: Literal["enforce"]
 
@@ -159,8 +161,22 @@ class ClockReader:
             raise GovernanceError("GOV_FACTS_UNAVAILABLE") from None
 
 
+def pseudonym(keys: ProvenanceKeys, domain: str, value: bytes) -> str:
+    return hmac.new(
+        keys.pseudonym_key.get_secret_value(),
+        b"commerce-d1-provenance/v1\0" + domain.encode() + b"\0" + value,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def merchant_pseudonym(keys: ProvenanceKeys, merchant_base_url: str) -> str:
+    """The merchant_ref of every D1 context, so configured allowlists compare equal."""
+    origin = validate_service_base_url(merchant_base_url)
+    return "merchant:" + pseudonym(keys, "merchant-origin", origin.encode())
+
+
 def build_d1_policy(
-    *, policy_set_id: str, version: int, merchant_ref: str
+    *, policy_set_id: str, version: int, merchant_ref: str | tuple[str, ...]
 ) -> tuple[bytes, PolicyBinding]:
     """Build the COP/one-unit D1 profile from trusted configuration, never a fixture."""
     from .canonical import canonical_bytes, sha256_digest
@@ -171,7 +187,7 @@ def build_d1_policy(
         version=version,
         policy_ids=("POL-01", "POL-02"),
         allowed_actions=("prepare_checkout",),
-        allowed_merchant_refs=(merchant_ref,),
+        allowed_merchant_refs=(merchant_ref,) if isinstance(merchant_ref, str) else merchant_ref,
         currency="COP",
         quantity=1,
     )

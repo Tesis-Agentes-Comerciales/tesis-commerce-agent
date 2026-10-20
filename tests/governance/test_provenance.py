@@ -3,6 +3,7 @@
 import json
 import secrets
 import sqlite3
+import tomllib
 from collections.abc import Iterator
 from contextlib import closing
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from pydantic import SecretBytes, ValidationError
 
 from commerce_agent.acp.feed import ProductFeed, load_product_feed
 from commerce_agent.domain import HardConstraints, OptionConstraint, PurchaseIntent, rank_candidates
+from commerce_agent.governance import provenance_artifacts
 from commerce_agent.governance.canonical import canonical_bytes, parse_model, sha256_digest
 from commerce_agent.governance.evaluator import (
     GovernanceError,
@@ -523,6 +525,10 @@ def test_source_change_changes_measured_identity_without_editing_business_files(
             return body + b"\n# simulated code drift\n"
         return body
 
+    monkeypatch.setattr(provenance_artifacts, "_RACY_NS", 0)
+    measure_d1_sources()
+    assert provenance_artifacts._memo is not None
+    # File stats stay intact; project sources are still reread on every use.
     monkeypatch.setattr(Path, "read_bytes", changed)
     updated = vault.register_context("run-a", OWNER, configuration)
     assert updated.data.eligibility_algorithm_ref.version == 2
@@ -543,8 +549,138 @@ def test_installed_dependency_tamper_is_rejected(monkeypatch: pytest.MonkeyPatch
         return original_read(path)
 
     monkeypatch.setattr(Path, "read_bytes", changed)
+    # Installed files rely on the stat key, which a simulated read leaves intact.
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
     with pytest.raises(GovernanceError, match="GOV_ARTIFACT_MISMATCH"):
         measure_d1_sources()
+
+
+def test_wheel_layout_measures_package_data_identically(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = Path(__file__).parents[2]
+    wheel = tomllib.loads((checkout / "pyproject.toml").read_text(encoding="utf-8"))
+    assert wheel["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"] == {
+        "uv.lock": "commerce_agent/uv.lock"
+    }
+    package = tmp_path / "site-packages" / "commerce_agent"
+    for path in (*SOURCE_PATHS, "uv.lock"):
+        target = package / path.removeprefix("src/commerce_agent/")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((checkout / path).read_bytes())
+    expected = measure_d1_sources()
+    # No checkout root beside an installed wheel: only package data is available.
+    monkeypatch.setattr(provenance_artifacts, "files", lambda _name: package)
+    monkeypatch.setattr(
+        provenance_artifacts, "__file__", str(package / "governance/provenance_artifacts.py")
+    )
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
+    assert measure_d1_sources() == expected
+    (package / "uv.lock").unlink()
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
+    with pytest.raises(GovernanceError, match="GOV_ARTIFACT_MISMATCH"):
+        measure_d1_sources()
+
+
+def test_sources_hashed_once_until_a_measured_file_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    installed = tmp_path / "installed.py"
+    installed.write_bytes(b"first")
+    reads: list[bytes] = []
+
+    def measure(read: provenance_artifacts.Read) -> dict[str, bytes]:
+        read[installed] = None  # Like a dependency file: only its stat is rechecked.
+        reads.append(installed.read_bytes())
+        return {"algorithm": reads[-1], "normalization": b""}
+
+    monkeypatch.setattr(provenance_artifacts, "_measure", measure)
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
+    # Just written: inside the racy window, so every call measures again.
+    assert measure_d1_sources() == measure_d1_sources()
+    assert reads == [b"first", b"first"]
+    monkeypatch.setattr(provenance_artifacts, "_RACY_NS", 0)
+    for _ in range(3):
+        assert measure_d1_sources()["algorithm"] == b"first"
+    assert len(reads) == 4  # One measurement and its confirmation after the stat.
+    installed.write_bytes(b"changed")
+    assert measure_d1_sources()["algorithm"] == measure_d1_sources()["algorithm"] == b"changed"
+    assert reads[4:] == [b"changed", b"changed"]
+
+
+def test_project_sources_are_compared_on_every_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "selection.py"
+    source.write_bytes(b"first")
+    measured: list[bytes] = []
+
+    def measure(read: provenance_artifacts.Read) -> dict[str, bytes]:
+        read[source] = source.read_bytes()
+        measured.append(read[source] or b"")
+        return {"algorithm": measured[-1], "normalization": b""}
+
+    monkeypatch.setattr(provenance_artifacts, "_measure", measure)
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
+    # A stat key that misses the write, e.g. Windows ctime with a restored mtime.
+    monkeypatch.setattr(provenance_artifacts, "_signature", lambda _read: "unchanged")
+    assert measure_d1_sources() == measure_d1_sources()
+    assert measured == [b"first", b"first"]
+    source.write_bytes(b"other")
+    assert measure_d1_sources()["algorithm"] == b"other"
+
+
+def test_write_during_measurement_is_never_reused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "selection.py"
+    source.write_bytes(b"x")
+    observed = iter([b"before", b"after", b"after", b"after"])
+
+    def measure(read: provenance_artifacts.Read) -> dict[str, bytes]:
+        read[source] = None
+        return {"algorithm": next(observed), "normalization": b""}
+
+    monkeypatch.setattr(provenance_artifacts, "_measure", measure)
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
+    monkeypatch.setattr(provenance_artifacts, "_RACY_NS", 0)
+    assert measure_d1_sources()["algorithm"] == b"before"
+    assert provenance_artifacts._memo is None
+    assert measure_d1_sources()["algorithm"] == measure_d1_sources()["algorithm"] == b"after"
+
+
+def test_purchase_paths_reuse_one_measurement_per_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.governance.test_enforce_integration import baseline, make_case, start
+    from tests.test_purchase_service import details
+
+    measured = provenance_artifacts._measure
+    calls: list[int] = []
+
+    def counted(read: provenance_artifacts.Read) -> provenance_artifacts.Measured:
+        calls.append(len(read))
+        return measured(read)
+
+    monkeypatch.setattr(provenance_artifacts, "_measure", counted)
+    monkeypatch.setattr(provenance_artifacts, "_memo", None)
+    # Independent of how recently the checkout or environment was written.
+    monkeypatch.setattr(provenance_artifacts, "_RACY_NS", 0)
+    for index in range(2):
+        assert start(make_case(tmp_path / f"enforce-{index}.db")).stage == "awaiting_confirmation"
+        service, _, observer = baseline(tmp_path / f"shadow-{index}.db", shadow=True)
+        result = service.start(
+            run_id="run-a",
+            owner_id=OWNER,
+            request="shadow",
+            intent=PurchaseIntent(hard=HardConstraints(currency="COP")),
+            selected_variant_id="SON-01",
+            details=details(),
+        )
+        assert result.stage == "awaiting_confirmation"
+        assert observer is not None and observer.diagnostics.observed == 1
+    # Callers still compare on every use; only the first full hash and its check run.
+    assert len(calls) == 2
 
 
 @pytest.mark.parametrize("bad_field", ["budget", "extra"])

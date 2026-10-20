@@ -13,7 +13,7 @@ from threading import Barrier
 from typing import Any, cast
 
 import pytest
-from pydantic import SecretBytes, SecretStr, ValidationError
+from pydantic import SecretBytes, SecretStr
 
 from commerce_agent.acp.feed import ProductFeed, load_product_feed
 from commerce_agent.acp.models import CheckoutSession
@@ -486,9 +486,8 @@ def test_no_default_dispatch_or_public_enforce_path(tmp_path: Path):
     assert exc.value.code == "d1_dispatch_blocked" and case.gateway.calls == []
     status = case.gate.recovery_status("run-a")
     assert status is not None and status[0] == "reserved"
+    # Settings accept enforce only by explicit opt-in; that runtime gate has no dispatch either.
     assert Settings(_env_file=None).agent_governance_mode == "off"  # type: ignore[call-arg]
-    with pytest.raises(ValidationError):
-        Settings(_env_file=None, agent_governance_mode="enforce")  # type: ignore[call-arg]
 
 
 def test_two_purchase_attempts_one_dispatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

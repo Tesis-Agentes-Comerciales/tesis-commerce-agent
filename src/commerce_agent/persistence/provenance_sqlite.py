@@ -5,7 +5,6 @@ Ciphertext is AES-256-GCM, not SQLite/database encryption.
 Provisioning, backup, file ACLs and key rotation remain deployment responsibilities.
 """
 
-import hashlib
 import hmac
 import json
 import secrets
@@ -32,6 +31,8 @@ from commerce_agent.governance.provenance import (
     ProvenanceKeys,
     RegisteredContext,
     build_d1_policy,
+    merchant_pseudonym,
+    pseudonym,
 )
 from commerce_agent.governance.provenance_artifacts import measure_d1_sources
 
@@ -125,11 +126,7 @@ class SqliteD1ProvenanceStore:
         self._cipher = AESGCM(self._keys.encryption_key.get_secret_value())
 
     def _mac(self, domain: str, value: bytes) -> str:
-        return hmac.new(
-            self._keys.pseudonym_key.get_secret_value(),
-            b"commerce-d1-provenance/v1\0" + domain.encode() + b"\0" + value,
-            hashlib.sha256,
-        ).hexdigest()
+        return pseudonym(self._keys, domain, value)
 
     def _transaction(self) -> None:
         if (
@@ -413,9 +410,7 @@ class SqliteD1ProvenanceStore:
             run_id, owner_id, "clock", canonical_bytes(configuration.clock), public=True
         )
         commercial = self._register(run_id, owner_id, "commercial", canonical_bytes(configuration))
-        merchant_ref = "merchant:" + self._mac(
-            "merchant-origin", configuration.merchant_base_url.encode()
-        )
+        merchant_ref = merchant_pseudonym(self._keys, configuration.merchant_base_url)
         payload, binding = build_d1_policy(
             policy_set_id=configuration.policy_set_id,
             version=configuration.policy_revision,

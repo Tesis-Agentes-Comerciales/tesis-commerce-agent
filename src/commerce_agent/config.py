@@ -67,13 +67,16 @@ class Settings(BaseSettings):
     agent_auth_issuer: str | None = None
     agent_ui_origin: str = "http://127.0.0.1:5173"
     agent_sandbox_clock_at: datetime | None = None
-    agent_governance_mode: Literal["off", "shadow"] = "off"
-    # Decode/validate shadow-only configuration in the isolated bootstrap boundary,
-    # so missing or malformed B2 settings never prevent ordinary B0 construction.
+    agent_governance_mode: Literal["off", "shadow", "enforce"] = "off"
+    # Decode/validate B2 configuration in the isolated bootstrap boundary, so missing
+    # or malformed settings never prevent ordinary B0 construction in off/shadow.
+    # Opt-in enforce instead refuses to start with them.
     agent_d1_policy_set_id: str | None = None
     agent_d1_policy_revision: str | None = None
     agent_d1_policy_path: Path | None = None
     agent_d1_policy_digest: str | None = None
+    # Comma-separated merchant origins D1 allows; default: only MERCHANT_BASE_URL.
+    agent_d1_allowed_merchant_origins: str | None = None
     agent_d1_key_id: str | None = None
     agent_d1_hmac_key_hex: SecretStr | None = Field(default=None, repr=False)
     agent_d1_aes_key_hex: SecretStr | None = Field(default=None, repr=False)

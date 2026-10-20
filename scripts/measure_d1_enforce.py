@@ -77,6 +77,8 @@ def measure(output: Path, repetitions: int) -> dict:
                             "evaluation_ms": observer.diagnostics.evaluation_ms,
                         }
                     )
+                    # A degraded observer still completes B0; never report it as shadow cost.
+                    assert observer is None or observer.diagnostics.status == "observed"
                 service_ms = (perf_counter_ns() - began) / 1e6
                 assert result.stage == "awaiting_confirmation"
                 assert sum(name == "create" for name, _ in gateway.calls) == 1

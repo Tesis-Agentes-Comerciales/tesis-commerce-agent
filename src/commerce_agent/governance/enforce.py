@@ -1,4 +1,4 @@
-"""Experimental backend-injected D1 gate. No public/runtime enforce assembly.
+"""Experimental backend-injected D1 gate. Runtime assembly is opt-in, without dispatch.
 
 An explicit envelope transport can be injected by the backend for the first POST
 only. Its creation observation stops before every post-create commercial effect.
