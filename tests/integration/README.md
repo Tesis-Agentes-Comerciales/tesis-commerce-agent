@@ -5,12 +5,13 @@ Estos módulos levantan un stack propio y desechable en cada ejecución: Postgre
 la misma imagen y digest que el CI del Merchant (`postgres:18.4-alpine@sha256:9a8a…5de15`), el
 Merchant real (`uvicorn commerce_lab.api:app`, lanzado con `uv run --project $MERCHANT_REPO` y
 su propio intérprete y lock), el proveedor de pagos real (`tesis_payment_provider`, desde
-`$PAYMENT_REPO`) y procesos del Agent de este checkout. Todo el tráfico del Agent al Merchant
+`$PAYMENT_REPO`) y procesos del Agent de este checkout, incluidos su servicio de autenticación
+(`auth/`) y su UI (`ui/`) en la prueba del navegador. Todo el tráfico del Agent al Merchant
 pasa por HTTP real de loopback a través de `FaultProxy`, que es transparente salvo cuando una
 prueba arma un fallo etiquetado. La suite normal y `ci.yml` los omiten; el workflow
 `nightly.yml` los ejecuta cada noche y a pedido.
 
-Hay dos grupos sobre el mismo PostgreSQL:
+Hay tres grupos sobre el mismo PostgreSQL:
 
 - Gobernanza (06D-C, 07A, 07B-B, 07B-P): el Merchant del stack detrás de su proxy, con fallos
   inyectados.
@@ -18,6 +19,9 @@ Hay dos grupos sobre el mismo PostgreSQL:
   pagos. `b0` es la línea base B0 (ACP + AP2 Human Present: mandatos y recibos firmados,
   webhooks de orden); `acp` es la finalización ACP sin AP2 y la API conversacional. Reemplazan
   al E2E conjunto de septiembre (`tests/e2e` y `scripts/run_joint_e2e.py`).
+- Navegador (`test_live_browser.py`): sobre el carril `b0`, Chromium se registra en `auth/`,
+  pide la compra en la UI servida por Vite, la aprueba en la tarjeta y ve la orden confirmada;
+  el Agent atiende en este mismo proceso con el router guionado y guarda ambos recibos AP2.
 
 ## Requisitos
 
@@ -26,6 +30,8 @@ Hay dos grupos sobre el mismo PostgreSQL:
 - Docker accesible con el CLI `docker` sin `sudo` (Docker Desktop, OrbStack, Colima o Docker
   Engine en Linux). La primera ejecución descarga la imagen fijada.
 - `uv`.
+- Node.js 24 con `npm ci` hecho en `auth/` y en `ui/`, y el Chromium de Playwright para Python
+  (`uv run playwright install --only-shell chromium`); solo los usa la prueba del navegador.
 - Un checkout del Merchant y otro del proveedor de pagos, en cualquier rama o commit. No hay
   commits fijados: la suite valida los checkouts actuales y registra el `HEAD` y el estado del
   Agent y del Merchant en la evidencia.
@@ -37,14 +43,14 @@ Hay dos grupos sobre el mismo PostgreSQL:
 | `RUN_LIVE_STACK` | `1` activa la suite. Con cualquier otro valor, cada prueba se omite e indica el motivo. |
 | `MERCHANT_REPO` | Ruta del checkout del Merchant. |
 | `PAYMENT_REPO` | Ruta del checkout del proveedor de pagos; solo la usan las compras. |
-| `RUN_LIVE_LLM` | Opcional y manual: `1` pone el modelo de OpenAI del entorno (`OPENAI_API_KEY`, `OPENAI_MODEL`) detrás de la prueba conversacional en vez del router estático. Gasta dinero. |
+| `RUN_LIVE_LLM` | Opcional y manual: `1` pone el modelo de OpenAI del entorno (`OPENAI_API_KEY`, `OPENAI_MODEL` exportados; el `.env` no se lee) detrás de la prueba conversacional y la del navegador en vez del router estático. Gasta dinero. |
 
 No hay más variables. Si se activa la suite y falta un requisito (`MERCHANT_REPO`, `docker`,
 `uv` o un sistema POSIX), la fixture `stack` falla con la lista de lo que falta en vez de omitir
-en silencio; lo mismo hace cada carril de compras sin `PAYMENT_REPO`. Los puertos los asigna el kernel en `127.0.0.1` (PostgreSQL publicado, Merchant y
-proxy) y las credenciales y claves AP2 son sintéticas y aleatorias por ejecución; nunca se
-imprimen. Los
-procesos hijos reciben un entorno limpio (`clean_environment`: sin `OPENAI_*`, `DATABASE_URL`,
+en silencio; lo mismo hacen cada carril de compras sin `PAYMENT_REPO` y la prueba del navegador
+sin `node` o sin `npm ci`. Los puertos los asigna el kernel en `127.0.0.1` (PostgreSQL
+publicado, Merchant y proxy; `auth/` y Vite reciben uno libre) y las credenciales y claves AP2
+son sintéticas y aleatorias por ejecución; nunca se imprimen. Los procesos hijos reciben un entorno limpio (`clean_environment`: sin `OPENAI_*`, `DATABASE_URL`,
 `PG*`, `VIRTUAL_ENV`, etc.) y el Merchant corre con el directorio de la ejecución como `cwd`,
 así que no lee el `.env` de su checkout.
 
@@ -54,20 +60,21 @@ así que no lee el `.env` de su checkout.
 uv sync --frozen --all-groups
 (cd ../tesis-commerce-merchant && uv sync --frozen --all-groups)
 (cd ../tesis-payment-provider-sandbox && uv sync --frozen --all-groups)
+(cd auth && npm ci) && (cd ui && npm ci) && uv run playwright install --only-shell chromium
 export RUN_LIVE_STACK=1 MERCHANT_REPO="$PWD/../tesis-commerce-merchant" \
   PAYMENT_REPO="$PWD/../tesis-payment-provider-sandbox"
 uv run pytest tests/integration -rs
 ```
 
 Un módulo o un escenario: pase su archivo, o filtre por el identificador que llevan los nombres
-(`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`, `-k b0`, `-k acp`). Con
+(`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`, `-k b0`, `-k acp`, `-k browser`). Con
 `--basetemp=<dir>` la evidencia queda en un lugar conocido.
 
-La suite completa (61 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B
+La suite completa (62 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B
 (marker `slow`): cada escenario hace una selección nueva sobre el catálogo completo del Merchant
 (cientos de lecturas de Offer por fase) y el Merchant reconstruye el catálogo en cada lectura.
-`-m "not slow"` deja 50 pruebas representativas (gobernanza 06D-C/07A/07B-P y las cinco compras)
-en unos 2 minutos.
+`-m "not slow"` deja 51 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras y
+la del navegador) en unos 2 minutos.
 
 ## Evidencia y limpieza
 
@@ -79,7 +86,8 @@ Cada ejecución deja bajo `<basetemp>/live-stack0/`:
 - `merchant.log`, `merchant-control.log` y un log por proceso del Agent. Los workers solo
   exportan tipos y códigos de error, nunca mensajes, credenciales ni cuerpos.
 - `b0/` y `acp/`: el `merchant.log`, `payment.log` y `merchant-control.log` de cada carril, sus
-  feeds exportados y sus SQLite (Agent y proveedor).
+  feeds exportados y sus SQLite (Agent y proveedor). La prueba del navegador deja en
+  `b0/browser-<actor>/` el `auth.log`, el `ui.log`, sus SQLite y `browser.png`, la captura final.
 
 Al terminar la sesión se detiene el Merchant (SIGTERM al grupo de procesos) y se elimina el
 contenedor con sus volúmenes. Si pytest muere con `kill -9`, la limpieza no corre; los restos se
@@ -90,6 +98,7 @@ docker ps -a --filter label=tesis-live=1
 docker rm --force --volumes $(docker ps -aq --filter label=tesis-live=1)
 pgrep -fl "commerce_lab.api:app --fd"   # Merchant huérfano, si quedó alguno
 pgrep -fl "tesis_payment_provider.api:app_factory"   # proveedor huérfano
+pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
 ```
 
 ## Piezas
@@ -99,7 +108,10 @@ pgrep -fl "tesis_payment_provider.api:app_factory"   # proveedor huérfano
   `LiveStack`, `AgentProcess` y `JointCase` (episodio 06D-C/07A sobre el Merchant real).
 - `live_purchase.py`: `PurchaseLane` (Merchant, proxy, proveedor de pagos, receptor de webhooks
   del Agent y control del Merchant de un perfil `b0` o `acp`) y `Episode` (episodio B0 sembrado
-  con su sesión y su feed ACP exportado).
+  con su sesión y su feed ACP exportado), además del router guionado y la solicitud del teléfono
+  que comparten la prueba conversacional y la del navegador.
+- `live_browser.py`: `BuyerUi` (`auth/` y Vite como `NodeServer`, el Agent como `AgentServer`,
+  uvicorn en un hilo de este proceso) para un episodio de un carril.
 - `live_merchant_control.py`: corre con el intérprete del Merchant. Aprovisiona con las
   funciones del propio Merchant (migraciones, episodios, sesiones, catálogo gestionado) y toma
   instantáneas y contadores de efectos; para las compras siembra episodios B0, exporta su feed,
@@ -207,6 +219,7 @@ Ahora lo levanta este mismo arnés con la misma activación.
 | ídem: permalink sin PII, `order_create` y `order_update` firmados | `test_b0_order_webhooks_reach_the_agent_and_the_permalink_hides_the_buyer` |
 | `test_conversational_purchase.py::test_natural_request_crosses_the_model_boundary_and_completes` | `test_acp_natural_request_crosses_the_model_boundary_and_completes` |
 | `test_repository_boundary.py` | `tests/contracts/test_repository_boundary.py` (capa 1; no necesita servicios) |
+| `ui_ap2_smoke.py` (`run_joint_e2e.py --ap2 --ui`, manual) | `test_live_browser.py::test_b0_purchase_from_the_browser_signs_up_approves_and_keeps_both_receipts` |
 
 Diferencias deliberadas:
 
@@ -219,3 +232,6 @@ Diferencias deliberadas:
   elige otra Sony de 256 GB): exige las restricciones duras de la solicitud.
 - El Merchant y el proveedor corren con el directorio de la ejecución como `cwd` y entorno
   limpio, en puertos que asigna el kernel; ya no hay `docker compose` ni puertos fijos.
+- La prueba del navegador usa el Chromium de Playwright en vez del Chrome de macOS, pide un
+  teléfono del catálogo B0 (los audífonos Sonora ya no existen), no depende del LLM salvo con
+  `RUN_LIVE_LLM=1` y guarda la captura en el directorio de la ejecución, no en `../output/`.

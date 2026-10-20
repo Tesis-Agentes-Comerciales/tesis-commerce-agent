@@ -22,9 +22,17 @@ from fastapi.testclient import TestClient
 from jwcrypto.jwk import JWK
 from pydantic import SecretStr
 
+from commerce_agent.acp.feed import ProductCandidate
 from commerce_agent.acp.models import Address, Buyer, FulfillmentDetails
 from commerce_agent.application import CheckoutDetails
 from commerce_agent.config import Settings
+from commerce_agent.domain import PurchaseIntent, RankedCandidate
+from commerce_agent.llm import (
+    CandidateDecision,
+    CatalogRecovery,
+    CommerceDecision,
+    ConversationMessage,
+)
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.webhooks import create_webhook_app
 from tests.integration.live_stack import (
@@ -53,6 +61,24 @@ PURCHASE_ROUTES = frozenset(
         ("POST", "/checkout_sessions/*/complete"),
         ("POST", "/checkout_sessions/*/ap2/complete"),
         ("GET", "/orders/*"),
+    }
+)
+
+# A natural request the seeded B0 catalog can meet, and the typed intent a model extracts.
+PHONE_REQUEST = (
+    "Quiero comprar un telefono nuevo de 256 GB que cueste maximo dos millones "
+    "incluyendo el envio. Prefiero la marca Sony."
+)
+PHONE_INTENT = PurchaseIntent.model_validate(
+    {
+        "hard": {
+            "currency": "COP",
+            "max_total_amount_minor": 2_000_000_00,
+            "categories": ["smartphones"],
+            "conditions": ["new"],
+            "required_options": [{"name": "almacenamiento", "value": "256 gb"}],
+        },
+        "preferences": {"terms": ["sony"]},
     }
 )
 
@@ -257,3 +283,46 @@ class PurchaseLane:
         finally:
             self.proxy.close()
             self.receiver.close()
+
+
+class StaticConversationRouter:
+    """The model boundary without a model: the typed decisions an LLM would return."""
+
+    def __init__(self, request: str, intent: PurchaseIntent) -> None:
+        self._request = request
+        self._intent = intent
+
+    def route(self, messages: tuple[ConversationMessage, ...]) -> CommerceDecision:
+        assert messages[-1].content == self._request
+        return CommerceDecision(
+            action="purchase",
+            assistant_message="Voy a preparar la compra.",
+            purchase_request=self._request,
+            intent=self._intent,
+        )
+
+    def choose_candidate(
+        self,
+        messages: tuple[ConversationMessage, ...],
+        intent: PurchaseIntent,
+        candidates: tuple[RankedCandidate, ...],
+    ) -> CandidateDecision:
+        assert messages and intent == self._intent and candidates
+        return CandidateDecision(
+            action="purchase",
+            assistant_message="Elegí la opción disponible que cumple tu solicitud.",
+            selected_variant_id=candidates[0].candidate.variant_id,
+        )
+
+    def recover_no_candidate(
+        self,
+        messages: tuple[ConversationMessage, ...],
+        intent: PurchaseIntent,
+        rejection_counts: dict[str, int],
+        alternatives: tuple[ProductCandidate, ...],
+    ) -> CatalogRecovery:
+        assert messages and intent == self._intent and rejection_counts and alternatives
+        return CatalogRecovery(
+            action="clarify",
+            assistant_message="No encontré una coincidencia exacta.",
+        )

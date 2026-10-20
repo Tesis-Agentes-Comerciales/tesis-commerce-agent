@@ -18,7 +18,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from commerce_agent.acp import ACPClient, ACPClientError, load_product_feed
-from commerce_agent.acp.feed import ProductCandidate
 from commerce_agent.ap2 import AgentMandateSigner
 from commerce_agent.api import create_app
 from commerce_agent.application import PurchaseService
@@ -26,19 +25,16 @@ from commerce_agent.approval import ApprovalService
 from commerce_agent.completion import CompletionError, CompletionService
 from commerce_agent.config import Settings
 from commerce_agent.delegated_payment import DelegatedPaymentClient
-from commerce_agent.domain import PurchaseIntent, RankedCandidate
-from commerce_agent.llm import (
-    CandidateDecision,
-    CatalogRecovery,
-    CommerceDecision,
-    ConversationMessage,
-)
+from commerce_agent.domain import PurchaseIntent
 from commerce_agent.persistence import SqliteAgentStore
 from tests.integration.live_purchase import (
     APPROVED_CARD,
     DECLINED_CARD,
+    PHONE_INTENT,
+    PHONE_REQUEST,
     Episode,
     PurchaseLane,
+    StaticConversationRouter,
     buyer_details,
 )
 
@@ -239,64 +235,7 @@ def test_acp_purchase_replays_locally_and_at_the_merchant(acp):
     assert acp.store.purchase(run_id)["stage"] == "completed"  # type: ignore[index]
 
 
-class StaticConversationRouter:
-    """The model boundary without a model: the typed decisions an LLM would return."""
-
-    def __init__(self, request: str, intent: PurchaseIntent) -> None:
-        self._request = request
-        self._intent = intent
-
-    def route(self, messages: tuple[ConversationMessage, ...]) -> CommerceDecision:
-        assert messages[-1].content == self._request
-        return CommerceDecision(
-            action="purchase",
-            assistant_message="Voy a preparar la compra.",
-            purchase_request=self._request,
-            intent=self._intent,
-        )
-
-    def choose_candidate(
-        self,
-        messages: tuple[ConversationMessage, ...],
-        intent: PurchaseIntent,
-        candidates: tuple[RankedCandidate, ...],
-    ) -> CandidateDecision:
-        assert messages and intent == self._intent and candidates
-        return CandidateDecision(
-            action="purchase",
-            assistant_message="Elegí la opción disponible que cumple tu solicitud.",
-            selected_variant_id=candidates[0].candidate.variant_id,
-        )
-
-    def recover_no_candidate(
-        self,
-        messages: tuple[ConversationMessage, ...],
-        intent: PurchaseIntent,
-        rejection_counts: dict[str, int],
-        alternatives: tuple[ProductCandidate, ...],
-    ) -> CatalogRecovery:
-        assert messages and intent == self._intent and rejection_counts and alternatives
-        return CatalogRecovery(
-            action="clarify",
-            assistant_message="No encontré una coincidencia exacta.",
-        )
-
-
 def test_acp_natural_request_crosses_the_model_boundary_and_completes(acp, tmp_path):
-    natural_request = (
-        "Quiero comprar un telefono nuevo de 256 GB que cueste maximo dos millones "
-        "incluyendo el envio. Prefiero la marca Sony."
-    )
-    simulated_llm_intent = {
-        "hard": {
-            "currency": "COP",
-            "max_total_amount_minor": 2_000_000_00,
-            "categories": ["smartphones"],
-            "conditions": ["new"],
-            "required_options": [{"name": "almacenamiento", "value": "256 gb"}],
-        },
-        "preferences": {"terms": ["sony"]},
-    }
     episode = acp.episode("conversation")
     settings = Settings(
         merchant_base_url=acp.origin,
@@ -313,16 +252,14 @@ def test_acp_natural_request_crosses_the_model_boundary_and_completes(acp, tmp_p
     # RUN_LIVE_LLM=1 puts the configured OpenAI model behind the boundary (manual runs only).
     router = None
     if os.getenv("RUN_LIVE_LLM") != "1":
-        router = StaticConversationRouter(
-            natural_request, PurchaseIntent.model_validate(simulated_llm_intent)
-        )
+        router = StaticConversationRouter(PHONE_REQUEST, PHONE_INTENT)
     app = create_app(settings=settings, clock=lambda: APPROVED_AT, conversation_router=router)
     with TestClient(app) as client:
         prepared = client.post(
             "/conversation/turn",
             json={
                 "turn_id": "turn-conversational-live",
-                "messages": [{"role": "user", "content": natural_request}],
+                "messages": [{"role": "user", "content": PHONE_REQUEST}],
                 "details": buyer_details("conversation").model_dump(mode="json", exclude_none=True),
             },
         )
