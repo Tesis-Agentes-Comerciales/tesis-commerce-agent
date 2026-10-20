@@ -5,10 +5,10 @@
 representan una compra gobernada completa.
 
 El monitor de solo lectura `/governance` que la mostraba se retiró el 20 de octubre de 2026. Lo
-reemplaza la traza de compras, que muestra los controles de cada compra real del usuario: ver
-[docs/design/trace-panel.md](../design/trace-panel.md). El visor, el exportador, la proyección
-`evidence.json` y su esquema siguen en el historial de Git
-(`git log --diff-filter=D -- ui/src/features/governance-monitor`).
+reemplazará la traza de compras, propuesta en
+[`docs/design/trace-panel.md`](../design/trace-panel.md), que mostrará los controles de cada compra
+real del usuario. El visor, el exportador, la proyección `evidence.json` y su esquema siguen en el
+historial de Git (`git log --diff-filter=D -- ui/src/features/governance-monitor`).
 
 ## Fuentes
 
@@ -40,12 +40,18 @@ Junto a `sources/` quedan:
 - `sourcePins`: las tres fuentes HP, el ledger (`evidence.jsonl`) y el `results.json` y el
   `summary.json` originales de HNP-01, que no se versionan;
 - `hnp02Runs`: `summary.json` y `traces.jsonl` de la corrida HNP-02;
-- `projection_sha256`: la proyección `evidence.json` del visor retirado.
+- `projection_sha256`: la proyección `evidence.json` del visor retirado. Se comprueba desde el
+  historial con:
+
+  ```sh
+  git show 082cb45:ui/src/features/governance-monitor/evidence.json | shasum -a 256
+  ```
 
 `tests/contracts/test_governance_evidence_hashes.py` comprueba en cada `uv run pytest` que cada
-archivo de `sources/` coincide con su hash. `hnp-false-accept-selected.json` no tiene hash propio:
-el test lo liga al ledger fijado por el digest de su registro. El docstring del test detalla qué
-campos quedan fuera.
+archivo de `sources/` coincide con su hash. También fija el SHA-256 de `provenance.json`, así que
+no se puede cambiar una fuente y su hash a la vez. `hnp-false-accept-selected.json` no tiene hash
+propio: el test lo liga al ledger fijado por el digest de su registro. El docstring del test
+detalla qué campos quedan fuera.
 
 Algunas fuentes conservan su CRLF original. Por eso el `.gitattributes` de la raíz marca
 `sources/**` como `-text`. Los hashes prueban consistencia de bytes, no firma del productor ni
@@ -76,4 +82,5 @@ consentimiento humano.
 - **20 de octubre:** el contrato `governance-monitor/3` añade la corrida HNP-02 en dry-run (#18) y
   llega a 110 tests (87 de Node y 23 de Python). El lanzador pasa a Node y se retira el manifiesto,
   porque Git ya fija los bytes y `provenance.json` guarda los hashes. Ese mismo día se retira el
-  visor. Se conservan las fuentes, `provenance.json` y esta documentación.
+  visor: las fuentes, `provenance.json`, `hnp-01-inventory.md` y `hnp-shared-imports.json` quedan
+  sin cambios, este README se reescribe y la bitácora suma la entrada del retiro.
