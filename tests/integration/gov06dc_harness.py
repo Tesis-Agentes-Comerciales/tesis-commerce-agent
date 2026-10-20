@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 from pydantic import SecretBytes, SecretStr
 
 from commerce_agent.acp.creation_lookup import BackendLookupSession, CreationLookupClient
@@ -43,11 +44,60 @@ from commerce_agent.persistence.remote_creation_sqlite import RemoteCreationVeri
 from tests.test_purchase_service import FakeCheckoutGateway, details
 
 AGENT = Path(__file__).resolve().parents[2]
-MERCHANT = Path("C:/ANDES/Tesis/tesis-commerce-merchant")
-PG_BIN = Path("C:/Program Files/PostgreSQL/17/bin")
+# Machine locations come only from the environment (tests/integration/README.md).
+MERCHANT_REPO = "MERCHANT_REPO"
+PG_BIN_DIR = "PG_BIN_DIR"
+POSTGRES_TOOLS = ("initdb", "pg_ctl", "psql", "postgres")
 AGENT_HEAD = "4b890cb468d29e658d4c79987ec59d86394c4582"
 MERCHANT_HEAD = "c5bd8113998f26928f7d2b62771285fe4040d07f"
 WORKER = Path(__file__).with_name("gov06dc_merchant_worker.py")
+
+
+def executable(directory: Path, name: str) -> Path:
+    """Program inside a directory; only Windows adds the .exe suffix."""
+    return directory / (name + ".exe" if os.name == "nt" else name)
+
+
+def merchant_root() -> Path:
+    return Path(os.environ[MERCHANT_REPO]).expanduser().resolve()
+
+
+def merchant_python() -> Path:
+    """The frozen Merchant's own virtual environment (uv sync), never the Agent's."""
+    return executable(
+        merchant_root() / ".venv" / ("Scripts" if os.name == "nt" else "bin"), "python"
+    )
+
+
+def pg_tool(name: str) -> Path:
+    return executable(Path(os.environ[PG_BIN_DIR]).expanduser().resolve(), name)
+
+
+def missing_locations(*, windows_listener: bool = False) -> list[str]:
+    """Why an opted-in live run cannot start here; empty when it can. Never prints values."""
+    problems = []
+    if not os.environ.get(MERCHANT_REPO):
+        problems.append(f"{MERCHANT_REPO} (frozen Merchant checkout)")
+    elif not merchant_python().is_file():
+        problems.append(f"{MERCHANT_REPO} with a synced .venv (uv sync --frozen)")
+    if not os.environ.get(PG_BIN_DIR):
+        problems.append(f"{PG_BIN_DIR} (PostgreSQL 17 bin directory)")
+    elif absent := [name for name in POSTGRES_TOOLS if not pg_tool(name).is_file()]:
+        problems.append(f"{PG_BIN_DIR} containing {', '.join(absent)}")
+    if windows_listener and os.name != "nt":
+        problems.append("Windows socket.share for the audited Merchant listener handoff")
+    return problems
+
+
+def live_requirements(opt_in: str, reason: str, *, windows_listener: bool = False):
+    """Opt-in first, then explicit locations; both hold before any real process starts."""
+    problems = missing_locations(windows_listener=windows_listener)
+    return [
+        pytest.mark.skipif(os.environ.get(opt_in) != "1", reason=reason),
+        pytest.mark.skipif(
+            bool(problems), reason=f"{opt_in}=1 also requires " + "; ".join(problems)
+        ),
+    ]
 
 
 def port() -> int:
@@ -101,7 +151,8 @@ class LiveEnvironment:
         _require_windows_socket_sharing()
         assert os.environ.get("RUN_GOV06DC_REAL") == "1", "Explicit real-test opt-in required"
         self.agent_head = agent_head
-        for root, commit in ((AGENT, agent_head), (MERCHANT, MERCHANT_HEAD)):
+        self.merchant = merchant_root()
+        for root, commit in ((AGENT, agent_head), (self.merchant, MERCHANT_HEAD)):
             actual = subprocess.check_output(
                 ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
             ).strip()
@@ -110,7 +161,9 @@ class LiveEnvironment:
                 ["git", "-C", str(root), "diff", "HEAD", "--name-only"], text=True
             ).splitlines()
             assert set(changed) <= (set(allowed_agent_changes) if root == AGENT else set())
-        assert not subprocess.check_output(["git", "-C", str(MERCHANT), "status", "--porcelain"])
+        assert not subprocess.check_output(
+            ["git", "-C", str(self.merchant), "status", "--porcelain"]
+        )
         self.root = AGENT / ".local" / ("gov06dc-" + secrets.token_hex(6))
         self.root.mkdir(parents=True, exist_ok=False)
         self.data = self.root / "pgdata"
@@ -121,7 +174,7 @@ class LiveEnvironment:
         self.env.update(
             DATABASE_URL=f"postgresql://gov06dc_app:{secrets.token_hex(20)}@127.0.0.1:{self.pg_port}/tesis_lab",
             ACP_API_BASE_URL=f"http://127.0.0.1:{self.http_port}",
-            G06_MERCHANT=str(MERCHANT),
+            G06_MERCHANT=str(self.merchant),
             G06_AGENT=str(AGENT),
             G06_ROOT=str(self.root),
             G06_PGDATA=str(self.data),
@@ -166,7 +219,7 @@ class LiveEnvironment:
 
     def psql(self, statement, database="postgres"):
         return self.command(
-            PG_BIN / "psql.exe",
+            pg_tool("psql"),
             "-X",
             "-qAt",
             "-h",
@@ -196,7 +249,7 @@ class LiveEnvironment:
     def start_pg(self):
         self.pg_started = True
         self.command(
-            PG_BIN / "pg_ctl.exe",
+            pg_tool("pg_ctl"),
             "-D",
             self.data,
             "-l",
@@ -210,15 +263,15 @@ class LiveEnvironment:
 
     def stop_pg(self):
         if self.pg_started:
-            self.command(PG_BIN / "pg_ctl.exe", "-D", self.data, "-m", "fast", "-w", "stop")
+            self.command(pg_tool("pg_ctl"), "-D", self.data, "-m", "fast", "-w", "stop")
             self.pg_started = False
 
     def spawn(self, mode, **extra_env):
         stream = (self.root / (mode + ".log")).open("ab")
         try:
             child = subprocess.Popen(
-                [str(MERCHANT / ".venv/Scripts/python.exe"), "-B", str(WORKER), mode],
-                cwd=MERCHANT,
+                [str(merchant_python()), "-B", str(WORKER), mode],
+                cwd=self.merchant,
                 env={**self.env, **extra_env},
                 stdin=subprocess.PIPE if mode == "server" else subprocess.DEVNULL,
                 stdout=stream,
@@ -297,7 +350,7 @@ class LiveEnvironment:
 
     def start(self):
         self.command(
-            PG_BIN / "initdb.exe",
+            pg_tool("initdb"),
             "-D",
             self.data,
             "-U",
@@ -337,7 +390,7 @@ class LiveEnvironment:
             http_port=self.http_port,
             control_port=self.control_port,
             migrations=prepared,
-            postgres_version=self.command(PG_BIN / "postgres.exe", "--version"),
+            postgres_version=self.command(pg_tool("postgres"), "--version"),
             merchant_versions=self.rpc("versions"),
             agent_python=sys.version.split()[0],
             agent_commit=self.agent_head,

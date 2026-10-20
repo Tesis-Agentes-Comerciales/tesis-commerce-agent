@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import os
 import sqlite3
 import subprocess
 import sys
@@ -29,11 +28,13 @@ from tests.integration.gov06dc_harness import (
     LookupProxy,
     clean_environment,
     connect,
+    live_requirements,
 )
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("RUN_GOV06DC_REAL") != "1",
-    reason="requires RUN_GOV06DC_REAL=1 and a new verified disposable PostgreSQL/Merchant cluster",
+pytestmark = live_requirements(
+    "RUN_GOV06DC_REAL",
+    "requires RUN_GOV06DC_REAL=1 and a new verified disposable PostgreSQL/Merchant cluster",
+    windows_listener=True,
 )
 
 
