@@ -71,7 +71,7 @@ process.once('SIGTERM', () => stop(0));
 
 start('snapshot', ['scripts/governance_snapshot_server.mjs', '--demo-fixtures-only']);
 if (!externalAuth) {
-  // Synthetic accounts only: an ephemeral secret and a fresh database on every launch, as in run_joint_e2e.py.
+  // Synthetic accounts only: an ephemeral secret and a fresh database on every launch, as in tests/integration/live_browser.py.
   const database = path.join(directory, 'auth.db');
   mkdirSync(directory, { recursive: true });
   rmSync(database, { force: true });
