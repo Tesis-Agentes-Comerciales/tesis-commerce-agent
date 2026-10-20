@@ -37,6 +37,21 @@ La aplicación queda en `http://127.0.0.1:5173` y espera la API del agente en
 - Los `result` de cada paso se validan antes de dibujarlos (`src/features/agent-results.ts`): el feed
   y las respuestas ACP no son confiables.
 
+## Monitor de gobernanza (opt-in)
+
+`/governance` muestra en solo lectura evidencia histórica sanitizada de gobernanza HP/HNP (MON-02A/B).
+Solo existe en builds con `VITE_GOVERNANCE_MONITOR=true`: con cualquier otro valor o sin la variable,
+su código no entra en el bundle y `/governance` muestra la app normal. Activo, pasa por la misma puerta
+de sesión de Better Auth que la app (`src/components/session-gate.tsx`): sin sesión muestra el
+formulario de acceso y nunca la evidencia. No importa el runtime comercial ni el SSE.
+
+```sh
+VITE_GOVERNANCE_MONITOR=true npm run dev
+```
+
+La reproducción, el servidor local de snapshots y sus variables están en
+[`docs/governance-monitor/README.md`](../docs/governance-monitor/README.md).
+
 ## Storybook
 
 ```sh
@@ -70,7 +85,12 @@ bundle de producción.
 npx tsc -b
 npm run lint
 npm run build
+npm run test
 ```
+
+`npm run test` ejecuta `tests/*.test.*` con `node --test` (Node 24 quita los tipos de los `.ts`; un hook
+transpila los `.tsx` y resuelve `@/`). No necesita build previo, red ni archivos bajo `.local`; el CI lo
+corre después del build y comprueba que el build por defecto no incluya el monitor.
 
 El smoke de navegador está en `e2e/smoke.py`: enruta `POST /assistant` con los fixtures SSE
 versionados, recorre compra, aprobación y completion, revisa que el cuerpo lleve `details` y

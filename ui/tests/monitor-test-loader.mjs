@@ -15,6 +15,10 @@ registerHooks({
     return nextResolve(specifier, context)
   },
   load(url, context, nextLoad) {
+    if (url.startsWith(src.href) && url.endsWith(".json")) {
+      // Vite imports JSON as a default export; plain Node would require an import attribute.
+      return { format: "module", shortCircuit: true, source: `export default ${readFileSync(new URL(url), "utf8")}` }
+    }
     if (url.startsWith(src.href) && /\.tsx?$/.test(url)) {
       const { outputText } = ts.transpileModule(readFileSync(new URL(url), "utf8"), {
         compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2023, jsx: ts.JsxEmit.ReactJSX },

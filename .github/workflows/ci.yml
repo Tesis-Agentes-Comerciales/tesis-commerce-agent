@@ -58,4 +58,6 @@ jobs:
         run: |
           npm run lint
           npm run build
+          # The opt-in governance monitor must stay out of the default build.
+          if grep -rq "governance-monitor/2" dist; then echo "Governance monitor bundled without VITE_GOVERNANCE_MONITOR=true"; exit 1; fi
           npm run test

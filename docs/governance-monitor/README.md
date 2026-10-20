@@ -12,17 +12,18 @@ Set-Location tesis-commerce-agent
 Push-Location ui
 npm.cmd ci --ignore-scripts --no-audit --no-fund
 if ($LASTEXITCODE -ne 0) { throw 'Instalacion UI fallida' }
+$env:VITE_GOVERNANCE_MONITOR='true'
 npm.cmd run build
 if ($LASTEXITCODE -ne 0) { throw 'Build fallido' }
 Pop-Location
 node scripts/prepare_governance_snapshot.mjs --demo-fixtures-only
 if ($LASTEXITCODE -ne 0) { throw 'Fixture rechazada' }
 powershell.exe -NoProfile -File scripts/governance_snapshot_demo.ps1 -Action Start
-# Servidor estatico separado: bloquea /api/, sin proxy comercial.
+# Servidor estatico separado: solo reenvia /api/auth; el resto de /api/ responde 503.
 node ui/node_modules/vite/bin/vite.js preview ui --config ui/governance-preview.config.mjs
 ```
 
-Abrir **http://127.0.0.1:5182/governance**. El modo inicial **Reproducción offline** funciona incluso sin iniciar el servicio de snapshots. **Snapshot backend local** lee exclusivamente la fixture histórica mediante un GET local. No equivale a observabilidad de un backend comercial.
+Abrir **http://127.0.0.1:5182/governance** e iniciar sesión: el monitor comparte la puerta de Better Auth de la app, así que requiere el servicio `auth/` (puerto 4210 o `AUTH_DEV_UPSTREAM`); sin sesión solo aparece el formulario de acceso. Sin `VITE_GOVERNANCE_MONITOR=true` en el build, el monitor no existe y la ruta muestra la app. El modo inicial **Reproducción offline** funciona incluso sin iniciar el servicio de snapshots. **Snapshot backend local** lee exclusivamente la fixture histórica mediante un GET local. No equivale a observabilidad de un backend comercial.
 
 Para detener: Ctrl+C en la terminal de la UI y, desde otra terminal en la raíz del clon:
 
@@ -47,7 +48,7 @@ Se separan ejecución, creación, recuperación y efecto observado; ausencia de 
 
 CLI separado, `127.0.0.1:5183`, lista fija con un único ID `hp-hnp-demo-v1`; máximo 65536 bytes, contrato `governance-demo-snapshot/1`, hash fijado, validación de redacción y consistencia antes de servir. Rechaza rutas desconocidas, traversal, query strings, métodos distintos de GET, credenciales entrantes, Host y Origin ajenos. No importa runtime, SDKs ni bases de datos. La CLI requiere `--demo-fixtures-only`; no se habilita en producción.
 
-**No tiene autenticación real**: solo fixtures sanitizadas, nunca evidencia de usuarios autenticados. Loopback y CORS no sustituyen autenticación ni protegen frente a un proceso local hostil. Los patrones de redacción tampoco son una garantía general para nuevos datos: la lista fija y los hashes limitan esta demo a los artefactos revisados.
+**El GET no tiene autenticación real** (la pantalla sí exige sesión): solo fixtures sanitizadas, nunca evidencia de usuarios autenticados. Loopback y CORS no sustituyen autenticación ni protegen frente a un proceso local hostil. Los patrones de redacción tampoco son una garantía general para nuevos datos: la lista fija y los hashes limitan esta demo a los artefactos revisados.
 
 La UI valida también hash, tamaño y contrato. Distingue leído, desconectado, obsoleto e inconsistente; no cambia a offline automáticamente ni mezcla campos. Un error tras una lectura válida conserva el último snapshot completo marcado obsoleto; una inconsistencia oculta toda la evidencia de esa fuente. El retorno offline requiere selección explícita. La hora de lectura del navegador no es la hora del evento.
 
@@ -79,7 +80,7 @@ El exportador Python se conserva para auditoría opcional con `--hp-root <direct
 
 ## Integración pendiente
 
-`/governance` y `/governance/` se seleccionan antes de importar App; las demás rutas conservan App. No se modifican autorización, SSE, D17, D2 ni políticas. El preview de demostración bloquea las API y permite revisar la pantalla normal sin iniciar sus servicios; no valida funcionalmente una compra ni una sesión humana real.
+`/governance` y `/governance/` existen solo en builds con `VITE_GOVERNANCE_MONITOR=true` (el CI comprueba que el build por defecto no los incluya). Se seleccionan antes de importar App y pasan por la misma puerta de sesión Better Auth (`ui/src/components/session-gate.tsx`), sin cargar el runtime comercial ni SSE; las demás rutas conservan App. No se modifican SSE, D17, D2 ni políticas. El preview de demostración reenvía solo `/api/auth` y bloquea las demás API; no valida funcionalmente una compra.
 
 Conservar **PARTIAL**, I10/D08/D09 parciales y **AUDIT-MERCHANT-CANCEL-01**: dos ejecuciones de cancelación conservadas y gate histórico sin aprobar. ASGI, identidad sintética y las limitaciones de recuperación histórica no se resuelven con esta UI. En evidencias D2, commercial_posts=0 significa cero POST adicionales iniciados por D2, no ausencia de POST D17 previos. Los siete hashes de nodeids redactados corresponden a originales y no se recalculan desde sus identificadores sanitizados.
 
