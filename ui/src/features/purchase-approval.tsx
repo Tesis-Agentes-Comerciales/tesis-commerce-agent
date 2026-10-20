@@ -1,10 +1,16 @@
 import { useAssistantTransportSendCommand, useAssistantTransportState } from "@assistant-ui/react"
 import { useRef } from "react"
 
-import { PurchaseApprovalCard, type ApprovalCardStatus } from "@/components/agent"
+import {
+  PurchaseApprovalCard,
+  StaleTermsCard,
+  type ApprovalCardStatus,
+  type StaleTermsCardStatus,
+} from "@/components/agent"
 import { FAILURE_COPY } from "@/components/trace/trace-copy"
 import { usePurchaseSession, type LocalPurchase } from "@/features/purchase-session"
 import { approvalReceipt } from "@/features/purchase-trace"
+import { staleTermsOf } from "@/features/stale-terms"
 import type { AgentPurchase, ApprovalTerms, ProductCard } from "@/lib/agent-contract"
 import {
   AgentApiError,
@@ -12,6 +18,7 @@ import {
   cancelPurchase,
   completePurchase,
   getApprovalTerms,
+  type PendingTermsStatus,
 } from "@/lib/commerce-api"
 
 const KNOWN_ERRORS: Record<string, string> = {
@@ -114,6 +121,81 @@ function cardView(
   }
 }
 
+/**
+ * Cancelar por REST y pedir al backend que registre la etapa con `purchase-updated`. Lo comparten la
+ * tarjeta de aprobación y la de términos que ya no valen. `exclusive` corre una acción a la vez: evita
+ * dobles clics antes de que el estado local se vuelva a renderizar.
+ */
+function usePurchaseActions(runId: string) {
+  const sendCommand = useAssistantTransportSendCommand()
+  const { updatePurchase } = usePurchaseSession()
+  const working = useRef(false)
+
+  const exclusive = async (action: () => Promise<void>) => {
+    if (working.current) return
+    working.current = true
+    try {
+      await action()
+    } finally {
+      working.current = false
+    }
+  }
+
+  const notifyBackend = () => sendCommand({ type: "purchase-updated", runId })
+
+  const cancel = () =>
+    exclusive(async () => {
+      try {
+        updatePurchase(runId, { status: "canceling", error: undefined, errorCode: undefined })
+        await cancelPurchase(runId)
+        updatePurchase(runId, { status: "canceled" })
+        notifyBackend()
+      } catch (error) {
+        updatePurchase(runId, {
+          status: "error",
+          error: purchaseErrorMessage(error, "No se pudo cancelar la compra."),
+          errorCode: error instanceof AgentApiError ? error.code : undefined,
+        })
+      }
+    })
+
+  return { exclusive, notifyBackend, cancel }
+}
+
+type StaleTermsApprovalProps = {
+  runId: string
+  terms: PendingTermsStatus
+  product: ProductCard | null
+}
+
+/**
+ * Compra cuyos términos ya no valen: no se puede aprobar, solo cancelar. Después el comprador la
+ * pide de nuevo en el chat y obtiene un checkout con las condiciones vigentes.
+ */
+export function StaleTermsApproval({ runId, terms, product }: StaleTermsApprovalProps) {
+  const purchase = useAssistantTransportState((state) => state.purchase)
+  const { purchases } = usePurchaseSession()
+  const { cancel } = usePurchaseActions(runId)
+  const local = purchases[runId]
+  const stage = purchase?.run_id === runId ? purchase.stage : null
+  const status: StaleTermsCardStatus =
+    local?.status === "canceling"
+      ? "canceling"
+      : stage === "canceled" || local?.status === "canceled"
+        ? "canceled"
+        : "stale"
+
+  return (
+    <StaleTermsCard
+      terms={local?.termsStatus ?? terms}
+      status={status}
+      productTitle={product?.title ?? null}
+      error={status === "stale" && local?.status === "error" ? (local.error ?? null) : null}
+      onCancel={cancel}
+    />
+  )
+}
+
 type PurchaseApprovalProps = {
   runId: string
   terms: ApprovalTerms
@@ -128,75 +210,67 @@ type PurchaseApprovalProps = {
  */
 export function PurchaseApproval({ runId, terms, product, priceChanged }: PurchaseApprovalProps) {
   const purchase = useAssistantTransportState((state) => state.purchase)
-  const sendCommand = useAssistantTransportSendCommand()
   const { purchases, updatePurchase, traces, onNewPurchase } = usePurchaseSession()
+  const { exclusive, notifyBackend, cancel: cancelPurchaseRun } = usePurchaseActions(runId)
   const local = purchases[runId]
   const terminal =
     (purchase?.run_id === runId && purchase.stage === "failed") ||
     TERMINAL_ERRORS.has(local?.errorCode ?? "")
   const view = cardView(purchase, local, runId, terminal)
-  // Evita dobles clics antes de que el estado local se vuelva a renderizar.
-  const working = useRef(false)
 
-  const notifyBackend = () => sendCommand({ type: "purchase-updated", runId })
-
-  const approve = async () => {
-    if (working.current || !view.actionable) return
-    working.current = true
-    let approvalRecorded = view.approvalRecorded
-    try {
-      if (!approvalRecorded) {
-        updatePurchase(runId, { status: "approving", error: undefined, errorCode: undefined })
-        const refreshed = await getApprovalTerms(runId)
-        if (refreshed.fingerprint !== terms.fingerprint) {
-          updatePurchase(runId, {
-            status: "error",
-            error: "Los términos del comercio cambiaron. Recarga la página y revísalos antes de aprobar.",
-            errorCode: "checkout_terms_changed",
-          })
-          return
+  const approve = () => {
+    if (!view.actionable) return
+    return exclusive(async () => {
+      let approvalRecorded = view.approvalRecorded
+      try {
+        if (!approvalRecorded) {
+          updatePurchase(runId, { status: "approving", error: undefined, errorCode: undefined })
+          const refreshed = await getApprovalTerms(runId)
+          if (refreshed.fingerprint !== terms.fingerprint) {
+            updatePurchase(runId, {
+              status: "error",
+              error: undefined,
+              errorCode: "checkout_terms_changed",
+              termsStatus: "changed",
+            })
+            return
+          }
+          await approvePurchase(runId, terms.fingerprint, refreshed.checkout_jwt)
+          approvalRecorded = true
         }
-        await approvePurchase(runId, terms.fingerprint, refreshed.checkout_jwt)
-        approvalRecorded = true
+        updatePurchase(runId, {
+          status: "completing",
+          approvalRecorded,
+          error: undefined,
+          errorCode: undefined,
+        })
+        const completed = await completePurchase(runId)
+        updatePurchase(runId, { status: "completed", approvalRecorded, order: completed.order })
+        notifyBackend()
+      } catch (error) {
+        const code = error instanceof AgentApiError ? error.code : undefined
+        // Antes de registrar la aprobación, un 409 o 503 de frescura deja solo la opción de cancelar.
+        const termsStatus = approvalRecorded ? null : staleTermsOf(code)
+        updatePurchase(runId, {
+          status: "error",
+          approvalRecorded,
+          error: termsStatus
+            ? undefined
+            : purchaseErrorMessage(error, "No se pudo completar la compra."),
+          errorCode: code,
+          ...(termsStatus && { termsStatus }),
+        })
       }
-      updatePurchase(runId, {
-        status: "completing",
-        approvalRecorded,
-        error: undefined,
-        errorCode: undefined,
-      })
-      const completed = await completePurchase(runId)
-      updatePurchase(runId, { status: "completed", approvalRecorded, order: completed.order })
-      notifyBackend()
-    } catch (error) {
-      updatePurchase(runId, {
-        status: "error",
-        approvalRecorded,
-        error: purchaseErrorMessage(error, "No se pudo completar la compra."),
-        errorCode: error instanceof AgentApiError ? error.code : undefined,
-      })
-    } finally {
-      working.current = false
-    }
+    })
   }
 
-  const cancel = async () => {
-    if (working.current || !view.actionable || view.approvalRecorded) return
-    working.current = true
-    try {
-      updatePurchase(runId, { status: "canceling", error: undefined, errorCode: undefined })
-      await cancelPurchase(runId)
-      updatePurchase(runId, { status: "canceled" })
-      notifyBackend()
-    } catch (error) {
-      updatePurchase(runId, {
-        status: "error",
-        error: purchaseErrorMessage(error, "No se pudo cancelar la compra."),
-        errorCode: error instanceof AgentApiError ? error.code : undefined,
-      })
-    } finally {
-      working.current = false
-    }
+  const cancel = () => {
+    if (!view.actionable || view.approvalRecorded) return
+    return cancelPurchaseRun()
+  }
+
+  if (local?.termsStatus) {
+    return <StaleTermsApproval runId={runId} terms={local.termsStatus} product={product} />
   }
 
   const order =

@@ -36,6 +36,7 @@ import {
   blockingDecision,
   useMessagePurchaseTrace,
 } from "@/features/purchase-trace"
+import { useMessageStaleTerms } from "@/features/stale-terms"
 import {
   AGENT_TOOL_NAMES,
   MAX_MESSAGE_CHARS,
@@ -171,8 +172,11 @@ function AssistantMessage() {
     return part?.type === "tool-call" && toolStepStatus(part, status) === "error"
   })
   const purchaseTrace = useMessagePurchaseTrace(parts, status)
-  // Un bloqueo de la política no es un error: lo explica su tarjeta, no el aviso rojo.
+  // Un bloqueo de la política no es un error: lo explica su tarjeta, no el aviso rojo. Tampoco unos
+  // términos que ya no valen: su tarjeta lo dice y ofrece cancelar.
   const blockedBy = blockingDecision(purchaseTrace)
+  const staleTerms = useMessageStaleTerms(parts)
+  const explained = blockedBy !== null || staleTerms
   const elapsedMs = useActiveElapsed(active)
   const activity = active ? currentActivity(parts) : null
   // El grupo se abre solo mientras el turno corre, hasta que la persona lo toque.
@@ -186,12 +190,13 @@ function AssistantMessage() {
     <MessagePrimitive.Root className="group/message px-2 leading-7 wrap-break-word">
       {/* Encabezado solo para lectores de pantalla: mantiene el orden h1 › h2 › h3 de las tarjetas. */}
       <h2 className="sr-only">Respuesta del agente</h2>
-      <AgentProgress parts={parts} active={active} isLast={isLast} />
+      {/* El plan esperaría una aprobación que ya no es posible: lo dice la tarjeta de términos. */}
+      {!staleTerms && <AgentProgress parts={parts} active={active} isLast={isLast} />}
 
       {hasTrace && (
         <ThinkingGroup
           active={active}
-          failed={(failedStep || failedStatus) && blockedBy === null}
+          failed={(failedStep || failedStatus) && !explained}
           stopped={stopped}
           elapsedMs={elapsedMs}
           stepCount={layout.trace.length}
@@ -205,7 +210,10 @@ function AssistantMessage() {
         </ThinkingGroup>
       )}
 
-      {purchaseTrace && activityVisible(purchaseTrace, status) && (
+      {/* Con términos que ya no valen, «Esperando tu aprobación» contradiría a la tarjeta. */}
+      {purchaseTrace &&
+        activityVisible(purchaseTrace, status) &&
+        !(staleTerms && purchaseTrace.status === "awaiting_approval") && (
         <PurchaseActivity trace={purchaseTrace} className="mb-3" />
       )}
 
@@ -234,7 +242,7 @@ function AssistantMessage() {
       )}
 
       {/* Sin la traza (404, 503) el aviso sigue: el backend ya lo redacta sin «error inesperado». */}
-      {blockedBy === null && (
+      {!explained && (
         <MessagePrimitive.Error>
           <ErrorPrimitive.Root className="mt-2 rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">
             <ErrorPrimitive.Message />

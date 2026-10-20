@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { CommerceRuntime } from "@/features/commerce-runtime"
+import { staleApprovalPart } from "@/features/stale-terms"
 import { authClient } from "@/lib/auth-client"
 import { INITIAL_AGENT_STATE, type AgentAssistantPart, type AgentState } from "@/lib/agent-contract"
 import { AGENT_API_URL, health, pendingPurchase, type PendingPurchase } from "@/lib/commerce-api"
@@ -29,7 +30,7 @@ const THREAD = <Thread components={{ Welcome: CommerceWelcome }} autoFocus />
 
 function restoredState(pending: PendingPurchase | null): AgentState {
   if (!pending) return INITIAL_AGENT_STATE
-  const { purchase, approval_terms: terms } = pending
+  const { purchase, approval_terms: terms, terms_status: termsStatus } = pending
   const content: AgentAssistantPart[] = [
     { type: "text", text: "Recuperé tu compra pendiente. Revisa su estado antes de continuar." },
   ]
@@ -44,6 +45,9 @@ function restoredState(pending: PendingPurchase | null): AgentState {
       result: { run_id: purchase.run_id, stage: purchase.stage, terms },
       isError: false,
     })
+  } else if (termsStatus && purchase.stage === "awaiting_confirmation") {
+    // Los términos ya no valen: la misma forma que el paso que falla en el stream, con «Cancelar».
+    content.push(staleApprovalPart(purchase.run_id, termsStatus))
   }
   return {
     messages: [

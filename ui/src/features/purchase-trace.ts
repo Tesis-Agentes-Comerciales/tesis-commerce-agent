@@ -20,7 +20,8 @@ type MessagePart = {
 
 const RUN_ID = /^run_[A-Za-z0-9_-]{1,128}$/
 
-function runIdOf(value: unknown) {
+/** `run_id` de los `args` o del `result` de un paso, si tiene la forma del contrato. */
+export function runIdOf(value: unknown) {
   const runId = isRecord(value) ? value.run_id : undefined
   return typeof runId === "string" && RUN_ID.test(runId) ? runId : null
 }
