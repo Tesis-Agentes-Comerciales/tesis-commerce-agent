@@ -32,7 +32,8 @@ def test_the_scan_finds_the_known_d1_codes() -> None:
 
 
 @pytest.mark.parametrize(
-    "code", sorted(d1_codes() | {"checkout_terms_changed", "offer_freshness_unavailable"})
+    "code",
+    sorted(d1_codes() | {"checkout_terms_changed", "offer_expired", "offer_freshness_unavailable"}),
 )
 def test_governance_code_has_clear_copy_without_internals(code: str) -> None:
     message = error_message(code)

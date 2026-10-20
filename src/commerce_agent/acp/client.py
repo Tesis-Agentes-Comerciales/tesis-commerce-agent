@@ -119,6 +119,10 @@ class ACPClient:
                 "delivery_context": delivery_context.model_dump(mode="json"),
             },
         )
+        failure = payload.get("error") if payload.get("ok") is False else None
+        if isinstance(failure, Mapping) and failure.get("code") == "OFFER_EXPIRED":
+            # A typed answer, not a malformed one: the merchant no longer sells at these terms.
+            raise ACPClientError("Merchant offer has expired", code="offer_expired")
         try:
             return OfferResponse.model_validate(payload).data
         except ValidationError as error:

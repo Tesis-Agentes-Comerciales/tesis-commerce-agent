@@ -315,6 +315,8 @@ class PurchaseService:
 
     def approval_terms(self, run_id: str) -> ApprovalTerms:
         checkout = self._current_checkout(run_id)
+        # Only terms the agent would present read the live offer and leave freshness evidence.
+        self._approvals.require_approvable(checkout)
         self._check_offer(run_id, checkout, "present")
         signed = self._checkout.signed_checkout(checkout) if self._approvals.requires_ap2 else None
         return self._approvals.present(checkout, checkout_jwt=signed)

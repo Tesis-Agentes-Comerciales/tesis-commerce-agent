@@ -274,9 +274,16 @@ def test_lab_offer_is_read_once_with_the_merchant_session() -> None:
     ("response", "code"),
     [
         (httpx.Response(503, json={"detail": "busy"}), "http_error"),
+        # A typed merchant answer, not a malformed one: the offer itself expired.
         (
             httpx.Response(
                 200, json={"ok": False, "error": {"code": "OFFER_EXPIRED", "message": "x"}}
+            ),
+            "offer_expired",
+        ),
+        (
+            httpx.Response(
+                200, json={"ok": False, "error": {"code": "OFFER_NOT_FOUND", "message": "x"}}
             ),
             "invalid_offer",
         ),

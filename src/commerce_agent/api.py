@@ -83,6 +83,8 @@ TermsStatus = Literal["changed", "unavailable"]
 # be read. The purchase is not refreshed; the buyer cancels it and asks again (b2-governed-pilot).
 _STALE_TERMS: dict[str, TermsStatus] = {
     "checkout_terms_changed": "changed",
+    # The merchant no longer offers these terms: for the buyer, the conditions changed.
+    "offer_expired": "changed",
     "offer_freshness_unavailable": "unavailable",
 }
 
@@ -155,7 +157,8 @@ def error_response(error: Exception) -> JSONResponse:
     else:
         status = 409 if code not in {"purchase_not_found", "checkout_missing"} else 404
     # Governance stops reach REST clients with the chat's Spanish copy, never internal names.
-    message = error_message(code) if code.startswith("d1_") else str(error)
+    governed = code.startswith("d1_") or code == "offer_expired"
+    message = error_message(code) if governed else str(error)
     return JSONResponse({"code": code, "message": message}, status_code=status)
 
 
