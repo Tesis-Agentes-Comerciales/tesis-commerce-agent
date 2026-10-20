@@ -98,7 +98,8 @@ runner).
 
 **No es una regresión de B2.** Esa validación posterior al checkout es código compartido por las
 dos condiciones. El B0 histórico del 6 de octubre terminó así en 1 de 5 repeticiones
-(`409 budget_exceeded`); en B0' no ocurrió solo porque el modelo no eligió el Pixel 8.
+(`409 budget_exceeded`); en B0' ninguna repetición llegó a crear un checkout (4 respuestas 502
+por una variante fuera de la lista corta y 1 aclaración).
 
 **Atribución y límite:** la mejora de S02 (sin 5xx, explicación útil) se debe a la recuperación
 gobernada, que es un control de aplicación y no del PDP. El criterio de 0 checkouts no se cumple
@@ -127,7 +128,8 @@ un checkout por ejecución.
 La latencia del turno está dominada por el modelo. **La evaluación de la política D1 se reporta
 aparte:** 18 decisiones, mediana de 1 ms y máximo de 14 ms (resolución de 1 ms). Con n = 5 las
 diferencias de latencia del turno no se interpretan, tampoco la de S02: dentro de B2 las
-repeticiones con checkout creado y cancelado (43–78 s) se solapan con la que no lo creó (52 s), y
+repeticiones con checkout creado y cancelado (44–78 s) se solapan con la rep. 2, que tampoco lo
+creó (52 s), y
 el JSONL no registra tiempos por etapa.
 
 ## Evidencia por mecanismo (B2)
