@@ -9,6 +9,11 @@ de primer envío se inyecta explícitamente en las pruebas con un gateway espía
 No se promete idempotencia remota validada, exactamente una ejecución ni atomicidad
 distribuida. D11 sigue abierto y Python es referencia experimental.
 
+> **Actualización 2026-10-19.** Lo anterior era cierto en la base de este informe. Desde
+> entonces, enforce es opt-in en Settings/runtime (PR #13) y un reintento tras deny o fallo
+> abre un intento nuevo (PR #12). El despacho de producción sigue sin existir. La sección M
+> reúne esos cambios y las latencias medidas después del PR #13. La tabla H no se reemplaza.
+
 Base y rama verificadas con árbol inicialmente limpio:
 `678ce5f7f3c3132afc3f1fa27a5e287f5af0df5d`,
 `governance/ec-gov-06b-d1-enforce-integration`. Sin commit, push ni merge.
@@ -305,3 +310,75 @@ este informe. Sin cambios en otros repositorios.
 
 HEAD y rama conservan la base de preparación. Índice real vacío; diff para revisión,
 sin commit/push/merge/PR. **READY_FOR_REVIEW local; BLOCKED para activación comercial.**
+
+## M. Adenda 2026-10-19 — runtime opt-in, reintento y latencias
+
+Corrección/actualización posterior al informe. No reemplaza A–L ni la tabla H, que
+sigue describiendo la medición original en Windows.
+
+- **Runtime (PR #13).** `AGENT_GOVERNANCE_MODE=enforce` inyecta `SqliteD1EnforceGate` en
+  el `PurchaseService` del runtime, sin puerto de despacho. La allowlist se configura con
+  `AGENT_D1_ALLOWED_MERCHANT_ORIGINS`. Una configuración inválida impide arrancar.
+  - Un deny POL-02 bloquea antes del checkout.
+  - Un allow termina en `d1_dispatch_blocked` con reserva durable y sin POST.
+  - POL-01 sigue sin poder denegar en el flujo integrado, por lo dicho en B–C.
+  - Esto actualiza «No se instala ni habilita enforce en Settings» (A). El bloqueo de
+    activación comercial de E sigue vigente. Guía: [D1 enforce opt-in](d1-enforce-runtime-optin.md).
+- **Reintento (PR #12).** Después de un deny registrado o de un fallo diagnosticado, el
+  reintento reutilizaba los IDs de decisión, evidencia y operación. El ledger rechazaba
+  el registro y el run quedaba en `d1_unavailable`. Ahora `d1_enforce_inputs` guarda
+  intentos numerados y append-only. Solo un intento terminado sin reserva admite otro.
+  Un intento sin evidencia o con transición confirmada continúa con sus identidades,
+  como en D. Las secuencias del ledger siguen la historia existente.
+- **Clave (PR #12).** La Idempotency-Key era aleatoria por entrada D1. Ahora es un HMAC,
+  con la clave pseudónima del backend, sobre run, owner, origen Merchant y cuerpo ACP
+  exacto. No incluye IDs de intento, decisión, evidencia ni reloj. Si se pierde
+  `applied.sqlite` y se prepara de nuevo, se reenvía la misma clave y el Merchant deduplica.
+- **Medición de fuentes (PR #13).** `measure_d1_sources` se reutiliza dentro del proceso
+  mientras no cambie un archivo medido. Las fuentes gobernadas y el lock se siguen
+  comparando byte a byte en cada uso. Los controles de integridad no se eliminan: se
+  evita repetir el hash, que H identificó como coste dominante.
+
+Medición 2026-10-19 con el comando de H y siete tripletas:
+`uv run python scripts/measure_d1_enforce.py --output .local/perf/after.json --repetitions 7`.
+
+- **Máquina:** Apple M5 Pro, macOS 26.4 (25E246) arm64, Python 3.12.14, SQLite 3.53.1 y
+  uv 0.12.15.
+- **Después:** `integration/fixes-2026-10-19` en `20909a4` (incluye PR #12–#16).
+- **Antes:** la misma máquina y el mismo comando sobre una copia `git archive` de
+  `83510f8`, el `main` previo a esos PR. Su JSON registra el HEAD sintético de la copia,
+  no `83510f8`.
+
+| PurchaseService.start | Antes, mediana ms | Después, mediana ms | Después, mín–máx ms |
+| --- | ---: | ---: | ---: |
+| off | 2.1425 | 2.5964 | 2.3603–5.2626 |
+| shadow | 105.7813 | 22.4350 | 21.9200–154.0013 |
+| enforce simulado | 246.7438 | 81.6986 | 80.2039–99.9034 |
+
+Añadido **pareado** mediano frente a off: shadow pasa de 103.6388 a **20.0747 ms**, y
+enforce de 244.5703 a **79.0294 ms**. La descripción del PR #13 reporta 259→86 ms
+(enforce) y 108→24 ms (shadow) en medianas. Esta corrida es coherente con esas cifras.
+
+| Fase enforce | Antes, mediana ms | Después, mediana ms |
+| --- | ---: | ---: |
+| Bootstrap/captura de artefactos al construir gate | 46.9582 | 5.5144 |
+| Captura de hechos y nueva medición de artefactos | 45.7992 | 4.7570 |
+| Ensamblado/recuperación de snapshots y commit preparatorio | 46.8013 | 5.8807 |
+| Preparación UoW y DDL opt-in | 46.3179 | 4.5723 |
+| Evaluación del motor POL-01/02 | 0.1466 | 0.1207 |
+| Frontera de evaluación, incluida configuración/verificación | 0.7876 | 0.8891 |
+| Admisión/verificación de evidencia y replay | 43.6825 | 2.7780 |
+| BEGIN IMMEDIATE autorizante hasta commit | 3.8557 | 3.6545 |
+| BEGIN de claim hasta commit | 0.7692 | 0.7173 |
+
+Las cifras no son comparables con H, que se midió en Windows 11 con cinco tripletas y
+otro SO, disco y versión de SQLite. Solo se comparan las dos columnas de esta adenda,
+medidas en la misma máquina.
+
+- El máximo de shadow (154 ms) y el de enforce (99.9 ms) son de la repetición 0, la
+  primera del proceso: la memoización se paga una vez por proceso.
+- Se mantienen los límites de H: gateway espía, SQLite temporal, sin Merchant real,
+  sin SLO y sin extrapolación a producción.
+- Las fases siguen sin ser una partición aditiva.
+- Los JSON quedaron en `.local/perf/` de cada árbol, ignorado por Git, y no se publican
+  como resultado histórico.

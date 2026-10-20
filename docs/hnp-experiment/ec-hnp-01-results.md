@@ -148,6 +148,22 @@ harness; no estiman precisión de un modelo ni demuestran mejora de seguridad po
 agregar un segundo agente. La reducción de efectos también incluye fallos del validador
 sobre propuestas válidas; no se debe presentar como una ventaja.
 
+> **Aclaración 2026-10-19.** Las métricas de la tabla se conservan, pero no son un resultado
+> experimental sobre un validador.
+>
+> - **Detecciones (15/16).** `ScriptedValidatorAgent` replica en `adapters.py` la lógica de
+>   los controles de `backend.py` (sección A–B). Por eso «15/16 detecciones» comprueba que el
+>   arnés, los fallos inducidos y la contabilidad funcionan. No mide la capacidad de un
+>   revisor. El fallo restante es el falso accept guionado.
+> - **Escapes (0 en ambos brazos).** Se cumple por construcción: B ejecuta los mismos controles
+>   backend que A y solo agrega un bloqueo previo, así que B admite un subconjunto de A
+>   (B ⊆ A). Además, toda invalidez del corpus está dentro de lo que el backend comprueba.
+>
+> El PR #16 corrige el arnés: vistas públicas para el validador, deadline real y fallas de
+> infraestructura separadas. Conserva los códigos, efectos y checks de los 54 episodios. La
+> Fase 1 de EC-HNP-02 ([README](../../src/commerce_agent/hnp_experiment/llm/README.md)) declara
+> estas amenazas: B ⊆ A, y `unique_captures` como única fuente posible de ganancia.
+
 Latencia medida en Windows 11/Python 3.12.6; una pasada, orden A luego B por caso,
 con validación general concurrente. Medianas en ms, sin SLO ni inferencia causal:
 
