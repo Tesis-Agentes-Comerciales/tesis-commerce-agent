@@ -1,7 +1,7 @@
 import { cn } from "cn"
 
 import { ControlStep } from "@/components/trace/control-step"
-import { CONTROL_ORDER, type SkippedControl } from "@/components/trace/trace-copy"
+import { CONTROL_ORDER, type SkippedControl, traceMerchant } from "@/components/trace/trace-copy"
 import type { PurchaseStatus, PurchaseTrace, StepKind, TraceStep } from "@/lib/trace-contract"
 
 /** Compras que terminaron antes de tiempo: se listan los controles que ya no ocurrieron. */
@@ -61,10 +61,15 @@ export type ControlTimelineProps = {
 }
 
 export function ControlTimeline({ trace, className }: ControlTimelineProps) {
+  const merchant = traceMerchant(trace)
   return (
     <ol aria-label="Controles de la compra" className={cn("pl-0.5", className)}>
       {timelineRows(trace).map((row) => (
-        <ControlStep key={"reason" in row ? `${row.reason}:${row.kind}` : row.id} step={row} />
+        <ControlStep
+          key={"reason" in row ? `${row.reason}:${row.kind}` : row.id}
+          step={row}
+          merchant={merchant}
+        />
       ))}
     </ol>
   )

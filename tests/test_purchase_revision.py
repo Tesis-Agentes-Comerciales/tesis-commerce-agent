@@ -67,6 +67,8 @@ def test_additive_legacy_migration_preserves_rows_and_other_tables(
         assert connection.execute(f"SELECT {', '.join(columns)} FROM purchases").fetchall() == (
             original
         )
+        # Additive: a historic row has no failure code, and the trace reads it as generic.
+        assert connection.execute("SELECT failure_code FROM purchases").fetchall() == [(None,)]
         assert connection.execute("SELECT body FROM historical_evidence").fetchone() == (
             b"\x00\r\n\xff",
         )
@@ -332,3 +334,17 @@ def test_record_completion_rolls_back_revision_and_related_writes(tmp_path: Path
     assert store.order("ord_completion_1") is None
     record = store.approval("run-1")
     assert record is not None and record.consumed_at is None
+
+
+def test_failure_code_is_bookkeeping_and_only_a_code(store: SqliteAgentStore) -> None:
+    def stored() -> str | None:
+        with closing(sqlite3.connect(store._path)) as connection:
+            return connection.execute(
+                "SELECT failure_code FROM purchases WHERE run_id = 'run-1'"
+            ).fetchone()[0]
+
+    store.update_purchase("run-1", stage="failed", failure="Merchant said: card 4242 declined")
+    assert (stored(), store.purchase_state_version("run-1")) == (None, 2)
+    # Setting the code alone is not a business change: the revision stays.
+    store.update_purchase("run-1", stage="failed", failure="checkout_mismatch")
+    assert (stored(), store.purchase_state_version("run-1")) == ("checkout_mismatch", 2)

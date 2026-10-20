@@ -1,3 +1,5 @@
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -107,6 +109,14 @@ def details() -> CheckoutDetails:
     )
 
 
+def failure_code(tmp_path: Path, run_id: str) -> str | None:
+    """`purchases.failure_code`, which only the purchase trace reads."""
+    with closing(sqlite3.connect(tmp_path / "agent.db")) as connection:
+        return connection.execute(
+            "SELECT failure_code FROM purchases WHERE run_id = ?", (run_id,)
+        ).fetchone()[0]
+
+
 def make_service(
     tmp_path: Path,
     gateway: FakeCheckoutGateway,
@@ -164,6 +174,7 @@ def test_checkout_currency_must_match_feed_candidate(tmp_path: Path) -> None:
         )
     assert captured.value.code == "checkout_mismatch"
     assert store.purchase("run-currency")["stage"] == "failed"  # type: ignore[index]
+    assert failure_code(tmp_path, "run-currency") == "checkout_mismatch"
 
 
 def test_authoritative_total_above_hard_budget_cancels(tmp_path: Path) -> None:
@@ -277,7 +288,26 @@ def test_model_can_only_select_a_deterministically_eligible_candidate(tmp_path: 
 
     assert captured.value.code == "invalid_candidate"
     assert store.purchase("run-1")["stage"] == "failed"  # type: ignore[index]
+    assert failure_code(tmp_path, "run-1") == "invalid_candidate"
     assert gateway.calls == []
+
+
+def test_no_candidate_stores_its_failure_code(tmp_path: Path) -> None:
+    gateway = FakeCheckoutGateway()
+    service, store = make_service(tmp_path, gateway)
+
+    with pytest.raises(PurchaseServiceError) as captured:
+        service.start(
+            run_id="run-1",
+            request="buy",
+            intent=PurchaseIntent(hard=HardConstraints(max_unit_amount_minor=1)),
+            selected_variant_id="SON-01",
+            details=details(),
+        )
+
+    assert captured.value.code == "no_candidate"
+    assert store.purchase("run-1")["stage"] == "failed"  # type: ignore[index]
+    assert failure_code(tmp_path, "run-1") == "no_candidate"
 
 
 def test_approval_requires_exact_fingerprint_and_updates_stage(tmp_path: Path) -> None:

@@ -80,7 +80,10 @@ export function PurchaseActivity({
         >
           {summary}
         </span>
-        <span className="truncate text-xs text-[#6b6b6b]">{product}</span>
+        {/* Producto y comercio por su nombre; sin nombre, solo el producto, nunca el origen. */}
+        <span className="truncate text-xs text-[#6b6b6b]">
+          {[product, trace.merchant_name].filter(Boolean).join(" · ")}
+        </span>
         <ChevronRightIcon
           className="size-4 shrink-0 text-[#6b6b6b] transition-transform duration-200 group-data-[state=open]/trigger:rotate-90"
           aria-hidden

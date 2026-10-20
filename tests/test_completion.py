@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,8 +20,8 @@ from commerce_agent.acp.models import (
 )
 from commerce_agent.ap2 import AgentMandateSigner
 from commerce_agent.approval import ApprovalError, ApprovalService
-from commerce_agent.completion import CompletionService
-from commerce_agent.delegated_payment import DelegatedPaymentClient
+from commerce_agent.completion import CompletionError, CompletionService
+from commerce_agent.delegated_payment import DelegatedPaymentClient, DelegationError
 from commerce_agent.persistence import SqliteAgentStore
 
 NOW = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
@@ -306,6 +307,30 @@ def test_success_persists_order_consumes_approval_and_replays_locally(tmp_path: 
     assert store.purchase("run-1")["stage"] == "completed"  # type: ignore[index]
     assert store.purchase("run-1")["order_id"] == "ord_completion_1"  # type: ignore[index]
     assert store.approval("run-1").consumed_at is not None  # type: ignore[union-attr]
+
+
+class UnavailablePayments(FakePayments):
+    def payment_data(self, **_: Any) -> SandboxPaymentData:
+        raise DelegationError("delegation_unavailable")
+
+
+def test_a_failed_delegation_never_creates_the_merchant_key(tmp_path: Path) -> None:
+    """The trace reads `checkout.complete` as proof that the provider returned a token."""
+    current = checkout()
+    gateway = FakeGateway(current)
+    store, approvals, _ = dependencies(tmp_path, gateway)
+    approve(approvals, current)
+    service = CompletionService(gateway, approvals, UnavailablePayments(), store)
+
+    with pytest.raises(CompletionError) as captured:
+        service.complete(run_id="run-1")
+
+    with closing(sqlite3.connect(tmp_path / "agent.db")) as connection:
+        operations = {row[0] for row in connection.execute("SELECT operation FROM operation_keys")}
+    assert captured.value.code == "delegation_unavailable"
+    assert operations == {"payment.delegate"}
+    assert gateway.complete_calls == []
+    assert store.purchase("run-1")["stage"] == "approved"  # type: ignore[index]
 
 
 @pytest.mark.parametrize(

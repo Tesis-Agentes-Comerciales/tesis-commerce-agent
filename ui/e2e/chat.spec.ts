@@ -345,8 +345,15 @@ test.describe("actividad de la compra", () => {
     await expect(card.getByRole("heading", { name: "La política de compra detuvo esta compra" })).toBeVisible()
     await expect(card.getByText("Comercio permitido")).toBeVisible()
     await expect(card.getByText("https://tienda-aliada.example.test")).toBeVisible()
+    // El comercio observado va por su nombre; debajo, el origen que evaluó la política.
+    await expect(card.getByText("Synthetic Commerce Merchant")).toBeVisible()
+    await expect(card.getByText("http://127.0.0.1:4120")).toBeVisible()
     await expect(card.getByText(NOTHING_CHARGED)).toBeVisible()
-    await expect(page.getByTestId("purchase-activity")).toHaveAttribute("data-status", "blocked")
+    const activity = page.getByTestId("purchase-activity")
+    await expect(activity).toHaveAttribute("data-status", "blocked")
+    await expect(
+      activity.getByRole("button", { name: /Bloqueada por la política de compra/ }),
+    ).toContainText("· Synthetic Commerce Merchant")
     await expect(page.getByText(/error inesperado/i)).toHaveCount(0)
     // Un bloqueo no es un error: ni aviso rojo ni tarjeta de aprobación.
     await expect(page.getByRole("alert")).toHaveCount(0)

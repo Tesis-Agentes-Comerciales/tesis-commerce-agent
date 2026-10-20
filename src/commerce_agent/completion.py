@@ -117,7 +117,6 @@ class CompletionService:
             if approved_checkout.id != checkout_id:
                 raise CompletionError("AP2 checkout does not match", code="checkout_mismatch")
 
-        idempotency_key = self._store.idempotency_key(run_id, "checkout.complete")
         try:
             payment_kwargs = {}
             if self._approvals.requires_ap2:
@@ -132,6 +131,8 @@ class CompletionService:
             )
         except DelegationError as error:
             raise CompletionError("Payment delegation failed", code=error.code) from error
+        # Created only once the provider returned a token: the trace reads it as that proof.
+        idempotency_key = self._store.idempotency_key(run_id, "checkout.complete")
         if not self._store.claim_completion(run_id):
             raise CompletionError(
                 "Another completion attempt already owns this purchase",
@@ -185,7 +186,7 @@ class CompletionService:
                 stage = "approved"
             else:
                 stage = "uncertain"
-            self._store.release_completion(run_id, stage=stage)
+            self._store.release_completion(run_id, stage=stage, failure=error.code)
             raise
         except Exception:
             self._store.release_completion(run_id, stage="uncertain")

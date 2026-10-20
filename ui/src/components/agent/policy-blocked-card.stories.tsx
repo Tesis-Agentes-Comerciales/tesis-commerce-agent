@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect } from "storybook/test"
 
 import { PolicyBlockedCard } from "@/components/agent/policy-blocked-card"
+import { traceMerchant } from "@/components/trace/trace-copy"
 import { decisionOf, TRACES } from "@/storybook/trace-fixtures"
 
 const NOTHING_HAPPENED = "No se creó ningún checkout ni se hizo ningún cobro."
@@ -23,13 +24,15 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-/** Modo activo con una lista de comercios que excluye la tienda. */
+/** Modo activo con una lista de comercios que excluye la tienda, nombrada como en el chat. */
 export const MerchantNotAllowed: Story = {
+  args: { merchant: traceMerchant(TRACES.blockedMerchant) },
   play: async ({ canvas }) => {
     await expect(
       canvas.getByRole("heading", { name: "La política de compra detuvo esta compra" }),
     ).toBeVisible()
     await expect(canvas.getByText("Comercio permitido")).toBeVisible()
+    await expect(canvas.getByText("Synthetic Commerce Merchant")).toBeVisible()
     await expect(canvas.getByText("http://127.0.0.1:4120")).toBeVisible()
     await expect(canvas.getByText("https://tienda-aliada.example.test")).toBeVisible()
     await expect(canvas.getByText(NOTHING_HAPPENED)).toBeVisible()

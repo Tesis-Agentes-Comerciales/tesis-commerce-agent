@@ -109,7 +109,8 @@ interface PurchaseTrace {
   status: PurchaseStatus
   policy_mode: "off" | "shadow" | "enforce"
   request: string
-  merchant: string | null
+  merchant: string | null       // origen
+  merchant_name: string | null  // nombre legible del comercio; null si no se conoce
   total: { minor: number; currency: string } | null
   started_at: string            // ISO-8601 UTC
   updated_at: string
@@ -186,9 +187,10 @@ interface PolicyDecision {
 
 interface PurchaseSummary {       // filas de GET /me/purchases
   run_id: string
-  started_at: string
-  request: string
+  started_at: string | null       // null solo en trace_unavailable, con la fila de compra mal formada
+  request: string | null          // ídem
   merchant: string | null
+  merchant_name: string | null
   total: { minor: number; currency: string } | null
   status: PurchaseStatus | "trace_unavailable"  // el segundo, solo en el historial
   policy: { outcome: "allow" | "deny"; failed_rules: string[] } | null
@@ -226,8 +228,14 @@ interface PurchaseSummary {       // filas de GET /me/purchases
 - **Comercio:** `merchant` y los valores de POL-02 son orígenes. La decisión guarda un seudónimo
   (`merchant_ref`); el backend lo traduce con los orígenes configurados (`MERCHANT_BASE_URL` y
   `AGENT_D1_ALLOWED_MERCHANT_ORIGINS`). Si no lo reconoce, POL-02 muestra el seudónimo y, sin
-  términos de aprobación, `merchant` queda en `null`. Los datos de la compra no guardan un nombre
-  legible del comercio, así que no se expone ninguno.
+  términos de aprobación, `merchant` queda en `null`.
+- **Nombre del comercio:** `merchant_name` es el `seller.name` del feed que el agente lee al
+  arrancar, solo para el origen configurado (`MERCHANT_BASE_URL`) y solo si todas las variantes
+  declaran el mismo nombre (sin espacios sobrantes, no vacío y de hasta 80 caracteres). Cualquier
+  otro origen, o un feed sin un nombre único, deja `null`; la UI no lo reemplaza por el origen. Es el
+  nombre actual del comercio, no el que tenía al comprar: las compras no lo guardan. El nombre del
+  beneficiario en los mandatos AP2 («Tesis Commerce Merchant») es una constante del agente, no del
+  comercio, así que no se usa.
 - **Dueño:** se valida con `purchase_for_owner`. Un run de otro usuario o que no existe responde 404.
 - **Historial:** `GET /me/purchases?limit=20&before=<run_id>` devuelve
   `{ purchases: PurchaseSummary[], next_cursor: string | null }`. Solo lista las compras propias,
@@ -244,7 +252,16 @@ interface PurchaseSummary {       // filas de GET /me/purchases
   cae por una compra: esa fila sale con `status: "trace_unavailable"` y solo con lo que guarda la
   fila de `purchases` (`run_id`, `request`, `order_id` y su hora de creación como `started_at`). El
   resto va en `null`, porque el estado, la política, el comercio, el total, la aprobación y la
-  duración salen de la evidencia o de los términos. Ese estado solo existe en `PurchaseSummary`.
+  duración salen de la evidencia o de los términos. Si la propia fila de `purchases` trae un valor
+  fuera del contrato (un `created_at` que no es ISO, un `request_text` u `order_id` vacíos, algo que
+  el store nunca escribe), ese campo también va en `null`: la fila conserva su `run_id`. Ese estado
+  solo existe en `PurchaseSummary`, y solo él puede dejar `started_at` o `request` en `null`.
+
+  Un error pasajero también marca la fila como `trace_unavailable`: SQLite ocupado o bloqueado
+  (`database is locked`) por otra conexión más allá del tiempo de espera. La traza lo distingue con
+  `Retry-After: 1` en el 503, porque la misma lectura puede funcionar enseguida; el historial no lo
+  distingue y basta con volver a pedirlo. El log dice `Purchase trace unavailable` con el `run_id` y
+  el tipo de error, nunca su texto.
 - **Lectura del grafo:** el historial lee una vez los checkpoints de cada conversación y los
   comparte entre sus compras, en lugar de deserializar el hilo entero por fila.
 
@@ -255,14 +272,14 @@ interface PurchaseSummary {       // filas de GET /me/purchases
 | `request` | `purchases.request_text` | primer checkpoint del turno en el grafo; si no hay, `purchases.created_at` (se escribe después de elegir) |
 | `selection` | checkpoint del grafo escrito al terminar `select_product`: la variante elegida y su precio observado. Sin checkpoint, la línea de `approval_terms` | la de ese checkpoint; sin checkpoint, `null` |
 | `policy_decision` | `SqliteGovernanceEvidenceStore.for_run`. POL-01: variante elegida y elegibles. POL-02: origen del comercio y orígenes de la política (`governance_episodes`, verificada contra la decisión) | `decided_at` |
-| `checkout_created` | `purchases.checkout_id` | `operation_keys` (`checkout.create`), que se escribe justo antes de llamar al comercio; el modo activo no la guarda ahí y queda en `null` |
+| `checkout_created` | `purchases.checkout_id` | `operation_keys` (`checkout.create`), que se escribe justo antes de llamar al comercio. El modo activo no la guarda ahí: usa el `prepared_at` del sobre D1 (`d1_checkout_envelopes`), que es la hora de la decisión que lo permitió, así que empata con la política. Del sobre solo sale esa hora |
 | `approval` | `approval_terms` y `approvals`. `state`: `done` si se aprobó, `waiting` si la compra espera la aprobación y `skipped` si no la hubo (cancelada, o la frescura bloqueó los términos) | `approved_at`; si no hay aprobación, `approval_terms.updated_at` |
 | `authorization_signed` | `approvals`: solo si existe algún mandato, nunca su contenido | `approved_at` |
-| `payment_authorized` | `operation_keys` (`payment.delegate`), solo si la etapa prueba que la delegación terminó (`completing`, `uncertain`, `completed`, `failed`) o si, en `approved`, la fila de la compra cambió después de crear esa clave: un 4xx del comercio a `/complete` devuelve la reserva a `approved`, y esa reserva solo se toma cuando el proveedor ya respondió. Una delegación fallida deja la fila como la escribió la aprobación. Monto de `approval_terms` | `created_at` |
+| `payment_authorized` | `operation_keys` (`payment.delegate`), solo si la etapa prueba que la delegación terminó (`completing`, `uncertain`, `completed`, `failed`) o si existe la clave del comercio (`checkout.complete`) y es posterior: el cierre la crea solo cuando el proveedor devolvió el token. Así un 4xx del comercio a `/complete`, que devuelve la compra a `approved`, conserva el paso, y una delegación fallida no lo muestra aunque después algo escriba la fila (`updated_at`, `failure_code`). Las compras anteriores a esta regla creaban esa clave antes de delegar: en `approved` no muestran el paso, en lugar de un éxito falso. Monto de `approval_terms` | `created_at` |
 | `order_confirmed` | `completion_results`: los recibos solo como presencia | `completed_at` |
 | `order_event` | `webhook_events` de la orden. Se intercala por hora: un aviso puede llegar antes de que el agente registre la orden que el comercio ya confirmó | `received_at` |
 | `canceled` | `operation_keys` (`checkout.cancel.user` o `.budget`) con la etapa `canceled` | `created_at` |
-| `failed` | etapa `failed`. El código del error no se guarda: va `purchase_failed`, con actor `merchant` si el comercio rechazó el cierre | `purchases.updated_at` |
+| `failed` | etapa `failed`. `code` sale de `purchases.failure_code`: el código del comercio al rechazar el cierre (`payment_declined`, `out_of_stock`) o el del servicio antes de aprobar (`no_candidate`, `invalid_candidate`, `checkout_mismatch`…). Solo se guarda un código (`[a-z][a-z0-9_]{0,63}`), nunca un mensaje. Una fila anterior a la columna, o un fallo sin código, va como `purchase_failed`. Actor `merchant` si el comercio rechazó el cierre | `purchases.updated_at` |
 | `freshness_check` | `hp_evidence` (`freshness_check`), con la cadena de digests y la forma del cuerpo verificadas. `changes` sale de `changed_fields` y `compared`, y `read_error` de `reason`; `state` es `blocked` si la decisión fue `block` y `done` si no. Actor `agent`. Una comprobación igual a la anterior (misma etapa, resultado, cambios y error de lectura) no agrega fila: `GET /me/pending-purchase` vuelve a comprobar cada vez que se recarga | `checked_at` |
 | `governed_recovery` | `hp_evidence` (`governed_recovery`), con la cadena y la forma del cuerpo verificadas. Actor `agent`, `state` `done`. Solo la ve una compra que existe: hoy, `budget_exceeded_after_checkout` | `null`: el registro no guarda hora; va al final |
 
@@ -300,6 +317,12 @@ historias por estado con `play` y axe. Usan el sistema visual de `docs/workflow.
 | `ControlTimeline` | Lista de `ControlStep`, incluidos los pasos no ejecutados | Completa, bloqueada, en curso, política desactivada |
 | `PolicyRuleTable` | Reglas con resultado, valor observado y esperado | Todas cumplen, una falla, no evaluada |
 | `EvidenceRefs` | Identificadores en mono con botón de copiar | Con y sin ids; `play` para copiar |
+
+El comercio se nombra por `merchant_name`, nunca por su origen, en tres lugares: la fila de
+actividad («Sony WH-1000XM6 negro · Synthetic Commerce Merchant»), el detalle del checkout creado y
+el valor observado de la regla de comercios (POL-02), donde el origen que evaluó la política queda
+debajo, en gris y en mono. La lista de comercios permitidos sigue en orígenes, porque es lo que dice
+la política. Sin nombre, la fila de actividad muestra solo el producto y el checkout no lleva detalle.
 
 La traza solo trae lo que pasó. `ControlTimeline` deduce dos filas que no vienen en ella: la
 política desactivada (`policy_mode: off`), entre la elección y el checkout, y, si la compra terminó
@@ -460,8 +483,13 @@ Cada PR depende del anterior y se fusiona con CI en verde y con la aprobación d
 - **Hora de los pasos:** PR C la lee de los checkpoints de LangGraph (`agent.graph.db`), sin tocar
   el flujo de conversación. Depende de los canales `turn_id`, `selected_variant_id` y
   `ranked_candidates` del grafo; si cambian, la elección pierde su hora y sus tests fallan.
-- **Reloj del sandbox:** con `AGENT_SANDBOX_CLOCK_AT`, `approved_at` es la hora fija del sandbox y
-  la aprobación aparece fuera del orden cronológico.
+- **Reloj del sandbox:** con `AGENT_SANDBOX_CLOCK_AT`, `approved_at` es la hora fija del sandbox.
+  La aprobación y la firma conservan esa hora, pero no se usa para ordenar: cuando `approved_at` es
+  exactamente la del sandbox, toda comprobación de frescura va antes de ellas y cualquier aviso del
+  comercio, después. Límite: una comprobación `present` posterior a la aprobación (releer
+  `GET /purchases/{run_id}/approval` después de aprobar) quedaría delante de ella; si repite la
+  anterior no agrega fila. La duración de la aprobación queda en `null` si la hora del sandbox es
+  anterior a la de los términos.
 - **Refresco:** si releer la traza no se siente en vivo, se emite dentro del stream de `/assistant`
   (`state.trace`), que ya tiene patrón. Hoy el `run_id` llega al terminar `prepare_checkout`, así
   que la elección y la política del turno en curso aparecen en la fila de una vez, con el checkout.
@@ -474,5 +502,5 @@ Cada PR depende del anterior y se fusiona con CI en verde y con la aprobación d
   (`budget_exceeded_after_checkout`). Mostrar la otra exige atar el run al dueño sin crear la compra;
   queda para después de la demo.
 - **Hora de la frescura:** `checked_at` sale del reloj real, mientras que `approved_at` usa el del
-  sandbox si `AGENT_SANDBOX_CLOCK_AT` está puesto; con ese reloj la aprobación puede quedar fuera de
-  orden respecto de la frescura.
+  sandbox si `AGENT_SANDBOX_CLOCK_AT` está puesto; por eso el orden no compara esas dos horas (ver
+  «Reloj del sandbox»).

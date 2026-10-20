@@ -29,7 +29,10 @@ export interface PurchaseTrace {
   status: PurchaseStatus
   policy_mode: "off" | "shadow" | "enforce"
   request: string
+  /** Origen del comercio: lo que comparan la política y los términos. */
   merchant: string | null
+  /** Nombre que declara el feed del comercio (`seller.name`); `null` si no se conoce. */
+  merchant_name: string | null
   total: { minor: number; currency: string } | null
   /** ISO-8601 UTC. */
   started_at: string
@@ -143,9 +146,11 @@ export type PolicyRule = PolicyDecision["rules"][number]
 /** Fila de `GET /me/purchases`. */
 export interface PurchaseSummary {
   run_id: string
-  started_at: string
-  request: string
+  /** `null` solo en una fila `trace_unavailable` cuya propia fila de compra no cumple el contrato. */
+  started_at: string | null
+  request: string | null
   merchant: string | null
+  merchant_name: string | null
   total: { minor: number; currency: string } | null
   status: SummaryStatus
   policy: { outcome: "allow" | "deny"; failed_rules: string[] } | null
@@ -327,6 +332,7 @@ const purchaseTrace = shape({
   policy_mode: oneOf<PurchaseTrace["policy_mode"]>("off", "shadow", "enforce"),
   request: text,
   merchant: nullable(text),
+  merchant_name: nullable(text),
   total: nullable(money),
   started_at: utc,
   updated_at: utc,

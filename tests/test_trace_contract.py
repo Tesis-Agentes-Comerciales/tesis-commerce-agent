@@ -50,6 +50,8 @@ def change(trace: dict[str, Any], index: int = 0) -> dict[str, Any]:
         pytest.param(lambda trace: trace["steps"][0].update(note="x"), id="extra-step-field"),
         pytest.param(lambda trace: trace["steps"][1].update(kind="unknown"), id="unknown-kind"),
         pytest.param(lambda trace: trace.update(request=""), id="empty-text"),
+        pytest.param(lambda trace: trace.update(merchant_name=""), id="empty-merchant-name"),
+        pytest.param(lambda trace: trace.pop("merchant_name"), id="missing-merchant-name"),
         pytest.param(lambda trace: trace["steps"][1].update(duration_ms=-1), id="negative-ms"),
         pytest.param(lambda trace: trace["steps"][1].update(duration_ms=1.5), id="fractional-ms"),
         pytest.param(lambda trace: trace["total"].update(minor=True), id="boolean-minor"),
@@ -184,6 +186,7 @@ def test_purchase_summary_matches_the_ui_contract() -> None:
         "started_at": "2026-10-20T15:41:20.412Z",
         "request": "Quiero audífonos",
         "merchant": "http://127.0.0.1:4120",
+        "merchant_name": "Synthetic Commerce Merchant",
         "total": {"minor": 192400000, "currency": "COP"},
         "status": "blocked",
         "policy": {"outcome": "deny", "failed_rules": ["POL-02"]},
@@ -203,6 +206,7 @@ def test_only_a_history_row_can_say_its_trace_is_unavailable() -> None:
         "started_at": "2026-10-20T15:41:29.134Z",
         "request": "Quiero audífonos",
         "merchant": None,
+        "merchant_name": None,
         "total": None,
         "status": "trace_unavailable",
         "policy": None,
@@ -213,6 +217,14 @@ def test_only_a_history_row_can_say_its_trace_is_unavailable() -> None:
     assert PurchaseSummary.model_validate_json(json.dumps(row)).model_dump(mode="json") == row
     with pytest.raises(ValidationError):
         PurchaseSummary.model_validate_json(json.dumps({**row, "status": "unavailable"}))
+    # A purchase row outside the contract keeps only its run_id; any other row has its start.
+    bare = {**row, "started_at": None, "request": None, "order_id": None}
+    assert PurchaseSummary.model_validate_json(json.dumps(bare)).model_dump(mode="json") == bare
+    for missing in ("started_at", "request"):
+        with pytest.raises(ValidationError):
+            PurchaseSummary.model_validate_json(
+                json.dumps({**row, missing: None, "status": "in_progress"})
+            )
     with pytest.raises(ValidationError):
         PurchaseTrace.model_validate_json(
             json.dumps(mutated(lambda trace: trace.update(status="trace_unavailable")))

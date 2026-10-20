@@ -4,6 +4,7 @@
   "policy_mode": "off",
   "request": "Quiero audífonos negros por menos de 2 millones",
   "merchant": "http://127.0.0.1:4120",
+  "merchant_name": "Synthetic Commerce Merchant",
   "total": {
     "minor": 192400000,
     "currency": "COP"

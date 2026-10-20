@@ -4,6 +4,7 @@
   "policy_mode": "enforce",
   "request": "Quiero exactamente el Google Pixel 8 de 128 GB negro, pero no puedo gastar más de 1.000.000 COP y no acepto otro modelo.",
   "merchant": "http://127.0.0.1:4120",
+  "merchant_name": "Synthetic Commerce Merchant",
   "total": null,
   "started_at": "2026-10-20T17:20:10.000Z",
   "updated_at": "2026-10-20T17:20:19.902Z",
@@ -66,7 +67,7 @@
     },
     {
       "id": "checkout_created",
-      "at": null,
+      "at": "2026-10-20T17:20:18.424Z",
       "duration_ms": null,
       "actor": "merchant",
       "state": "done",

@@ -6,13 +6,14 @@ the merchant, the payment provider and the model are doubles (tests/assistant_su
 
 import base64
 import json
+import logging
 import re
 import secrets
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,7 @@ from commerce_agent.governance.evaluator import GovernanceError
 from commerce_agent.llm import ConversationMessage
 from commerce_agent.persistence import ApprovalRecord, SqliteAgentStore
 from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
-from commerce_agent.trace import PurchaseTraces
+from commerce_agent.trace import PurchaseTraces, sources
 from commerce_agent.trace.assembler import utc
 from commerce_agent.trace.models import PurchaseHistory, PurchaseTrace
 from commerce_agent.trace.sources import GraphCheckpoints
@@ -61,6 +62,9 @@ from tests.test_governed_recovery import (
 )
 
 BUYER = "buyer-a-owner@example.test"
+TRACE_FIXTURES = Path(__file__).parents[1] / "ui" / "src" / "storybook" / "trace-fixtures"
+# `seller.name` of every variant in the assistant feed: the runtime names the merchant with it.
+MERCHANT_NAME = "Synthetic Commerce Merchant"
 OTHER = "buyer-b-owner@example.test"
 ALLIED_STORE = "https://tienda-aliada.example.test"
 PAYMENT_TOKEN = "vt_" + "a" * 64
@@ -257,7 +261,10 @@ def test_completed_shadow_purchase_has_every_control_in_order(tmp_path: Path) ->
         record_order_webhook(current, "ord_storybook_1")
         trace = current.trace(run_id)
         row = current.history()["purchases"][0]
+        # Without the runtime's feed nothing names the origin, and the origin is not a name.
+        unnamed = PurchaseTraces(current.configuration).trace(run_id)
 
+    assert (unnamed.merchant, unnamed.merchant_name) == (MERCHANT_ORIGIN, None)
     assert kinds(trace) == [
         "request",
         "selection",
@@ -282,6 +289,7 @@ def test_completed_shadow_purchase_has_every_control_in_order(tmp_path: Path) ->
     ]
     assert trace["request"] == PURCHASE_REQUEST
     assert trace["merchant"] == MERCHANT_ORIGIN
+    assert trace["merchant_name"] == MERCHANT_NAME
     assert trace["total"] == {"minor": 1_924_000_00, "currency": "COP"}
     selection = step(trace, "selection")
     assert selection["product"] == "Sony WH-1000XM6 negro"
@@ -321,6 +329,7 @@ def test_completed_shadow_purchase_has_every_control_in_order(tmp_path: Path) ->
         "started_at": trace["started_at"],
         "request": PURCHASE_REQUEST,
         "merchant": MERCHANT_ORIGIN,
+        "merchant_name": MERCHANT_NAME,
         "total": trace["total"],
         "status": "completed",
         "policy": {"outcome": "allow", "failed_rules": []},
@@ -414,6 +423,8 @@ def test_enforce_block_by_merchant_rule_shows_origins_not_pseudonyms(tmp_path: P
     assert_chronological(trace)
     assert trace["status"] == "blocked" and trace["policy_mode"] == "enforce"
     assert trace["merchant"] == MERCHANT_ORIGIN and trace["total"] is None
+    # Named from the decision's origin: a blocked purchase never had terms.
+    assert trace["merchant_name"] == row["merchant_name"] == MERCHANT_NAME
     assert step(trace, "selection")["product"] == "Sony WH-1000XM6 negro"
     policy = step(trace, "policy_decision")
     assert policy["state"] == "blocked"
@@ -497,13 +508,31 @@ def test_payment_rejected_by_the_merchant_ends_in_a_failure(tmp_path: Path) -> N
     assert trace["status"] == "failed"
     assert kinds(trace)[-3:] == ["approval", "payment_authorized", "failed"]
     failure = step(trace, "failed")
+    # The merchant's code, stored when the completion was released (purchases.failure_code).
     assert (failure["actor"], failure["state"], failure["code"]) == (
         "merchant",
         "error",
-        "purchase_failed",
+        "payment_declined",
     )
+    # The UI fixture shows the failure this backend writes.
+    shown = step(json.loads((TRACE_FIXTURES / "failed.json").read_text("utf-8")), "failed")
+    assert {key: shown[key] for key in ("actor", "state", "code")} == {
+        key: failure[key] for key in ("actor", "state", "code")
+    }
     assert row["status"] == "failed" and row["order_id"] is None
     assert_chronological(trace)
+
+
+def test_a_failure_stored_before_its_code_existed_stays_generic(tmp_path: Path) -> None:
+    with shop(tmp_path, "off", merchant=DecliningMerchant()) as current:
+        prepared = current.prepare()
+        run_id = prepared["purchase"]["run_id"]
+        current.approve(prepared, completes=False)
+        with closing(sqlite3.connect(current.configuration.agent_database_path)) as db, db:
+            db.execute("UPDATE purchases SET failure_code = NULL WHERE run_id = ?", (run_id,))
+        trace = current.trace(run_id)
+
+    assert step(trace, "failed")["code"] == "purchase_failed"
 
 
 def test_a_merchant_4xx_after_delegating_keeps_the_payment_step(tmp_path: Path) -> None:
@@ -528,13 +557,67 @@ def test_a_failed_delegation_has_no_payment_step(tmp_path: Path) -> None:
         prepared = current.prepare()
         run_id = prepared["purchase"]["run_id"]
         current.approve(prepared, completes=False)
-        trace = current.trace(run_id)
+        failed = current.trace(run_id)
+        # Bookkeeping written after the failure proves nothing about the provider.
+        later = (datetime.now(UTC) + timedelta(minutes=1)).isoformat()
+        with closing(sqlite3.connect(current.configuration.agent_database_path)) as db, db:
+            db.execute(
+                "UPDATE purchases SET failure_code = 'delegation_unavailable', updated_at = ? "
+                "WHERE run_id = ?",
+                (later, run_id),
+            )
+        rewritten = current.trace(run_id)
         purchase = current.store.purchase(run_id)
 
     # The delegation key exists, but the provider never returned a token.
     assert purchase is not None and purchase["stage"] == "approved"
+    for trace in (failed, rewritten):
+        assert kinds(trace).count("payment_authorized") == 0
+        assert kinds(trace)[-1] == "approval"
+
+
+def test_a_merchant_key_older_than_the_delegation_proves_nothing(tmp_path: Path) -> None:
+    """Completion created the merchant key before delegating until the trace read it as proof."""
+    with shop(tmp_path, "off", merchant=RetryableRejectionMerchant()) as current:
+        prepared = current.prepare()
+        run_id = prepared["purchase"]["run_id"]
+        current.approve(prepared, completes=False)
+        with closing(sqlite3.connect(current.configuration.agent_database_path)) as db, db:
+            db.execute(
+                "UPDATE operation_keys SET created_at = '2026-01-01T00:00:00Z' "
+                "WHERE run_id = ? AND operation = 'checkout.complete'",
+                (run_id,),
+            )
+        trace = current.trace(run_id)
+
     assert "payment_authorized" not in kinds(trace)
-    assert kinds(trace)[-1] == "approval"
+
+
+def test_sandbox_approval_time_does_not_reorder_the_checks(tmp_path: Path) -> None:
+    # AGENT_SANDBOX_CLOCK_AT fixes the approval clock in the past; the checks use the real one.
+    sandbox = datetime.fromisoformat("2026-09-10T14:05:00+00:00")
+    with shop(tmp_path, "shadow", agent_sandbox_clock_at=sandbox) as current:
+        prepared = current.prepare()
+        current.approve(prepared)
+        trace = current.trace(prepared["purchase"]["run_id"])
+
+    assert kinds(trace) == [
+        "request",
+        "selection",
+        "policy_decision",
+        "checkout_created",
+        "freshness_check",
+        "freshness_check",
+        "approval",
+        "payment_authorized",
+        "order_confirmed",
+    ]
+    approval = step(trace, "approval")
+    # The time shown is still the sandbox's: it is what the approval recorded.
+    assert approval["approved_at"] == approval["at"] == "2026-09-10T14:05:00.000Z"
+    assert approval["duration_ms"] is None
+    real = [item["at"] for item in trace["steps"] if item["kind"] != "approval"]
+    assert real == sorted(real)
 
 
 def test_trace_of_another_buyer_or_unknown_run_is_not_found(tmp_path: Path) -> None:
@@ -768,6 +851,8 @@ def test_s04_trace_shows_the_freshness_block_and_what_changed(tmp_path: Path) ->
         "freshness_check",
     ]
     assert_chronological(trace)
+    # Enforce keeps no `checkout.create` key: the creation envelope was prepared with the decision.
+    assert step(trace, "checkout_created")["at"] == step(trace, "policy_decision")["at"]
     # The PDP allowed the purchase; the stop belongs to the application control.
     assert step(trace, "policy_decision")["decision"]["outcome"] == "allow"
     assert step(trace, "approval")["state"] == "skipped"
@@ -915,6 +1000,8 @@ def test_s02_budget_recovery_appears_after_the_cancellation(tmp_path: Path) -> N
         "canceled",
         "governed_recovery",
     ]
+    # Canceled before any terms, with the policy off: no origin, so no name either.
+    assert trace["merchant"] is None and trace["merchant_name"] is None
     assert step(trace, "canceled")["by"] == "budget"
     recovery = step(trace, "governed_recovery")
     assert recovery == {
@@ -988,6 +1075,7 @@ def test_a_broken_purchase_marks_only_its_own_history_row(tmp_path: Path) -> Non
         "started_at": utc(purchase["created_at"]),
         "request": PURCHASE_REQUEST,
         "merchant": None,
+        "merchant_name": None,
         "total": None,
         "status": "trace_unavailable",
         "policy": None,
@@ -995,6 +1083,70 @@ def test_a_broken_purchase_marks_only_its_own_history_row(tmp_path: Path) -> Non
         "order_id": ORDER_ID,
         "duration_ms": None,
     }
+
+
+def test_a_purchase_row_outside_the_contract_keeps_only_its_run_id(tmp_path: Path) -> None:
+    with shop(tmp_path, "off") as current:
+        broken = current.prepare()["purchase"]["run_id"]
+        [newer] = seed(current.store, BUYER, 1, "newer")
+        with closing(sqlite3.connect(current.configuration.agent_database_path)) as db, db:
+            db.execute(
+                "UPDATE purchases SET created_at = 'yesterday', request_text = '', order_id = '', "
+                "state_version = state_version + 1 WHERE run_id = ?",
+                (broken,),
+            )
+        assert_unavailable(current, broken)
+        rows = current.history()["purchases"]
+
+    assert {row["run_id"]: row["status"] for row in rows} == {
+        broken: "trace_unavailable",
+        newer: "in_progress",
+    }
+    assert next(row for row in rows if row["run_id"] == broken) == {
+        "run_id": broken,
+        "started_at": None,
+        "request": None,
+        "merchant": None,
+        "merchant_name": None,
+        "total": None,
+        "status": "trace_unavailable",
+        "policy": None,
+        "approved_at": None,
+        "order_id": None,
+        "duration_ms": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("code", "retry_after"),
+    [(sqlite3.SQLITE_BUSY, "1"), (sqlite3.SQLITE_LOCKED, "1"), (sqlite3.SQLITE_IOERR, None)],
+    ids=["busy", "locked", "io-error"],
+)
+def test_a_locked_database_marks_the_row_and_asks_to_retry_the_trace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    code: int,
+    retry_after: str | None,
+) -> None:
+    def unreadable(*_: object) -> None:
+        error = sqlite3.OperationalError("database is locked")
+        error.sqlite_errorcode = code
+        raise error
+
+    settings = governed_settings(tmp_path / "agent.db")
+    with governed_client(settings, StoreMerchant()) as client:
+        run_id = ask(client, "turn-locked").json()["purchase"]["run_id"]
+        monkeypatch.setattr(sources, "read_run", unreadable)
+        caplog.set_level(logging.WARNING, logger="commerce_agent.trace.assembler")
+        trace = client.get(f"/purchases/{run_id}/trace")
+        history = client.get("/me/purchases")
+
+    # Only a lock is worth retrying; any other read error is evidence the trace cannot use.
+    assert (trace.status_code, trace.headers.get("retry-after")) == (503, retry_after)
+    assert trace.json() == {"detail": "Purchase trace unavailable"}
+    assert [row["status"] for row in history.json()["purchases"]] == ["trace_unavailable"]
+    assert f"run_id={run_id}" in caplog.text
 
 
 def test_a_policy_artifact_that_does_not_verify_makes_the_trace_unavailable(

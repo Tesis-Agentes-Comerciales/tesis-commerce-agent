@@ -11,6 +11,7 @@ from referencing import Registry, Resource
 MAX_FEED_BYTES = 50 * 1024 * 1024
 MAX_PRODUCT_LINES = 100_000
 MAX_PRODUCT_LINE_BYTES = 1024 * 1024
+MAX_SELLER_NAME_CHARS = 80
 
 
 class ProductFeedError(ValueError):
@@ -135,6 +136,24 @@ class ProductFeed(BaseModel):
                     )
                 )
         return tuple(candidates)
+
+    @property
+    def seller_name(self) -> str | None:
+        """The merchant of record's display name, when every variant declares the same one.
+
+        `seller.name` is merchant content: it is trimmed and bounded, and a feed without one or
+        with several sellers has none.
+        """
+        names: set[str] = set()
+        for product in self.products:
+            for variant in product.variants:
+                seller = (variant.model_extra or {}).get("seller")
+                name = seller.get("name") if isinstance(seller, dict) else None
+                if not isinstance(name, str):
+                    return None
+                names.add(" ".join(name.split()))
+        name = names.pop() if len(names) == 1 else ""
+        return name if 0 < len(name) <= MAX_SELLER_NAME_CHARS else None
 
     @property
     def available_candidates(self) -> tuple[ProductCandidate, ...]:
