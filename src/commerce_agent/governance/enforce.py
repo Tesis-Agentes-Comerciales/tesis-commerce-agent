@@ -44,6 +44,7 @@ from .canonical import canonical_bytes, parse_model, sha256_digest
 from .dispatch_envelope import (
     CheckoutCreationEnvelope,
     ExpectedRemoteBinding,
+    creation_idempotency_key,
     merchant_creation_digest,
 )
 from .evaluator import (
@@ -245,6 +246,13 @@ class SqliteD1EnforceGate:
                 "selected_variant_id": candidate.variant_id,
                 "merchant_ref": ctx.merchant_ref,
             }
+            key = creation_idempotency_key(
+                self._keys.pseudonym_key,
+                run_id=run_id,
+                owner_id=owner_id,
+                merchant_origin=self._configuration.merchant_base_url,
+                request=build_checkout_create(candidate.variant_id, candidate.currency),
+            )
             history = ledger.for_run(run_id)
             previous = connection.execute(
                 "SELECT attempt,canonical_input,context_ref,operation_id,evidence_id,"
@@ -267,7 +275,6 @@ class SqliteD1EnforceGate:
                     "operation:" + secrets.token_hex(16),
                     "evidence:" + secrets.token_hex(16),
                 )
-                key = "agent_" + secrets.token_urlsafe(24)
                 connection.execute(
                     "INSERT INTO d1_enforce_inputs VALUES (?,?,?,?,?,?,?)",
                     (
@@ -288,7 +295,9 @@ class SqliteD1EnforceGate:
                     )
                 ) != canonical_bytes(template) or previous[2] != canonical_bytes(context.ref):
                     raise GovernanceError("GOV_INPUT_INVALID")
-                operation_id, evidence_id, key = previous[3:6]
+                if previous[5] != key:
+                    raise GovernanceError("GOV_STATE_CONFLICT")
+                operation_id, evidence_id = previous[3:5]
             # Ledger sequences are contiguous per run; this attempt appends after them.
             sequence = len(history) + 1
             refs = (

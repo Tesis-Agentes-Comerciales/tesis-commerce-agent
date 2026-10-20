@@ -754,6 +754,8 @@ def test_retry_after_deny_appends_attempt_and_keeps_history(tmp_path: Path):
     rows = attempts(case)
     assert [row[0] for row in rows] == [1, 2]
     assert len({row[1] for row in rows}) == len({row[2] for row in rows}) == 2
+    # Same candidate and body: the creation intent, and therefore its key, is unchanged.
+    assert rows[0][3] == rows[1][3]
     assert snapshot(case) == (("received", 1, None), (), ())
 
 

@@ -4,10 +4,20 @@ The key is operational storage, redacted in ordinary model dumps. No bearer or
 authenticated remote identity is represented. Expected scope is a backend assertion.
 """
 
+import hashlib
+import hmac
 from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretBytes,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 from commerce_agent.acp.models import CheckoutCreateRequest
 from commerce_agent.acp.schema import validate_acp
@@ -71,6 +81,38 @@ def merchant_creation_digest(body: bytes) -> str:
                 "request": creation_body(body),
             }
         )
+    )
+
+
+def creation_idempotency_key(
+    secret: SecretBytes,
+    *,
+    run_id: str,
+    owner_id: str,
+    merchant_origin: str,
+    request: CheckoutCreateRequest,
+) -> str:
+    """Idempotency-Key of one creation intent, reproducible without local state.
+
+    HMAC-SHA256 under the backend pseudonym key over run, owner, Merchant origin
+    and the exact canonical ACP body. Attempt, decision, evidence, operation and
+    clock identifiers are excluded: they are fresh after a lost store, and the
+    Merchant only deduplicates the same key. Merchant 0dca108 scopes keys by
+    remote run/actor without TTL; the same key and fingerprint replay the durable
+    original, while another body under that key is IDEMPOTENCY_CONFLICT. A
+    different candidate or body thus receives a different key. Rotating the
+    pseudonym key starts a new key space, as it already does for the vault.
+    """
+    value = canonical_bytes(
+        [run_id, owner_id, merchant_origin, canonical_bytes(request).decode("utf-8")]
+    )
+    return (
+        "agent_"
+        + hmac.new(
+            secret.get_secret_value(),
+            b"commerce-acp-create-idempotency/v1\0" + value,
+            hashlib.sha256,
+        ).hexdigest()
     )
 
 
