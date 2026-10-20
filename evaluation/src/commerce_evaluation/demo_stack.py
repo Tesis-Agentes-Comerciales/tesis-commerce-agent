@@ -108,8 +108,10 @@ DATABASE_URL = re.compile(r"postgres(?:ql)?(?:\+\w+)?://\S+")
 INLINE_COMMENT = re.compile(r"\s+#.*")
 READY_TIMEOUT_SECONDS = 90.0
 STOP_TIMEOUT_SECONDS = 10.0
+GROUP_POLL_SECONDS = 0.05
 # Closing the terminal (SIGHUP) or `kill` (SIGTERM) shut the stack down like Ctrl-C.
 SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+STOP_SIGNALS = (signal.SIGINT, *SHUTDOWN_SIGNALS)
 
 
 class DemoError(RuntimeError):
@@ -602,7 +604,7 @@ class Process(Protocol):
 
 
 class Launcher:
-    """Runs a plan. Subprocesses and HTTP go through four methods tests replace."""
+    """Runs a plan. Subprocesses and HTTP go through five methods tests replace."""
 
     def __init__(self, plan: DemoPlan, out: TextIO | None = None) -> None:
         self.plan = plan
@@ -656,6 +658,14 @@ class Launcher:
         # macOS answers EPERM for a group whose processes are all zombies: it is gone as well.
         with suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, signum)
+
+    def _group_alive(self, process: Process) -> bool:
+        """Whether any process of the service's group still runs, its leader or not."""
+        try:
+            os.killpg(process.pid, 0)
+        except (ProcessLookupError, PermissionError):
+            return False
+        return True
 
     # Output.
     def say(self, message: str = "") -> None:
@@ -791,27 +801,29 @@ class Launcher:
             time.sleep(interval)
 
     def stop(self) -> None:
-        """SIGTERM to every group first, then SIGKILL to the ones still running. Nothing it
-        prints can stop it: after SIGHUP the terminal is gone."""
+        """SIGTERM to every group first; when every group is gone or the deadline passes,
+        SIGKILL to every group that got SIGTERM. Nothing it prints can stop it: after SIGHUP
+        the terminal is gone."""
         # A second Ctrl-C, SIGTERM or SIGHUP must not leave services behind.
-        previous = {
-            signum: signal.signal(signum, signal.SIG_IGN)
-            for signum in (signal.SIGINT, *SHUTDOWN_SIGNALS)
-        }
+        previous = {signum: signal.signal(signum, signal.SIG_IGN) for signum in STOP_SIGNALS}
         try:
             running = [(s, p) for s, p in reversed(self.running) if p.poll() is None]
             for _, process in running:
                 self._signal(process, signal.SIGTERM)
             deadline = time.monotonic() + STOP_TIMEOUT_SECONDS
-            stubborn = [
-                (service, process)
-                for service, process in running
-                if not _exited(process, deadline - time.monotonic())
-            ]
-            for _, process in stubborn:
+            for _, process in running:
+                _exited(process, deadline - time.monotonic())
+            # A leader can exit on SIGTERM while a child it started (uv run, npm run) ignores
+            # it, so the wait is for the whole group, not only for the process we started.
+            while time.monotonic() < deadline and any(
+                self._group_alive(process) for _, process in running
+            ):
+                time.sleep(GROUP_POLL_SECONDS)
+            # _signal skips a group that no longer exists.
+            for _, process in running:
                 self._signal(process, signal.SIGKILL)
             alive = {
-                process.pid for _, process in stubborn if not _exited(process, STOP_TIMEOUT_SECONDS)
+                process.pid for _, process in running if not _exited(process, STOP_TIMEOUT_SECONDS)
             }
             for service, process in reversed(self.running):
                 state = f"no se detuvo (pid {process.pid})" if process.pid in alive else "apagado"
@@ -835,6 +847,10 @@ def _exited(process: Process, timeout: float) -> bool:
 
 
 def _interrupt(signum: int, frame: object) -> None:
+    # From the first signal on, another Ctrl-C, SIGTERM or SIGHUP is ignored. Otherwise one
+    # that arrives before stop() ignores them ends the launcher with a traceback (exit 130).
+    for stop_signal in STOP_SIGNALS:
+        signal.signal(stop_signal, signal.SIG_IGN)
     raise KeyboardInterrupt
 
 
@@ -940,7 +956,7 @@ def up(argv: Sequence[str]) -> int:
             print(f"  ✗ {problem}", file=sys.stderr)
         return 2
     launcher = Launcher(plan)
-    previous = {signum: signal.signal(signum, _interrupt) for signum in SHUTDOWN_SIGNALS}
+    previous = {signum: signal.signal(signum, _interrupt) for signum in STOP_SIGNALS}
     try:
         launcher.start()
         launcher.watch()
