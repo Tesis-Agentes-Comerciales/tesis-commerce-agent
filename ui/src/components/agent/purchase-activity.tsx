@@ -38,9 +38,13 @@ export function PurchaseActivity({ trace, defaultOpen = false, className }: Purc
       data-testid="purchase-activity"
       data-status={trace.status}
     >
+      {/*
+        Rejilla y no flex: el resumen crece primero hasta su ancho completo y el producto solo usa
+        lo que sobra. Con flex ambos se encogen a la vez y el estado salía cortado en el móvil.
+      */}
       <Collapsible.Trigger
         className={cn(
-          "group/trigger -ml-2 inline-flex min-h-11 max-w-full items-center gap-2 rounded-full px-2 text-sm transition-colors hover:bg-[#f7f7f7] sm:min-h-9",
+          "group/trigger -ml-2 inline-grid min-h-11 max-w-full grid-cols-[auto_minmax(0,max-content)_minmax(0,1fr)_auto] items-center gap-2 rounded-full px-2 text-left text-sm transition-colors hover:bg-[#f7f7f7] sm:min-h-9",
           focusRing,
         )}
         aria-busy={working || undefined}
@@ -58,7 +62,7 @@ export function PurchaseActivity({ trace, defaultOpen = false, className }: Purc
         >
           {purchaseSummary(trace)}
         </span>
-        {product && <span className="truncate text-xs text-[#6b6b6b]">{product}</span>}
+        <span className="truncate text-xs text-[#6b6b6b]">{product}</span>
         <ChevronRightIcon
           className="size-4 shrink-0 text-[#6b6b6b] transition-transform duration-200 group-data-[state=open]/trigger:rotate-90"
           aria-hidden

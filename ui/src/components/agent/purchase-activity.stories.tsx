@@ -145,6 +145,36 @@ export const TechnicalDetail: Story = {
   },
 }
 
+const ALL_STATUSES = [
+  TRACES.inProgress,
+  TRACES.awaitingApproval,
+  TRACES.completedShadow,
+  TRACES.blockedMerchant,
+  TRACES.canceled,
+  TRACES.failed,
+  TRACES.uncertain,
+]
+
+/**
+ * Teléfono de 375 px: la columna del chat deja 343 px. El resumen del estado nunca se corta; el
+ * nombre del producto cede el espacio.
+ */
+export const Phone375: Story = {
+  render: () => (
+    <div className="w-[343px] space-y-1">
+      {ALL_STATUSES.map((trace) => (
+        <PurchaseActivity key={trace.run_id} trace={trace} />
+      ))}
+    </div>
+  ),
+  play: async ({ canvas }) => {
+    for (const summary of ["Bloqueada por la política de compra", "Esperando tu aprobación"]) {
+      const label = canvas.getByText(summary, { selector: "button span" })
+      await expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth)
+    }
+  },
+}
+
 export const Mobile: Story = {
   args: { trace: TRACES.completedShadow, defaultOpen: true },
   globals: { viewport: { value: "mobile", isRotated: false } },
