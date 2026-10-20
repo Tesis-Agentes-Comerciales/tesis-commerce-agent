@@ -16,14 +16,11 @@ from commerce_agent.acp.offer_snapshot import (
     OfferResponse,
     SnapshotModel,
 )
+from commerce_agent.canonical_json import canonical_original_response
 from commerce_agent.config import validate_service_base_url
 from commerce_agent.governance.canonical import canonical_bytes, parse_model
 from commerce_agent.governance.models import ObjectRef
-from commerce_agent.governance.remote_creation import (
-    CreationAbsent,
-    SessionScope,
-    canonical_original_response,
-)
+from commerce_agent.governance.remote_creation import CreationAbsent, SessionScope
 
 
 class ObservationBlocked(ValueError):

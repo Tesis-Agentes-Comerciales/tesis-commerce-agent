@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 from typing import Any
 
 import httpx
@@ -300,3 +302,15 @@ def test_lab_offer_failure_is_not_retried(response: httpx.Response, code: str) -
     ):
         client.get_offer("BBGooglePixel8-128GB", LAB_DESTINATION)
     assert (captured.value.code, calls) == (code, 1)
+
+
+def test_the_offer_snapshot_loads_without_governance() -> None:
+    # It reached governance.remote_creation for one helper, which imports `acp` back.
+    probe = (
+        "import sys, commerce_agent.acp.offer_snapshot;"
+        "print([m for m in sys.modules if m.startswith('commerce_agent.governance')])"
+    )
+    loaded = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+    assert loaded.stdout.strip() == "[]"

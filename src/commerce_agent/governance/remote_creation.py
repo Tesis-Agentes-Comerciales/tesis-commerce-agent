@@ -1,13 +1,13 @@
 """Historical creation verification only; no commercial authorization or replay."""
 
 import hashlib
-import json
 from typing import Annotated, Any, Literal
 
 from pydantic import Field, model_validator
 
 from commerce_agent.acp.models import CheckoutSession, Identifier
 from commerce_agent.acp.schema import validate_acp
+from commerce_agent.canonical_json import canonical_original_response
 
 from .dispatch_envelope import (
     CheckoutCreationEnvelope,
@@ -21,46 +21,6 @@ from .reconciliation import RecoveredOperation
 LOOKUP_PATH = "/lab/recovery/checkout-creation/lookup"
 LOOKUP_SCHEMA = "merchant-acp-creation-lookup/1"
 HexDigest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$", min_length=64, max_length=64)]
-_SENSITIVE = {
-    "authorization",
-    "bearer",
-    "token",
-    "bearer_token",
-    "access_token",
-    "refresh_token",
-    "session_token",
-    "idempotency_key",
-    "credentials",
-    "credential",
-    "payment_data",
-    "checkout_jwt",
-}
-
-
-def canonical_original_response(value: object) -> bytes:
-    """Exact Merchant c5bd811 profile, including safe integers and sensitive keys."""
-
-    def check(item: object) -> None:
-        if item is None or isinstance(item, (str, bool)):
-            return
-        if type(item) is int and abs(item) <= 9007199254740991:
-            return
-        if isinstance(item, list):
-            for child in item:
-                check(child)
-            return
-        if isinstance(item, dict) and all(isinstance(key, str) for key in item):
-            if any(key.lower() in _SENSITIVE for key in item):
-                raise ValueError("Unsupported response fields")
-            for child in item.values():
-                check(child)
-            return
-        raise ValueError("Unsupported response value")
-
-    check(value)
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    ).encode("utf-8")
 
 
 def original_response_sha256(value: object) -> str:

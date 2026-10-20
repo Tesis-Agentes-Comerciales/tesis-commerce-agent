@@ -7,6 +7,7 @@ from pydantic import Field, model_validator
 
 from commerce_agent.acp.models import CheckoutCreateRequest
 from commerce_agent.acp.offer_snapshot import MerchantOffer, offer_snapshot_sha256
+from commerce_agent.canonical_json import canonical_original_response
 
 from .canonical import canonical_bytes, parse_model, sha256_digest
 from .dispatch_envelope import CheckoutCreationEnvelope, EnvelopeModel, creation_body
@@ -16,7 +17,6 @@ from .preselection_d1 import PreselectionD1Binding
 from .remote_creation import (
     CreationFound,
     HexDigest,
-    canonical_original_response,
     verify_found,
 )
 
