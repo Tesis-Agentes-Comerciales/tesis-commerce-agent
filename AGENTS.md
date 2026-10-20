@@ -12,6 +12,11 @@ service and must never be imported as a Python package or accessed through its d
 - `tests/` verifies both: experiment tests in `tests/evaluation/`, test doubles in
   `tests/support/`, the live system suite in `tests/integration/`. The directory sets the layer.
 
+## Workflow
+
+Non-trivial changes follow `docs/workflow.md`: approved spec in `docs/design/`, contract and
+fixtures, Storybook-first UI, test-first backend, integration, one topic per PR.
+
 ## Runtime
 
 - Python 3.12 managed with `uv`; Node.js 24 for `auth/` and `ui/`.
