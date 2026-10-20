@@ -1,0 +1,44 @@
+[
+  {
+    "path": "src/commerce_agent/domain/__init__.py",
+    "hnp_sha256": "bf9ea66a43bc07cfd3f729c9fc7ffd96d301c2bba129ef354e0e93e24ae7a2af",
+    "main_sha256": "bf9ea66a43bc07cfd3f729c9fc7ffd96d301c2bba129ef354e0e93e24ae7a2af",
+    "same": true,
+    "exists_both": true
+  },
+  {
+    "path": "src/commerce_agent/domain/intent.py",
+    "hnp_sha256": "309b754c4212f621901d05055adc57c715a712a4848ef54b512129d65437a6d6",
+    "main_sha256": "309b754c4212f621901d05055adc57c715a712a4848ef54b512129d65437a6d6",
+    "same": true,
+    "exists_both": true
+  },
+  {
+    "path": "src/commerce_agent/acp/feed.py",
+    "hnp_sha256": "7a0e31ab37fd887c049622c5891d3f9d78bdfd625d8d033a4b5d54f8e4e22bf4",
+    "main_sha256": "7a0e31ab37fd887c049622c5891d3f9d78bdfd625d8d033a4b5d54f8e4e22bf4",
+    "same": true,
+    "exists_both": true
+  },
+  {
+    "path": "src/commerce_agent/governance/models.py",
+    "hnp_sha256": "b1e52d0ab57551a97fd703694d0ca5c3f74404157462b03603329e37b563a2ca",
+    "main_sha256": "b1e52d0ab57551a97fd703694d0ca5c3f74404157462b03603329e37b563a2ca",
+    "same": true,
+    "exists_both": true
+  },
+  {
+    "path": "src/commerce_agent/governance/canonical.py",
+    "hnp_sha256": "92ef6d0b7f6ae40f088b19d51899a266c345aab9ced9f53af21c2609bdff4e16",
+    "main_sha256": "92ef6d0b7f6ae40f088b19d51899a266c345aab9ced9f53af21c2609bdff4e16",
+    "same": true,
+    "exists_both": true
+  },
+  {
+    "path": "src/commerce_agent/domain/selection.py",
+    "hnp_sha256": "4a5e0ddb8c4ab20a9376a7bdd9d8231c47ccf147bd803236d4efba110d9767ff",
+    "main_sha256": "4a5e0ddb8c4ab20a9376a7bdd9d8231c47ccf147bd803236d4efba110d9767ff",
+    "same": true,
+    "exists_both": true
+  }
+]

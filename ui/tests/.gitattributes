@@ -1,0 +1,6 @@
+governance-monitor.test.mjs -text
+governance-snapshot.test.mjs -text
+governance-routes.test.cjs -text
+governance-auth.test.mjs -text
+monitor-test-loader.mjs -text
+.gitattributes -text

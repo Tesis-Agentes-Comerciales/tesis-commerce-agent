@@ -1,0 +1,4 @@
+src/main.tsx -text
+src/components/session-gate.tsx -text
+governance-preview.config.mjs -text
+.gitattributes -text
