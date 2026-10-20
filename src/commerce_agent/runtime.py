@@ -13,6 +13,7 @@ from commerce_agent.acp.published_feed import PublishedFeedClient
 from commerce_agent.ap2 import AgentMandateSigner
 from commerce_agent.application import PurchaseService
 from commerce_agent.application.conversation import ConversationService
+from commerce_agent.application.offer_freshness import build_offer_freshness
 from commerce_agent.approval import ApprovalService
 from commerce_agent.completion import CompletionService
 from commerce_agent.config import Settings
@@ -140,6 +141,7 @@ def build_runtime(
         checkout=client,
         store=store,
         approvals=approvals,
+        offer_freshness=build_offer_freshness(configuration, client, clock),
         d1_observer=d1_shadow,
         d1_gate=d1_gate,
     )

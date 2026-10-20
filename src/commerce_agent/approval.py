@@ -102,6 +102,7 @@ class ApprovalService:
         expected_fingerprint: str,
         checkout: CheckoutSession,
         checkout_jwt: str | None = None,
+        before_signing: Callable[[], None] | None = None,
     ) -> ApprovalRecord:
         terms = self.present(checkout)
         if not hmac.compare_digest(expected_fingerprint, terms.fingerprint):
@@ -109,6 +110,9 @@ class ApprovalService:
                 "Displayed checkout terms no longer match",
                 code="checkout_terms_changed",
             )
+        # Live checks run only on terms the human saw, before any mandate or record exists.
+        if before_signing is not None:
+            before_signing()
         approved_at = _timestamp(self._clock())
         checkout_mandate: str | None = None
         payment_mandate: str | None = None

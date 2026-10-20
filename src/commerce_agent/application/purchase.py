@@ -14,6 +14,7 @@ from commerce_agent.acp.models import (
     FulfillmentDetails,
     SelectedFulfillmentOption,
 )
+from commerce_agent.application.offer_freshness import FreshnessStage, OfferFreshnessGuard
 from commerce_agent.approval import ApprovalError, ApprovalService, ApprovalTerms
 from commerce_agent.domain import PurchaseIntent, SelectionResult, rank_candidates
 from commerce_agent.governance.canonical import canonical_bytes
@@ -138,6 +139,7 @@ class PurchaseService:
         checkout: CheckoutGateway,
         store: SqliteAgentStore,
         approvals: ApprovalService,
+        offer_freshness: OfferFreshnessGuard | None = None,
         d1_observer: D1SelectionObserver | None = None,
         d1_gate: D1EnforceGate | None = None,
     ) -> None:
@@ -145,6 +147,7 @@ class PurchaseService:
         self._checkout = checkout
         self._store = store
         self._approvals = approvals
+        self._offer_freshness = offer_freshness
         self._d1_observer = d1_observer
         if d1_gate is not None and d1_observer is not None:
             raise ValueError("D1 enforce and shadow must be configured separately")
@@ -284,6 +287,10 @@ class PurchaseService:
             price_changed=price_changed,
         )
 
+    def _check_offer(self, run_id: str, checkout: CheckoutSession, stage: FreshnessStage) -> None:
+        if self._offer_freshness is not None:
+            self._offer_freshness.check(run_id=run_id, checkout=checkout, stage=stage)
+
     def _shadow_unavailable(self) -> None:
         try:
             if self._d1_observer is not None:
@@ -295,6 +302,7 @@ class PurchaseService:
     def approval_terms(self, run_id: str) -> ApprovalTerms:
         self._block_d1_continuation(run_id)
         checkout = self._current_checkout(run_id)
+        self._check_offer(run_id, checkout, "present")
         signed = self._checkout.signed_checkout(checkout) if self._approvals.requires_ap2 else None
         return self._approvals.present(checkout, checkout_jwt=signed)
 
@@ -321,6 +329,7 @@ class PurchaseService:
             expected_fingerprint=expected_fingerprint,
             checkout=checkout,
             checkout_jwt=checkout_jwt,
+            before_signing=lambda: self._check_offer(run_id, checkout, "approve"),
         )
         self._store.update_purchase(run_id, stage=PurchaseStage.APPROVED)
         return record
