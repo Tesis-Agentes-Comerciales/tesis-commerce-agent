@@ -17,3 +17,6 @@
 
 # Byte-exact copies of sealed evidence pinned in provenance.json; some keep their original CRLF.
 /docs/governance-monitor/sources/** -text
+
+# Archived experiment runs are verified with SHA256SUMS; keep their bytes.
+/evaluation/results/hnp02/** -text
