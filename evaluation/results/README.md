@@ -13,3 +13,7 @@ incluyen en las métricas del piloto.
 El notebook ejecutado `b0-pilot-v1-analysis.ipynb` reconstruye los agregados directamente desde el
 JSONL y exporta las figuras de `figures/`. La versión HTML permite revisar el resultado sin ejecutar
 un kernel.
+
+`hnp02/<run_id>/` guarda corridas de EC-HNP-02 (`uv run hnp-matrix`), cada una con su `README.md`
+de configuración, resultados y lectura, más `SHA256SUMS`. La primera corrida en vivo es
+`hnp02/hnp02-live-20261020T180845Z-s20261022/`.
