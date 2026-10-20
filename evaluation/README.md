@@ -41,6 +41,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 
 ```sh
 uv run governance-pilot --dry-run                    # plan de B0'; --condition B2 para el tratado
+uv run governance-pilot --dry-run --condition B0prime --condition B2  # plan intercalado del piloto
 uv run evaluate-conversation                         # con agente y Merchant locales activos
 uv run hnp-review-demo                               # HNP-01 offline, escribe en .local/hnp01/demo
 uv run hnp-matrix --dry-run --env-file .env.example  # HNP-02 con FakeTransport, escribe en .local/hnp02
@@ -54,13 +55,28 @@ Los comandos se ejecutan desde la raíz del repositorio. Las salidas HNP deben q
 
 La spec es [`b2-governed-pilot.md`](../docs/design/b2-governed-pilot.md) y el manifiesto
 pre-registrado, [`data/b2-pilot-v1.json`](data/b2-pilot-v1.json). Las dos condiciones corren sobre el
-mismo commit. Una corrida en vivo usa el modelo real (`OPENAI_MODEL=gpt-5-mini`) y escribe en
-`results/<condición>-<fecha>.jsonl`:
+mismo commit y en la misma invocación. Una corrida en vivo usa el modelo real
+(`OPENAI_MODEL=gpt-5-mini`) y escribe en `results/<condiciones>-<fecha>.jsonl`:
 
 ```sh
-uv run governance-pilot --condition B0prime
-uv run governance-pilot --condition B2
+uv run governance-pilot --condition B0prime --condition B2
 ```
+
+- **Orden** (`execution.order` del manifiesto): por escenario y por repetición; dentro de cada
+  repetición corren las dos condiciones y la primera alterna: en las repeticiones impares va el
+  orden dado y en las pares, el inverso. `--dry-run` imprime el plan en ese orden. Con una sola
+  `--condition` el plan es el de antes (escenario y repetición).
+- Cada corrida arranca un agente nuevo con su propio directorio (`<condición>-<escenario>-<n>`), su
+  `agent.db` y su corrida del comercio.
+- **Procedencia.** Cada fila y el resumen registran `manifest_id` (`B2-PILOT-v1` cuando las
+  condiciones y la matriz son las del manifiesto; si no, `null`), `agent_commit` y
+  `agent_worktree_dirty`. Si hay cambios sin commit en archivos versionados del agente, el runner
+  aborta antes de levantar servicios, salvo con `--allow-dirty`. Los archivos sin versionar (como
+  los resultados) no cuentan.
+- **Resumen** (`.summary.json`): `by_condition` y `by_condition_scenario`. Las filas con
+  `harness_error` se cuentan en `harness_errors`; `oracle_pass_rate` y las medias se calculan sobre
+  las filas evaluadas y `oracle_pass_rate_all_runs`, sobre todas. Con una condición, el resumen
+  conserva además los totales de antes en la raíz; con varias no se agrega una tasa común.
 
 El runner le pasa al agente la condición como variables de proceso, que ganan sobre su `.env`:
 
@@ -70,11 +86,12 @@ El runner le pasa al agente la condición como variables de proceso, que ganan s
 | `B2` | `AGENT_GOVERNANCE_MODE=enforce`, `AGENT_HP_FLOW=governed`, `AGENT_D1_ALLOWED_MERCHANT_ORIGINS` = origen del comercio y los `AGENT_D1_*` de abajo |
 
 - Los identificadores de D1 son estables: política `b2-pilot-v1`, revisión `1` y clave
-  `b2-pilot-v1-run`. Las claves HMAC y AES se generan en memoria en cada corrida y solo las recibe
-  el agente. No se escriben en los resultados y se ocultan en la cola del log del agente.
+  `b2-pilot-v1-run`. Las claves HMAC y AES se generan en memoria en cada invocación y solo las
+  recibe el agente. No se escriben en los resultados y se ocultan en la cola del log del agente.
 - Antes de cada repetición, el runner lee `GET /health` del agente. Si `governance_mode` o `hp_flow`
-  no son los de la condición, aborta la corrida. Cada fila del JSONL registra ambos valores; en las
-  filas con `harness_error` quedan en `null`.
+  no son los de la condición, aborta la invocación completa, con todas sus condiciones. Cada fila
+  del JSONL registra ambos valores; en las filas con `harness_error` quedan en `null`.
+- Las claves D1 se generan una vez por invocación y solo si corre B2.
 - `--condition B0` sigue funcionando y en este commit equivale a `B0prime`: las filas dicen
   `B0prime`. El B0 histórico (`B0-2026-10-06`, commit `767058a`) no se puede volver a correr con
   este runner. El comercio sigue sembrando la corrida como `B0`, porque solo conoce B0, B1 y B2.

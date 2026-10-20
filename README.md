@@ -130,7 +130,7 @@ Estos entrypoints no abren conexiones a proveedores ni al Merchant; las salidas 
 
 ```sh
 uv run hnp-matrix --dry-run --env-file .env.example   # HNP-02 con FakeTransport, en .local/hnp02
-uv run governance-pilot --dry-run                     # plan del piloto B0; --condition B2 para el tratado
+uv run governance-pilot --dry-run                     # plan de B0'; repita --condition para intercalar B0' y B2
 uv run hnp-review-demo                                # HNP-01 guionado, en .local/hnp01/demo
 ```
 

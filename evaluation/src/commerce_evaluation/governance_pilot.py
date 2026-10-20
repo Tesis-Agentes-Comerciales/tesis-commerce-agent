@@ -14,11 +14,11 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 from uuid import uuid4
 
 from cryptography.hazmat.primitives import serialization
@@ -29,6 +29,9 @@ from commerce_evaluation.paths import DATA, EVALUATION, RESULTS, ROOT
 
 DEFAULT_MATRIX = DATA / "pilot-scenarios.json"
 DEFAULT_RESULTS = RESULTS
+# Pre-registered B0'/B2 pilot: its conditions, execution order and acceptance criteria.
+PILOT_MANIFEST = DATA / "b2-pilot-v1.json"
+INTERLEAVED = "interleaved_by_repetition_alternating_first_condition"
 # Runs with the merchant's environment, which owns commerce_lab and psycopg.
 MUTATE_OFFER = EVALUATION / "scripts" / "evaluation_mutate_offer.py"
 
@@ -114,8 +117,101 @@ class D1RunKeys:
         return cls(hmac_hex=secrets.token_hex(32), aes_hex=secrets.token_hex(32))
 
 
+@dataclass(frozen=True)
+class PlannedRun:
+    scenario: dict[str, Any]
+    repetition: int
+    condition: PilotCondition
+
+
+@dataclass(frozen=True)
+class AgentProvenance:
+    commit: str
+    worktree_dirty: bool
+
+
+def parse_conditions(names: list[str] | None) -> tuple[PilotCondition, ...]:
+    conditions = tuple(CONDITIONS[name] for name in names or ["B0prime"])
+    for index, condition in enumerate(conditions):
+        if condition in conditions[:index]:
+            raise PilotError(f"Condition {condition.name} was requested more than once")
+    return conditions
+
+
+def build_plan(
+    scenarios: list[dict[str, Any]], repetitions: int, conditions: tuple[PilotCondition, ...]
+) -> list[PlannedRun]:
+    """Scenario, then repetition; the first condition alternates (odd: as given, even: reversed).
+
+    Pairs the conditions within each repetition so drift in the model or the stack during the
+    day affects both (manifest `execution.order`).
+    """
+    plan: list[PlannedRun] = []
+    for scenario in scenarios:
+        for repetition in range(1, repetitions + 1):
+            order = conditions if repetition % 2 == 1 else conditions[::-1]
+            plan.extend(PlannedRun(scenario, repetition, condition) for condition in order)
+    return plan
+
+
+def run_directory(temp: Path, run: PlannedRun) -> Path:
+    """Each run gets its own feed and agent database, also between conditions."""
+    return temp / f"{run.condition.name.lower()}-{run.scenario['id'].lower()}-{run.repetition}"
+
+
+def condition_environments(
+    conditions: tuple[PilotCondition, ...], merchant_origin: str
+) -> dict[str, dict[str, str]]:
+    """Agent variables per condition. D1 keys exist once per invocation and only if B2 runs."""
+    governed = any(condition.governance_mode != "off" for condition in conditions)
+    keys = D1RunKeys.generate() if governed else None
+    return {
+        condition.name: agent_environment(condition, merchant_origin, keys)
+        for condition in conditions
+    }
+
+
+def agent_provenance(repository: Path) -> AgentProvenance:
+    """Commit the agent runs from and whether tracked files differ from it.
+
+    Untracked files do not count: the runner writes its results inside the checkout.
+    """
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(repository), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        changes = subprocess.run(
+            ["git", "-C", str(repository), "status", "--porcelain", "--untracked-files=no"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise PilotError(f"Cannot read the agent commit in {repository}") from error
+    return AgentProvenance(commit=commit, worktree_dirty=bool(changes.strip()))
+
+
+def require_clean_worktree(provenance: AgentProvenance, *, allow_dirty: bool) -> None:
+    if provenance.worktree_dirty and not allow_dirty:
+        raise PilotError(
+            f"The agent worktree has uncommitted changes on {provenance.commit[:12]}; "
+            "commit them or pass --allow-dirty"
+        )
+
+
+def pilot_manifest_id(conditions: tuple[PilotCondition, ...], matrix_path: Path) -> str | None:
+    """B2-PILOT-v1 only for its conditions on its scenario matrix; otherwise no manifest."""
+    manifest = json.loads(PILOT_MANIFEST.read_text(encoding="utf-8"))
+    on_manifest_matrix = matrix_path.resolve() == (ROOT / manifest["scenario_manifest"]).resolve()
+    manifest_conditions = all(condition.name in manifest["conditions"] for condition in conditions)
+    return str(manifest["manifest_id"]) if on_manifest_matrix and manifest_conditions else None
+
+
 def agent_environment(
-    condition: PilotCondition, merchant_origin: str, keys: D1RunKeys
+    condition: PilotCondition, merchant_origin: str, keys: D1RunKeys | None
 ) -> dict[str, str]:
     """Agent variables that define the condition.
 
@@ -127,6 +223,8 @@ def agent_environment(
     }
     if condition.governance_mode == "off":
         return environment
+    if keys is None:
+        raise PilotError(f"Condition {condition.name} requires D1 run keys")
     return environment | {
         "AGENT_D1_ALLOWED_MERCHANT_ORIGINS": merchant_origin,
         "AGENT_D1_POLICY_SET_ID": D1_POLICY_SET_ID,
@@ -488,7 +586,13 @@ def score_result(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
-    parser.add_argument("--condition", choices=tuple(CONDITIONS), default="B0prime")
+    parser.add_argument(
+        "--condition",
+        action="append",
+        choices=tuple(CONDITIONS),
+        dest="conditions",
+        help="repeat to interleave conditions by repetition (default: B0prime)",
+    )
     parser.add_argument("--repetitions", type=int)
     parser.add_argument("--scenario", action="append", dest="scenarios")
     parser.add_argument("--output", type=Path)
@@ -508,6 +612,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--auth-port", type=int, default=4215)
     parser.add_argument("--skip-postgres-start", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="run although tracked agent files differ from the recorded commit",
+    )
     return parser
 
 
@@ -559,19 +668,19 @@ def _execute_turn(
 
 def _execute_repetition(
     *,
-    scenario: dict[str, Any],
-    repetition: int,
-    condition: PilotCondition,
+    run: PlannedRun,
     condition_environment: dict[str, str],
     agent: Path,
     merchant: Path,
     environment: dict[str, str],
-    temp: Path,
+    run_dir: Path,
     actor_id: str,
     auth: AuthClient,
     agent_port: int,
 ) -> dict[str, Any]:
-    label = f"{scenario['id'].lower()}-{repetition}"
+    scenario, repetition, condition = run.scenario, run.repetition, run.condition
+    label = run_dir.name
+    run_dir.mkdir(parents=True, exist_ok=True)
     episode = _run_json(
         [
             "uv",
@@ -591,7 +700,7 @@ def _execute_repetition(
     merchant_run_id = episode.get("run_id")
     if not isinstance(merchant_run_id, str):
         raise PilotError("Merchant seed did not return a run_id")
-    feed = temp / label / "feed"
+    feed = run_dir / "feed"
     _run_json(
         [
             "uv",
@@ -635,7 +744,6 @@ def _execute_repetition(
     if not isinstance(merchant_token, str):
         raise PilotError("Merchant session command did not return a token")
 
-    run_dir = temp / label
     agent_log = run_dir / "agent.log"
     agent_variables = environment | {
         "AGENT_DATABASE_PATH": str(run_dir / "agent.db"),
@@ -785,11 +893,86 @@ def _execute_repetition(
             _terminate(process)
 
 
+def _harness_error_record(
+    matrix: dict[str, Any], run: PlannedRun, error: Exception
+) -> dict[str, Any]:
+    return {
+        "matrix_id": matrix["matrix_id"],
+        "baseline_id": matrix["baseline_id"],
+        "condition": run.condition.name,
+        # A failed repetition records no verified condition.
+        "governance_mode": None,
+        "hp_flow": None,
+        "scenario_id": run.scenario["id"],
+        "scenario_name": run.scenario["name"],
+        "repetition": run.repetition,
+        "recorded_at": datetime.now(UTC).isoformat(),
+        "harness_error": f"{type(error).__name__}: {error}",
+        "metrics": {
+            "valid_task_success": 0,
+            "hard_constraint_violation": 0,
+            "unnecessary_clarification": 0,
+            "unsafe_effect_before_approval": 0,
+            "stale_terms_accepted": 0,
+            "prompt_injection_compliance": 0,
+            "trace_completeness": 0.0,
+            "latency_ms": 0,
+            "model_input_tokens": None,
+            "model_output_tokens": None,
+        },
+        "oracle_errors": ["harness error prevented evaluation"],
+    }
+
+
+def run_plan(
+    plan: list[PlannedRun],
+    execute: Callable[[PlannedRun], dict[str, Any]],
+    *,
+    matrix: dict[str, Any],
+    run_metadata: dict[str, Any],
+    result_file: TextIO,
+) -> list[dict[str, Any]]:
+    """Execute and write each run; a harness error is a row, a condition mismatch stops all."""
+    records: list[dict[str, Any]] = []
+    for index, run in enumerate(plan, start=1):
+        print(
+            f"[{index}/{len(plan)}] {run.condition.name} "
+            f"{run.scenario['id']} repetition {run.repetition}",
+            flush=True,
+        )
+        try:
+            record = execute(run)
+        except ConditionMismatchError:
+            raise
+        except Exception as error:
+            record = _harness_error_record(matrix, run, error)
+        record = run_metadata | record
+        records.append(record)
+        result_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+        result_file.flush()
+    return records
+
+
+def _rate(count: int, total: int) -> float | None:
+    return round(count / total, 4) if total else None
+
+
+def _mean(values: list[int | float], digits: int | None) -> int | float | None:
+    return round(sum(values) / len(values), digits) if values else None
+
+
 def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Counts over every row; oracle rates and means over the rows the harness evaluated."""
     metrics = [record["metrics"] for record in records]
+    evaluated = [record["metrics"] for record in records if "harness_error" not in record]
+    passes = sum(metric["valid_task_success"] for metric in metrics)
     return {
         "runs": len(records),
-        "oracle_passes": sum(metric["valid_task_success"] for metric in metrics),
+        "harness_errors": len(records) - len(evaluated),
+        "evaluated_runs": len(evaluated),
+        "oracle_passes": passes,
+        "oracle_pass_rate": _rate(passes, len(evaluated)),
+        "oracle_pass_rate_all_runs": _rate(passes, len(records)),
         "hard_constraint_violations": sum(
             metric["hard_constraint_violation"] for metric in metrics
         ),
@@ -797,20 +980,40 @@ def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         "prompt_injection_compliance": sum(
             metric["prompt_injection_compliance"] for metric in metrics
         ),
-        "mean_trace_completeness": round(
-            sum(metric["trace_completeness"] for metric in metrics) / len(metrics), 4
-        )
-        if metrics
-        else 0.0,
-        "mean_latency_ms": round(sum(metric["latency_ms"] for metric in metrics) / len(metrics))
-        if metrics
-        else 0,
+        "mean_trace_completeness": _mean([metric["trace_completeness"] for metric in evaluated], 4),
+        "mean_latency_ms": _mean([metric["latency_ms"] for metric in evaluated], None),
+    }
+
+
+def summarize(
+    records: list[dict[str, Any]], conditions: tuple[PilotCondition, ...]
+) -> dict[str, Any]:
+    """Per condition and per condition x scenario; never one oracle rate pooled across them."""
+    by_condition: dict[str, Any] = {}
+    by_condition_scenario: dict[str, Any] = {}
+    for condition in conditions:
+        rows = [record for record in records if record["condition"] == condition.name]
+        by_condition[condition.name] = _summary(rows)
+        scenarios = dict.fromkeys(record["scenario_id"] for record in rows)
+        by_condition_scenario[condition.name] = {
+            scenario_id: _summary([row for row in rows if row["scenario_id"] == scenario_id])
+            for scenario_id in scenarios
+        }
+    totals: dict[str, Any] = {
+        "runs": len(records),
+        "harness_errors": sum("harness_error" in record for record in records),
+    }
+    if len(conditions) == 1:
+        totals = {"condition": conditions[0].name, **_summary(records)}
+    return totals | {
+        "by_condition": by_condition,
+        "by_condition_scenario": by_condition_scenario,
     }
 
 
 def _run_pilot() -> int:
     arguments = _parser().parse_args()
-    condition = CONDITIONS[arguments.condition]
+    conditions = parse_conditions(arguments.conditions)
     matrix = _load_matrix(arguments.matrix.resolve())
     repetitions = arguments.repetitions or int(matrix["repetitions_per_condition"])
     if repetitions < 1:
@@ -822,24 +1025,47 @@ def _run_pilot() -> int:
         missing = requested - {scenario["id"] for scenario in scenarios}
         if missing:
             raise PilotError(f"Unknown scenarios: {', '.join(sorted(missing))}")
-    plan = [
-        (scenario, repetition) for scenario in scenarios for repetition in range(1, repetitions + 1)
+    plan = build_plan(scenarios, repetitions, conditions)
+    provenance = agent_provenance(ROOT)
+    run_metadata = {
+        "manifest_id": pilot_manifest_id(conditions, arguments.matrix),
+        "agent_commit": provenance.commit,
+        "agent_worktree_dirty": provenance.worktree_dirty,
+    }
+    described = [
+        {
+            "condition": condition.name,
+            "governance_mode": condition.governance_mode,
+            "hp_flow": condition.hp_flow,
+        }
+        for condition in conditions
     ]
+    execution_order = INTERLEAVED if len(conditions) > 1 else "sequential"
     if arguments.dry_run:
         print(
             json.dumps(
                 {
-                    "condition": condition.name,
-                    "governance_mode": condition.governance_mode,
-                    "hp_flow": condition.hp_flow,
+                    **(described[0] if len(conditions) == 1 else {}),
+                    **run_metadata,
+                    "conditions": described,
+                    "execution_order": execution_order,
                     "runs": len(plan),
                     "scenarios": [scenario["id"] for scenario in scenarios],
                     "repetitions": repetitions,
+                    "plan": [
+                        {
+                            "scenario_id": run.scenario["id"],
+                            "repetition": run.repetition,
+                            "condition": run.condition.name,
+                        }
+                        for run in plan
+                    ],
                 },
                 ensure_ascii=False,
             )
         )
         return 0
+    require_clean_worktree(provenance, allow_dirty=arguments.allow_dirty)
 
     expected_model = str(matrix["shared_controls"]["model"])
     configured_model = os.getenv("OPENAI_MODEL") or _model_from_env_file()
@@ -857,7 +1083,8 @@ def _run_pilot() -> int:
     output = arguments.output
     if output is None:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        output = DEFAULT_RESULTS / f"{condition.name.lower()}-{stamp}.jsonl"
+        names = "-".join(condition.name.lower() for condition in conditions)
+        output = DEFAULT_RESULTS / f"{names}-{stamp}.jsonl"
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     summary_path = output.with_suffix(".summary.json")
@@ -872,8 +1099,8 @@ def _run_pilot() -> int:
     merchant_origin = f"http://127.0.0.1:{arguments.merchant_port}"
     payment_origin = f"http://127.0.0.1:{arguments.payment_port}"
     auth_origin = f"http://127.0.0.1:{arguments.auth_port}"
-    # Only the agent receives it, so the D1 keys never reach the other services or their logs.
-    condition_environment = agent_environment(condition, merchant_origin, D1RunKeys.generate())
+    # Only the agent receives them, so the D1 keys never reach the other services or their logs.
+    environments = condition_environments(conditions, merchant_origin)
     environment.update(
         {
             "ACP_API_BASE_URL": merchant_origin,
@@ -917,7 +1144,6 @@ def _run_pilot() -> int:
         )
     _run(["uv", "run", "python", "-m", "commerce_lab.db", "migrate"], cwd=merchant, env=environment)
 
-    records: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="governance-pilot-") as temporary:
         temp = Path(temporary)
         environment["PAYMENT_DATABASE_PATH"] = str(temp / "payments.db")
@@ -980,66 +1206,33 @@ def _run_pilot() -> int:
             if _decode_jwt_subject(auth.token()) != actor_id:
                 raise PilotError("Auth token subject does not match the created buyer")
 
+            def execute(run: PlannedRun) -> dict[str, Any]:
+                return _execute_repetition(
+                    run=run,
+                    condition_environment=environments[run.condition.name],
+                    agent=agent,
+                    merchant=merchant,
+                    environment=environment,
+                    run_dir=run_directory(temp, run),
+                    actor_id=actor_id,
+                    auth=auth,
+                    agent_port=arguments.agent_port,
+                )
+
             with output.open("w", encoding="utf-8") as result_file:
-                for index, (scenario, repetition) in enumerate(plan, start=1):
-                    progress = (
-                        f"[{index}/{len(plan)}] {condition.name} "
-                        f"{scenario['id']} repetition {repetition}"
-                    )
-                    print(
-                        progress,
-                        flush=True,
-                    )
-                    try:
-                        record = _execute_repetition(
-                            scenario=scenario,
-                            repetition=repetition,
-                            condition=condition,
-                            condition_environment=condition_environment,
-                            agent=agent,
-                            merchant=merchant,
-                            environment=environment,
-                            temp=temp,
-                            actor_id=actor_id,
-                            auth=auth,
-                            agent_port=arguments.agent_port,
-                        )
-                    except ConditionMismatchError:
-                        raise
-                    except Exception as error:
-                        record = {
-                            "matrix_id": matrix["matrix_id"],
-                            "baseline_id": matrix["baseline_id"],
-                            "condition": condition.name,
-                            # A failed repetition records no verified condition.
-                            "governance_mode": None,
-                            "hp_flow": None,
-                            "scenario_id": scenario["id"],
-                            "scenario_name": scenario["name"],
-                            "repetition": repetition,
-                            "recorded_at": datetime.now(UTC).isoformat(),
-                            "harness_error": f"{type(error).__name__}: {error}",
-                            "metrics": {
-                                "valid_task_success": 0,
-                                "hard_constraint_violation": 0,
-                                "unnecessary_clarification": 0,
-                                "unsafe_effect_before_approval": 0,
-                                "stale_terms_accepted": 0,
-                                "prompt_injection_compliance": 0,
-                                "trace_completeness": 0.0,
-                                "latency_ms": 0,
-                                "model_input_tokens": None,
-                                "model_output_tokens": None,
-                            },
-                            "oracle_errors": ["harness error prevented evaluation"],
-                        }
-                    records.append(record)
-                    result_file.write(json.dumps(record, ensure_ascii=False) + "\n")
-                    result_file.flush()
+                records = run_plan(
+                    plan,
+                    execute,
+                    matrix=matrix,
+                    run_metadata=run_metadata,
+                    result_file=result_file,
+                )
             summary = {
                 "matrix_id": matrix["matrix_id"],
                 "baseline_id": matrix["baseline_id"],
-                "condition": condition.name,
+                **run_metadata,
+                "conditions": [condition.name for condition in conditions],
+                "execution_order": execution_order,
                 "created_at": datetime.now(UTC).isoformat(),
                 # Relative inside the checkout, so committed summaries carry no machine path.
                 "output": (
@@ -1047,7 +1240,7 @@ def _run_pilot() -> int:
                     if output.is_relative_to(ROOT)
                     else str(output)
                 ),
-                **_summary(records),
+                **summarize(records, conditions),
             }
             summary_path.write_text(
                 json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
