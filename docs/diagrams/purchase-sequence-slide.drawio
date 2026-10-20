@@ -1,0 +1,170 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" version="31.4.5" type="device">
+  <diagram id="compra-hp-gobernada" name="Compra HP gobernada">
+    <mxGraphModel dx="1920" dy="1080" grid="0" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="43" value="" style="rounded=0;fillColor=#FFFFFF;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="1" y="1" width="1918" height="1078" as="geometry" />
+        </mxCell>
+        <mxCell id="2" value="Compra Human Present gobernada, paso a paso" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=31;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="50" y="26" width="1820" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="[B2 · hecho]: control que agrega B2 en ese paso; [B0]: igual que la línea base. Rojo: la compra se detiene. Estado en org/main al 20-oct-2026." style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="50" y="76" width="1820" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="Comprador" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="24" y="158" width="208" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:22px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;1 · Pedido&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B0]&lt;/div&gt;&lt;div style=&quot;font-size:19px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;«Pixel 8 de 128 GB negro, máx. COP 1.600.000»&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#3C7549;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="196" width="176" height="244" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="Agente" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="232" y="158" width="208" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:22px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;2 · Selección&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B0]&lt;/div&gt;&lt;div style=&quot;font-size:19px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;El LLM propone una variante de la lista corta (filtros duros)&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="248" y="196" width="176" height="244" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2.4;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="218" y="318" as="sourcePoint" />
+            <mxPoint x="246" y="318" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="9" value="Agente · gate D1" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="440" y="158" width="208" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:22px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;3 · D1&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:19px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;Evalúa POL-01 y POL-02 y guarda la decisión antes de cualquier POST&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="456" y="196" width="176" height="244" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2.4;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="426" y="318" as="sourcePoint" />
+            <mxPoint x="454" y="318" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="12" value="Agente → comercio" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="648" y="158" width="208" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:22px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;4 · Checkout&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:19px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;Como máximo un POST, verificado con un GET; un timeout queda uncertain&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="664" y="196" width="176" height="244" as="geometry" />
+        </mxCell>
+        <mxCell id="14" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2.4;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="634" y="318" as="sourcePoint" />
+            <mxPoint x="662" y="318" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="15" value="Agente ↔ comercio" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="856" y="158" width="208" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="16" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:22px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;5 · Términos&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:19px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;Total final con envío; frescura: la oferta sigue igual&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="872" y="196" width="176" height="244" as="geometry" />
+        </mxCell>
+        <mxCell id="17" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2.4;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="842" y="318" as="sourcePoint" />
+            <mxPoint x="870" y="318" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="18" value="Comprador → agente" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1064" y="158" width="208" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="19" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:22px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;6 · Aprobación&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:19px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;Pulsa «Aprobar»; frescura al releer y antes de firmar&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A96628;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="196" width="176" height="244" as="geometry" />
+        </mxCell>
+        <mxCell id="20" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2.4;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1050" y="318" as="sourcePoint" />
+            <mxPoint x="1078" y="318" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="21" value="Agente" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1272" y="158" width="208" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="22" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:22px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;7 · Firma AP2&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B0]&lt;/div&gt;&lt;div style=&quot;font-size:19px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;Mandatos de checkout y de pago&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1288" y="196" width="176" height="244" as="geometry" />
+        </mxCell>
+        <mxCell id="23" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2.4;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1258" y="318" as="sourcePoint" />
+            <mxPoint x="1286" y="318" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="24" value="PSP" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1480" y="158" width="208" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="25" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:22px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;8 · Pago&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B0]&lt;/div&gt;&lt;div style=&quot;font-size:19px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;Token acotado al mandato; el comercio cobra con él&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A14E5C;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1496" y="196" width="176" height="244" as="geometry" />
+        </mxCell>
+        <mxCell id="26" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2.4;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1466" y="318" as="sourcePoint" />
+            <mxPoint x="1494" y="318" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="27" value="Comercio" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=center;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1688" y="158" width="208" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="28" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:22px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;9 · Orden&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B0]&lt;/div&gt;&lt;div style=&quot;font-size:19px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;Pedido y recibo para el comprador&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A96628;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1704" y="196" width="176" height="244" as="geometry" />
+        </mxCell>
+        <mxCell id="29" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#767676;strokeWidth=2.4;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1674" y="318" as="sourcePoint" />
+            <mxPoint x="1702" y="318" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="30" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#A84E4E;strokeWidth=2.4;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="544" y="442" as="sourcePoint" />
+            <mxPoint x="544" y="538" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="31" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:21px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Deny de D1&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:18px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;d1_denied: ningún POST al comercio. Por ejemplo, un comercio fuera de la lista (&lt;span style=&quot;white-space:nowrap&quot;&gt;POL-02&lt;/span&gt;)&lt;div style=&quot;color:#686868;margin-top:8px&quot;&gt;Prueba live (#48) y modo pol02-deny de la demo; el piloto no lo ejercitó&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A84E4E;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="248" y="540" width="392" height="214" as="geometry" />
+        </mxCell>
+        <mxCell id="32" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#A84E4E;strokeWidth=2.4;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="960" y="442" as="sourcePoint" />
+            <mxPoint x="960" y="538" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="33" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:21px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;S02 · el total supera el presupuesto&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B0 + B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:18px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;El agente cancela el checkout (presupuesto, B0) y explica la causa (recuperación, B2): 200, sin 5xx&lt;div style=&quot;color:#686868;margin-top:8px&quot;&gt;Piloto: 5xx 4/5 → 0/5; 3/5 checkouts creados y cancelados&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A84E4E;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="664" y="540" width="392" height="214" as="geometry" />
+        </mxCell>
+        <mxCell id="34" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#A84E4E;strokeWidth=2.4;dashed=0;dashPattern=7 6;endArrow=block;endFill=1;endSize=11;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1168" y="442" as="sourcePoint" />
+            <mxPoint x="1168" y="538" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="35" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:21px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;S04 · la oferta cambió&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:18px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;409 checkout_terms_changed: sin firma, pago ni orden (frescura de la oferta)&lt;div style=&quot;color:#686868;margin-top:8px&quot;&gt;Piloto: aprobaciones obsoletas 5/5 → 0/5&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A84E4E;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="540" width="392" height="214" as="geometry" />
+        </mxCell>
+        <mxCell id="36" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:21px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Consentimiento e identidad (D2-HP)&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · planificado]&lt;/div&gt;&lt;div style=&quot;font-size:18px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;Al aprobar, antes de firmar. &lt;span style=&quot;white-space:nowrap&quot;&gt;POL-03..06&lt;/span&gt; definidas en policy-v1, sin evaluador&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;dashed=1;dashPattern=10 6;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1496" y="540" width="384" height="214" as="geometry" />
+        </mxCell>
+        <mxCell id="37" value="&lt;b&gt;S04 y S02 no son denegaciones del PDP.&lt;/b&gt; D1 permitió cada compra que llegó al checkout (5/5 en S04 y 3/3 en S02); las detienen controles de aplicación: la frescura de la oferta, el presupuesto autoritativo y la recuperación gobernada." style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=20;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="50" y="804" width="1820" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="38" value="Evidencia: cada decisión de D1 queda en governance_evidence; la frescura y la recuperación, en hp_evidence. La traza de la compra en el chat muestra las tres." style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontColor=#555555;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="50" y="882" width="1820" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="39" value="Estado" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1000" width="90" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="40" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:18px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Hecho&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;en org/main y en el flujo&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=middle;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="140" y="1000" width="260" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="41" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:18px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Planificado&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;piezas en org/main, sin conectar&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=1;dashPattern=10 6;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=middle;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="422" y="1000" width="260" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="42" value="Verde: comprador · azul: agente · ocre: aprobación y comercio · vino: PSP" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=17;fontStyle=0;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="760" y="1015" width="1120" height="34" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

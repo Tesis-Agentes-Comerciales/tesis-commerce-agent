@@ -43,7 +43,7 @@ EMPTY_GRAY = "#BBBBBB"
 PNG_WIDTH = 1920
 TIMES = "\u00d7"  # multiplication sign, spelled out for ruff RUF001
 # One-slide diagrams: a page-sized backdrop and no export border give exactly 1920 x 1080.
-SLIDES = frozenset({"b0-vs-b2-delta", "pilot-results"})
+SLIDES = frozenset({"b0-vs-b2-delta", "pilot-results", "policy-map", "purchase-sequence-slide"})
 
 # Frozen result of the B2 pilot (B2-PILOT-v1) and, through its `output`, the JSONL; read only.
 PILOT_SUMMARY = OUT.parents[1] / "evaluation/results/b0prime-b2-20261020T201055Z.summary.json"
@@ -2059,12 +2059,534 @@ def pilot_results() -> Sheet:
 
 
 # ---------------------------------------------------------------------------
+# 8. Policy map: PDP policies apart from application controls (one slide)
+# ---------------------------------------------------------------------------
+
+# (header, x, width) of the table columns, inside a 40..1880 frame.
+MAP_COLUMNS = (
+    ("Política", 56, 232),
+    ("Observado frente a esperado", 300, 462),
+    ("Quién y cuándo", 774, 264),
+    ("Configuración", 1050, 316),
+    ("Evidencia y prueba", 1378, 318),
+    ("Estado", 1708, 156),
+)
+
+
+def _rich(
+    p: Sheet,
+    html: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    *,
+    size: int = 16,
+    color: str = INK,
+    align: str = "left",
+    valign: str = "middle",
+) -> None:
+    style = (
+        "text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;"
+        f"fontSize={size};fontColor={color};align={align};verticalAlign={valign};spacing=0;"
+    )
+    p.vertex(html, style, x, y, width, height)
+
+
+def _muted(text: str, *, top: int = 4) -> str:
+    return f'<div style="color:{MUTED};margin-top:{top}px">{text}</div>'
+
+
+def _policy_row(
+    p: Sheet,
+    y: int,
+    height: int,
+    status: str,
+    cells: tuple[str, str, str, str, str],
+    *,
+    scope: str = "B2",
+) -> None:
+    """One table row: a status-styled frame and the six cells of MAP_COLUMNS."""
+    future = status == FUTURE
+    p.vertex(
+        "",
+        "rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#FFFFFF;"
+        f"strokeColor={FUTURE_GRAY if future else AGENT_BLUE};strokeWidth=2.2;{DASH[status]}",
+        40,
+        y,
+        1840,
+        height,
+    )
+    color = MUTED if future else INK
+    for html, (_, x, width) in zip(cells, MAP_COLUMNS, strict=False):
+        if html:
+            _rich(p, html, x, y + 6, width, height - 12, color=color)
+    _, x, width = MAP_COLUMNS[-1]
+    _rich(p, f"[{tag(status, scope)}]", x, y + 6, width, height - 12, size=16, color=MUTED)
+
+
+def _who(who: str, when: str) -> str:
+    return f"<b>{who}</b><br>{when}"
+
+
+def _observed(observed: str, expected: str, note: str = "") -> str:
+    html = f"<b>Observado:</b> {observed}<br><b>Esperado:</b> {expected}"
+    return html + (_muted(note, top=5) if note else "")
+
+
+def _policy_name(code: str, name: str, trace_label: str = "") -> str:
+    html = f'<div style="font-size:19px"><b>{code}</b></div><div><b>{name}</b></div>'
+    return html + (_muted(f"En la traza: «{trace_label}»", top=3) if trace_label else "")
+
+
+D2_HP_POLICIES = (
+    # (id, name, what it would decide, what covers part of it today)
+    (
+        "POL-03",
+        "Principal habilitado",
+        "Quien aprueba es el dueño de la compra",
+        "JWT y ownership de la API (B0)",
+    ),
+    (
+        "POL-04",
+        "Continuidad del episodio",
+        "La aprobación es del mismo D1, intento y términos",
+        "continuación gobernada",
+    ),
+    (
+        "POL-05",
+        "Términos compatibles",
+        "Total, moneda y cantidad dentro del pedido",
+        "presupuesto autoritativo (B0)",
+    ),
+    (
+        "POL-06",
+        "Versión de política",
+        "Política y contexto iguales a los de D1",
+        "D1 comprueba su binding al evaluar",
+    ),
+)
+
+APPLICATION_CONTROLS = (
+    # (name, type text, lines)
+    (
+        "Frescura de la oferta",
+        tag(DONE),
+        (
+            (
+                "Cuándo",
+                "al presentar y releer los términos (present) y antes de firmar (approve)",
+            ),
+            (
+                "Compara",
+                "la oferta actual con el checkout presentado: moneda, subtotal, envío, total, "
+                "vigencia, entrega y stock",
+            ),
+            ("Si cambió", "409 checkout_terms_changed, sin firma; si no puede leerla, 503"),
+            ("Evidencia", "freshness_check en hp_evidence"),
+        ),
+    ),
+    (
+        "Recuperación gobernada",
+        tag(DONE),
+        (
+            (
+                "Cuándo",
+                "sin candidato, elección fuera de la lista corta o total sobre el presupuesto "
+                "con el checkout ya creado",
+            ),
+            ("Efecto", "explica la causa en el chat: 200, sin 5xx"),
+            ("Evidencia", "governed_recovery en hp_evidence"),
+        ),
+    ),
+    (
+        "Presupuesto autoritativo",
+        "Componente B0",
+        (
+            ("Cuándo", "con el total final del comercio, después de crear el checkout"),
+            (
+                "Compara",
+                "el total con envío con el máximo del pedido; la lista corta solo mira el "
+                "precio por unidad",
+            ),
+            ("Si lo supera", "cancela el checkout (price_sensitivity)"),
+            ("Evidencia", "en B2, el efecto cancel_budget del diario post-create"),
+        ),
+    ),
+    (
+        "Continuación gobernada",
+        tag(DONE),
+        (
+            ("Cuándo", "al leer términos, aprobar, cancelar y completar"),
+            (
+                "Exige",
+                "allow de D1 comprometido, checkout confirmed con el mismo id y post-create en "
+                "awaiting_confirmation",
+            ),
+            ("Evidencia", "sin registro propio: lee los hechos de D1 y del diario post-create"),
+        ),
+    ),
+)
+
+
+def policy_map() -> Sheet:
+    summary = load_pilot_summary()
+    cells = summary["by_condition_scenario"]
+    b0_s02, b2_s02 = cells["B0prime"]["S02"], cells["B2"]["S02"]
+    b0_s04, b2_s04 = cells["B0prime"]["S04"], cells["B2"]["S04"]
+    width, height = 1920, 1080
+    p = Sheet("Mapa de políticas", width, height)
+    p.heading(
+        "Mapa de políticas B2: quién decide qué, y cuándo",
+        "Arriba, el PDP (motor de políticas); abajo, los controles de aplicación. "
+        "Estado en org/main al 20-oct-2026.",
+        width=width,
+    )
+    p.status_legend(956, 30, card_width=260)
+    _rich(
+        p,
+        "<b>Políticas del PDP</b> · el motor decide allow o deny sobre hechos canónicos; con "
+        "deny no hay efecto comercial",
+        50,
+        116,
+        1800,
+        30,
+        size=20,
+    )
+    for header, x, column_width in MAP_COLUMNS:
+        p.text(header, x, 150, column_width, 26, size=16, bold=True, color=MUTED, align="left")
+
+    _policy_row(
+        p,
+        180,
+        116,
+        DONE,
+        (
+            _policy_name("POL-01", "Selección elegible", "Producto dentro de lo que pediste"),
+            _observed(
+                "el producto elegido",
+                "que esté entre los que cumplen el pedido (ranking del feed con la intención)",
+                "Hoy una elección fuera de la lista corta no llega a D1: la frena la "
+                "recuperación gobernada.",
+            ),
+            _who("D1 · PDP", "antes de crear el checkout"),
+            "Algoritmo de ranking medido por hash (domain/selection.py); intención y feed "
+            "del episodio",
+            "decision_record en governance_evidence, en la misma transacción que la reserva",
+        ),
+    )
+    _policy_row(
+        p,
+        304,
+        116,
+        DONE,
+        (
+            _policy_name("POL-02", "Acción y comercio admitidos", "Comercio permitido"),
+            _observed(
+                "la acción prepare_checkout y el comercio",
+                "que estén en la lista de permitidos",
+                "Deny: d1_denied y ningún POST al comercio.",
+            ),
+            _who("D1 · PDP", "en la misma evaluación que POL-01"),
+            "Settings: AGENT_D1_ALLOWED_<wbr>MERCHANT_ORIGINS. Sin ella, el comercio "
+            "configurado; o un archivo de política con su digest",
+            f"decision_record. Prueba live (#48) y {nowrap('demo-stack --mode pol02-deny')}; "
+            "el piloto no lo ejercitó",
+        ),
+    )
+    group_y, sub_h = 428, 44
+    group_h = len(D2_HP_POLICIES) * sub_h + 16
+    _policy_row(
+        p,
+        group_y,
+        group_h,
+        PLANNED,
+        (
+            "",
+            "",
+            _who("D2-HP · PDP", "al aprobar, antes de firmar"),
+            f"Definidas en policy-v1, sin artefacto ni evaluador: el de main solo implementa "
+            f"{nowrap('POL-01')} y {nowrap('POL-02')}",
+            "Ninguna todavía. Piezas de consentimiento e identidad sin montar: human_consent "
+            "y d2_consent_api",
+        ),
+    )
+    for index, (code, name, decides, today) in enumerate(D2_HP_POLICIES):
+        y = group_y + 8 + index * sub_h
+        _, x1, w1 = MAP_COLUMNS[0]
+        _, x2, w2 = MAP_COLUMNS[1]
+        _rich(p, f"<b>{code}</b><br>{name}", x1, y, w1, sub_h)
+        _rich(p, decides + _muted(f"Hoy, en parte: {today}", top=1), x2, y, w2, sub_h)
+    hnp_y = group_y + group_h + 8
+    _policy_row(
+        p,
+        hnp_y,
+        64,
+        FUTURE,
+        (
+            f"<b>{nowrap('POL-07 a POL-10')}</b><br>Delegación HNP",
+            "Grant vigente, alcance delegado, uso único y autoridad al despachar",
+            _who("D2-HNP y D3-HNP · PDP", "sin humano presente"),
+            "Definidas en policy-v1; el grant de delegación, por definir",
+            "Ninguna",
+        ),
+    )
+
+    controls_y = hnp_y + 64 + 18
+    _rich(
+        p,
+        "<b>Controles de aplicación</b> · no son el PDP: actúan en el agente, fuera de D1. "
+        "D1 permitió cada compra que llegó al checkout "
+        f"({b2_s04['merchant_checkouts']['total']}/{b2_s04['policy_latency_ms']['n']} en S04 y "
+        f"{b2_s02['merchant_checkouts']['total']}/{b2_s02['policy_latency_ms']['n']} en S02)",
+        50,
+        controls_y,
+        1800,
+        30,
+        size=20,
+    )
+    pilot = {
+        "Frescura de la oferta": (
+            f"Piloto S04: aprobaciones obsoletas {b0_s04['stale_terms_accepted']}/{b0_s04['runs']}"
+            f" → {b2_s04['stale_terms_accepted']}/{b2_s04['runs']} (B0' → B2)"
+        ),
+        "Recuperación gobernada": (
+            f"Piloto S02: 5xx {b0_s02['http_5xx']}/{b0_s02['runs']} → "
+            f"{b2_s02['http_5xx']}/{b2_s02['runs']} (B0' → B2)"
+        ),
+        "Presupuesto autoritativo": (
+            f"Piloto S02: {b2_s02['merchant_checkouts']['runs_with_checkouts']}/{b2_s02['runs']} "
+            "checkouts creados y cancelados en B2"
+        ),
+        "Continuación gobernada": "Piloto: se observa porque las compras llegan a la aprobación",
+    }
+    card_y, card_gap = controls_y + 38, 20
+    card_w = (1840 - 3 * card_gap) // 4
+    card_h = 252
+    for index, (name, kind, lines) in enumerate(APPLICATION_CONTROLS):
+        body = "<br>".join(f"<b>{label}:</b> {text}" for label, text in lines)
+        p.card(
+            40 + index * (card_w + card_gap),
+            card_y,
+            card_w,
+            card_h,
+            name,
+            body + _muted(pilot[name], top=6),
+            kind=kind,
+            name_size=20,
+            description_size=16,
+            kind_size=15,
+            stroke=2.2,
+            valign="top",
+            align="left",
+        )
+    return p
+
+
+# ---------------------------------------------------------------------------
+# 9. Governed Human Present purchase on one slide
+# ---------------------------------------------------------------------------
+
+# (actor, name, description, type text, border)
+SLIDE_STEPS = (
+    ("Comprador", "1 · Pedido", "«Pixel 8 de 128 GB negro, máx. COP 1.600.000»", "B0", BUYER_GREEN),
+    (
+        "Agente",
+        "2 · Selección",
+        "El LLM propone una variante de la lista corta (filtros duros)",
+        "B0",
+        AGENT_BLUE,
+    ),
+    (
+        "Agente · gate D1",
+        "3 · D1",
+        "Evalúa POL-01 y POL-02 y guarda la decisión antes de cualquier POST",
+        tag(DONE),
+        AGENT_BLUE,
+    ),
+    (
+        "Agente → comercio",
+        "4 · Checkout",
+        "Como máximo un POST, verificado con un GET; un timeout queda uncertain",
+        tag(DONE),
+        AGENT_BLUE,
+    ),
+    (
+        "Agente ↔ comercio",
+        "5 · Términos",
+        "Total final con envío; frescura: la oferta sigue igual",
+        tag(DONE),
+        AGENT_BLUE,
+    ),
+    (
+        "Comprador → agente",
+        "6 · Aprobación",
+        "Pulsa «Aprobar»; frescura al releer y antes de firmar",
+        tag(DONE),
+        MERCHANT_AMBER,
+    ),
+    ("Agente", "7 · Firma AP2", "Mandatos de checkout y de pago", "B0", AGENT_BLUE),
+    ("PSP", "8 · Pago", "Token acotado al mandato; el comercio cobra con él", "B0", EXTERNAL_WINE),
+    ("Comercio", "9 · Orden", "Pedido y recibo para el comprador", "B0", MERCHANT_AMBER),
+)
+
+
+def purchase_slide() -> Sheet:
+    summary = load_pilot_summary()
+    cells = summary["by_condition_scenario"]
+    b0_s02, b2_s02 = cells["B0prime"]["S02"], cells["B2"]["S02"]
+    b0_s04, b2_s04 = cells["B0prime"]["S04"], cells["B2"]["S04"]
+    width, height = 1920, 1080
+    p = Sheet("Compra HP gobernada", width, height)
+    p.heading(
+        "Compra Human Present gobernada, paso a paso",
+        "[B2 · hecho]: control que agrega B2 en ese paso; [B0]: igual que la línea base. Rojo: "
+        "la compra se detiene. Estado en org/main al 20-oct-2026.",
+        width=width,
+    )
+    step_w, step_gap, step_y, step_h = 176, 32, 196, 244
+    centers = []
+    for index, (actor, name, description, kind, border) in enumerate(SLIDE_STEPS):
+        x = 40 + index * (step_w + step_gap)
+        centers.append(x + step_w // 2)
+        p.text(actor, x - 16, step_y - 38, step_w + 32, 30, size=16, bold=True, color=MUTED)
+        p.card(
+            x,
+            step_y,
+            step_w,
+            step_h,
+            name,
+            description,
+            kind=kind,
+            border=border,
+            name_size=22,
+            description_size=19,
+            kind_size=15,
+            valign="top",
+        )
+        if index:
+            p.link(
+                (x - step_gap + 2, step_y + step_h // 2),
+                (x - 2, step_y + step_h // 2),
+                dashed=False,
+                width=2.4,
+            )
+
+    branch_y, branch_h, branch_w = 540, 214, 392
+    branches = (
+        # (step index, left x, name, type text, description, pilot line)
+        (
+            2,
+            248,
+            "Deny de D1",
+            tag(DONE),
+            "d1_denied: ningún POST al comercio. Por ejemplo, un comercio fuera de la lista "
+            f"({nowrap('POL-02')})",
+            "Prueba live (#48) y modo pol02-deny de la demo; el piloto no lo ejercitó",
+        ),
+        (
+            4,
+            664,
+            "S02 · el total supera el presupuesto",
+            "B0 + B2 · hecho",
+            "El agente cancela el checkout (presupuesto, B0) y explica la causa (recuperación, "
+            "B2): 200, sin 5xx",
+            f"Piloto: 5xx {b0_s02['http_5xx']}/{b0_s02['runs']} → "
+            f"{b2_s02['http_5xx']}/{b2_s02['runs']}; "
+            f"{b2_s02['merchant_checkouts']['runs_with_checkouts']}/{b2_s02['runs']} checkouts "
+            "creados y cancelados",
+        ),
+        (
+            5,
+            1080,
+            "S04 · la oferta cambió",
+            tag(DONE),
+            "409 checkout_terms_changed: sin firma, pago ni orden (frescura de la oferta)",
+            f"Piloto: aprobaciones obsoletas {b0_s04['stale_terms_accepted']}/{b0_s04['runs']} → "
+            f"{b2_s04['stale_terms_accepted']}/{b2_s04['runs']}",
+        ),
+    )
+    for step, left, name, kind, description, pilot in branches:
+        p.link(
+            (centers[step], step_y + step_h + 2),
+            (centers[step], branch_y - 2),
+            color=FAILURE_RED,
+            dashed=False,
+            width=2.4,
+        )
+        p.card(
+            left,
+            branch_y,
+            branch_w,
+            branch_h,
+            name,
+            description + _muted(pilot, top=8),
+            kind=kind,
+            border=FAILURE_RED,
+            name_size=21,
+            description_size=18,
+            kind_size=15,
+            valign="top",
+        )
+    p.card(
+        1496,
+        branch_y,
+        384,
+        branch_h,
+        "Consentimiento e identidad (D2-HP)",
+        f"Al aprobar, antes de firmar. {nowrap('POL-03..06')} definidas en policy-v1, sin "
+        "evaluador",
+        kind=tag(PLANNED),
+        status=PLANNED,
+        name_size=21,
+        description_size=18,
+        kind_size=15,
+        valign="top",
+    )
+    _rich(
+        p,
+        "<b>S04 y S02 no son denegaciones del PDP.</b> D1 permitió cada compra que llegó al "
+        f"checkout ({b2_s04['merchant_checkouts']['total']}/"
+        f"{b2_s04['policy_latency_ms']['n']} en S04 y "
+        f"{b2_s02['merchant_checkouts']['total']}/{b2_s02['policy_latency_ms']['n']} en S02); "
+        "las detienen controles de aplicación: la frescura de la oferta, el presupuesto "
+        "autoritativo y la recuperación gobernada.",
+        50,
+        branch_y + branch_h + 50,
+        1820,
+        64,
+        size=20,
+    )
+    _rich(
+        p,
+        "Evidencia: cada decisión de D1 queda en governance_evidence; la frescura y la "
+        "recuperación, en hp_evidence. La traza de la compra en el chat muestra las tres.",
+        50,
+        branch_y + branch_h + 128,
+        1820,
+        34,
+        size=19,
+        color=DESCRIPTION,
+    )
+    p.status_legend(40, 1000, card_width=260, statuses=(DONE, PLANNED))
+    p.color_legend(
+        "Verde: comprador · azul: agente · ocre: aprobación y comercio · vino: PSP",
+        760,
+        1015,
+        1120,
+    )
+    return p
+
+
+# ---------------------------------------------------------------------------
 
 DIAGRAMS = {
     "architecture-b0": lambda: container_view(governed=False),
     "architecture-b2-hp": lambda: container_view(governed=True),
     "b0-vs-b2-delta": delta_view,
     "purchase-sequence-governed": governed_sequence,
+    "purchase-sequence-slide": purchase_slide,
+    "policy-map": policy_map,
     "architecture-hnp-experiment": hnp_view,
     "pilot-design": pilot_view,
     "pilot-results": pilot_results,
