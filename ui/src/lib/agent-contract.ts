@@ -128,6 +128,8 @@ export type SelectProductResult = {
 
 export type PrepareCheckoutArgs = {
   variant_id: string
+  /** La compra que se prepara; si la política la detiene, el paso falla y solo queda aquí. */
+  run_id: string
 }
 
 export type PrepareCheckoutResult = {

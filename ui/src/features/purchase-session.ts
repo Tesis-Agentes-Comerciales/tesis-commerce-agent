@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react"
 
 import type { CompletedCheckout } from "@/lib/commerce-types"
+import type { PurchaseTrace } from "@/lib/trace-contract"
 
 export type LocalPurchaseStatus =
   | "idle"
@@ -26,12 +27,17 @@ export type LocalPurchase = {
 type PurchaseSession = {
   purchases: Record<string, LocalPurchase>
   updatePurchase: (runId: string, update: Partial<LocalPurchase>) => void
+  /** Última traza leída de cada compra; la comparten la fila de actividad y el recibo. */
+  traces: Record<string, PurchaseTrace>
+  recordTrace: (runId: string, trace: PurchaseTrace) => void
   onNewPurchase?: () => void
 }
 
 export const PurchaseSessionContext = createContext<PurchaseSession>({
   purchases: {},
   updatePurchase: () => {},
+  traces: {},
+  recordTrace: () => {},
 })
 
 export function usePurchaseSession() {

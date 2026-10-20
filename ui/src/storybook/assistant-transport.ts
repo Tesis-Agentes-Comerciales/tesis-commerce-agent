@@ -11,6 +11,7 @@ import errorRaw from "@/storybook/fixtures/assistant-transport/error.sse?raw"
 import greetingRaw from "@/storybook/fixtures/assistant-transport/greeting.sse?raw"
 import noCandidateRaw from "@/storybook/fixtures/assistant-transport/no-candidate.sse?raw"
 import pendingPurchaseRaw from "@/storybook/fixtures/assistant-transport/pending-purchase.sse?raw"
+import purchaseBlockedRaw from "@/storybook/fixtures/assistant-transport/purchase-blocked.sse?raw"
 import purchaseCanceledRaw from "@/storybook/fixtures/assistant-transport/purchase-canceled.sse?raw"
 import purchaseCompletedRaw from "@/storybook/fixtures/assistant-transport/purchase-completed.sse?raw"
 import purchaseRaw from "@/storybook/fixtures/assistant-transport/purchase.sse?raw"
@@ -40,6 +41,7 @@ export const ASSISTANT_SSE = {
   pendingPurchase: localizeImages(pendingPurchaseRaw),
   purchaseCompleted: localizeImages(purchaseCompletedRaw),
   purchaseCanceled: localizeImages(purchaseCanceledRaw),
+  purchaseBlocked: localizeImages(purchaseBlockedRaw),
   noCandidate: localizeImages(noCandidateRaw),
   error: localizeImages(errorRaw),
 } as const
@@ -195,6 +197,11 @@ let requestCount = 0
 /** Lo llaman las rutas REST simuladas para que `purchase-updated` elija el fixture correcto. */
 export function recordPurchaseOutcome(runId: string, outcome: "completed" | "canceled") {
   purchaseOutcomes.set(runId, outcome)
+}
+
+/** Cómo terminó una compra en la historia, o `undefined` si sigue esperando la aprobación. */
+export function purchaseOutcome(runId: string) {
+  return purchaseOutcomes.get(runId)
 }
 
 /** Elige el fixture según el último comando, como lo haría el backend real. */

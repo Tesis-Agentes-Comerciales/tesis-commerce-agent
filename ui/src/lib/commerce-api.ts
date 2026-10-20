@@ -1,6 +1,7 @@
 import { buyerHeaders } from "@/lib/auth-client"
 import type { AgentPurchase, ApprovalTerms } from "@/lib/agent-contract"
 import type { BuyerProfile, CompletedCheckout } from "@/lib/commerce-types"
+import { parsePurchaseTrace, type PurchaseTrace } from "@/lib/trace-contract"
 
 const configuredBaseUrl = import.meta.env.VITE_AGENT_API_URL ?? "http://127.0.0.1:43120"
 export const AGENT_API_URL = configuredBaseUrl.replace(/\/$/, "")
@@ -106,4 +107,13 @@ export function completePurchase(runId: string): Promise<CompletedCheckout> {
   return requestJson(`/purchases/${encodeURIComponent(runId)}/complete`, {
     method: "POST",
   })
+}
+
+/** Traza de controles de una compra propia; una respuesta fuera de contrato se rechaza. */
+export async function getPurchaseTrace(runId: string, signal?: AbortSignal): Promise<PurchaseTrace> {
+  const trace = parsePurchaseTrace(
+    await requestJson(`/purchases/${encodeURIComponent(runId)}/trace`, { signal }),
+  )
+  if (trace.run_id !== runId) throw new TypeError("Purchase trace belongs to another run")
+  return trace
 }

@@ -305,6 +305,8 @@ export const REASONING_LONG = Array.from(
 
 export const TOOL_ERROR = "El catálogo no respondió a tiempo. Intenta de nuevo en unos segundos."
 
+const PREPARE_ARGS = { variant_id: SONORA.variant_id, run_id: PREPARATION.run_id }
+
 /** Estado completo tras preparar la aprobación, con la forma que reconstruye el runtime. */
 export const AGENT_STATE_AWAITING_APPROVAL: AgentState = {
   messages: [
@@ -348,8 +350,8 @@ export const AGENT_STATE_AWAITING_APPROVAL: AgentState = {
           type: "tool-call",
           toolCallId: "call_storybook_prepare",
           toolName: "prepare_checkout",
-          args: { variant_id: SONORA.variant_id },
-          argsText: JSON.stringify({ variant_id: SONORA.variant_id }),
+          args: PREPARE_ARGS,
+          argsText: JSON.stringify(PREPARE_ARGS),
           result: PREPARE_RESULT,
           isError: false,
         },
@@ -386,8 +388,8 @@ export const AGENT_STATE_CHECKOUT_ERROR: AgentState = {
           type: "tool-call",
           toolCallId: "call_storybook_prepare",
           toolName: "prepare_checkout",
-          args: { variant_id: SONORA.variant_id },
-          argsText: JSON.stringify({ variant_id: SONORA.variant_id }),
+          args: PREPARE_ARGS,
+          argsText: JSON.stringify(PREPARE_ARGS),
           result: { error: { code: "transport_error", message: CHECKOUT_ERROR_MESSAGE } },
           isError: true,
         },

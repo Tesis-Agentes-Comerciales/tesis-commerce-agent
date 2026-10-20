@@ -4,6 +4,7 @@ import { useRef } from "react"
 import { PurchaseApprovalCard, type ApprovalCardStatus } from "@/components/agent"
 import { FAILURE_COPY } from "@/components/trace/trace-copy"
 import { usePurchaseSession, type LocalPurchase } from "@/features/purchase-session"
+import { approvalReceipt } from "@/features/purchase-trace"
 import type { AgentPurchase, ApprovalTerms, ProductCard } from "@/lib/agent-contract"
 import {
   AgentApiError,
@@ -128,7 +129,7 @@ type PurchaseApprovalProps = {
 export function PurchaseApproval({ runId, terms, product, priceChanged }: PurchaseApprovalProps) {
   const purchase = useAssistantTransportState((state) => state.purchase)
   const sendCommand = useAssistantTransportSendCommand()
-  const { purchases, updatePurchase, onNewPurchase } = usePurchaseSession()
+  const { purchases, updatePurchase, traces, onNewPurchase } = usePurchaseSession()
   const local = purchases[runId]
   const terminal =
     (purchase?.run_id === runId && purchase.stage === "failed") ||
@@ -211,6 +212,7 @@ export function PurchaseApproval({ runId, terms, product, priceChanged }: Purcha
       error={view.error}
       priceChanged={priceChanged}
       order={order}
+      receipt={approvalReceipt(traces[runId] ?? null)}
       onApprove={view.actionable ? approve : undefined}
       onCancel={view.actionable && !view.approvalRecorded ? cancel : undefined}
       onNewPurchase={
