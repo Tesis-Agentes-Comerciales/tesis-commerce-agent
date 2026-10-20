@@ -10,19 +10,22 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
+from uuid import uuid4
 
 import httpx
 import pytest
 from pydantic import SecretBytes, SecretStr, ValidationError
 
 from commerce_agent.d2_consent_api import create_consent_app
-from commerce_agent.governance.canonical import canonical_bytes, parse_model
+from commerce_agent.governance.canonical import canonical_bytes, parse_model, sha256_digest
 from commerce_agent.governance.human_consent import (
     ACTION,
     ConsentBlocked,
     ConsentCommand,
+    ConsentReceipt,
     HumanIdentity,
     SyntheticHumanIssuer,
+    TermsAlreadyDecided,
     timestamp,
 )
 from commerce_agent.persistence.d2_d17_source import VerifiedD17Source
@@ -193,6 +196,100 @@ def test_nonce_cannot_cross_presentations(flow):
     first, second = store.present(token), store.present(token)
     with pytest.raises(ConsentBlocked):
         store.decide(token, command(second, challenge=first.challenge))
+
+
+def decided(view, decision):
+    return command(view, decision=decision, affirmative=decision == "accept")
+
+
+@pytest.mark.parametrize("first,second", [("accept", "reject"), ("reject", "accept")])
+def test_same_terms_cannot_hold_opposite_decisions_across_presentations(flow, first, second):
+    store, token, *_ = flow
+    earlier, later = store.present(token), store.present(token)
+    assert earlier.presentation.terms_fingerprint == later.presentation.terms_fingerprint
+    receipt = store.decide(token, decided(earlier, first))
+    with pytest.raises(TermsAlreadyDecided, match="TERMS_ALREADY_DECIDED"):
+        reopen(flow).decide(token, decided(later, second))
+    # The blocked reversal wrote nothing: the earlier receipt stands, the later view is pending.
+    assert store.recover(token, earlier.presentation.presentation_id)[1] == receipt
+    assert store.recover(token, later.presentation.presentation_id)[1] is None
+    with closing(sqlite3.connect(store.path)) as db:
+        assert db.execute("SELECT count(*) FROM d2_decisions").fetchone() == (1,)
+        assert db.execute("SELECT decision FROM d2_terms_decisions").fetchall() == [(first,)]
+
+
+@pytest.mark.parametrize("decision", ["accept", "reject"])
+def test_same_decision_on_another_presentation_is_an_idempotent_replay(flow, decision):
+    store, token, *_ = flow
+    earlier, later = store.present(token), store.present(token)
+    first = store.decide(token, decided(earlier, decision))
+    replay = reopen(flow).decide(token, decided(later, decision))
+    assert (replay.decision, replay.checkout_id, replay.terms_fingerprint) == (
+        first.decision,
+        first.checkout_id,
+        first.terms_fingerprint,
+    )
+    assert replay.presentation_id != first.presentation_id and not replay.continuation_allowed
+    assert reopen(flow).recover(token, later.presentation.presentation_id)[1] == replay
+    # Each presentation is still single-use; the replay consumed the later nonce.
+    with pytest.raises(ConsentBlocked, match="PRESENTATION_ALREADY_DECIDED"):
+        store.decide(token, decided(later, decision))
+    with closing(sqlite3.connect(store.path)) as db:
+        assert db.execute("SELECT DISTINCT decision FROM d2_terms_decisions").fetchall() == [
+            (decision,)
+        ]
+
+
+def test_sql_rejects_opposite_terms_decision_when_domain_check_is_skipped(flow, monkeypatch):
+    store, token, *_ = flow
+    earlier, later = store.present(token), store.present(token)
+    store.decide(token, decided(earlier, "accept"))
+    monkeypatch.setattr(store, "_terminal", lambda _db, _view: None)
+    with pytest.raises(sqlite3.IntegrityError, match="terminal D2 terms"):
+        store.decide(token, decided(later, "reject"))
+    # Receipt and projection share one transaction: neither row survived.
+    assert store.recover(token, later.presentation.presentation_id)[1] is None
+    with closing(sqlite3.connect(store.path)) as db, db:
+        checkout_id, fingerprint = db.execute(
+            "SELECT checkout_id,terms_fingerprint FROM d2_terms_decisions"
+        ).fetchone()
+        # Raw writer without foreign keys: the terminal trigger alone still refuses.
+        with pytest.raises(sqlite3.IntegrityError, match="terminal D2 terms"):
+            db.execute(
+                "INSERT INTO d2_terms_decisions VALUES(?,?,?,?)",
+                (later.presentation.presentation_id, checkout_id, fingerprint, "reject"),
+            )
+
+
+def test_controlled_asgi_reports_terms_already_decided(flow):
+    store, token, *_ = flow
+    earlier, later = store.present(token), store.present(token)
+    store.decide(token, decided(earlier, "accept"))
+    app = create_consent_app(store)
+    view = later.presentation
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://controlled-asgi.invalid",
+            headers={"Authorization": "Bearer " + token.get_secret_value()},
+        ) as client:
+            return await client.post(
+                "/experimental/d2/decisions",
+                json=dict(
+                    presentation_id=view.presentation_id,
+                    checkout_id=view.terms.checkout_id,
+                    terms_fingerprint=view.terms_fingerprint,
+                    future_action=ACTION,
+                    challenge=later.challenge.get_secret_value(),
+                    decision="reject",
+                    affirmative=False,
+                ),
+            )
+
+    result = asyncio.run(exercise())
+    assert result.status_code == 409 and result.headers["Cache-Control"] == "no-store"
+    assert result.json() == {"error": "TERMS_ALREADY_DECIDED", "continuation_allowed": False}
 
 
 @pytest.mark.parametrize("kind", ["principal", "owner", "run", "expired", "forged", "llm"])
@@ -388,6 +485,97 @@ def test_sqlite_tampering_and_immutable_triggers(flow, table):
         db.execute(f"UPDATE {table} SET seal='bad'")
     with pytest.raises(ConsentBlocked):
         store.recover(token, view.presentation.presentation_id)
+
+
+def test_terms_projection_is_immutable_and_bound_to_the_sealed_receipt(flow):
+    store, token, *_ = flow
+    view = store.present(token)
+    store.decide(token, command(view))
+    with closing(sqlite3.connect(store.path)) as db, db:
+        for sql in (
+            "UPDATE d2_terms_decisions SET decision='reject'",
+            "DELETE FROM d2_terms_decisions",
+        ):
+            with pytest.raises(sqlite3.IntegrityError):
+                db.execute(sql)
+        ddl = db.execute(
+            "SELECT sql FROM sqlite_master WHERE name='d2_terms_decisions_update'"
+        ).fetchone()[0]
+        db.execute("DROP TRIGGER d2_terms_decisions_update")
+        db.execute("UPDATE d2_terms_decisions SET decision='reject'")
+        db.execute(ddl)
+    # Schema restored, sealed receipt intact: the projection itself no longer matches.
+    with pytest.raises(ConsentBlocked, match="CONSENT_CONTEXT_CONFLICT"):
+        store.recover(token, view.presentation.presentation_id)
+
+
+def downgrade(store):
+    """Return a test copy to the original 07C layout, keeping every sealed row."""
+    with closing(sqlite3.connect(store.path)) as db, db:
+        for (name,) in db.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='d2_terms_decisions'"
+        ).fetchall():
+            db.execute(f'DROP TRIGGER "{name}"')
+        db.execute("DROP TABLE d2_terms_decisions")
+
+
+def test_original_store_migrates_by_projecting_sealed_receipts(flow):
+    store, token, *_ = flow
+    view = store.present(token)
+    receipt = store.decide(token, command(view))
+    pending = store.present(token)
+    downgrade(store)
+    with pytest.raises(ConsentBlocked, match="D2_SCHEMA_CONFLICT"):
+        store.recover(token, view.presentation.presentation_id)
+    migrated = reopen(flow)
+    assert migrated.recover(token, view.presentation.presentation_id) == (
+        view.presentation,
+        receipt,
+    )
+    with pytest.raises(TermsAlreadyDecided):
+        migrated.decide(token, decided(pending, "reject"))
+    assert migrated.decide(token, decided(pending, "accept")).decision == "accept"
+
+
+def test_original_store_with_opposite_history_stays_closed(flow):
+    store, token, issuer, clock, *_ = flow
+    earlier, later = store.present(token), store.present(token)
+    store.decide(token, decided(earlier, "accept"))
+    downgrade(store)
+    # What the original store accepted: a sealed reject of the same terms elsewhere.
+    view = later.presentation
+    receipt = ConsentReceipt(
+        event_id=str(uuid4()),
+        presentation_id=view.presentation_id,
+        presentation_digest=sha256_digest(canonical_bytes(view)),
+        terms_fingerprint=view.terms_fingerprint,
+        checkout_id=view.terms.checkout_id,
+        identity=issuer.authenticate(token),
+        decision="reject",
+        affirmative=False,
+        decided_at=timestamp(clock[0]),
+    )
+    body = canonical_bytes(receipt)
+
+    def snapshot():
+        with closing(sqlite3.connect(store.path)) as db:
+            return (
+                db.execute("SELECT type,name,sql FROM sqlite_master ORDER BY name").fetchall(),
+                db.execute("SELECT * FROM d2_decisions ORDER BY rowid").fetchall(),
+            )
+
+    with closing(sqlite3.connect(store.path)) as db, db:
+        db.execute(
+            "INSERT INTO d2_decisions VALUES(?,?,?,?)",
+            (view.presentation_id, receipt.event_id, body, store._mac("decision", body)),
+        )
+    before = snapshot()
+    with pytest.raises(ConsentBlocked, match="D2_TERMS_HISTORY_CONFLICT"):
+        reopen(flow)
+    # Migration rolled back: both historical receipts kept, the store stays closed.
+    assert snapshot() == before and len(before[1]) == 2
+    with pytest.raises(ConsentBlocked, match="D2_SCHEMA_CONFLICT"):
+        store.recover(token, earlier.presentation.presentation_id)
 
 
 def test_wrong_custody_key_and_foreign_database(flow, tmp_path):
