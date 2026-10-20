@@ -33,10 +33,21 @@ from commerce_agent.buyer_auth import (
 )
 from commerce_agent.completion import CompletionError
 from commerce_agent.config import Settings, get_settings
+from commerce_agent.governance.models import GovernanceMode
 from commerce_agent.llm import ConversationRouter, IntentInterpretationError
 from commerce_agent.runtime import build_runtime
 from commerce_agent.trace import PurchaseHistory, PurchaseTrace, PurchaseTraces, TraceUnavailable
 from commerce_agent.webhooks import register_webhook_receiver
+
+
+class Health(BaseModel):
+    """The condition the Agent runs; evaluation runners compare it before each repetition."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    status: Literal["ok"]
+    governance_mode: GovernanceMode
+    hp_flow: Literal["blocked", "governed"]
 
 
 class ApprovalRequest(BaseModel):
@@ -209,13 +220,12 @@ def create_app(
         return error_response(error)
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        # Evaluation runners check the condition they started before each repetition.
-        return {
-            "status": "ok",
-            "governance_mode": configuration.agent_governance_mode,
-            "hp_flow": configuration.agent_hp_flow,
-        }
+    def health() -> Health:
+        return Health(
+            status="ok",
+            governance_mode=configuration.agent_governance_mode,
+            hp_flow=configuration.agent_hp_flow,
+        )
 
     @app.get("/.well-known/ap2/jwks.json")
     def ap2_jwks() -> dict[str, object]:

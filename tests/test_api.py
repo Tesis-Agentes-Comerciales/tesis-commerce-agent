@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
@@ -20,6 +21,7 @@ from commerce_agent.llm import (
     CommerceDecision,
     ConversationMessage,
 )
+from tests.assistant_support import POLICY_BLOCKS_MERCHANT
 
 FEED = Path(__file__).parent / "fixtures" / "feed"
 
@@ -432,19 +434,7 @@ def test_conversation_turn_can_reply_without_contacting_merchant(tmp_path: Path)
     assert router.messages == (ConversationMessage(role="user", content="Quiero comprar algo"),)
 
 
-@pytest.mark.parametrize(
-    ("overrides", "condition"),
-    [
-        ({}, {"governance_mode": "off", "hp_flow": "blocked"}),
-        (
-            {"agent_governance_mode": "shadow", "agent_hp_flow": "governed"},
-            {"governance_mode": "shadow", "hp_flow": "governed"},
-        ),
-    ],
-)
-def test_health_reports_the_governance_condition(
-    tmp_path: Path, overrides: dict[str, str], condition: dict[str, str]
-) -> None:
+def health_app(tmp_path: Path, overrides: dict[str, Any]) -> FastAPI:
     def unexpected_request(_: httpx.Request) -> httpx.Response:
         raise AssertionError("Health must not contact the merchant")
 
@@ -456,15 +446,47 @@ def test_health_reports_the_governance_condition(
         agent_database_path=tmp_path / "agent.db",
         agent_feed_source="file",
         agent_feed_path=FEED,
-        **overrides,  # pyright: ignore[reportArgumentType]
+        **overrides,
     )
-    app = create_app(settings=settings, transport=httpx.MockTransport(unexpected_request))
+    return create_app(settings=settings, transport=httpx.MockTransport(unexpected_request))
 
-    with TestClient(app) as client:
+
+@pytest.mark.parametrize(
+    ("overrides", "condition"),
+    [
+        ({}, {"governance_mode": "off", "hp_flow": "blocked"}),
+        (
+            {"agent_governance_mode": "shadow", "agent_hp_flow": "governed"},
+            {"governance_mode": "shadow", "hp_flow": "governed"},
+        ),
+        (
+            POLICY_BLOCKS_MERCHANT | {"agent_hp_flow": "governed"},
+            {"governance_mode": "enforce", "hp_flow": "governed"},
+        ),
+    ],
+    ids=["off", "shadow", "enforce"],
+)
+def test_health_reports_the_governance_condition(
+    tmp_path: Path, overrides: dict[str, Any], condition: dict[str, str]
+) -> None:
+    with TestClient(health_app(tmp_path, overrides)) as client:
         response = client.get("/health")
 
     assert response.status_code == 200
+    # The exact body the evaluation runners check (governance_pilot.verify_agent_condition).
     assert response.json() == {"status": "ok", **condition}
+
+
+def test_health_declares_its_typed_body_in_the_openapi_schema(tmp_path: Path) -> None:
+    schema = health_app(tmp_path, {}).openapi()
+
+    body = schema["paths"]["/health"]["get"]["responses"]["200"]["content"]["application/json"]
+    assert body["schema"] == {"$ref": "#/components/schemas/Health"}
+    health = schema["components"]["schemas"]["Health"]
+    assert set(health["required"]) == {"status", "governance_mode", "hp_flow"}
+    assert health["properties"]["status"]["const"] == "ok"
+    assert health["properties"]["governance_mode"]["enum"] == ["off", "shadow", "enforce"]
+    assert health["properties"]["hp_flow"]["enum"] == ["blocked", "governed"]
 
 
 def test_pending_purchase_can_be_canceled_through_api(tmp_path: Path) -> None:
