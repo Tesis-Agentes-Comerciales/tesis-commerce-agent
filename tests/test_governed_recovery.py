@@ -6,7 +6,6 @@ httpx.MockTransport. Off, shadow and the blocked flow must keep B0, its 502 and 
 
 import hashlib
 import json
-import logging
 import re
 import sqlite3
 from collections.abc import Iterator
@@ -22,7 +21,7 @@ from pydantic import SecretStr
 
 from commerce_agent.acp import ACPClient, load_product_feed
 from commerce_agent.acp.feed import ProductCandidate
-from commerce_agent.api import create_app
+from commerce_agent.api import create_app, error_response
 from commerce_agent.application import PurchaseService
 from commerce_agent.application.conversation import (
     ConversationService,
@@ -31,11 +30,11 @@ from commerce_agent.application.conversation import (
 )
 from commerce_agent.application.governed_recovery import (
     GovernedRecovery,
-    GovernedRecoveryRecord,
+    HpRecoveryEvidence,
     RecoveryContext,
     governed_recovery_enabled,
 )
-from commerce_agent.application.purchase import CheckoutDetails
+from commerce_agent.application.purchase import CheckoutDetails, PurchaseServiceError
 from commerce_agent.approval import ApprovalService
 from commerce_agent.config import Settings
 from commerce_agent.domain import HardConstraints, OptionConstraint, PurchaseIntent, RankedCandidate
@@ -47,6 +46,7 @@ from commerce_agent.llm import (
     UnknownVariantSelection,
 )
 from commerce_agent.persistence import SqliteAgentStore
+from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
 from tests.governance.test_shadow_integration import configuration
 from tests.test_api import checkout_details
 
@@ -71,10 +71,25 @@ S02_REQUEST = (
 PIXEL_8 = "BBGooglePixel8-128GB"
 PIXEL_8A = "BBGooglePixel8a-128GB"
 CHECKOUT_ID = "cs_pixel_1"
+S02_RUN_ID = turn_run_id("turn-s02")
 OBSERVED_PRICES = {PIXEL_8: 154_000_000, PIXEL_8A: 89_900_000}
 MODEL_RECOVERY = "Puedo mostrarte otras opciones del catálogo."
 # Codes, identifiers and traces never reach the buyer: Spanish prose has no snake_case.
 INTERNAL_DETAILS = re.compile(r"[A-Za-z]+_[A-Za-z_]+|BBGoogle|Traceback|Error|variant")
+# What B0 answers when the recovery cannot leave evidence.
+B0_UNKNOWN_VARIANT = (
+    502,
+    {"code": "intent_model_error", "message": "The candidate model selected an unknown variant"},
+)
+B0_INVALID_CANDIDATE = (
+    409,
+    {"code": "invalid_candidate", "message": "Selected candidate does not satisfy the request"},
+)
+B0_BUDGET_EXCEEDED = (
+    409,
+    {"code": "budget_exceeded", "message": "Authoritative checkout total exceeds the budget"},
+)
+EVIDENCE_UNAVAILABLE = "governed_recovery_evidence_unavailable"
 
 
 def s02_intent(*, max_unit: int | None = None, max_total: int | None = None) -> PurchaseIntent:
@@ -204,12 +219,36 @@ class PhoneMerchant:
         return self.requests.count(("POST", "/checkout_sessions"))
 
 
-class InMemoryRecoveryEvidence:
-    def __init__(self) -> None:
-        self.records: list[GovernedRecoveryRecord] = []
+def hp_recovery_evidence(tmp_path: Path, *, available: bool = True) -> HpRecoveryEvidence:
+    """The runtime sink on the agent database; without `initialize` every write fails."""
+    store = SqliteHpEvidenceStore(tmp_path / "agent.db")
+    if available:
+        store.initialize()
+    return HpRecoveryEvidence(store)
 
-    def record(self, recovery: GovernedRecoveryRecord) -> None:
-        self.records.append(recovery)
+
+def recorded_recoveries(tmp_path: Path) -> list[dict[str, Any]]:
+    """Every `governed_recovery` row of hp_evidence; none when the table was never created."""
+    with closing(sqlite3.connect(tmp_path / "agent.db")) as connection:
+        table = "SELECT 1 FROM sqlite_master WHERE name = 'hp_evidence'"
+        if connection.execute(table).fetchone() is None:
+            return []
+        rows = connection.execute(
+            "SELECT body FROM hp_evidence WHERE record_kind = 'governed_recovery' "
+            "ORDER BY run_id, sequence"
+        ).fetchall()
+    return [json.loads(body) for (body,) in rows]
+
+
+def lose_hp_evidence(tmp_path: Path) -> None:
+    with closing(sqlite3.connect(tmp_path / "agent.db")) as connection:
+        connection.execute("DROP TABLE hp_evidence")
+
+
+def assert_evidence_unavailable_logged(caplog: pytest.LogCaptureFixture) -> None:
+    (warning,) = [record for record in caplog.records if EVIDENCE_UNAVAILABLE in record.message]
+    assert warning.levelname == "WARNING"
+    assert "Quiero" not in warning.message and "buyer@" not in warning.message
 
 
 class StepLog:
@@ -249,7 +288,7 @@ def api(
 
 @contextmanager
 def conversation(
-    tmp_path: Path, router: S02Router, merchant: PhoneMerchant, evidence: InMemoryRecoveryEvidence
+    tmp_path: Path, router: S02Router, merchant: PhoneMerchant, evidence: HpRecoveryEvidence
 ) -> Iterator[ConversationService]:
     """The service `/conversation/turn` and `/assistant` share, with recovery on and no D1."""
     store = SqliteAgentStore(tmp_path / "agent.db")
@@ -308,13 +347,10 @@ def sha256(text: str) -> str:
     ids=["router-returns-it", "openai-router-raises"],
 )
 def test_governed_s02_explains_a_choice_outside_the_shortlist_without_checkout(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture, selection: CandidateDecision | Exception
+    tmp_path: Path, selection: CandidateDecision | Exception
 ) -> None:
     router = S02Router(s02_intent(max_unit=100_000_000), selection)
-    with (
-        caplog.at_level(logging.INFO, "commerce_agent.application.governed_recovery"),
-        api(tmp_path, router, mode="enforce", flow="governed") as (client, merchant),
-    ):
+    with api(tmp_path, router, mode="enforce", flow="governed") as (client, merchant):
         response = client.post("/conversation/turn", json=s02_body())
 
     assert response.status_code == 200, response.text
@@ -330,8 +366,55 @@ def test_governed_s02_explains_a_choice_outside_the_shortlist_without_checkout(
     )
     assert merchant.requests == []
     assert purchase_rows(tmp_path) == []
-    (logged,) = [record for record in caplog.records if "governed_recovery" in record.message]
-    assert '"control":"application"' in logged.message
+    (recorded,) = recorded_recoveries(tmp_path)
+    assert (recorded["control"], recorded["kind"], recorded["run_id"]) == (
+        "application",
+        "selection_outside_shortlist",
+        S02_RUN_ID,
+    )
+    assert recorded["explanation_sha256"] == sha256(body["assistant_message"])
+    assert SqliteHpEvidenceStore(tmp_path / "agent.db").verify_chain(S02_RUN_ID)
+
+
+@pytest.mark.parametrize(
+    ("selection", "b0"),
+    [
+        (pick_pixel_8(), B0_INVALID_CANDIDATE),
+        (UnknownVariantSelection(PIXEL_8), B0_UNKNOWN_VARIANT),
+    ],
+    ids=["router-returns-it", "openai-router-raises"],
+)
+def test_without_evidence_a_choice_outside_the_shortlist_answers_as_b0(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    selection: CandidateDecision | Exception,
+    b0: tuple[int, dict[str, str]],
+) -> None:
+    router = S02Router(s02_intent(max_unit=100_000_000), selection)
+    with api(tmp_path, router, mode="enforce", flow="governed") as (client, merchant):
+        lose_hp_evidence(tmp_path)
+        response = client.post("/conversation/turn", json=s02_body())
+
+    assert (response.status_code, response.json()) == b0
+    assert merchant.requests == []
+    assert purchase_rows(tmp_path) == []
+    assert_evidence_unavailable_logged(caplog)
+
+
+def test_without_evidence_no_candidate_keeps_the_model_recovery(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    router = S02Router(s02_intent(max_unit=50_000_000))
+    with api(tmp_path, router, mode="enforce", flow="governed") as (client, merchant):
+        lose_hp_evidence(tmp_path)
+        response = client.post("/conversation/turn", json=s02_body())
+
+    assert response.status_code == 200
+    assert response.json()["action"] == "clarify"
+    assert response.json()["assistant_message"] == MODEL_RECOVERY
+    assert router.calls == ["route", "recover_no_candidate"]
+    assert merchant.requests == []
+    assert_evidence_unavailable_logged(caplog)
 
 
 def test_governed_no_candidate_is_explained_without_calling_the_model(tmp_path: Path) -> None:
@@ -350,6 +433,7 @@ def test_governed_no_candidate_is_explained_without_calling_the_model(tmp_path: 
     )
     assert router.calls == ["route"]
     assert merchant.requests == []
+    assert [item["kind"] for item in recorded_recoveries(tmp_path)] == ["no_candidate"]
 
 
 def test_governed_budget_exceeded_after_checkout_declares_the_cancellation(
@@ -360,7 +444,7 @@ def test_governed_budget_exceeded_after_checkout_declares_the_cancellation(
     merchant = PhoneMerchant()
     router = S02Router(s02_intent(max_total=100_000_000), pick_pixel_8())
     steps = StepLog()
-    with conversation(tmp_path, router, merchant, InMemoryRecoveryEvidence()) as service:
+    with conversation(tmp_path, router, merchant, hp_recovery_evidence(tmp_path)) as service:
         response = service.execute(
             (ConversationMessage(role="user", content=S02_REQUEST),),
             CheckoutDetails.model_validate_json(json.dumps(checkout_details())),
@@ -386,6 +470,39 @@ def test_governed_budget_exceeded_after_checkout_declares_the_cancellation(
     ]
     assert purchase_rows(tmp_path) == [("canceled", CHECKOUT_ID)]
     assert steps.events[-2:] == [("started", "prepare_checkout"), ("failed", "prepare_checkout")]
+
+
+def test_without_evidence_budget_exceeded_after_checkout_keeps_the_409_of_b0(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    merchant = PhoneMerchant()
+    router = S02Router(s02_intent(max_total=100_000_000), pick_pixel_8())
+    evidence = hp_recovery_evidence(tmp_path, available=False)
+    with (
+        conversation(tmp_path, router, merchant, evidence) as service,
+        pytest.raises(PurchaseServiceError) as raised,
+    ):
+        service.respond(ConversationTurnRequest.model_validate_json(json.dumps(s02_body())))
+
+    rejection = error_response(raised.value)
+    assert (rejection.status_code, json.loads(bytes(rejection.body))) == B0_BUDGET_EXCEEDED
+    assert ("POST", f"/checkout_sessions/{CHECKOUT_ID}/cancel") in merchant.requests
+    assert purchase_rows(tmp_path) == [("canceled", CHECKOUT_ID)]
+    assert_evidence_unavailable_logged(caplog)
+
+
+def test_budget_recovery_declares_the_cancellation_without_a_stored_checkout_id(
+    tmp_path: Path,
+) -> None:
+    # The cancellation happened before the recovery runs, whatever the purchase row kept.
+    context = RecoveryContext(run_id="run-1", feed=PHONES, intent=s02_intent(max_total=100_000_000))
+
+    message = GovernedRecovery(hp_recovery_evidence(tmp_path)).budget_exceeded(
+        context, PIXEL_8, None
+    )
+
+    assert_explains(message, "lo cancelé", "No se hizo ningún cobro")
+    assert "No preparé ningún checkout" not in message
 
 
 @pytest.mark.parametrize(
@@ -416,26 +533,30 @@ def test_each_governed_recovery_is_recorded_as_an_application_control(
     variant_id: str,
     checkout_id: str | None,
 ) -> None:
-    evidence = InMemoryRecoveryEvidence()
     router = S02Router(intent, selection)
+    evidence = hp_recovery_evidence(tmp_path)
     with conversation(tmp_path, router, PhoneMerchant(), evidence) as service:
         response = service.respond(
             ConversationTurnRequest.model_validate_json(json.dumps(s02_body()))
         )
 
-    (record,) = evidence.records
-    assert (record.event, record.control) == ("governed_recovery", "application")
-    assert (record.kind, record.cause, record.variant_id) == (kind, "budget", variant_id)
-    assert record.checkout_id == checkout_id
-    assert record.run_id == turn_run_id("turn-s02")
-    assert record.currency == "COP"
-    assert record.budget_minor == (
+    (record,) = recorded_recoveries(tmp_path)
+    assert (record["event"], record["control"]) == ("governed_recovery", "application")
+    assert (record["kind"], record["cause"], record["variant_id"]) == (kind, "budget", variant_id)
+    assert record["checkout_id"] == checkout_id
+    assert record["run_id"] == S02_RUN_ID
+    assert record["currency"] == "COP"
+    assert record["budget_minor"] == (
         intent.hard.max_unit_amount_minor or intent.hard.max_total_amount_minor
     )
-    assert record.observed_unit_amount_minor == OBSERVED_PRICES[variant_id]
-    assert record.intent_sha256 == sha256(intent.model_dump_json())
-    assert record.explanation_sha256 == sha256(response.assistant_message)
-    assert "Quiero" not in record.model_dump_json()
+    assert record["observed_unit_amount_minor"] == OBSERVED_PRICES[variant_id]
+    assert record["intent_sha256"] == sha256(intent.model_dump_json())
+    assert record["explanation_sha256"] == sha256(response.assistant_message)
+    assert SqliteHpEvidenceStore(tmp_path / "agent.db").verify_chain(S02_RUN_ID)
+    # Digests stand in for the buyer's words; checkout details never reach the evidence.
+    recorded = json.dumps(record)
+    assert "Quiero" not in recorded and "buyer@example.test" not in recorded
+    assert "Calle 100" not in recorded and "+573000000000" not in recorded
 
 
 @pytest.mark.parametrize(
@@ -470,16 +591,17 @@ def test_each_governed_recovery_is_recorded_as_an_application_control(
     ids=["out-of-stock", "not-in-catalog", "valid-but-not-shortlisted", "hard-option"],
 )
 def test_a_rejected_choice_is_explained_with_the_domain_rules(
-    intent: PurchaseIntent, variant_id: str, causes: tuple[str, ...]
+    tmp_path: Path, intent: PurchaseIntent, variant_id: str, causes: tuple[str, ...]
 ) -> None:
-    evidence = InMemoryRecoveryEvidence()
     context = RecoveryContext(run_id="run-1", feed=PHONES, intent=intent, rejection_counts={})
 
-    message = GovernedRecovery(evidence).outside_shortlist(context, variant_id)
+    message = GovernedRecovery(hp_recovery_evidence(tmp_path)).outside_shortlist(
+        context, variant_id
+    )
 
     assert_explains(message, *causes, "No preparé ningún checkout")
     if variant_id == "NOT-IN-THE-FEED":
-        assert evidence.records[0].variant_id is None
+        assert recorded_recoveries(tmp_path)[0]["variant_id"] is None
 
 
 @pytest.mark.parametrize(
@@ -513,12 +635,9 @@ def test_without_the_governed_flow_a_choice_outside_the_shortlist_keeps_the_502(
     with api(tmp_path, router, mode=mode, flow=flow) as (client, merchant):
         response = client.post("/conversation/turn", json=s02_body())
 
-    assert response.status_code == 502
-    assert response.json() == {
-        "code": "intent_model_error",
-        "message": "The candidate model selected an unknown variant",
-    }
+    assert (response.status_code, response.json()) == B0_UNKNOWN_VARIANT
     assert merchant.requests == []
+    assert recorded_recoveries(tmp_path) == []
 
 
 def test_off_keeps_refusing_a_returned_outside_choice_at_checkout_preparation(
@@ -528,11 +647,14 @@ def test_off_keeps_refusing_a_returned_outside_choice_at_checkout_preparation(
     with api(tmp_path, router, mode="off") as (client, merchant):
         response = client.post("/conversation/turn", json=s02_body())
 
-    assert response.status_code == 409 and response.json()["code"] == "invalid_candidate"
+    assert (response.status_code, response.json()) == B0_INVALID_CANDIDATE
     assert merchant.checkout_posts == 0
+    assert recorded_recoveries(tmp_path) == []
 
 
-@pytest.mark.parametrize(("mode", "flow"), [("off", "governed"), ("enforce", "blocked")])
+@pytest.mark.parametrize(
+    ("mode", "flow"), [("off", "governed"), ("shadow", "governed"), ("enforce", "blocked")]
+)
 def test_without_the_governed_flow_no_candidate_keeps_the_model_recovery(
     tmp_path: Path, mode: str, flow: str
 ) -> None:
@@ -544,18 +666,19 @@ def test_without_the_governed_flow_no_candidate_keeps_the_model_recovery(
     assert response.json()["action"] == "clarify"
     assert response.json()["assistant_message"] == MODEL_RECOVERY
     assert router.calls == ["route", "recover_no_candidate"]
+    assert recorded_recoveries(tmp_path) == []
 
 
-def test_off_budget_exceeded_after_checkout_keeps_the_409(tmp_path: Path) -> None:
+@pytest.mark.parametrize("mode", ["off", "shadow"])
+def test_without_enforce_budget_exceeded_after_checkout_keeps_the_409(
+    tmp_path: Path, mode: str
+) -> None:
     router = S02Router(s02_intent(max_total=100_000_000), pick_pixel_8())
-    with api(tmp_path, router, mode="off", flow="governed") as (client, merchant):
+    with api(tmp_path, router, mode=mode, flow="governed") as (client, merchant):
         response = client.post("/conversation/turn", json=s02_body())
 
-    assert response.status_code == 409
-    assert response.json() == {
-        "code": "budget_exceeded",
-        "message": "Authoritative checkout total exceeds the budget",
-    }
+    assert (response.status_code, response.json()) == B0_BUDGET_EXCEEDED
     assert merchant.checkout_posts == 1
     assert ("POST", f"/checkout_sessions/{CHECKOUT_ID}/cancel") in merchant.requests
     assert purchase_rows(tmp_path) == [("canceled", CHECKOUT_ID)]
+    assert recorded_recoveries(tmp_path) == []

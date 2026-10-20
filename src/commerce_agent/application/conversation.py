@@ -1,7 +1,7 @@
 import hashlib
 import json
 from collections.abc import Callable, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from threading import Lock
@@ -20,6 +20,7 @@ from commerce_agent.acp.models import CheckoutSessionWithOrder
 from commerce_agent.application.governed_recovery import (
     GovernedRecovery,
     RecoveryContext,
+    RecoveryEvidenceUnavailable,
     outside_shortlist,
 )
 from commerce_agent.application.product_cards import product_card
@@ -29,6 +30,7 @@ from commerce_agent.application.purchase import (
     PurchaseService,
     PurchaseServiceError,
     PurchaseStage,
+    invalid_candidate,
 )
 from commerce_agent.approval import ApprovalTerms
 from commerce_agent.completion import CompletionError, CompletionService
@@ -569,7 +571,10 @@ class ConversationService:
         self, state: GraphState, runtime: Runtime[GraphContext]
     ) -> dict[str, Any]:
         if self._recovery is not None:
-            return _explained(self._recovery.no_candidate(self._recovery_context(state, runtime)))
+            # Without evidence the turn falls back to the B0 model recovery below.
+            with suppress(RecoveryEvidenceUnavailable):
+                context = self._recovery_context(state, runtime)
+                return _explained(self._recovery.no_candidate(context))
         router = runtime.context.router or self._router
         if router is None:
             raise IntentInterpretationError("No conversation model is configured")
@@ -606,10 +611,11 @@ class ConversationService:
         except UnknownVariantSelection as error:
             if self._recovery is None:
                 raise
-            return self._explain_selection(state, runtime, error.variant_id)
+            return self._explain_selection(state, runtime, error.variant_id, error)
         rejected = outside_shortlist(decision, candidates)
         if self._recovery is not None and rejected is not None:
-            return self._explain_selection(state, runtime, rejected)
+            # B0 refuses this choice at checkout preparation, before any merchant call.
+            return self._explain_selection(state, runtime, rejected, invalid_candidate())
         selected = decision.selected_variant_id
         _finished(
             observer,
@@ -677,11 +683,14 @@ class ConversationService:
             if self._recovery is None or error.code != "budget_exceeded":
                 raise
             stored = self._store.purchase(run_id)
-            message = self._recovery.budget_exceeded(
-                self._recovery_context(state, runtime),
-                selected,
-                stored["checkout_id"] if stored is not None else None,
-            )
+            try:
+                message = self._recovery.budget_exceeded(
+                    self._recovery_context(state, runtime),
+                    selected,
+                    stored["checkout_id"] if stored is not None else None,
+                )
+            except RecoveryEvidenceUnavailable:
+                raise error from None
             if observer is not None:
                 observer.step_failed("prepare_checkout", {"code": error.code, "message": message})
             return _explained(message)
@@ -768,12 +777,20 @@ class ConversationService:
         return {"completion_result": result.model_dump(mode="json")}
 
     def _explain_selection(
-        self, state: GraphState, runtime: Runtime[GraphContext], variant_id: str
+        self,
+        state: GraphState,
+        runtime: Runtime[GraphContext],
+        variant_id: str,
+        b0_error: Exception,
     ) -> dict[str, Any]:
+        """Explain the rejected choice, or raise the error B0 gives when it leaves no evidence."""
         assert self._recovery is not None
-        message = self._recovery.outside_shortlist(
-            self._recovery_context(state, runtime), variant_id
-        )
+        try:
+            message = self._recovery.outside_shortlist(
+                self._recovery_context(state, runtime), variant_id
+            )
+        except RecoveryEvidenceUnavailable:
+            raise b0_error from None
         _finished(
             _observer.get(),
             "select_product",

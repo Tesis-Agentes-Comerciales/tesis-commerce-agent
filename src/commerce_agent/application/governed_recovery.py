@@ -3,6 +3,7 @@
 B2 mechanism for S02 (docs/design/b2-governed-pilot.md). It is an application control, not a
 PDP decision: it never evaluates policy, never creates or authorizes a checkout and never calls
 the model. Only enforce with the governed Human Present flow enables it; B0 keeps its errors.
+A recovery that cannot be recorded in hp_evidence is not given: the caller answers as B0.
 """
 
 import hashlib
@@ -19,6 +20,7 @@ from commerce_agent.domain import HardConstraints, PurchaseIntent, RankedCandida
 from commerce_agent.domain.selection import rejection_reason
 from commerce_agent.llm import CandidateDecision
 from commerce_agent.llm.prices import format_minor_amount
+from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
 
 RecoveryKind = Literal[
     "no_candidate", "selection_outside_shortlist", "budget_exceeded_after_checkout"
@@ -101,11 +103,18 @@ class RecoveryEvidenceSink(Protocol):
     def record(self, recovery: GovernedRecoveryRecord) -> None: ...
 
 
-class LoggedRecoveryEvidence:
-    """Default sink until `hp_evidence` exists: one structured line per recovery."""
+class RecoveryEvidenceUnavailable(RuntimeError):
+    """The recovery left no evidence, so its explanation must not reach the buyer."""
+
+
+class HpRecoveryEvidence:
+    """Appends each recovery to the hp_evidence chain of its run."""
+
+    def __init__(self, store: SqliteHpEvidenceStore) -> None:
+        self._store = store
 
     def record(self, recovery: GovernedRecoveryRecord) -> None:
-        logger.info("governed_recovery %s", recovery.model_dump_json())
+        self._store.append(recovery.run_id, "governed_recovery", recovery.model_dump(mode="json"))
 
 
 @dataclass(frozen=True)
@@ -165,27 +174,43 @@ class GovernedRecovery:
         *,
         checkout_id: str | None = None,
     ) -> str:
-        closing = NEXT_STEP if checkout_id is not None else f"{NO_CHECKOUT} {NEXT_STEP}"
+        # The budget recovery runs after the checkout was canceled, even without a stored id.
+        canceled = kind == "budget_exceeded_after_checkout"
+        closing = NEXT_STEP if canceled else f"{NO_CHECKOUT} {NEXT_STEP}"
         message = f"{explanation.text} {closing}"
         candidate = explanation.candidate
-        self._evidence.record(
-            GovernedRecoveryRecord(
-                kind=kind,
-                cause=explanation.cause,
-                run_id=context.run_id,
-                variant_id=candidate.variant_id if candidate else None,
-                checkout_id=checkout_id,
-                currency=candidate.currency.upper() if candidate else context.intent.hard.currency,
-                budget_minor=explanation.budget_minor,
-                observed_unit_amount_minor=candidate.observed_unit_amount_minor
-                if candidate
-                else None,
-                rejection_counts=dict(context.rejection_counts),
-                intent_sha256=_sha256(context.intent.model_dump_json()),
-                explanation_sha256=_sha256(message),
-            )
+        record = GovernedRecoveryRecord(
+            kind=kind,
+            cause=explanation.cause,
+            run_id=context.run_id,
+            variant_id=candidate.variant_id if candidate else None,
+            checkout_id=checkout_id,
+            currency=candidate.currency.upper() if candidate else context.intent.hard.currency,
+            budget_minor=explanation.budget_minor,
+            observed_unit_amount_minor=candidate.observed_unit_amount_minor if candidate else None,
+            rejection_counts=dict(context.rejection_counts),
+            intent_sha256=_sha256(context.intent.model_dump_json()),
+            explanation_sha256=_sha256(message),
         )
+        try:
+            self._evidence.record(record)
+        except Exception as error:
+            logger.warning(
+                "governed_recovery_evidence_unavailable kind=%s error=%s",
+                kind,
+                type(error).__name__,
+            )
+            raise RecoveryEvidenceUnavailable(kind) from error
         return message
+
+
+def build_governed_recovery(settings: Settings) -> GovernedRecovery | None:
+    """Off, shadow and enforce without the governed HP flow neither act nor record."""
+    if not governed_recovery_enabled(settings):
+        return None
+    store = SqliteHpEvidenceStore(settings.agent_database_path)
+    store.initialize()
+    return GovernedRecovery(HpRecoveryEvidence(store))
 
 
 def _rejected(candidate: ProductCandidate, intent: PurchaseIntent) -> _Explanation:

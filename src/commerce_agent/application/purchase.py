@@ -114,6 +114,12 @@ class PurchaseServiceError(RuntimeError):
         self.code = code
 
 
+def invalid_candidate() -> PurchaseServiceError:
+    return PurchaseServiceError(
+        "Selected candidate does not satisfy the request", code="invalid_candidate"
+    )
+
+
 class CheckoutDetails(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -206,9 +212,7 @@ class PurchaseService:
         )
         if candidate is None:
             self._store.update_purchase(run_id, stage=PurchaseStage.FAILED)
-            raise PurchaseServiceError(
-                "Selected candidate does not satisfy the request", code="invalid_candidate"
-            )
+            raise invalid_candidate()
         enforced_checkout = None
         if self._d1_gate is not None:
             enforced_checkout = self._d1_gate.create_checkout(
