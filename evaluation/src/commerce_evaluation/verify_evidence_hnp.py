@@ -89,10 +89,78 @@ TERMINALS = ("revocation", "kill_switch", "escalation")
 ENDED = frozenset({"escalated", "failed", "canceled"})
 # Where the kill switch can stop a run after the `close` freshness check (§8.1).
 AFTER_CLOSE = frozenset({"uow1", "uow2"})
+# Events only a run past D1 writes.
+PAST_D1 = frozenset(
+    {
+        "reservation_reserved",
+        "mandates_closed",
+        "dispatch_committed",
+        "receipt_recorded",
+        "consumed",
+        "reservation_uncertain",
+    }
+)
+# Outcomes only D1 or a later step gives (§8.1). The others (a selection, the feed, the grant, the
+# switch at the claim, an unavailable D1) can also end a run before D1.
+AFTER_D1 = frozenset(
+    {
+        "merchant_not_allowed",
+        "budget_not_satisfiable",
+        "offer_changed",
+        "terms_out_of_scope",
+        "authorization_profile_unresolved",
+        "mandate_proof_invalid",
+        "policy_denied",
+        "verifier_unresolved_constraint",
+        "verifier_mandates_not_supported",
+        "verifier_invalid_mandate",
+        "verifier_invalid_credential",
+        "close_expired_before_dispatch",
+        "dispatch_timeout",
+        "partial_verifier_failure",
+        "receipt_mismatch",
+    }
+)
 
 
 def _thumbprint(jwk: Mapping[str, Any]) -> str:
     return JWK.from_json(json.dumps(dict(jwk))).thumbprint()
+
+
+def _verified_prefix(grant_id: str, events: list[DelegationEvent]) -> list[DelegationEvent]:
+    """The longest prefix of the chain that verifies: what the ledger still proves."""
+    for count in range(len(events)):
+        if not chain_is_valid(grant_id, events[: count + 1]):
+            return events[:count]
+    return events
+
+
+def _task_of(events: Iterable[DelegationEvent]) -> dict[str, Any]:
+    """The task the events leave: claimed, finished, or canceled by its owner before the claim
+    (the only change to `hnp_tasks` without `task_finished`)."""
+    task: dict[str, Any] = {"state": "scheduled", "outcome_code": None, "run_id": None}
+    for event in events:
+        body = event.body
+        if event.event_type == "task_claimed":
+            task |= {"state": "running", "run_id": body["run_id"]}
+        elif event.event_type == "task_finished":
+            task = {name: body[name] for name in task}
+        elif (event.event_type, body.get("revoked_reason"), task["state"]) == (
+            "revoked",
+            "owner",
+            "scheduled",
+        ):
+            task |= {"state": "canceled", "outcome_code": "revoked_by_owner"}
+    return task
+
+
+def _grant_of(events: Iterable[DelegationEvent]) -> tuple[str, str | None, int]:
+    """(state, revoked_reason, authority_epoch) the events leave: the first closing event closes
+    the grant and adds 1 to its epoch; a later one finds it closed (§4.4)."""
+    for event in events:
+        if event.event_type in ("revoked", "expired", "consumed"):
+            return event.event_type, event.body.get("revoked_reason"), 2
+    return "active", None, 1
 
 
 class HnpRunVerification(RunVerification):
@@ -119,6 +187,8 @@ class HnpRunVerification(RunVerification):
             else None
         )
         self.events = read_events(connection, grant_id)
+        self.chained = _verified_prefix(grant_id, list(self.events))
+        self.chained_task = _task_of(self.chained)
         self.stored = {
             row["kind"]: row
             for row in _rows(
@@ -182,6 +252,23 @@ class HnpRunVerification(RunVerification):
             or self.purchase["stage"] in ("completing", "completed")
         )
 
+    @property
+    def reached_d1(self) -> bool:
+        """P2's evidence, `start`'s purchase row, or a chained trace only a run past D1 leaves:
+        D1 without its evidence is then `missing`, not `not_applicable`."""
+        task, chained = self.chained_task, self.chained
+        claimed = any(event.event_type == "task_claimed" for event in chained)
+        return (
+            super().reached_d1
+            or self.purchase["stage"] is not None
+            or any(event.event_type in PAST_D1 for event in chained)
+            or any(
+                event.event_type == "kill_switch_blocked" and event.body.get("stage") in AFTER_CLOSE
+                for event in chained
+            )
+            or (claimed and (task["state"] == "running" or task["outcome_code"] in AFTER_D1))
+        )
+
     def _of(self, *kinds: str) -> list[DelegationEvent]:
         return [event for event in self.events if event.event_type in kinds]
 
@@ -241,6 +328,25 @@ class HnpRunVerification(RunVerification):
         for name in HP_ONLY:
             result[name] = not_applicable("Eslabón HP: en HNP no hay aprobación humana")
         return result
+
+    def ledger_chain(self) -> Link:
+        """The whole chain, and the task and grant rows as its events leave them: an edit no link
+        reads (a later event, a terminal, an epoch) still breaks `complete`."""
+        refs: dict[str, Any] = {"events": len(self.events), "verified": len(self.chained)}
+        if not self.chained or len(self.chained) != len(self.events):
+            return mismatch("delegation_events no verifica completa", **refs)
+        refs["head_digest"] = self.chained[-1].digest
+        task = {name: self.task[name] for name in self.chained_task}
+        if task != self.chained_task:
+            return mismatch("hnp_tasks no es la tarea que dejan sus eventos", **refs)
+        grant = self.grant
+        if grant is None or (
+            grant["state"],
+            grant["revoked_reason"],
+            grant["authority_epoch"],
+        ) != _grant_of(self.chained):
+            return mismatch("El grant no es el que dejan sus eventos (estado o época)", **refs)
+        return ok("Cadena completa; la tarea y el grant coinciden con sus eventos", **refs)
 
     # 1-4: intent, consent, open mandates, activation
 
@@ -334,7 +440,12 @@ class HnpRunVerification(RunVerification):
             expires_at=utc_moment(scope.expires_at),
             now=utc_moment(self.grant["consented_at"]),
         )
-        refs |= {"iat": open_checkout["iat"], "merchant_issuer": trust.merchant_issuer}
+        refs |= {
+            "iat": open_checkout["iat"],
+            "merchant_issuer": trust.merchant_issuer,
+            # They need the vault key.
+            "not_verified": ["merchant_refs", "owner_ref"],
+        }
         if proof.status != "valid":
             return mismatch(f"Los mandatos abiertos no verifican ({proof.error})", **refs)
         return ok("Mandatos abiertos firmados por el emisor sobre el alcance", **refs)
@@ -777,15 +888,13 @@ class HnpRunVerification(RunVerification):
             name: body.get(name)
             for name in ("revoked_reason", "epoch_before", "epoch_after", "effect")
         }
-        actor = (
-            ("user", event.on_behalf_of)
-            if body["revoked_reason"] == "owner"
-            else ("operator", OPERATOR_REF)
-        )
+        owner = self._scope().owner_ref
+        actor = ("user", owner) if body["revoked_reason"] == "owner" else ("operator", OPERATOR_REF)
         held = None if reservation is None or self.outbox is not None else reservation
         if not (
             self._linked(event)
             and (event.actor_kind, event.actor_ref) == actor
+            and event.on_behalf_of == owner
             and body["epoch_after"] == body["epoch_before"] + 1 == grant["authority_epoch"]
             and (grant["state"], grant["revoked_reason"]) == ("revoked", body["revoked_reason"])
             and (body["effect"] == "in_flight") == (self.outbox is not None)
@@ -896,19 +1005,22 @@ def hnp_runs(
 
 
 def _document(database: Path, run: HnpRunVerification) -> dict[str, Any]:
-    links = run.links()
+    links, ledger, task = run.links(), run.ledger_chain(), run.chained_task
     return {
         "database": database.name,
         "purchase_mode": "HNP",
-        "run_id": run.task["run_id"],
+        # What the chained events prove, not what `hnp_tasks` says (`ledger_chain` compares them).
+        "run_id": task["run_id"],
         "grant_id": run.task["grant_id"],
         "task_id": run.task["task_id"],
-        "task_state": run.task["state"],
-        "outcome_code": run.task["outcome_code"],
+        "task_state": task["state"],
+        "outcome_code": task["outcome_code"],
         "stage": run.purchase["stage"],
         "order_id": run.order_id,
+        "ledger_chain": ledger.document(),
         "links": {name: links[name].document() for name in (*HNP_LINKS, *HP_ONLY)},
-        "complete": is_hnp_complete(links, order=run.order_id is not None),
+        "complete": ledger.status == "ok"
+        and is_hnp_complete(links, order=run.order_id is not None),
     }
 
 
@@ -936,7 +1048,9 @@ def h2_hnp_summary(runs: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     }
     return {
         "orders": share([row for row in rows if row["order_id"] is not None]),
+        # Every task that ended so, HN04 included: not the pilot's `h2_hnp_block`.
         "blocked": share([row for row in rows if row["task_state"] in ENDED]),
+        "blocked_states": sorted(ENDED),
         "all_runs": share(rows),
         "by_link": by_link,
     }

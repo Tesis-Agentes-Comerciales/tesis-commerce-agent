@@ -323,14 +323,18 @@ la spec en su orden (`intent`, `delegation_consent`, `open_mandates`, `task_acti
 `d3_decision`, `receipts`, `order_webhook`, `consumption`, `revocation`, `kill_switch`,
 `escalation`), más `approval` y `mandates` en `not_applicable`. Una tarea sin fila en `purchases`
 (vencida, revocada o detenida antes de activarse, HN04–HN06) se verifica por su grant y su tarea,
-con `run_id: null`. Cada eslabón lee la cadena de `delegation_events` solo hasta su evento,
-recalcula digests y vuelve a verificar los mandatos abiertos y cerrados con las claves públicas
-que guardó el ledger; uno cuyo paso nadie alcanzó es `not_applicable`, así que la cadena termina en
-el PDP que negó o en el terminal. Con orden, la cadena es `complete` solo si los eslabones 1 a 14
-son `ok`; sin orden, si ninguno es `missing` ni `mismatch`. Con ejecuciones HNP el documento suma
-`h2_hnp` (`orders`, `blocked` —tareas `escalated`, `failed` o `canceled`—, `all_runs`, `by_link`);
-`h2` sigue contando solo las compras HP. Hasta HNP-09b, `receipts` de una orden es `missing`: los
-JWT de los recibos los guarda su UoW-3 en `completion_results`. Desde Python:
+con `run_id: null`; `task_state`, `outcome_code` y `run_id` salen de los eventos encadenados.
+Cada eslabón lee la cadena de `delegation_events` solo hasta su evento, recalcula digests y vuelve a
+verificar los mandatos abiertos y cerrados con las claves públicas que guardó el ledger; uno cuyo
+paso nadie alcanzó es `not_applicable`, así que la cadena termina en el PDP que negó o en el
+terminal; D1 aplica también cuando el rastro encadenado lo implica (un código de D1 o posterior, un
+evento posterior a D1). `ledger_chain` exige la cadena entera y que la tarea y el grant sean los que
+dejan sus eventos. Con orden, la cadena es `complete` solo si `ledger_chain` y los eslabones 1 a 14
+son `ok`; sin orden, si `ledger_chain` es `ok` y ningún eslabón es `missing` ni `mismatch`. Con
+ejecuciones HNP el documento suma `h2_hnp` (`orders`, `blocked` —tareas `escalated`, `failed` o
+`canceled`, HN04 incluido, así que no es el `h2_hnp_block` del piloto—, `all_runs`, `by_link`); `h2`
+sigue contando solo las compras HP. Hasta HNP-09b, `receipts` de una orden es `missing`: los JWT de
+los recibos los guarda su UoW-3 en `completion_results`. Desde Python:
 `verify_database(path, grant_id=…)`.
 
 ## Archivos
