@@ -436,6 +436,19 @@ Registradas (`amendments_recorded`):
   lista corta corta antes de `start`, y V1 marca `not_applicable` lo que no ocurrió, como dice la
   derivación. Queda para aprobar (decisión 14).
 
+Pendiente de aprobación (no está en `amendments_recorded` y el manifiesto no cambia):
+
+- **M1 (21-oct-2026, enmienda de medición; pendiente de aprobación de Yair).** Se agregan registros
+  sin cambiar condiciones, delegaciones, estímulos, selectores, oráculos ni criterios: el artefacto
+  local de cada episodio (`run_artifact`, T1 de
+  [`run-traceability.md`](run-traceability.md)), la tabla `model_requests` del agente (T2) y el
+  bloque `flow_trace` de cada fila (T3), fuera de `observed`, que `score_episode` no lee. El
+  resumen suma `measurement_errors` (filas por clave de error de medición). El INSERT de
+  `model_requests` corre dentro de `timer.measure` y suma ~1 ms por petición al modelo a
+  `stage_timings.elapsed_ms` en la capa B, por igual en B0-HNP y B2-HNP. C8
+  (`buyer_token_after_consent`) se sigue midiendo antes de la copia del artefacto, sobre el
+  directorio de la corrida, y no se vuelve a medir sobre el artefacto.
+
 ## Decisiones para aprobar
 
 Yair aprueba estos puntos y los oráculos antes de correr; la aprobación queda en `approval` del

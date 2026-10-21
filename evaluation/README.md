@@ -46,6 +46,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | `src/commerce_evaluation/hnp_pilot_agent.py` | agente de HN11 con el selector guionado inyectado por código |
 | `src/commerce_evaluation/run_artifacts.py` | artefacto local de cada corrida de `governance-pilot` y `hnp-pilot` ([spec](../docs/design/run-traceability.md), T1) |
 | `src/commerce_evaluation/redaction.py` | redacción común de logs, errores y campos de fila (secretos conocidos y formas de secreto) |
+| `src/commerce_evaluation/flow_trace.py` | bloque `flow_trace` de cada fila de `hnp-pilot`: qué decidió y por qué, de `agent.db` ([spec](../docs/design/run-traceability.md) §4.1, T3) |
 | `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto lo ejecuta con el entorno del Merchant |
 | `scripts/build_b0_analysis_notebook.py` | genera el notebook B0; `nbformat` no está en el lock |
 
@@ -93,6 +94,16 @@ su directorio temporal:
 - Si guardar el artefacto falla, la fila se escribe igual: `run_artifact` queda en `null` y la causa
   va a `measurement_errors.run_artifact`, que el resumen cuenta. La corrida ya pagó el modelo y su
   observación no depende de la copia local.
+- **`flow_trace` (solo `hnp-pilot`, T3).** Cada fila HNP suma `flow_trace` (`flow-trace/1`), que el
+  runner arma de `agent.db` en solo lectura con el agente detenido, después de medir el puntaje y
+  C8, y fuera de `observed`: `delegation` (alcance, intención, lista corta y elección con su
+  motivo), `decisions` (D1, D2 y D3 con su entrada canónica reducida, reglas y códigos),
+  `freshness`, `checkout`, `reservation`, `dispatch`, `order`, `webhooks`, `errors`,
+  `model_requests` y `unavailable` (tablas que la base no tiene; su campo queda en `null`). Lee por
+  lista blanca: nunca JWT, mandatos, llaves de idempotencia, datos del comprador, ciphertext ni
+  llaves D1. `build_flow_trace(agent_db, graph_db, secrets, feed=...)` da el mismo bloque sobre el
+  artefacto guardado. Si falla, la fila queda con `flow_trace: null` y la causa en
+  `measurement_errors.flow_trace`. Pesa de ~2 KB (B0-HNP) a ~20 KB (compra B2-HNP con D1, D2 y D3).
 - **Nunca va a Git.** El artefacto contiene JWT, mandatos y llaves de idempotencia del sandbox.
   `.local/` está en `.gitignore` y el runner rechaza un `--artifacts-dir` dentro del checkout que Git
   no ignore. Nunca guarda `auth.db` ni `payments.db`, que comparten todas las filas y llevan
@@ -100,14 +111,18 @@ su directorio temporal:
   de un piloto publica, si hace falta, el sha256 de un tar del directorio, no el directorio.
 - **Redacción** (`redaction.py`). Se aplica al log copiado, a la cola del log que se imprime ante un
   error, al stderr del CLI del comercio que lleva `PilotError` y a la última línea de error de los
-  dos runners, y a `harness_error`, `error_response` y `measurement_errors` de cada fila. Quita los
+  dos runners, y a `harness_error`, `error_response`, `measurement_errors` y `flow_trace` de cada
+  fila. Quita los
   secretos de la invocación por valor (tal cual, escapados en JSON y línea por línea en las llaves
   PEM): los del agente y los servicios, `BETTER_AUTH_SECRET`, `OPENAI_API_KEY` si está en el
   entorno, las llaves D1, la sesión del comercio de cada fila y, en HNP, los tokens de servicio y de
   operador, la llave AP2 del agente y la firma del JWT de consentimiento. Además quita por forma lo
   que el runner no conoce: JWT (`eyJ….….`), `Bearer` seguido de un token de 16 caracteres o más,
   bloques PEM, claves `sk-…` y URL de PostgreSQL. Solo reemplaza la subcadena por `[redacted]`, así
-  que el mensaje conserva qué falló.
+  que el mensaje conserva qué falló. En esos campos las rutas locales salen con etiqueta: la raíz
+  de artefactos como `<artifacts-dir>`, el directorio temporal de la invocación como `<run-tmp>` y
+  el home como `~`. `flow_trace` falla cerrado: si después del barrido queda un secreto o una forma
+  de secreto (por ejemplo, en una clave), el bloque no se escribe.
 - `--dry-run` no cambia ni crea artefactos.
 
 ## Piloto B2 gobernado: B0' y B2
@@ -445,7 +460,9 @@ HNP_PILOT_MAX_COST_USD=2 uv run hnp-pilot      # en vivo: lo corre el líder, co
 - **Salida.** `results/hnp-pilot-<fecha>.jsonl` con una fila por episodio (condición, `/health`,
   modelo, variables agregadas al arranque con sus valores no secretos, efectos, gobernanza, costo y
   acumulado, oráculo y métricas) y `<archivo>.summary.json` por condición y
-  por condición × escenario. El artefacto de cada episodio queda en `.local/runs/` (arriba).
+  por condición × escenario. El artefacto de cada episodio queda en `.local/runs/` y su
+  `flow_trace` en la fila (arriba). El resumen suma `measurement_errors`: cuántas filas tienen cada
+  clave de error de medición (`run_artifact`, `flow_trace`, …).
 
 ## Archivos
 
