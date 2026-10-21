@@ -12,6 +12,7 @@ from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Protocol
 
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
+from commerce_agent.llm.model_requests import model_request_scope
 from commerce_agent.persistence.stage_timings_sqlite import ModelUsage
 
 if TYPE_CHECKING:
@@ -69,7 +70,7 @@ class ModelHnpSelector:
         preference_text: str | None,
     ) -> str:
         usage = ModelUsage()
-        with self._timer.measure(MODEL_STAGE, usage):
+        with self._timer.measure(MODEL_STAGE, usage), model_request_scope(stage=MODEL_STAGE):
             choice = self._chooser.choose(intent, shortlist, preference_text)
             usage.input_tokens, usage.output_tokens = choice.input_tokens, choice.output_tokens
         return choice.variant_id

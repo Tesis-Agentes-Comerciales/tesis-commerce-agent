@@ -79,6 +79,7 @@ from commerce_agent.governance.hnp_models import ConsentScope, parse_consent_sco
 from commerce_agent.governance.hnp_policy import HnpGrant
 from commerce_agent.governance.hnp_ports import HnpGateDecision, HnpPolicyGate
 from commerce_agent.governance.models import POLICY_REASONS
+from commerce_agent.llm.model_requests import model_request_scope
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger, utc_moment
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
@@ -547,7 +548,9 @@ class HnpExecutionService:
         if not shortlist:
             self._end(run, "no_candidate_in_scope")
         try:
-            chosen = self._selector.choose(shortlist, intent, consent.preference_text)
+            # A model selector records its request under the task's run (run-traceability §4.4).
+            with model_request_scope(run_id=run.run_id):
+                chosen = self._selector.choose(shortlist, intent, consent.preference_text)
         except Exception:
             _log.warning("HNP selector made no choice")
             chosen = None

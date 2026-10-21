@@ -1,7 +1,8 @@
 """Time the model, D1 and merchant calls of a turn without changing what they do.
 
 Each wrapper delegates every call unchanged, results and errors included, and records how long
-it took under a fixed stage name (persistence/stage_timings_sqlite.py).
+it took under a fixed stage name (persistence/stage_timings_sqlite.py). The router's wrapper also
+names that stage for the rows of `model_requests` (llm/model_requests.py).
 """
 
 from collections.abc import Callable
@@ -20,6 +21,7 @@ from commerce_agent.llm import (
     ConversationMessage,
     ConversationRouter,
 )
+from commerce_agent.llm.model_requests import model_request_scope
 
 
 class StageTimer(Protocol):
@@ -31,7 +33,7 @@ class TimedConversationRouter:
         self._router, self._timer = router, timer
 
     def route(self, messages: tuple[ConversationMessage, ...]) -> CommerceDecision:
-        with self._timer.measure("model.route"):
+        with self._timer.measure("model.route"), model_request_scope(stage="model.route"):
             return self._router.route(messages)
 
     def choose_candidate(
@@ -40,7 +42,8 @@ class TimedConversationRouter:
         intent: PurchaseIntent,
         candidates: tuple[RankedCandidate, ...],
     ) -> CandidateDecision:
-        with self._timer.measure("model.choose_candidate"):
+        stage = "model.choose_candidate"
+        with self._timer.measure(stage), model_request_scope(stage=stage):
             return self._router.choose_candidate(messages, intent, candidates)
 
     def recover_no_candidate(
@@ -50,7 +53,8 @@ class TimedConversationRouter:
         rejection_counts: dict[str, int],
         alternatives: tuple[ProductCandidate, ...],
     ) -> CatalogRecovery:
-        with self._timer.measure("model.recover_no_candidate"):
+        stage = "model.recover_no_candidate"
+        with self._timer.measure(stage), model_request_scope(stage=stage):
             return self._router.recover_no_candidate(
                 messages, intent, rejection_counts, alternatives
             )
