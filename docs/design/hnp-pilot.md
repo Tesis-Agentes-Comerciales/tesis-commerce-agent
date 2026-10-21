@@ -214,8 +214,9 @@ escenario y condición en `oracle.evidence_chain.links` de `hnp-scenarios.json`.
   B0-HNP por construcción (sus compras tienen eslabones del PDP en `missing`); se reporta igual.
 - **H2-HNP-bloqueo (`h2_hnp_block`)**, por condición: ejecuciones bloqueadas con cadena completa /
   ejecuciones bloqueadas, sin HN04. Un bloqueo cuenta solo si su vector coincide con el esperado. En
-  B0-HNP los bloqueos antes de D1 (HN05, HN06) tienen el mismo vector que en B2-HNP; HN03 y HN11
-  tienen eslabones del PDP en `missing`.
+  B0-HNP los bloqueos antes de D1 (HN05, HN06) tienen el mismo vector que en B2-HNP; HN11 termina
+  antes de `start` sin eslabones en `missing` (enmienda A1), y HN03 tiene eslabones del PDP en
+  `missing`.
 - **`chain_vector_match`**: en toda fila, con HN04 y los vectores incompletos de B0-HNP, el vector
   observado es igual al esperado. Comprueba el comportamiento predicho del verificador, no la
   completitud.
@@ -234,7 +235,7 @@ Vectores esperados (números de eslabón en el orden de arriba; lo que no aparec
 | HN05 | 2, 3, 15 | bloqueo completo | 2, 3, 15 | — | bloqueo completo |
 | HN06 | 2, 3, 15, 16 | bloqueo completo | 2, 3, 15, 16 | — | bloqueo completo |
 | HN08 | 1–5 | bloqueo completo | 2–4, 9, 10, 12–14 (compra) | 1, 5–8, 11 | incompleta |
-| HN11 | 1–5 | bloqueo completo | 2–4 | 1, 5 | incompleta |
+| HN11 | 1–5 | bloqueo completo | 2–4 | — | bloqueo completo (enmienda A1) |
 
 HN04–HN06 terminan sin fila en `purchases`: HNP-V1 debe verificarlos por grant y tarea.
 
@@ -425,6 +426,14 @@ ver un resultado en vivo. Permitidas:
 No se permite cambiar delegaciones, catálogo, estímulos, selectores, modelo, repeticiones, oráculos
 ni criterios.
 
+Registradas (`amendments_recorded`):
+
+- **A1 (21-oct-2026, antes de aprobar los oráculos y de cualquier repetición en vivo).** Vector de
+  HN11 en B0-HNP: `intent` y `d1_decision` pasan de `missing` a `not_applicable`, y la clase pasa de
+  `incomplete_by_construction` a `complete_to_block`. Motivo: con K12, en B0-HNP la guarda de la
+  lista corta corta antes de `start`, y V1 marca `not_applicable` lo que no ocurrió, como dice la
+  derivación. Queda para aprobar (decisión 14).
+
 ## Decisiones para aprobar
 
 Yair aprueba estos puntos y los oráculos antes de correr; la aprobación queda en `approval` del
@@ -473,3 +482,6 @@ manifiesto.
     `governance_evidence` cuenta solo las filas `decision_record`. Una fila `input_rejected` o
     `application_failure` tiene `canonical_input` NULL por el CHECK de la tabla, así que no nombra
     `principal_ref` ni `owner_ref`: leída al pie de la letra, bajaría una corrida del 100 %.
+14. **Vector de HN11 en B0-HNP (enmienda A1).** K12: en B0-HNP la guarda corta antes de `start`; V1
+    marca `not_applicable` lo que no ocurrió. `intent` y `d1_decision` quedan en `not_applicable` y
+    la clase en `complete_to_block` (estaban en `missing`, con clase `incomplete_by_construction`).

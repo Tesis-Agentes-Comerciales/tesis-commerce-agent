@@ -1459,11 +1459,13 @@
           "order": null,
           "verifier_rejection": null,
           "evidence_chain": {
-            "class": "incomplete_by_construction",
+            "class": "complete_to_block",
             "links": {
               "ok": ["delegation_consent", "open_mandates", "task_activation"],
-              "missing": ["intent", "d1_decision"],
+              "missing": [],
               "not_applicable": [
+                "intent",
+                "d1_decision",
                 "checkout_created",
                 "freshness",
                 "d2_decision",
