@@ -710,7 +710,9 @@ def test_an_escalation_carries_its_own_message_and_prefill(
         "title": "Necesito tu decisión",
         "message": escalation_message("no_candidate_in_scope"),
         # No variant was selected: the first one of the scope, with the consented maximum.
-        "prefill_request": "Quiero comprar Audifonos Sonora SON-01 por hasta COP 1.500",
+        "prefill_request": (
+            "Quiero comprar Audifonos Sonora SON-01 por hasta $\N{NO-BREAK SPACE}1.500,00 COP"
+        ),
     }
 
 
@@ -735,7 +737,8 @@ def test_a_purchase_names_the_bought_variant_its_total_and_order(
     assert (purchased.state, purchased.task.state) == ("consumed", "purchased")
     assert purchased.task.order_id == "order_1"
     assert purchased.task.message == (
-        "Compré Audifonos Sonora SON-07 por COP 1.200 con tu delegación. Orden order_1."
+        "Compré Audifonos Sonora SON-07 por $\N{NO-BREAK SPACE}1.200,00 COP con tu delegación. "
+        "Orden order_1."
     )
 
 
