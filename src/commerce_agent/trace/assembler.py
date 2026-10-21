@@ -1,11 +1,14 @@
 """Build a `PurchaseTrace` from stored records, one function per step kind.
 
 The trace holds only what happened: the UI deduces the disabled policy and the controls a purchase
-never reached. A step carries `duration_ms` only when both of its ends were measured.
+never reached. A step carries `duration_ms` only when both of its ends were measured. A Human Not
+Present purchase (docs/design/hnp-governed.md §10) adds its delegation ledger: the consent replaces
+the request, and there is no approval or signature by the buyer.
 """
 
 import logging
 import sqlite3
+from collections import Counter
 from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass, field
@@ -22,6 +25,9 @@ from commerce_agent.persistence.hp_evidence_sqlite import HpEvidence
 from .models import (
     ApprovalStep,
     AuthorizationDecisionStep,
+    CanceledStep,
+    DispatchDecisionStep,
+    FailedStep,
     Money,
     OrderConfirmedStep,
     PolicyDecisionStep,
@@ -35,7 +41,14 @@ from .models import (
     TraceActor,
     TraceStep,
 )
-from .sources import GraphCheckpoints, PurchaseRecords, merchant_origins, read_records, transient
+from .sources import (
+    Delegation,
+    GraphCheckpoints,
+    PurchaseRecords,
+    merchant_origins,
+    read_records,
+    transient,
+)
 
 logger = logging.getLogger(__name__)
 STEP: TypeAdapter[TraceStep] = TypeAdapter(TraceStep)
@@ -58,6 +71,15 @@ GATED = {
     "authorization_signed",
     "payment_authorized",
     "order_confirmed",
+}
+# HNP (spec §8.1, §9.1): the task outcomes a cancellation ends with, and how ledger events read.
+CANCELLATIONS = {"revoked_by_owner", "kill_switch", "grant_expired"}
+REVOKED_BY: dict[str, TraceActor] = {"owner": "user", "operator": "operator"}
+RESERVATION_OUTCOMES = {
+    "reservation_reserved": "reserved",
+    "reservation_released": "released",
+    "consumed": "consumed",
+    "reservation_uncertain": "uncertain",
 }
 # Fields offer_freshness.compare_offer compares; a field it adds later stays out of the trace.
 AMOUNT_FIELDS = {"subtotal_minor", "shipping_minor", "total_minor", "delivery_days", "stock"}
@@ -190,13 +212,17 @@ def revision(binding: PolicyBinding) -> str:
 
 
 def authorization_rules(record: DecisionRecord) -> tuple[dict[str, Any], ...]:
-    """POL-03..06 check several facts each: a rule shows the values that explain its result."""
+    """POL-03..06 check several facts each: a rule shows the values that explain its result.
+
+    D2-HNP adds POL-07..09, which compare the grant and its single use: they show no values.
+    """
+    mode = record.decision.purchase_mode
     results = {rule.policy_id: rule.result for rule in record.decision.rule_results}
     values: dict[str, tuple[RuleValue, RuleValue]] = {}
     if not results:  # A runtime guard stopped the approval before any rule was evaluated.
-        results = dict.fromkeys(APPLICABLE_RULES[("D2", "HP")], "not_evaluated")
+        results = dict.fromkeys(APPLICABLE_RULES[("D2", mode)], "not_evaluated")
     else:
-        data = record.authorization_input()
+        data = record.hnp_authorization_input() if mode == "HNP" else record.authorization_input()
         terms, limit = data.terms, data.intent.max_total_minor
         approved, reviewed = terms.variant_id, data.d1.selected_variant_id
         then, now = revision(data.d1.policy_binding), revision(data.expected_policy)
@@ -230,6 +256,18 @@ def policy_step(
 def authorization_decision_step(record: DecisionRecord, index: int) -> TraceStep:
     """D2: the policy checked the approval before anything was signed (actor: the policy)."""
     return decision_step("authorization_decision", record, index, authorization_rules(record))
+
+
+def dispatch_decision_step(record: DecisionRecord, index: int) -> TraceStep:
+    """D3-HNP (POL-09, POL-10): the authority right before committing the dispatch."""
+    results = {rule.policy_id: rule.result for rule in record.decision.rule_results}
+    if not results:  # A runtime guard.
+        results = dict.fromkeys(APPLICABLE_RULES[("D3", "HNP")], "not_evaluated")
+    rules = tuple(
+        {"id": rule, "result": result, "observed": None, "expected": None}
+        for rule, result in results.items()
+    )
+    return decision_step("dispatch_decision", record, index, rules)
 
 
 def decision_step(
@@ -589,6 +627,8 @@ def merchant(records: PurchaseRecords, origins: dict[str, str]) -> str | None:
 
 
 def assemble(records: PurchaseRecords, context: TraceContext) -> PurchaseTrace:
+    if records.delegation is not None:
+        return assemble_delegated(records, records.delegation, context)
     origins = context.origins
     request = request_step(records)
     found = (
@@ -635,6 +675,184 @@ def assemble(records: PurchaseRecords, context: TraceContext) -> PurchaseTrace:
     )
 
 
+def numbered(kind: str, number: int) -> str:
+    return kind if number == 1 else f"{kind}:{number}"
+
+
+# A task failure the purchase's own cancellation already explains (the budget guard of `start`).
+CANCELED_CODES = {"budget": "budget_guard"}
+
+
+def explained(purchase_end: TraceStep | None) -> str | None:
+    if isinstance(purchase_end, FailedStep):
+        return purchase_end.code
+    if isinstance(purchase_end, CanceledStep):
+        return CANCELED_CODES.get(purchase_end.by)
+    return None
+
+
+def delegation_steps(delegation: Delegation, purchase_end: TraceStep | None) -> list[TraceStep]:
+    """The ledger's events in their order (spec §9.1). A task failure the purchase already shows
+    with the same code adds nothing; with another code (#93) both show."""
+    found: list[TraceStep] = []
+    counts: Counter[str] = Counter()
+    amounts: dict[str, Any] = {}
+
+    def add(kind: str, at: str, actor: TraceActor, **fields: Any) -> None:
+        counts[kind] += 1
+        found.append(step(kind, at, actor, step_id=numbered(kind, counts[kind]), **fields))
+
+    for event in delegation.events:
+        body, at = event.body, utc(event.recorded_at)
+        match event.event_type:
+            case "consented":
+                total, expires = cop(delegation.total_max_minor), utc(delegation.expires_at)
+                add(
+                    "delegation_consented",
+                    at,
+                    "user",
+                    grant_id=delegation.grant_id,
+                    total_max=total,
+                    expires_at=expires,
+                )
+            case "task_claimed":
+                add("task_activated", at, "agent", trigger="service")
+            case (
+                "reservation_reserved"
+                | "reservation_released"
+                | "consumed"
+                | "reservation_uncertain"
+            ):
+                amount = amounts.setdefault(body["reservation_id"], body.get("amount_minor"))
+                outcome = RESERVATION_OUTCOMES[event.event_type]
+                add("reservation", at, "agent", outcome=outcome, amount=cop(amount))
+            case "mandates_closed":
+                add("mandates_closed", at, "agent")
+            case "revoked" if body["revoked_reason"] in REVOKED_BY:
+                by = body["revoked_reason"]
+                add("revoked", at, REVOKED_BY[by], by=by, effect=body["effect"])
+            case "expired":
+                add("canceled", at, "agent", by="expiry")
+            case "task_finished" if body["state"] == "escalated":
+                add("escalated", at, "agent", state="blocked", reason=body["outcome_code"])
+            case "task_finished" if body["state"] == "failed":
+                code = body["outcome_code"]
+                if code != explained(purchase_end):
+                    step_id = "failed:task" if isinstance(purchase_end, FailedStep) else "failed"
+                    found.append(
+                        step("failed", at, "agent", step_id=step_id, state="error", code=code)
+                    )
+            case _:
+                pass
+    return cause_first(found)
+
+
+def cause_first(found: list[TraceStep]) -> list[TraceStep]:
+    """A revocation and the release it causes share a unit of work, release first: show the
+    revocation first."""
+    for index in range(len(found) - 1):
+        first, second = found[index], found[index + 1]
+        released = first.kind == "reservation" and first.outcome == "released"
+        if released and second.kind == "revoked" and first.at == second.at:
+            found[index], found[index + 1] = second, first
+    return found
+
+
+def delegated_status(records: PurchaseRecords, delegation: Delegation) -> PurchaseStatus:
+    """A cancellation first; then what stopped the run, as in HP; then the purchase's stage. A
+    blocked allow of a lost CAS is a failure (`state_conflict`), not the policy stopping it.
+
+    K15: a task that ended while `start` left the purchase `selected` (a D1 allow without its
+    dispatch result) leaves it waiting for D1's recovery: to be confirmed, never charged.
+    """
+    finished = next(
+        (
+            event.body
+            for event in reversed(delegation.events)
+            if event.event_type == "task_finished"
+        ),
+        None,
+    )
+    outcome = finished["outcome_code"] if finished else None
+    stage = records.purchase["stage"]
+    decisions = sorted(
+        (*records.decisions, *records.authorizations, *records.dispatches),
+        key=lambda record: record.sequence,
+    )
+    if stage == "completed":
+        return "completed"
+    if outcome in CANCELLATIONS:
+        return "canceled"
+    if stale_terms(records):
+        return "stale_terms"
+    stopped = bool(decisions) and decisions[-1].application.disposition == "blocked"
+    if stopped and outcome != "state_conflict":
+        return "blocked"
+    if finished is not None and (finished["state"] == "uncertain" or stage == "selected"):
+        return "uncertain"
+    return STAGE_STATUS.get(stage, "in_progress")
+
+
+def delegated_total(delegation: Delegation) -> Money | None:
+    """The authoritative total the single use reserved, shipping included."""
+    amounts = [
+        event.body["amount_minor"]
+        for event in delegation.events
+        if event.event_type == "reservation_reserved"
+    ]
+    return Money(minor=amounts[-1], currency="COP") if amounts else None
+
+
+def assemble_delegated(
+    records: PurchaseRecords, delegation: Delegation, context: TraceContext
+) -> PurchaseTrace:
+    origins = context.origins
+    # Only a cancellation the purchase records itself (the budget guard): an escalation or a
+    # revocation cancels it without an owner's or a guard's operation, and its terminal explains it.
+    purchase_end = failed_step(records) or canceled_step(records)
+    found = (
+        *(
+            policy_step(item, index, records, origins)
+            for index, item in enumerate(records.decisions)
+        ),
+        checkout_step(records),
+        *(
+            authorization_decision_step(item, index)
+            for index, item in enumerate(records.authorizations)
+        ),
+        *(dispatch_decision_step(item, index) for index, item in enumerate(records.dispatches)),
+        # No `payment_step`: `payment.delegate` is written before the first send to the PSP and
+        # the purchase is `completing` from UoW-2, so neither proves a token. Only the payment
+        # receipt `success` does (09b).
+        order_step(records),
+        purchase_end,
+    )
+    steps = by_time(
+        [item for item in found if item is not None],
+        [
+            *delegation_steps(delegation, purchase_end),
+            *order_event_steps(records),
+            *freshness_steps(records),
+        ],
+        Ordering(stored=stored_times(records)),
+    )
+    origin = merchant(records, origins) or origins.get(delegation.merchant_ref)
+    started = next((item.at for item in steps if item.at), utc(records.purchase["created_at"]))
+    return PurchaseTrace(
+        run_id=records.purchase["run_id"],
+        status=delegated_status(records, delegation),
+        policy_mode=records.decisions[-1].decision.governance_mode if records.decisions else "off",
+        request=records.purchase["request_text"],
+        merchant=origin,
+        merchant_name=context.merchant_names.get(origin) if origin else None,
+        total=delegated_total(delegation),
+        started_at=started,
+        updated_at=max(utc(records.purchase["updated_at"]), *(s.at for s in steps if s.at)),
+        steps=tuple(steps),
+        purchase_mode="HNP",
+    )
+
+
 def finished_at(trace: PurchaseTrace, order: OrderConfirmedStep | None) -> str | None:
     """A completed purchase ends at its order, not at a merchant webhook that arrives later."""
     if trace.status == "completed":
@@ -647,7 +865,7 @@ def summarize(trace: PurchaseTrace) -> PurchaseSummary:
     policies = [
         item.decision
         for item in trace.steps
-        if isinstance(item, PolicyDecisionStep | AuthorizationDecisionStep)
+        if isinstance(item, PolicyDecisionStep | AuthorizationDecisionStep | DispatchDecisionStep)
     ]
     approval = next((item for item in trace.steps if isinstance(item, ApprovalStep)), None)
     order = next((item for item in trace.steps if isinstance(item, OrderConfirmedStep)), None)
@@ -669,6 +887,7 @@ def summarize(trace: PurchaseTrace) -> PurchaseSummary:
         approved_at=approval.approved_at if approval else None,
         order_id=order.order_id if order else None,
         duration_ms=elapsed_ms(trace.started_at, finished_at(trace, order)),
+        purchase_mode=trace.purchase_mode,
     )
 
 
@@ -710,6 +929,7 @@ def unavailable_summary(purchase: dict[str, Any]) -> PurchaseSummary:
         approved_at=None,
         order_id=stored_text(purchase["order_id"]),
         duration_ms=None,
+        purchase_mode="HNP" if purchase.get("purchase_mode") == "HNP" else None,
     )
 
 
@@ -763,7 +983,7 @@ class PurchaseTraces:
                 if cursor is None:
                     return None
             query = connection.execute(
-                "SELECT run_id, request_text, order_id, created_at FROM purchases "
+                "SELECT run_id, request_text, order_id, created_at, purchase_mode FROM purchases "
                 "WHERE owner_id = ? AND (? IS NULL OR (created_at, run_id) < (?, ?)) "
                 "ORDER BY created_at DESC, run_id DESC LIMIT ?",
                 (owner_id, before, *cursor, limit + 1),

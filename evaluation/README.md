@@ -36,6 +36,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | `src/commerce_evaluation/conversation.py` | evaluación conversacional contra un agente local |
 | `src/commerce_evaluation/demo_stack.py` | `demo-stack`: stack local de la demo con las condiciones del piloto ([guion](../docs/demo/guion-2026-10-23.md)) |
 | `src/commerce_evaluation/verify_evidence.py` | `verify-evidence`: verificador de la cadena decisión–consentimiento–efecto y métrica H2 ([spec](../docs/design/hp-p2-evidence-chain.md)) |
+| `src/commerce_evaluation/verify_evidence_hnp.py` | perfil HNP de `verify-evidence`: los 17 eslabones de HNP-V1 por tarea y grant, y H2-HNP ([spec](../docs/design/hnp-governed.md), §9.2) |
 | `src/commerce_evaluation/hnp/` | arnés HNP-01 y validador LLM de HNP-02 ([`llm/`](src/commerce_evaluation/hnp/llm/README.md)) |
 | `src/commerce_evaluation/hnp_review_demo.py`, `hnp_matrix.py` | runners de HNP-01 y HNP-02 |
 | `src/commerce_evaluation/hnp_pilot.py` | `hnp-pilot`: plan, guardas y `--dry-run` del piloto HNP v1 ([spec](../docs/design/hnp-pilot.md)) |
@@ -50,6 +51,7 @@ uv run governance-pilot --dry-run --manifest evaluation/data/b2-pilot-v2.json --
 uv run evaluate-conversation                         # con agente y Merchant locales activos
 uv run demo-stack --dry-run                          # plan y requisitos de la demo local, sin arrancar nada
 uv run verify-evidence --agent-db agent.db --psp-db payments.db  # cadena de evidencia y H2
+uv run verify-evidence --agent-db agent.db --grant dg_…  # cadena HNP de un grant
 uv run hnp-review-demo                               # HNP-01 offline, escribe en .local/hnp01/demo
 uv run hnp-matrix --dry-run --env-file .env.example  # HNP-02 con FakeTransport, escribe en .local/hnp02
 uv run hnp-pilot --dry-run                           # piloto HNP v1: plan, entorno (solo nombres) y preparación
@@ -315,6 +317,29 @@ eslabón verifica el registro D2 con el ledger, su enlace con D1 (`evidence_dige
 `operation_id`, `policy_binding`), su frescura `approve` y que `approvals.authorization_evidence_id`
 apunte a la autorización aplicada; una aprobación u orden sin una autorización D2 aplicada es
 `mismatch` (un `deny` seguido de un reintento con un `allow` aplicado es legítimo).
+
+**Perfil HNP (HNP-V1).** Las compras con `purchase_mode = 'HNP'` no se verifican como HP: cada
+tarea de `hnp_tasks` (o solo la de `--run` o `--grant GRANT_ID`) da un documento con
+`purchase_mode: "HNP"`, `grant_id`, `task_id`, `task_state`, `outcome_code` y los 17 eslabones de
+la spec en su orden (`intent`, `delegation_consent`, `open_mandates`, `task_activation`,
+`d1_decision`, `checkout_created`, `freshness`, `d2_decision`, `reservation`, `closed_mandates`,
+`d3_decision`, `receipts`, `order_webhook`, `consumption`, `revocation`, `kill_switch`,
+`escalation`), más `approval` y `mandates` en `not_applicable`. Una tarea sin fila en `purchases`
+(vencida, revocada o detenida antes de activarse, HN04–HN06) se verifica por su grant y su tarea,
+con `run_id: null`; `task_state`, `outcome_code` y `run_id` salen de los eventos encadenados.
+Cada eslabón lee la cadena de `delegation_events` solo hasta su evento, recalcula digests y vuelve a
+verificar los mandatos abiertos y cerrados con las claves públicas que guardó el ledger; uno cuyo
+paso nadie alcanzó es `not_applicable`, así que la cadena termina en el PDP que negó o en el
+terminal; D1 aplica también cuando el rastro encadenado lo implica (un código de D1 o posterior, un
+evento posterior a D1). `ledger_chain` exige la cadena entera y que la tarea y el grant sean los que
+dejan sus eventos. Con orden, la cadena es `complete` solo si `ledger_chain` y los eslabones 1 a 14
+son `ok`; sin orden, si `ledger_chain` es `ok` y ningún eslabón es `missing` ni `mismatch`. Con
+ejecuciones HNP el documento suma `h2_hnp` (`orders`, `blocked` —tareas `escalated`, `failed` o
+`canceled`, HN04 incluido, así que no es el `h2_hnp_block` del piloto—, `all_runs`, `by_link`); `h2`
+sigue contando solo las compras HP. `receipts` lee los JWT de los recibos con el perfil AP2. Hasta
+HNP-09b es `missing` para una orden (los JWT los guarda su UoW-3 en `completion_results`) y para un
+rechazo del PSP (el ledger aún guarda el estado `error` fuera del perfil AP2). Desde Python:
+`verify_database(path, grant_id=…)`.
 
 ## Piloto HNP v1: B0-HNP, B2-HNP y P
 

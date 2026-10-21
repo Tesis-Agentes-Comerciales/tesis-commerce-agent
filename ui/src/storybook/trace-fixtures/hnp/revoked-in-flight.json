@@ -1,0 +1,255 @@
+{
+  "run_id": "run_0d2f4b6a8c1e4364f9b1d3e5a7c9f1a3",
+  "status": "in_progress",
+  "policy_mode": "enforce",
+  "request": "Compra delegada",
+  "merchant": "http://127.0.0.1:4120",
+  "merchant_name": "Synthetic Commerce Merchant",
+  "total": {
+    "minor": 192400000,
+    "currency": "COP"
+  },
+  "started_at": "2026-10-21T14:58:10.204Z",
+  "updated_at": "2026-10-21T15:00:03.540Z",
+  "steps": [
+    {
+      "id": "delegation_consented",
+      "at": "2026-10-21T14:58:10.204Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "delegation_consented",
+      "grant_id": "dg_7c1e5a9b3d0f4e2a",
+      "total_max": {
+        "minor": 200000000,
+        "currency": "COP"
+      },
+      "expires_at": "2026-10-22T23:00:00.000Z"
+    },
+    {
+      "id": "task_activated",
+      "at": "2026-10-21T15:00:00.118Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "task_activated",
+      "trigger": "service"
+    },
+    {
+      "id": "policy_decision",
+      "at": "2026-10-21T15:00:01.402Z",
+      "duration_ms": 5,
+      "actor": "policy",
+      "state": "done",
+      "kind": "policy_decision",
+      "decision": {
+        "mode": "enforce",
+        "outcome": "allow",
+        "effect": "continued",
+        "policy": {
+          "set_id": "b2-hnp-v1",
+          "revision": 2
+        },
+        "rules": [
+          {
+            "id": "POL-01",
+            "result": "pass",
+            "observed": "SON-XM6-BLK",
+            "expected": "BOS-QCU-BLK, SON-XM6-BLK"
+          },
+          {
+            "id": "POL-02",
+            "result": "pass",
+            "observed": "http://127.0.0.1:4120",
+            "expected": "http://127.0.0.1:4120"
+          },
+          {
+            "id": "POL-11",
+            "result": "pass",
+            "observed": {
+              "minor": 189900000,
+              "currency": "COP"
+            },
+            "expected": {
+              "minor": 200000000,
+              "currency": "COP"
+            }
+          }
+        ],
+        "reason_codes": [
+          "ALL_APPLICABLE_POLICIES_SATISFIED"
+        ],
+        "latency_ms": 5,
+        "decision_id": "decision:3f9a1c7e5b2d4086a1c3e5f7092b4d6e",
+        "evidence_id": "evidence:8d2b4f6a0c1e3057b9d1f3a5c7e9024b"
+      }
+    },
+    {
+      "id": "checkout_created",
+      "at": "2026-10-21T15:00:01.407Z",
+      "duration_ms": null,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "checkout_created",
+      "checkout_id": "cs_e41d7b2a90c6"
+    },
+    {
+      "id": "freshness_check:1",
+      "at": "2026-10-21T15:00:02.811Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "freshness_check",
+      "stage": "close",
+      "mode": "enforce",
+      "outcome": "fresh",
+      "changes": [],
+      "currency": "COP",
+      "offer_revision": 1,
+      "read_error": null,
+      "evidence_digest": "sha256:6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e"
+    },
+    {
+      "id": "authorization_decision",
+      "at": "2026-10-21T15:00:02.836Z",
+      "duration_ms": 4,
+      "actor": "policy",
+      "state": "done",
+      "kind": "authorization_decision",
+      "decision": {
+        "mode": "enforce",
+        "outcome": "allow",
+        "effect": "continued",
+        "policy": {
+          "set_id": "b2-hnp-v1",
+          "revision": 2
+        },
+        "rules": [
+          {
+            "id": "POL-03",
+            "result": "pass",
+            "observed": null,
+            "expected": null
+          },
+          {
+            "id": "POL-04",
+            "result": "pass",
+            "observed": null,
+            "expected": null
+          },
+          {
+            "id": "POL-05",
+            "result": "pass",
+            "observed": {
+              "minor": 192400000,
+              "currency": "COP"
+            },
+            "expected": {
+              "minor": 200000000,
+              "currency": "COP"
+            }
+          },
+          {
+            "id": "POL-06",
+            "result": "pass",
+            "observed": null,
+            "expected": null
+          },
+          {
+            "id": "POL-07",
+            "result": "pass",
+            "observed": null,
+            "expected": null
+          },
+          {
+            "id": "POL-08",
+            "result": "pass",
+            "observed": null,
+            "expected": null
+          },
+          {
+            "id": "POL-09",
+            "result": "pass",
+            "observed": null,
+            "expected": null
+          }
+        ],
+        "reason_codes": [
+          "ALL_APPLICABLE_POLICIES_SATISFIED"
+        ],
+        "latency_ms": 4,
+        "decision_id": "decision:5c7e9a1b3d5f4071c2e4a6b8d0f2a4c6",
+        "evidence_id": "evidence:a1c3e5f7092b4d6e8f0a2c4e6b8d0f13"
+      }
+    },
+    {
+      "id": "reservation",
+      "at": "2026-10-21T15:00:02.849Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "reservation",
+      "outcome": "reserved",
+      "amount": {
+        "minor": 192400000,
+        "currency": "COP"
+      }
+    },
+    {
+      "id": "mandates_closed",
+      "at": "2026-10-21T15:00:03.274Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "mandates_closed"
+    },
+    {
+      "id": "dispatch_decision",
+      "at": "2026-10-21T15:00:03.296Z",
+      "duration_ms": 3,
+      "actor": "policy",
+      "state": "done",
+      "kind": "dispatch_decision",
+      "decision": {
+        "mode": "enforce",
+        "outcome": "allow",
+        "effect": "continued",
+        "policy": {
+          "set_id": "b2-hnp-v1",
+          "revision": 2
+        },
+        "rules": [
+          {
+            "id": "POL-09",
+            "result": "pass",
+            "observed": null,
+            "expected": null
+          },
+          {
+            "id": "POL-10",
+            "result": "pass",
+            "observed": null,
+            "expected": null
+          }
+        ],
+        "reason_codes": [
+          "ALL_APPLICABLE_POLICIES_SATISFIED"
+        ],
+        "latency_ms": 3,
+        "decision_id": "decision:7e9b1d3f5a2c4e60b8d0f2a4c6e8a0b2",
+        "evidence_id": "evidence:c3e5a7092b4d6f8e0a1c3e5f7b9d1f35"
+      }
+    },
+    {
+      "id": "revoked",
+      "at": "2026-10-21T15:00:03.540Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "revoked",
+      "by": "owner",
+      "effect": "in_flight"
+    }
+  ],
+  "purchase_mode": "HNP"
+}
