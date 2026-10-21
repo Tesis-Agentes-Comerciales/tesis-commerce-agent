@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect } from "storybook/test"
 
 import { PolicyRuleTable } from "@/components/trace/policy-rule-table"
+import { traceMerchant } from "@/components/trace/trace-copy"
 import { decisionOf, TRACES } from "@/storybook/trace-fixtures"
 
 const meta = {
@@ -40,6 +41,37 @@ export const OneFails: Story = {
     await expect(canvas.getByText("No cumple")).toBeVisible()
     await expect(canvas.getByText("Comercios permitidos")).toBeVisible()
     await expect(canvas.getByText("https://tienda-aliada.example.test")).toBeVisible()
+  },
+}
+
+/**
+ * Con el comercio de la compra, el valor observado lleva su nombre y, debajo, el origen que evaluó
+ * la política. La lista esperada sigue en orígenes: es lo que dice la política.
+ */
+export const NamesTheMerchant: Story = {
+  args: {
+    rules: decisionOf(TRACES.blockedMerchant).rules,
+    merchant: traceMerchant(TRACES.blockedMerchant),
+  },
+  play: async ({ canvas }) => {
+    const name = canvas.getByText("Synthetic Commerce Merchant")
+    const origin = canvas.getByText("http://127.0.0.1:4120")
+    await expect(name.tagName).toBe("DD")
+    await expect(origin.getBoundingClientRect().top).toBeGreaterThan(name.getBoundingClientRect().top)
+    await expect(origin).toHaveClass("font-mono")
+    await expect(canvas.getByText("https://tienda-aliada.example.test")).toBeVisible()
+  },
+}
+
+/** Otro comercio que el de la compra: no se le pone un nombre que no es suyo. */
+export const OtherMerchantKeepsOrigin: Story = {
+  args: {
+    rules: decisionOf(TRACES.blockedMerchant).rules,
+    merchant: { origin: "https://otro.example.test", name: "Otro comercio" },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.queryByText("Otro comercio")).toBeNull()
+    await expect(canvas.getByText("http://127.0.0.1:4120")).toBeVisible()
   },
 }
 

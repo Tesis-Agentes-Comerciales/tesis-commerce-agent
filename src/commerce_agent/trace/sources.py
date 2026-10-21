@@ -1,7 +1,8 @@
 """Read-only access to what one purchase trace is built from (docs/design/trace-panel.md).
 
 Queries name their columns: mandates, receipts, signatures and idempotency keys are only tested
-for presence, never read.
+for presence, never read. The D1 creation envelope also holds an idempotency key: SQLite extracts
+its `prepared_at` and nothing else leaves the database.
 """
 
 import json
@@ -83,6 +84,8 @@ class PurchaseRecords:
     turn: TurnSnapshot | None
     # Application controls of the governed HP flow: offer freshness and governed recovery.
     hp_evidence: tuple[HpEvidence, ...] = ()
+    # The D1 enforce path keeps no `checkout.create` key: its creation envelope has the time.
+    checkout_prepared_at: str | None = None
 
 
 def merchant_origins(settings: Settings) -> dict[str, str]:
@@ -138,8 +141,25 @@ class GraphCheckpoints:
                     (item.checkpoint["ts"], item.checkpoint["channel_values"])
                     for item in saver.list(config)
                 ]
-        except sqlite3.Error:
+        except sqlite3.Error as error:
+            if transient(error):
+                raise
             return None
+
+
+# SQLITE_BUSY and SQLITE_LOCKED, extended codes included.
+_LOCK_CODES = {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+
+
+def transient(error: BaseException) -> bool:
+    """Another connection held a lock past the timeout (`database is locked`): reading again later
+    can work, unlike evidence that does not verify."""
+    code = getattr(error, "sqlite_errorcode", None)
+    return (
+        isinstance(error, sqlite3.OperationalError)
+        and isinstance(code, int)
+        and code & 0xFF in _LOCK_CODES
+    )
 
 
 def read_records(
@@ -154,10 +174,13 @@ def read_records(
         sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
     ) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
+        # Added by SqliteAgentStore.initialize; a database it has not migrated yet has none.
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(purchases)")}
+        failure = "failure_code" if "failure_code" in columns else "NULL AS failure_code"
         purchase = _row(
             connection,
-            "SELECT run_id, request_text, stage, checkout_id, order_id, created_at, updated_at "
-            "FROM purchases WHERE run_id = ?",
+            "SELECT run_id, request_text, stage, checkout_id, order_id, created_at, updated_at, "
+            f"{failure} FROM purchases WHERE run_id = ?",
             run_id,
         )
         if purchase is None:
@@ -202,6 +225,7 @@ def read_records(
             policy=_policy(connection, run_id, decisions),
             turn=_turn(graph.thread(thread["thread_id"]), run_id) if thread else None,
             hp_evidence=_hp_evidence(connection, run_id),
+            checkout_prepared_at=_checkout_prepared_at(connection, run_id),
         )
 
 
@@ -233,7 +257,9 @@ def _hp_evidence(connection: sqlite3.Connection, run_id: str) -> tuple[HpEvidenc
         return ()
     try:
         records = read_run(connection, run_id)
-    except (sqlite3.Error, ValueError):
+    except (sqlite3.Error, ValueError) as error:
+        if transient(error):
+            raise
         raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
     if not chain_is_valid(run_id, records):
         raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE")
@@ -243,6 +269,32 @@ def _hp_evidence(connection: sqlite3.Connection, run_id: str) -> tuple[HpEvidenc
     except (KeyError, ValidationError):
         raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
     return records
+
+
+def _checkout_prepared_at(connection: sqlite3.Connection, run_id: str) -> str | None:
+    """When the D1 enforce path prepared the checkout creation, right before calling the merchant.
+
+    `prepared_at` is the time of the decision that allowed it (enforce.py), and the envelope's
+    other fields never leave SQLite.
+    """
+    found = connection.execute(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'table' "
+        "AND name IN ('d1_checkout_operations', 'd1_checkout_envelopes')"
+    ).fetchone()
+    if found[0] != 2:
+        return None
+    try:
+        row = connection.execute(
+            "SELECT json_extract(CAST(e.canonical_envelope AS TEXT), '$.prepared_at') "
+            "FROM d1_checkout_envelopes e JOIN d1_checkout_operations o "
+            "ON o.operation_id = e.operation_id WHERE o.run_id = ?",
+            (run_id,),
+        ).fetchone()
+    except sqlite3.Error as error:
+        if transient(error):
+            raise
+        raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
+    return row[0] if row is not None and isinstance(row[0], str) else None
 
 
 def _policy(

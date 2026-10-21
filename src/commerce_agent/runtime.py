@@ -1,6 +1,6 @@
 import sqlite3
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -47,6 +47,8 @@ class AgentRuntime:
     mandate_signer: AgentMandateSigner | None = None
     d1_shadow: "ShadowD1Observer | UnavailableShadowObserver | None" = None
     d1_gate: "SqliteD1EnforceGate | None" = None
+    # Display name of each merchant origin, from the seller its feed declares at startup.
+    merchant_names: dict[str, str] = field(default_factory=dict)
 
     def close(self) -> None:
         self.client.close()
@@ -218,4 +220,7 @@ def build_runtime(
         mandate_signer=mandate_signer,
         d1_shadow=d1_shadow,
         d1_gate=d1_gate,
+        merchant_names=(
+            {configuration.merchant_base_url: feed.seller_name} if feed.seller_name else {}
+        ),
     )

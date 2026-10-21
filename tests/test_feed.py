@@ -81,3 +81,44 @@ def test_rejects_empty_lines_to_keep_jsonl_deterministic(tmp_path: Path) -> None
         load_product_feed(tmp_path)
     assert captured.value.code == "empty_product_line"
     assert captured.value.line == 3
+
+
+def feed_with_sellers(tmp_path: Path, *sellers: object) -> Path:
+    """The fixture feed with each variant's `seller` replaced in order (None removes it)."""
+    names = iter(sellers)
+    lines = []
+    for line in (FIXTURE / "products.jsonl").read_text(encoding="utf-8").splitlines():
+        product = json.loads(line)
+        for variant in product["variants"]:
+            seller = next(names)
+            variant.pop("seller", None)
+            if seller is not None:
+                variant["seller"] = seller
+        lines.append(json.dumps(product))
+    (tmp_path / "metadata.json").write_text((FIXTURE / "metadata.json").read_text())
+    (tmp_path / "products.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_seller_name_is_the_merchant_of_record_every_variant_declares(tmp_path: Path) -> None:
+    assert load_product_feed(FIXTURE).seller_name == "Synthetic Commerce Merchant"
+    spaced = {"name": "  Tienda   Aliada "}
+    assert load_product_feed(feed_with_sellers(tmp_path, spaced, spaced)).seller_name == (
+        "Tienda Aliada"
+    )
+
+
+@pytest.mark.parametrize(
+    "sellers",
+    [
+        pytest.param(({"name": "Tienda A"}, {"name": "Tienda B"}), id="two-sellers"),
+        pytest.param(({"name": "Tienda A"}, None), id="variant-without-seller"),
+        pytest.param(({"links": []}, {"links": []}), id="seller-without-name"),
+        pytest.param(({"name": "   "}, {"name": "   "}), id="blank-name"),
+        pytest.param(({"name": "x" * 81}, {"name": "x" * 81}), id="name-too-long"),
+    ],
+)
+def test_feed_without_one_usable_seller_name_has_none(
+    tmp_path: Path, sellers: tuple[object, object]
+) -> None:
+    assert load_product_feed(feed_with_sellers(tmp_path, *sellers)).seller_name is None

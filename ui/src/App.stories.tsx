@@ -321,7 +321,8 @@ export const CancelCheckoutMismatch: Story = {
     await expect(await within(card).findByRole("alert", {}, STREAM_TIMEOUT)).toHaveTextContent(
       "El comercio respondió con un checkout que no coincide con esta compra, así que me detuve.",
     )
-    await expect(context.canvas.queryByText(/Merchant|expected checkout/)).toBeNull()
+    // El mensaje en inglés del backend no llega a la UI; el nombre del comercio sí puede.
+    await expect(context.canvas.queryByText(/Merchant did not|expected checkout/)).toBeNull()
   },
 }
 

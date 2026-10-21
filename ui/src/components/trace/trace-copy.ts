@@ -81,6 +81,18 @@ export function ruleCopy(ruleId: string) {
   return Object.hasOwn(RULES, ruleId) ? RULES[ruleId] : OTHER_RULE
 }
 
+/** Comercio de la compra: su origen, que es lo que evalúa la política, y su nombre legible. */
+export type MerchantLabel = { origin: string; name: string }
+
+/** Solo si la traza trae el nombre; sin él la UI no lo reemplaza por el origen. */
+export function traceMerchant(
+  trace: Pick<PurchaseTrace, "merchant" | "merchant_name">,
+): MerchantLabel | undefined {
+  return trace.merchant && trace.merchant_name
+    ? { origin: trace.merchant, name: trace.merchant_name }
+    : undefined
+}
+
 /**
  * Controles del recorrido normal de una compra, en orden; los eventos sueltos no cuentan. Tampoco
  * la frescura ni la recuperación: solo existen en el flujo gobernado, y una fila «No se ejecutó»
@@ -368,11 +380,16 @@ function approvalDetail(step: Extract<TraceStep, { kind: "approval" }>) {
   return approved ? `A las ${approved}` : null
 }
 
-/** Línea corta bajo el título; los identificadores van aparte, en el detalle técnico. */
-export function stepDetail(step: TraceStep) {
+/**
+ * Línea corta bajo el título; los identificadores van aparte, en el detalle técnico. El checkout
+ * dice en qué comercio se creó, por su nombre.
+ */
+export function stepDetail(step: TraceStep, merchantName: string | null = null) {
   switch (step.kind) {
     case "selection":
       return `${step.product} · ${formatMoney(step.total_minor, step.currency)}`
+    case "checkout_created":
+      return merchantName
     case "policy_decision":
       return POLICY_MODE_LABEL[step.decision.mode]
     case "approval":

@@ -10,6 +10,7 @@ import {
   skippedTitle,
   stepDetail,
   stepTitle,
+  type MerchantLabel,
   type SkippedControl,
 } from "@/components/trace/trace-copy"
 import type { TraceStep } from "@/lib/trace-contract"
@@ -19,10 +20,12 @@ import "@/components/agent/agent.css"
 export type ControlStepProps = {
   /** Paso de la traza, o un control que la compra no alcanzó. */
   step: TraceStep | SkippedControl
+  /** Comercio de la compra, con nombre: lo dicen el checkout y la regla de comercios. */
+  merchant?: MerchantLabel
   className?: string
 }
 
-function describe(step: TraceStep | SkippedControl) {
+function describe(step: TraceStep | SkippedControl, merchant?: MerchantLabel) {
   if ("reason" in step) {
     return {
       state: "skipped" as const,
@@ -34,14 +37,14 @@ function describe(step: TraceStep | SkippedControl) {
   return {
     state: step.state,
     title: stepTitle(step),
-    detail: stepDetail(step),
+    detail: stepDetail(step, merchant?.name),
     duration: step.duration_ms === null ? null : formatDuration(step.duration_ms),
   }
 }
 
 /** Fila de la línea de tiempo de controles; `ControlTimeline` aporta el `<ol>`. */
-export function ControlStep({ step, className }: ControlStepProps) {
-  const { state, title, detail, duration } = describe(step)
+export function ControlStep({ step, merchant, className }: ControlStepProps) {
+  const { state, title, detail, duration } = describe(step, merchant)
   const skipped = state === "skipped"
 
   return (
@@ -73,7 +76,12 @@ export function ControlStep({ step, className }: ControlStepProps) {
         </div>
         {detail && <p className="mt-0.5 text-sm leading-5 text-[#6b6b6b] wrap-break-word">{detail}</p>}
         {"decision" in step && (
-          <PolicyRuleTable rules={step.decision.rules} values="failed" className="mt-2" />
+          <PolicyRuleTable
+            rules={step.decision.rules}
+            values="failed"
+            merchant={merchant}
+            className="mt-2"
+          />
         )}
         {"changes" in step && <FreshnessChanges step={step} className="mt-2" />}
       </div>

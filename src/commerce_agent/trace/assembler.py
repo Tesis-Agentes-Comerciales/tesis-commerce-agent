@@ -6,11 +6,13 @@ never reached. A step carries `duration_ms` only when both of its ends were meas
 
 import logging
 import sqlite3
+from collections.abc import Mapping
 from contextlib import closing
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from commerce_agent.config import Settings
 from commerce_agent.governance.evidence import DecisionRecord, EvidenceError
@@ -27,10 +29,11 @@ from .models import (
     PurchaseSummary,
     PurchaseTrace,
     StepState,
+    Text,
     TraceActor,
     TraceStep,
 )
-from .sources import GraphCheckpoints, PurchaseRecords, merchant_origins, read_records
+from .sources import GraphCheckpoints, PurchaseRecords, merchant_origins, read_records, transient
 
 logger = logging.getLogger(__name__)
 STEP: TypeAdapter[TraceStep] = TypeAdapter(TraceStep)
@@ -54,7 +57,26 @@ AMOUNT_FIELDS = {"subtotal_minor", "shipping_minor", "total_minor", "delivery_da
 
 class TraceUnavailable(Exception):
     """The trace cannot be built without inventing data: evidence that does not verify, or a
-    stored value outside the contract. The trace answers 503; the history marks the row."""
+    stored value outside the contract. The trace answers 503; the history marks the row.
+
+    `transient` is a lock another connection held (SQLite busy or locked): reading again can work.
+    """
+
+    def __init__(self, run_id: str, *, transient: bool = False) -> None:
+        super().__init__(run_id)
+        self.transient = transient
+
+
+@dataclass(frozen=True)
+class TraceContext:
+    """What the trace takes from the configuration and the runtime, not from the purchase."""
+
+    # Merchant pseudonym → origin, so POL-02 shows origins, not refs.
+    origins: dict[str, str] = field(default_factory=dict)
+    # Origin → the display name its feed declares (`seller.name`).
+    merchant_names: dict[str, str] = field(default_factory=dict)
+    # AGENT_SANDBOX_CLOCK_AT, as the trace writes times: approvals take this fixed time.
+    sandbox_clock_at: str | None = None
 
 
 def utc(value: str) -> str:
@@ -174,8 +196,8 @@ def checkout_step(records: PurchaseRecords) -> TraceStep | None:
     checkout_id = records.purchase["checkout_id"]
     if checkout_id is None:
         return None
-    # Written right before the merchant call. The D1 enforce path keeps its key elsewhere.
-    started = records.operations.get("checkout.create")
+    # Written right before the merchant call; the D1 enforce path prepares an envelope instead.
+    started = records.operations.get("checkout.create") or records.checkout_prepared_at
     return step("checkout_created", started and utc(started), "merchant", checkout_id=checkout_id)
 
 
@@ -213,17 +235,20 @@ def authorization_step(records: PurchaseRecords) -> TraceStep | None:
 
 
 def delegated(records: PurchaseRecords, started: str) -> bool:
-    """The payment provider returned: the completion was claimed, which happens only after it.
+    """The payment provider returned a token.
 
-    A merchant 4xx to /complete releases the claim back to `approved`. After the approval, only
-    that claim and its release write the purchase row, so a row written after the delegation key
-    proves it; a failed delegation leaves the row as the approval wrote it.
+    The completion claim happens only after it. A merchant 4xx to /complete releases the claim back
+    to `approved`, so that stage needs its own proof: the merchant key (`checkout.complete`), which
+    completion creates only once the provider returned. Whatever else later writes the purchase row
+    (`updated_at`, `failure_code`) proves nothing. Rows from before this rule created that key
+    before delegating: at `approved` they show no payment step rather than a false one.
     """
-    stage = records.purchase["stage"]
-    if stage in DELEGATED_STAGES:
+    if records.purchase["stage"] in DELEGATED_STAGES:
         return True
-    updated = datetime.fromisoformat(records.purchase["updated_at"])
-    return stage == "approved" and updated > datetime.fromisoformat(started)
+    merchant_key = records.operations.get("checkout.complete")
+    return merchant_key is not None and datetime.fromisoformat(
+        merchant_key
+    ) > datetime.fromisoformat(started)
 
 
 def payment_step(records: PurchaseRecords) -> TraceStep | None:
@@ -271,10 +296,11 @@ def canceled_step(records: PurchaseRecords) -> TraceStep | None:
 def failed_step(records: PurchaseRecords) -> TraceStep | None:
     if records.purchase["stage"] != "failed":
         return None
-    # The failure code is not stored; only whether the merchant rejected the completion.
     actor = "merchant" if "checkout.complete" in records.operations else "agent"
     at = utc(records.purchase["updated_at"])
-    return step("failed", at, actor, state="error", code="purchase_failed")
+    # Purchases that failed before the code was stored keep the generic one.
+    code = records.purchase["failure_code"] or "purchase_failed"
+    return step("failed", at, actor, state="error", code=code)
 
 
 def _count(value: object) -> int | None:
@@ -368,25 +394,96 @@ def recovery_steps(records: PurchaseRecords) -> list[TraceStep]:
     ]
 
 
-def goes_before(item: TraceStep, current: TraceStep) -> bool:
-    """Times are rounded to milliseconds. A freshness check runs right before the step it gates,
-    so on a tie it goes first; anything else goes after the steps it ties with."""
+def sandbox_timed(records: PurchaseRecords, context: TraceContext) -> frozenset[str]:
+    """Steps whose time is the sandbox's fixed clock, not when they happened."""
+    approval = records.approval
+    if (
+        context.sandbox_clock_at is None
+        or approval is None
+        or utc(approval["approved_at"]) != context.sandbox_clock_at
+    ):
+        return frozenset()
+    return frozenset({"approval", "authorization_signed"})
+
+
+def stored_times(records: PurchaseRecords) -> dict[str, datetime]:
+    """Step id → its time as stored, to the microsecond, for a merchant webhook and the steps it
+    can share a millisecond with.
+
+    There is no sequence shared by `webhook_events` and the other tables. Each time is taken right
+    before its own write, so for two writes made one after the other it keeps their order: the
+    trace shows milliseconds, but a tie there is not a tie here.
+    """
+    stage, completion = records.purchase["stage"], records.completion
+    stored = {
+        "payment_authorized": records.operations.get("payment.delegate"),
+        "order_confirmed": completion["completed_at"] if completion else None,
+        "canceled": next(
+            (
+                records.operations[key]
+                for key in (f"checkout.cancel.{by}" for by in CANCELED_BY)
+                if key in records.operations
+            ),
+            None,
+        ),
+        "failed": records.purchase["updated_at"] if stage == "failed" else None,
+        **{
+            f"order_event:{number}": at
+            for number, (_, at) in enumerate(records.order_events, start=1)
+        },
+    }
+    return {key: precise(value) for key, value in stored.items() if value is not None}
+
+
+def precise(value: str) -> datetime:
+    moment = datetime.fromisoformat(value)
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class Ordering:
+    """What `by_time` compares besides the times the trace shows."""
+
+    # Steps that carry the sandbox's fixed time instead of when they happened.
+    sandboxed: frozenset[str] = frozenset()
+    # Step id → stored time to the microsecond (`stored_times`).
+    stored: Mapping[str, datetime] = field(default_factory=dict)
+
+
+def goes_before(item: TraceStep, current: TraceStep, ordering: Ordering) -> bool:
+    """Times are rounded to milliseconds. Within one, the stored times keep the order of the
+    writes. If those tie too, or are not known, a freshness check runs right before the step it
+    gates, so it goes first; anything else goes after the steps it ties with.
+
+    A step with the sandbox's time is not compared: every check runs before the approval is
+    signed, and anything else comes after it.
+    """
+    if current.kind in ordering.sandboxed:
+        return item.kind == "freshness_check"
     if item.at is None or current.at is None:
         return False
     if current.at != item.at:
         return current.at > item.at
+    stored_item, stored_current = ordering.stored.get(item.id), ordering.stored.get(current.id)
+    if stored_item is not None and stored_current is not None and stored_item != stored_current:
+        return stored_current > stored_item
     return item.kind == "freshness_check" and current.kind in GATED
 
 
-def by_time(steps: list[TraceStep], interleaved: list[TraceStep]) -> list[TraceStep]:
+def by_time(
+    steps: list[TraceStep], interleaved: list[TraceStep], ordering: Ordering | None = None
+) -> list[TraceStep]:
     """Insert each step before the first later one; steps without a time keep their place.
 
     Freshness checks and merchant webhooks have their own clock: a webhook can arrive before the
     agent records the completion the merchant had already confirmed.
     """
+    ordering = ordering or Ordering()
     merged = list(steps)
     for item in interleaved:
-        later = (index for index, current in enumerate(merged) if goes_before(item, current))
+        later = (
+            index for index, current in enumerate(merged) if goes_before(item, current, ordering)
+        )
         merged.insert(next(later, len(merged)), item)
     return merged
 
@@ -410,7 +507,8 @@ def merchant(records: PurchaseRecords, origins: dict[str, str]) -> str | None:
     return None
 
 
-def assemble(records: PurchaseRecords, origins: dict[str, str]) -> PurchaseTrace:
+def assemble(records: PurchaseRecords, context: TraceContext) -> PurchaseTrace:
+    origins = context.origins
     request = request_step(records)
     found = (
         request,
@@ -430,15 +528,18 @@ def assemble(records: PurchaseRecords, origins: dict[str, str]) -> PurchaseTrace
     ordered = by_time(
         [item for item in found if item is not None],
         [*order_event_steps(records), *freshness_steps(records)],
+        Ordering(sandbox_timed(records, context), stored_times(records)),
     )
     steps = (*ordered, *recovery_steps(records))
     terms = records.terms
+    origin = merchant(records, origins)
     return PurchaseTrace(
         run_id=records.purchase["run_id"],
         status=purchase_status(records),
         policy_mode=records.decisions[-1].decision.governance_mode if records.decisions else "off",
         request=records.purchase["request_text"],
-        merchant=merchant(records, origins),
+        merchant=origin,
+        merchant_name=context.merchant_names.get(origin) if origin else None,
         total=Money(minor=terms["total_minor"], currency=terms["currency"].upper())
         if terms
         else None,
@@ -465,6 +566,7 @@ def summarize(trace: PurchaseTrace) -> PurchaseSummary:
         started_at=trace.started_at,
         request=trace.request,
         merchant=trace.merchant,
+        merchant_name=trace.merchant_name,
         total=trace.total,
         status=trace.status,
         policy=PolicySummary(
@@ -479,22 +581,43 @@ def summarize(trace: PurchaseTrace) -> PurchaseSummary:
     )
 
 
+STORED_TEXT: TypeAdapter[str] = TypeAdapter(Text)
+
+
+def stored_text(value: object) -> str | None:
+    try:
+        return STORED_TEXT.validate_python(value)
+    except ValidationError:
+        return None
+
+
+def stored_time(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return utc(value)
+    except ValueError:
+        return None
+
+
 def unavailable_summary(purchase: dict[str, Any]) -> PurchaseSummary:
     """A history row whose trace cannot be built: only what the purchase row itself stores.
 
     Status, policy, merchant, total, approval and duration come from the evidence and the terms,
-    so they are not guessed.
+    so they are not guessed. A value of the row itself outside the contract (written outside the
+    store) is left null too, rather than taking the whole history down.
     """
     return PurchaseSummary(
         run_id=purchase["run_id"],
-        started_at=utc(purchase["created_at"]),
-        request=purchase["request_text"],
+        started_at=stored_time(purchase["created_at"]),
+        request=stored_text(purchase["request_text"]),
         merchant=None,
+        merchant_name=None,
         total=None,
         status="trace_unavailable",
         policy=None,
         approved_at=None,
-        order_id=purchase["order_id"],
+        order_id=stored_text(purchase["order_id"]),
         duration_ms=None,
     )
 
@@ -502,11 +625,19 @@ def unavailable_summary(purchase: dict[str, Any]) -> PurchaseSummary:
 class PurchaseTraces:
     """Traces and history read from the agent database. Ownership is checked by the caller."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self, settings: Settings, *, merchant_names: Mapping[str, str] | None = None
+    ) -> None:
+        """`merchant_names` maps an origin to its display name (AgentRuntime.merchant_names)."""
         self._database = settings.agent_database_path
         # Same file that runtime.build_runtime gives the LangGraph checkpointer.
         self._graph = self._database.with_name(f"{self._database.stem}.graph.db")
-        self._origins = merchant_origins(settings)
+        sandbox = settings.agent_sandbox_clock_at
+        self._context = TraceContext(
+            origins=merchant_origins(settings),
+            merchant_names=dict(merchant_names or {}),
+            sandbox_clock_at=utc(sandbox.isoformat()) if sandbox is not None else None,
+        )
 
     def trace(self, run_id: str, *, checkpoints: GraphCheckpoints | None = None) -> PurchaseTrace:
         """Raises `LookupError` for an unknown run and `TraceUnavailable` instead of a guess."""
@@ -515,9 +646,16 @@ class PurchaseTraces:
             if records is None:
                 raise LookupError("Purchase run does not exist")
             # A ValidationError is a ValueError: a stored value the contract rejects.
-            return assemble(records, self._origins)
+            return assemble(records, self._context)
+        except sqlite3.OperationalError as error:
+            if not transient(error):
+                raise
+            logger.warning("Purchase trace unavailable: run_id=%s error=busy", run_id)
+            raise TraceUnavailable(run_id, transient=True) from None
         except (EvidenceError, ValueError) as error:
-            logger.warning("Purchase trace unavailable: %s", type(error).__name__)
+            logger.warning(
+                "Purchase trace unavailable: run_id=%s error=%s", run_id, type(error).__name__
+            )
             raise TraceUnavailable(run_id) from None
 
     def history(self, owner_id: str, *, limit: int, before: str | None) -> PurchaseHistory | None:

@@ -31,6 +31,7 @@ import {
   toolStepStatus,
   useElapsedMs,
 } from "@/components/agent"
+import { traceMerchant } from "@/components/trace/trace-copy"
 import { PROMINENT_TOOLS } from "@/features/agent-toolkit"
 import {
   activityVisible,
@@ -230,7 +231,13 @@ function AssistantMessage() {
         </div>
       )}
 
-      {blockedBy && <PolicyBlockedCard decision={blockedBy} className="mb-4" />}
+      {blockedBy && (
+        <PolicyBlockedCard
+          decision={blockedBy}
+          merchant={purchaseTrace ? traceMerchant(purchaseTrace) : undefined}
+          className="mb-4"
+        />
+      )}
 
       {layout.text.map((index) => (
         <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />

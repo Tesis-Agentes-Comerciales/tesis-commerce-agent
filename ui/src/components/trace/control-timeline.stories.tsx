@@ -34,6 +34,9 @@ export const Completed: Story = {
     await expect(timelineRows(canvasElement)).toHaveLength(TRACES.completedShadow.steps.length)
     await expect(canvas.getByText("Orden confirmada")).toBeVisible()
     await expect(canvas.queryByText("No se ejecutó")).toBeNull()
+    // El checkout nombra el comercio; su origen no aparece.
+    await expect(canvas.getByText("Synthetic Commerce Merchant")).toBeVisible()
+    await expect(canvas.queryByText(/127\.0\.0\.1/)).toBeNull()
   },
 }
 
@@ -51,6 +54,9 @@ export const Blocked: Story = {
   args: { trace: TRACES.blockedMerchant },
   play: async ({ canvas }) => {
     await expect(canvas.getByText("La política detuvo la compra")).toBeVisible()
+    // La regla de comercios nombra el comercio y conserva el origen que evaluó.
+    await expect(canvas.getByText("Synthetic Commerce Merchant")).toBeVisible()
+    await expect(canvas.getByText("http://127.0.0.1:4120")).toBeVisible()
     for (const control of ["Crear el checkout", "Autorizar el pago", "Confirmar la orden"]) {
       const row = canvas.getByText(control).closest("li")
       await expect(row).toHaveAttribute("data-state", "skipped")

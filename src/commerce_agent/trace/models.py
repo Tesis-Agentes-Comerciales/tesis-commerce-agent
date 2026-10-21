@@ -6,9 +6,9 @@ inputs, encrypted sources or the owner's identity.
 """
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 UTC_TIME_PATTERN = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$"
 
@@ -237,6 +237,7 @@ class PurchaseTrace(TraceModel):
     policy_mode: PolicyMode
     request: Text
     merchant: Text | None
+    merchant_name: Text | None
     total: Money | None
     started_at: UtcTime
     updated_at: UtcTime
@@ -252,15 +253,23 @@ class PurchaseSummary(TraceModel):
     """One row of `GET /me/purchases`."""
 
     run_id: Text
-    started_at: UtcTime
-    request: Text
+    # Null only in a `trace_unavailable` row whose own purchase row is outside the contract.
+    started_at: UtcTime | None
+    request: Text | None
     merchant: Text | None
+    merchant_name: Text | None
     total: Money | None
     status: SummaryStatus
     policy: PolicySummary | None
     approved_at: UtcTime | None
     order_id: Text | None
     duration_ms: Count | None
+
+    @model_validator(mode="after")
+    def _only_an_unavailable_row_omits_its_start(self) -> Self:
+        if self.status != "trace_unavailable" and None in (self.started_at, self.request):
+            raise ValueError("Only a trace_unavailable row may omit started_at or request")
+        return self
 
 
 class PurchaseHistory(TraceModel):

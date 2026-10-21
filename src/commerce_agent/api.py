@@ -193,7 +193,7 @@ def create_app(
     store = runtime.store
     purchase_service = runtime.purchases
     conversation = runtime.conversation
-    traces = PurchaseTraces(configuration)
+    traces = PurchaseTraces(configuration, merchant_names=runtime.merchant_names)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -321,8 +321,12 @@ def create_app(
         owned_purchase(run_id, buyer)
         try:
             return traces.trace(run_id)
-        except TraceUnavailable:
-            raise HTTPException(status_code=503, detail="Purchase trace unavailable") from None
+        except TraceUnavailable as error:
+            # A lock another connection held: the same read can work again in a moment.
+            headers = {"Retry-After": "1"} if error.transient else None
+            raise HTTPException(
+                status_code=503, detail="Purchase trace unavailable", headers=headers
+            ) from None
 
     @app.get("/me/purchases", response_model=PurchaseHistory)
     def purchase_history(

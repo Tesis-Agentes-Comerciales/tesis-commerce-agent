@@ -210,7 +210,7 @@ class PurchaseService:
                 self._shadow_unavailable()
         selection = rank_candidates(effective_feed, intent)
         if selection.selected is None:
-            self._store.update_purchase(run_id, stage=PurchaseStage.FAILED)
+            self._store.update_purchase(run_id, stage=PurchaseStage.FAILED, failure="no_candidate")
             raise PurchaseServiceError("No candidate satisfies the request", code="no_candidate")
         candidate = next(
             (
@@ -221,8 +221,9 @@ class PurchaseService:
             None,
         )
         if candidate is None:
-            self._store.update_purchase(run_id, stage=PurchaseStage.FAILED)
-            raise invalid_candidate()
+            error = invalid_candidate()
+            self._store.update_purchase(run_id, stage=PurchaseStage.FAILED, failure=error.code)
+            raise error
         enforced_checkout = None
         if self._d1_gate is not None:
             enforced_checkout = self._d1_gate.create_checkout(
@@ -389,7 +390,9 @@ class PurchaseService:
             purchase = self._store.purchase(run_id)
             unfinished = {PurchaseStage.SELECTED, PurchaseStage.CHECKOUT_PREPARED}
             if purchase is not None and purchase.get("stage") in unfinished:
-                self._store.update_purchase(run_id, stage=PurchaseStage.FAILED)
+                # Merchant and service errors carry a code; any other failure stays generic.
+                failure = getattr(error, "code", None)
+                self._store.update_purchase(run_id, stage=PurchaseStage.FAILED, failure=failure)
             raise
 
     def _apply_details(

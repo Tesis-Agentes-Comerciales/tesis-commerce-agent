@@ -1,4 +1,5 @@
 import json
+import re
 import secrets
 import sqlite3
 from collections.abc import Sequence
@@ -7,6 +8,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
+
+# Why a purchase failed, for its trace: a code, never a message or merchant text.
+_FAILURE_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+
+def failure_code(value: object) -> str | None:
+    """The value if it looks like an error code; anything else is not stored."""
+    return value if isinstance(value, str) and _FAILURE_CODE.fullmatch(value) else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +123,10 @@ class SqliteAgentStore:
                 connection.execute(
                     "ALTER TABLE purchases ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'local-human'"
                 )
+            # Additive and nullable: existing rows keep NULL, read as the generic failure.
+            # Bookkeeping like updated_at, so the revision triggers do not cover it.
+            if "failure_code" not in columns:
+                connection.execute("ALTER TABLE purchases ADD COLUMN failure_code TEXT")
             approval_columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(approvals)")
             }
@@ -264,10 +277,15 @@ class SqliteAgentStore:
         selected_variant_id: str | None = None,
         checkout_id: str | None = None,
         order_id: str | None = None,
+        failure: object = None,
     ) -> None:
+        """`failure` is the error code of a `failed` stage, kept only if it looks like one."""
         assignments, values = self._purchase_update(
             stage, selected_variant_id, checkout_id, order_id
         )
+        if (code := failure_code(failure)) is not None:
+            assignments += ", failure_code = ?"
+            values.append(code)
         values.append(run_id)
         with self._connect() as connection:
             cursor = connection.execute(
@@ -440,15 +458,21 @@ class SqliteAgentStore:
         return cursor.rowcount == 1
 
     def release_completion(
-        self, run_id: str, *, stage: Literal["approved", "uncertain", "failed"]
+        self,
+        run_id: str,
+        *,
+        stage: Literal["approved", "uncertain", "failed"],
+        failure: object = None,
     ) -> None:
+        code = failure_code(failure) if stage == "failed" else None
         with self._connect() as connection:
             cursor = connection.execute(
                 """
-                UPDATE purchases SET stage = ?, updated_at = ?, state_version = state_version + 1
+                UPDATE purchases SET stage = ?, updated_at = ?, state_version = state_version + 1,
+                    failure_code = COALESCE(?, failure_code)
                 WHERE run_id = ? AND stage = 'completing'
                 """,
-                (stage, _timestamp(), run_id),
+                (stage, _timestamp(), code, run_id),
             )
             if cursor.rowcount != 1:
                 raise RuntimeError("Purchase completion reservation is no longer active")

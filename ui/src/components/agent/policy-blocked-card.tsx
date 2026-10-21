@@ -7,6 +7,7 @@ import { TechnicalDetails } from "@/components/trace/technical-details"
 import {
   blockedCardCopy,
   decisionRefs,
+  type MerchantLabel,
   NOTHING_CHARGED,
   policyModeNote,
 } from "@/components/trace/trace-copy"
@@ -15,6 +16,8 @@ import type { PolicyDecision } from "@/lib/trace-contract"
 export type PolicyBlockedCardProps = {
   /** La decisión que detuvo la compra (`effect: "blocked"`). */
   decision: PolicyDecision
+  /** Comercio de la compra, para nombrarlo en la regla de comercios. */
+  merchant?: MerchantLabel
   className?: string
 }
 
@@ -22,7 +25,7 @@ export type PolicyBlockedCardProps = {
  * Tarjeta fuera del plegable: qué regla no se cumplió y qué no ocurrió. Un bloqueo es la política
  * funcionando, no un error, así que va en ámbar y nunca dice «error inesperado».
  */
-export function PolicyBlockedCard({ decision, className }: PolicyBlockedCardProps) {
+export function PolicyBlockedCard({ decision, merchant, className }: PolicyBlockedCardProps) {
   const titleId = useId()
   const failedRules = decision.rules.filter((rule) => rule.result === "fail")
   const copy = blockedCardCopy(decision, failedRules.length)
@@ -50,7 +53,7 @@ export function PolicyBlockedCard({ decision, className }: PolicyBlockedCardProp
 
       <div className="space-y-4 p-5">
         {failedRules.length > 0 ? (
-          <PolicyRuleTable rules={failedRules} />
+          <PolicyRuleTable rules={failedRules} merchant={merchant} />
         ) : (
           <p className="text-sm leading-5">{copy.explanation}</p>
         )}

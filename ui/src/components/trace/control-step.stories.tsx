@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
 
 import { ControlStep } from "@/components/trace/control-step"
+import { traceMerchant } from "@/components/trace/trace-copy"
 import { lastStepOf, stepOf, TRACES } from "@/storybook/trace-fixtures"
 
 const COMPLETED = TRACES.completedShadow
@@ -47,8 +48,21 @@ export const PolicyDecision: Story = {
   },
 }
 
+/** El checkout dice en qué comercio se creó, por su nombre. */
 export const CheckoutCreated: Story = {
+  args: { step: stepOf(COMPLETED, "checkout_created"), merchant: traceMerchant(COMPLETED) },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Checkout creado en el comercio")).toBeVisible()
+    await expect(canvas.getByText("Synthetic Commerce Merchant")).toBeVisible()
+  },
+}
+
+/** Sin nombre del comercio no hay detalle: el origen no lo reemplaza. */
+export const CheckoutCreatedWithoutName: Story = {
   args: { step: stepOf(COMPLETED, "checkout_created") },
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.querySelectorAll("li p")).toHaveLength(1)
+  },
 }
 
 export const Approval: Story = {

@@ -65,6 +65,26 @@ export const CompletedOpen: Story = {
   args: { defaultOpen: true },
 }
 
+const PRODUCT = stepOf(TRACES.completedShadow, "selection").product
+
+/** La fila nombra el producto y el comercio; el origen del comercio no aparece. */
+export const NamesTheMerchant: Story = {
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText(`${PRODUCT} · Synthetic Commerce Merchant`)).toBeVisible()
+    await expect(canvas.queryByText(/127\.0\.0\.1/)).toBeNull()
+  },
+}
+
+/** Sin nombre (un comercio que no es el configurado): solo el producto, nunca el origen. */
+export const WithoutMerchantName: Story = {
+  args: { trace: { ...TRACES.completedShadow, merchant_name: null }, defaultOpen: true },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText(PRODUCT)).toBeVisible()
+    await expect(canvas.queryByText(/Synthetic Commerce Merchant/)).toBeNull()
+    await expect(canvas.queryByText(/127\.0\.0\.1/)).toBeNull()
+  },
+}
+
 /** El teclado abre la fila y el foco queda visible. */
 export const KeyboardToggle: Story = {
   play: async ({ canvas, userEvent }) => {
