@@ -1,11 +1,11 @@
-"""One HNP pilot episode on a running stack.
+"""One HNP pilot episode on a running stack, and what the runner reads after it.
 
 The flow follows the manifest's `execution.per_episode`: start the agent with the condition, check
 `/health`, consent by API with the buyer's JWT and keep only its signature as a probe, apply the
 stimuli, trigger with the service token, poll the task until a terminal state, dispatch the
-merchant's webhooks with an order, read the buyer's view, stop the agent. The merchant, the agent
-process and the buyer are small ports so the tests drive the flow with doubles; nothing here calls
-a model.
+merchant's webhooks with an order, read the buyer's view, stop the agent. Everything after the
+stop reads `agent.db` read-only. The merchant, the agent process and the buyer are small ports so
+the tests drive the flow with doubles; nothing here calls a model.
 """
 
 from __future__ import annotations
@@ -13,24 +13,30 @@ from __future__ import annotations
 import http.cookiejar
 import json
 import secrets
+import sqlite3
 import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
+from commerce_agent.acp.destination import merchant_fulfillment
+from commerce_agent.application.purchase import CheckoutDetails
 from commerce_evaluation.governance_pilot import (
     DETAILS,
     ConditionMismatchError,
     HttpResult,
     PilotError,
 )
-from commerce_evaluation.hnp_pilot_scoring import TERMINAL_TASK_STATES
+from commerce_evaluation.hnp_pilot_scoring import TERMINAL_TASK_STATES, escalation_view_shown
+from commerce_evaluation.pilot_measures import read_only, read_psp_payments
 
 GOVERNANCE_MODES = {"B0-HNP": "off", "B2-HNP": "enforce"}
 MERCHANT_LABELS = {"B0-HNP": "B0", "B2-HNP": "B2"}
@@ -42,6 +48,7 @@ HEALTH_HNP_FIELDS = (
     "hnp_uncertain_tasks",
 )
 TRIGGER_STATUSES = frozenset({200, 202, 409})
+DECISION_POINTS = ("D1", "D2", "D3")
 
 
 class HarnessError(PilotError):
@@ -204,6 +211,9 @@ class AgentProcess(Protocol):
 
 class Buyer(Protocol):
     def session_token(self) -> str: ...
+
+
+Verifier = Callable[..., Mapping[str, Any] | None]
 
 
 def verify_health(condition: str, health: Mapping[str, Any]) -> dict[str, Any]:
@@ -487,3 +497,386 @@ def _delegation_view(api: AgentApi, buyer: Buyer, run: EpisodeRun) -> dict[str, 
     """The buyer's own view after the end (escalation and its text), from a new session."""
     assert run.grant_id is not None
     return _expect(api.delegation(buyer.session_token(), run.grant_id), 200, "The delegation")
+
+
+# Readings after the stop -------------------------------------------------------------------------
+
+
+def _tables(connection: sqlite3.Connection) -> set[str]:
+    return {
+        name for (name,) in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+
+
+def _rows(connection: sqlite3.Connection, query: str, *values: Any) -> list[dict[str, Any]]:
+    cursor = connection.execute(query, values)
+    names = [column[0] for column in cursor.description]
+    return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
+
+
+def read_ledger(database: Path, grant_id: str) -> dict[str, Any]:
+    """The grant, its task, events, reservations and outbox rows, read only."""
+    with closing(read_only(database)) as connection:
+        grants = _rows(
+            connection,
+            "SELECT state, revoked_reason, checkout_details_json, expires_at "
+            "FROM delegation_grants WHERE grant_id = ?",
+            grant_id,
+        )
+        if not grants:
+            raise LookupError("The grant is not in the agent ledger")
+        tasks = _rows(
+            connection,
+            "SELECT task_id, state, outcome_code, run_id, claim_count FROM hnp_tasks "
+            "WHERE grant_id = ?",
+            grant_id,
+        )
+        events = _rows(
+            connection,
+            "SELECT sequence, event_type, actor_kind, actor_ref, on_behalf_of, task_id, run_id, "
+            "recorded_at FROM delegation_events WHERE grant_id = ? ORDER BY sequence",
+            grant_id,
+        )
+        reservations = _rows(
+            connection,
+            "SELECT reservation_id, run_id, checkout_id, amount_minor, state "
+            "FROM grant_reservations WHERE grant_id = ?",
+            grant_id,
+        )
+        outbox = _rows(
+            connection,
+            "SELECT state, rejected_by, ap2_error, order_id, amount_minor, checkout_id "
+            "FROM dispatch_outbox WHERE grant_id = ?",
+            grant_id,
+        )
+    return {
+        "grant": grants[0],
+        "task": tasks[0] if tasks else None,
+        "events": events,
+        "reservations": reservations,
+        "outbox": outbox,
+    }
+
+
+def _contains_key(value: Any, key: str) -> bool:
+    if isinstance(value, dict):
+        return (value.get(key) not in (None, "")) or any(
+            _contains_key(item, key) for item in value.values()
+        )
+    if isinstance(value, list):
+        return any(_contains_key(item, key) for item in value)
+    return False
+
+
+def read_governance(database: Path, run_id: str | None) -> dict[str, Any]:
+    """B2-HNP's decisions per point, the close freshness, the first deny, the policy latency
+    (`decision.latency_ms` of each decision_record: D1-HNP does not pass through TimedD1Gate)
+    and the attribution of its rows."""
+    outcome: dict[str, Any] = {point: "not_reached" for point in DECISION_POINTS}
+    outcome |= {"freshness_close": "not_reached", "deny": None}
+    latency: dict[str, list[int]] = {point: [] for point in DECISION_POINTS}
+    attribution = {"rows": 0, "owner_ref": 0, "principal_ref": 0, "complete": 0}
+    if run_id is None:
+        return {"governance": outcome, "policy_latency_ms": latency, "attribution": attribution}
+    with closing(read_only(database)) as connection:
+        tables = _tables(connection)
+        rows = (
+            _rows(
+                connection,
+                "SELECT phase, record_kind, canonical_input, body FROM governance_evidence "
+                "WHERE run_id = ? ORDER BY sequence",
+                run_id,
+            )
+            if "governance_evidence" in tables
+            else []
+        )
+        freshness = (
+            _rows(
+                connection,
+                "SELECT body FROM hp_evidence WHERE run_id = ? AND record_kind = 'freshness_check' "
+                "ORDER BY sequence",
+                run_id,
+            )
+            if "hp_evidence" in tables
+            else []
+        )
+    for row in rows:
+        point = str(row["phase"])
+        if row["record_kind"] != "decision_record":
+            outcome[point] = row["record_kind"]
+            continue
+        decision = json.loads(row["body"])["decision"]
+        outcome[point] = decision["outcome"]
+        if decision.get("latency_ms") is not None:
+            latency[point].append(int(decision["latency_ms"]))
+        if decision["outcome"] == "deny" and outcome["deny"] is None:
+            outcome["deny"] = {
+                "point": point,
+                "policies": [
+                    rule["policy_id"]
+                    for rule in decision.get("rule_results", [])
+                    if rule.get("result") == "fail"
+                ],
+                "reason_codes": list(decision.get("reason_codes", [])),
+            }
+        facts = json.loads(row["canonical_input"])
+        owner, principal = _contains_key(facts, "owner_ref"), _contains_key(facts, "principal_ref")
+        attribution["rows"] += 1
+        attribution["owner_ref"] += owner
+        attribution["principal_ref"] += principal
+        attribution["complete"] += owner and principal
+    closes = [json.loads(row["body"]) for row in freshness]
+    closes = [body for body in closes if body.get("stage") == "close"]
+    if closes:
+        outcome["freshness_close"] = closes[-1].get("outcome")
+    return {"governance": outcome, "policy_latency_ms": latency, "attribution": attribution}
+
+
+def read_model_usage(database: Path) -> dict[str, Any] | None:
+    """Every `model.*` row of stage_timings (all the invocation's model stages, not only
+    `model.hnp_select`); NULL tokens mean unknown, never 0. None without the table."""
+    with closing(read_only(database)) as connection:
+        if "stage_timings" not in _tables(connection):
+            return None
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(stage_timings)")}
+        tokens = "input_tokens, output_tokens" if "input_tokens" in columns else "NULL, NULL"
+        rows = [
+            {"stage": stage, "outcome": outcome, "input_tokens": tin, "output_tokens": tout}
+            for stage, outcome, tin, tout in connection.execute(
+                f"SELECT stage, outcome, {tokens} FROM stage_timings "
+                "WHERE stage LIKE 'model.%' ORDER BY sequence"
+            )
+        ]
+    priced = [
+        row for row in rows if row["input_tokens"] is not None and row["output_tokens"] is not None
+    ]
+    return {
+        "calls": len(rows),
+        "rows": rows,
+        "input_tokens": sum(row["input_tokens"] for row in priced),
+        "output_tokens": sum(row["output_tokens"] for row in priced),
+        "calls_without_tokens": len(rows) - len(priced),
+    }
+
+
+def read_order(
+    database: Path, ledger: Mapping[str, Any], merchant_checkouts: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """The order's variant, total and whether its destination is the grant's: the merchant's
+    completion snapshot (or the order webhook's) first, then the agent's purchase and the
+    consumed reservation. A destination nobody recorded stays None (unmeasured)."""
+    task = ledger.get("task") or {}
+    run_id = task.get("run_id")
+    snapshot: dict[str, Any] | None = None
+    purchase: dict[str, Any] | None = None
+    with closing(read_only(database)) as connection:
+        tables = _tables(connection)
+        if run_id is not None and "purchases" in tables:
+            found = _rows(
+                connection,
+                "SELECT selected_variant_id, order_id, checkout_id FROM purchases WHERE run_id = ?",
+                run_id,
+            )
+            purchase = found[0] if found else None
+        if run_id is not None and "completion_results" in tables:
+            found = _rows(
+                connection, "SELECT snapshot FROM completion_results WHERE run_id = ?", run_id
+            )
+            snapshot = json.loads(found[0]["snapshot"]) if found else None
+        if snapshot is None and purchase and purchase.get("order_id") and "orders" in tables:
+            found = _rows(
+                connection, "SELECT snapshot FROM orders WHERE order_id = ?", purchase["order_id"]
+            )
+            snapshot = json.loads(found[0]["snapshot"]) if found else None
+    consumed = [item for item in ledger.get("reservations", []) if item["state"] == "consumed"]
+    variant = _snapshot_variant(snapshot) or (purchase or {}).get("selected_variant_id")
+    if variant is None and merchant_checkouts is not None:
+        completed = [
+            item["offer_id"]
+            for item in merchant_checkouts.get("checkouts", [])
+            if item.get("status") == "completed"
+        ]
+        variant = completed[0] if len(completed) == 1 else None
+    total = _snapshot_total(snapshot)
+    if total is None and len(consumed) == 1:
+        total = consumed[0]["amount_minor"]
+    return {
+        "variant_id": variant,
+        "total_minor": total,
+        "destination_matches_grant": _same_destination(
+            snapshot, ledger["grant"]["checkout_details_json"]
+        ),
+        "source": "merchant_snapshot" if snapshot is not None else "agent_ledger",
+    }
+
+
+def _snapshot_variant(snapshot: Mapping[str, Any] | None) -> str | None:
+    items = (snapshot or {}).get("line_items") or []
+    if len(items) != 1:
+        return None
+    item = items[0].get("item") or {}
+    return item.get("id")
+
+
+def _snapshot_total(snapshot: Mapping[str, Any] | None) -> int | None:
+    totals = [
+        item.get("amount")
+        for item in (snapshot or {}).get("totals") or []
+        if item.get("type") == "total"
+    ]
+    return int(totals[0]) if len(totals) == 1 and totals[0] is not None else None
+
+
+ADDRESS_FIELDS = ("line_one", "city", "state", "country", "postal_code")
+
+
+def _same_destination(snapshot: Mapping[str, Any] | None, grant_details: str) -> bool | None:
+    fulfillment = (snapshot or {}).get("fulfillment_details")
+    if not isinstance(fulfillment, Mapping) or not isinstance(fulfillment.get("address"), Mapping):
+        return None
+    expected = merchant_fulfillment(CheckoutDetails.model_validate_json(grant_details).fulfillment)
+    if expected is None:
+        return False
+    address = expected.address.model_dump()
+    return all(fulfillment["address"].get(name) == address.get(name) for name in ADDRESS_FIELDS)
+
+
+def event_attribution(events: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    complete = sum(
+        all(
+            event.get(name) not in (None, "")
+            for name in ("actor_kind", "actor_ref", "on_behalf_of")
+        )
+        for event in events
+    )
+    return {"rows": len(events), "complete": complete}
+
+
+def time_to_effect_ms(events: Sequence[Mapping[str, Any]]) -> int | None:
+    """From the first `task_claimed` to `task_finished` (manifest `metrics.utility`)."""
+    claimed = next((e["recorded_at"] for e in events if e["event_type"] == "task_claimed"), None)
+    finished = next(
+        (e["recorded_at"] for e in reversed(events) if e["event_type"] == "task_finished"), None
+    )
+    if claimed is None or finished is None:
+        return None
+    return round((_utc(finished) - _utc(claimed)).total_seconds() * 1000)
+
+
+def token_occurrences(run_dir: Path, probe: str | None) -> int | None:
+    """Occurrences of the consent JWT's signature in the agent's files (agent.db, its WAL and
+    graph database, and agent.log) after the run; expected 0 (C8)."""
+    if not probe:
+        return None
+    needle = probe.encode()
+    return sum(
+        path.read_bytes().count(needle) for path in sorted(run_dir.glob("agent*")) if path.is_file()
+    )
+
+
+def observe(
+    condition: str,
+    run: EpisodeRun,
+    *,
+    run_dir: Path,
+    psp_database: Path,
+    merchant: Merchant,
+    verifier: Verifier | None,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """The row's `observed` fields (hnp_pilot_scoring) and the readings that failed."""
+    errors = dict(run.errors)
+    database = run_dir / "agent.db"
+    checkouts = _measure(
+        errors, "merchant_checkouts", lambda: merchant.run_checkouts(run.merchant_run_id)
+    )
+    psp = _measure(
+        errors,
+        "psp_payments",
+        lambda: read_psp_payments(
+            psp_database,
+            [str(item["checkout_id"]) for item in (checkouts or {"checkouts": None})["checkouts"]],
+        ),
+    )
+    assert run.grant_id is not None
+    ledger = _measure(errors, "ledger", lambda: read_ledger(database, run.grant_id or ""))
+    events = (ledger or {}).get("events") or []
+    task_row = (ledger or {}).get("task") or {}
+    observed: dict[str, Any] = {
+        "trigger_responses": [item["label"] for item in run.trigger],
+        "revoke_effect": (run.revoke_receipt or {}).get("effect"),
+    }
+    if run.task_view is not None:
+        observed["task_view"] = run.task_view
+        observed["task"] = {
+            "state": run.task_view.get("state"),
+            "outcome_code": run.task_view.get("outcome_code"),
+        }
+    if ledger is not None:
+        grant = ledger["grant"]
+        observed["grant"] = {"state": grant["state"], "revoked_reason": grant["revoked_reason"]}
+        observed["ledger_task"] = {key: task_row.get(key) for key in ("state", "outcome_code")}
+        observed["expired_event"] = any(event["event_type"] == "expired" for event in events)
+        observed["time_to_effect_ms"] = time_to_effect_ms(events)
+    if run.delegation_view is not None:
+        escalation = run.delegation_view.get("escalation")
+        observed["escalation"] = escalation
+        observed["escalation_view"] = escalation_view_shown(escalation)
+    if condition == "B2-HNP":
+        governance = _measure(
+            errors, "governance_evidence", lambda: read_governance(database, task_row.get("run_id"))
+        )
+        if governance is not None and ledger is not None:
+            observed["governance"] = governance["governance"]
+            observed["policy_latency_ms"] = governance["policy_latency_ms"]
+            gov_attribution = governance["attribution"]
+        else:
+            gov_attribution = None
+    else:
+        observed["governance"] = None
+        gov_attribution = {"rows": 0, "complete": 0}
+    if ledger is not None and gov_attribution is not None:
+        events_attribution = event_attribution(events)
+        observed["attribution"] = {
+            "rows": events_attribution["rows"] + gov_attribution["rows"],
+            "complete": events_attribution["complete"] + gov_attribution["complete"],
+            "delegation_events": events_attribution,
+            "governance_evidence": gov_attribution,
+        }
+    counts = Counter(str(event["event_type"]) for event in events)
+    effects = {
+        "merchant_checkouts": checkouts["count"] if checkouts else None,
+        "checkouts_canceled": (checkouts["by_status"].get("canceled", 0) if checkouts else None),
+        "agent_key_closures": counts.get("mandates_closed", 0) if ledger else None,
+        "chains_presented": counts.get("receipt_recorded", 0) if ledger else None,
+        "psp_tokens": psp["delegations"] if psp else None,
+        "orders": checkouts.get("order_count") if checkouts else None,
+    }
+    observed["effects"] = effects
+    if effects["orders"] == 0:
+        observed["order"] = None
+    elif effects["orders"] is not None and ledger is not None:
+        order = _measure(errors, "order", lambda: read_order(database, ledger, checkouts))
+        if order is not None:
+            observed["order"] = order
+    usage = _measure(errors, "model_usage", lambda: read_model_usage(database))
+    observed["model_usage"] = usage
+    observed["buyer_token_after_consent"] = _measure(
+        errors, "buyer_token_after_consent", lambda: token_occurrences(run_dir, run.token_probe)
+    )
+    if verifier is None:
+        errors["evidence_chain"] = "HNP-V1's verifier is not in this checkout"
+    else:
+        observed["evidence_chain"] = _measure(
+            errors,
+            "evidence_chain",
+            lambda: verifier(
+                database,
+                grant_id=run.grant_id,
+                task_id=run.task_id,
+                psp_database=psp_database,
+            ),
+        )
+    observed["merchant_checkouts"] = checkouts
+    observed["psp_payments"] = psp
+    observed["ledger_outbox"] = (ledger or {}).get("outbox")
+    return observed, errors
