@@ -30,6 +30,7 @@ const STEP_KINDS: StepKind[] = [
   "policy_decision",
   "checkout_created",
   "approval",
+  "authorization_decision",
   "authorization_signed",
   "payment_authorized",
   "order_confirmed",
@@ -115,6 +116,28 @@ export const RejectsInvalidTraces: Story = {
     await expect(
       rejects((trace) => ((trace.steps[2].decision as { rules: unknown[] }).rules = [{}])),
     ).toThrow("trace.steps[2].decision.rules[0].id")
+  },
+}
+
+/** El paso de la autorización al aprobar (D2): los mismos casos que tests/test_trace_contract.py. */
+export const RejectsInvalidAuthorization: Story = {
+  play: async () => {
+    const denied = (mutate: Mutation) => rejects(mutate, TRACES.authorizationDenied)
+    const index = TRACES.authorizationDenied.steps.findIndex(
+      (step) => step.kind === "authorization_decision",
+    )
+    const path = `trace.steps[${index}]`
+    const step = (trace: Parameters<Mutation>[0]) => trace.steps[index]
+    const decision = (trace: Parameters<Mutation>[0]) =>
+      step(trace).decision as { effect: string; rules: Record<string, unknown>[] }
+    await expect(denied((trace) => (step(trace).evidence = "x"))).toThrow(`${path}.evidence`)
+    await expect(denied((trace) => delete step(trace).decision)).toThrow(`${path}.decision`)
+    await expect(denied((trace) => (decision(trace).effect = "denied"))).toThrow(
+      `${path}.decision.effect`,
+    )
+    await expect(denied((trace) => (decision(trace).rules[3].observed = ""))).toThrow(
+      `${path}.decision.rules[3].observed`,
+    )
   },
 }
 

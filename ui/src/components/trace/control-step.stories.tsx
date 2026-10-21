@@ -73,6 +73,59 @@ export const Approval: Story = {
   },
 }
 
+/** Al aprobar (D2) la política revisó la compra otra vez: cumple y la firma viene después. */
+export const AuthorizationDecision: Story = {
+  args: { step: stepOf(TRACES.authorizedEnforce, "authorization_decision") },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Autorización verificada")).toBeVisible()
+    await expect(canvas.getByText("Antes de firmar la autorización")).toBeVisible()
+    // En el chat solo una regla que falla muestra sus valores; aquí todas se cumplen.
+    const rules = canvas.getByRole("list", { name: "Reglas de la política de compra" })
+    await expect(rules.querySelectorAll(":scope > li")).toHaveLength(4)
+    await expect(canvas.queryByText(/POL-0|D2|enforce/)).toBeNull()
+  },
+}
+
+/** La política no autorizó la aprobación: la regla que falló, con sus valores, y nada firmado. */
+export const AuthorizationDenied: Story = {
+  args: { step: stepOf(TRACES.authorizationDenied, "authorization_decision") },
+  play: async ({ canvas }) => {
+    const title = canvas.getByText("La política no autorizó la compra")
+    await expect(title).not.toHaveClass("text-red-700")
+    await expect(
+      canvas.getByText("No se firmó ninguna autorización ni se hizo ningún cobro."),
+    ).toBeVisible()
+    await expect(canvas.getByText("No cumple")).toBeVisible()
+    await expect(canvas.getByText("b2-hp-v2 · revisión 1")).toBeVisible()
+    await expect(canvas.getByText("b2-hp-v2 · revisión 2")).toBeVisible()
+  },
+}
+
+const DENIED = stepOf(TRACES.authorizationDenied, "authorization_decision")
+
+/** El motor no respondió al aprobar: ninguna regla evaluada, detenida por precaución. */
+export const AuthorizationUnverified: Story = {
+  args: {
+    step: {
+      ...DENIED,
+      decision: {
+        ...DENIED.decision,
+        rules: DENIED.decision.rules.map((rule) => ({
+          ...rule,
+          result: "not_evaluated" as const,
+          observed: null,
+          expected: null,
+        })),
+        reason_codes: ["GOV_ENGINE_UNAVAILABLE"],
+      },
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("No se pudo verificar la autorización")).toBeVisible()
+    await expect(canvas.getAllByText("Sin evaluar")).toHaveLength(4)
+  },
+}
+
 export const AuthorizationSigned: Story = {
   args: { step: stepOf(COMPLETED, "authorization_signed") },
   play: async ({ canvas }) => {

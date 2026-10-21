@@ -1,6 +1,6 @@
 # D2-HP: autorización verificada al aprobar
 
-Estado: backend implementado (PR A); traza y UI en el PR B. Ola «HP al 100 %» (P3), 21-oct-2026. Contrato formal:
+Estado: implementado. Backend en el PR A; traza y UI en el PR B. Ola «HP al 100 %» (P3), 21-oct-2026. Contrato formal:
 [`policy-v1.md`](../b2-governance/policy-v1.md), secciones 2, 4 (`AuthorizationPolicyInput`), 5 y 6
 (POL-03..06). Coordinación: decisión compartida 3.
 
@@ -187,9 +187,28 @@ historias):
 
 Reutiliza `PolicyDecision` (mismas reglas, efecto y referencias). Va después de «Tu aprobación» y
 antes de «Autorización firmada». No es un control del recorrido base: con la política apagada o con
-`b2-pilot-v1` no aparece como «No se ejecutó». Valores por regla: POL-04 muestra la variante
-aprobada frente a la que revisó D1; POL-05, el total del checkout frente al límite; POL-06, la
-revisión de la política. POL-03 no muestra valores (sería la identidad del dueño).
+`b2-pilot-v1` no aparece como «No se ejecutó». Títulos: «Autorización verificada», «La política no
+autorizó la compra» (una regla falló), «No se pudo verificar la autorización» (guarda, sin reglas
+evaluadas) y «La política autorizó la compra; se detuvo por precaución» (allow no aplicado).
+
+Cada regla revisa varios hechos, así que solo trae los valores que explican su resultado: POL-04,
+la variante aprobada y la que revisó D1 si difieren (si falla por la presentación o el clic, sin
+valores); POL-05, el total autoritativo del checkout frente al presupuesto total si se cumplió o si
+el total lo supera (no si falló por una restricción); POL-06, la política de D1 y la vigente si
+difieren. POL-03 nunca muestra valores (sería la identidad del dueño).
+
+Con la última decisión D2 en `blocked` y sin aprobación, la traza marca «Tu aprobación» como
+`skipped` y la compra como `blocked`; el historial toma la última decisión, D1 o D2.
+
+## Chat
+
+Aprobar con 409 `d2_denied`, `d2_unavailable` o `d2_allow_unapplied` reemplaza la tarjeta de
+aprobación por la de compra que ya no se puede aprobar (`StaleTermsCard`), en ámbar y sin aviso rojo:
+«La política de compra no autorizó esta compra» o «No pude verificar la autorización de la compra»,
+«No se firmó ninguna autorización ni se hizo ningún cobro.», la regla que falló cuando llega la
+traza y solo «Cancelar compra». Aprobar otra vez se rechazaría igual. `GET /me/pending-purchase`
+restaura ese estado con `terms_status` `authorization_denied` o `authorization_unverified` (lee la
+última fila D2 del run; `SqliteD2AuthorizationGate.refusal`).
 
 ## Criterios de aceptación
 

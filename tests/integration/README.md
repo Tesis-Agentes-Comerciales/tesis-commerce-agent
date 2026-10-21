@@ -40,10 +40,12 @@ Hay cuatro grupos sobre el mismo PostgreSQL:
   AP2) y cubre D2-HP al aprobar: en S01 la aprobación pasa por la frescura, D2 (POL-03..06 en
   `allow`) y la firma del mandato; la fila D2 de `governance_evidence` y
   `approvals.authorization_evidence_id` son la misma evidencia, la orden queda confirmada y la
-  evidencia AP2 guarda `consent` y luego `effect`. En S04 el Merchant cambia el envío de la
-  oferta después de mostrar los términos: la relectura y una aprobación enviada igual terminan en
-  `checkout_terms_changed` antes de D2, sin ninguna fila D2, y una segunda compra del mismo
-  comprador pasa D2 y llega a la orden.
+  evidencia AP2 guarda `consent` y luego `effect`; la traza muestra el paso
+  `authorization_decision` (`allow`) entre la aprobación y la autorización firmada. En S04 el
+  Merchant cambia el envío de la oferta después de mostrar los términos: la relectura y una
+  aprobación enviada igual terminan en `checkout_terms_changed` antes de D2, sin ninguna fila D2
+  ni rechazo D2 para el chat, y una segunda compra del mismo comprador pasa D2 y llega a la
+  orden.
 - Navegador (`test_live_browser.py`): sobre el carril `b0`, Chromium se registra en `auth/`,
   pide la compra en la UI servida por Vite, la aprueba en la tarjeta y ve la orden confirmada;
   el Agent atiende en este mismo proceso con el router guionado y guarda ambos recibos AP2.

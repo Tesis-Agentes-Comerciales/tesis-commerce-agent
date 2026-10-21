@@ -8,9 +8,9 @@ import {
   type StaleTermsCardStatus,
   type StaleTermsReason,
 } from "@/components/agent"
-import { FAILURE_COPY } from "@/components/trace/trace-copy"
+import { FAILURE_COPY, traceMerchant } from "@/components/trace/trace-copy"
 import { usePurchaseSession, type LocalPurchase } from "@/features/purchase-session"
-import { approvalReceipt } from "@/features/purchase-trace"
+import { approvalReceipt, refusedRules } from "@/features/purchase-trace"
 import { staleTermsOf } from "@/features/stale-terms"
 import type { AgentPurchase, ApprovalTerms, ProductCard } from "@/lib/agent-contract"
 import {
@@ -178,12 +178,14 @@ type StaleTermsApprovalProps = {
 }
 
 /**
- * Compra cuyos términos ya no valen: no se puede aprobar, solo cancelar. Después el comprador la
- * pide de nuevo en el chat y obtiene un checkout con las condiciones vigentes.
+ * Compra que ya no se puede aprobar (términos que ya no valen o una autorización que la política
+ * negó): solo cancelar. Después el comprador la pide de nuevo en el chat y obtiene un checkout con las
+ * condiciones vigentes.
  */
 export function StaleTermsApproval({ runId, terms, product }: StaleTermsApprovalProps) {
   const purchase = useAssistantTransportState((state) => state.purchase)
-  const { purchases } = usePurchaseSession()
+  const { purchases, traces } = usePurchaseSession()
+  const trace = traces[runId] ?? null
   const { cancel } = usePurchaseActions(runId)
   const local = purchases[runId]
   const stage = purchase?.run_id === runId ? purchase.stage : null
@@ -199,6 +201,8 @@ export function StaleTermsApproval({ runId, terms, product }: StaleTermsApproval
       terms={local?.termsStatus ?? terms}
       status={status}
       productTitle={product?.title ?? null}
+      rules={refusedRules(trace)}
+      merchant={trace ? traceMerchant(trace) : undefined}
       error={status === "stale" && local?.status === "error" ? (local.error ?? null) : null}
       onCancel={cancel}
       // Llegó al aprobar en esta sesión: reemplaza a la tarjeta de aprobación, que tenía el foco.
@@ -260,7 +264,8 @@ export function PurchaseApproval({ runId, terms, product, priceChanged }: Purcha
         notifyBackend()
       } catch (error) {
         const code = error instanceof AgentApiError ? error.code : undefined
-        // Antes de registrar la aprobación, un 409 o 503 de frescura deja solo la opción de cancelar.
+        // Antes de registrar la aprobación, un 409 o 503 de frescura, o un 409 de la autorización
+        // (D2), deja solo la opción de cancelar.
         const termsStatus = approvalRecorded ? null : staleTermsOf(code)
         updatePurchase(runId, {
           status: "error",

@@ -166,6 +166,28 @@ class SqliteD2AuthorizationGate:
             if not SqliteGovernanceEvidenceStore(connection).admits_phase_d2():
                 raise GovernanceError("GOV_EVIDENCE_UNAVAILABLE")
 
+    def refusal(self, run_id: str) -> Literal["denied", "unverified"] | None:
+        """Why the run's last D2 attempt left it without an approval, if it did.
+
+        `denied` is a policy deny; `unverified` is a runtime guard, facts that could not be
+        assembled or an allow that could not be applied. Read-only, for restoring the chat: the
+        purchase stays awaiting confirmation and approving again would be refused the same way.
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT record_kind, outcome, json_extract(body, '$.decision.origin'), "
+                "json_extract(body, '$.application.disposition') FROM governance_evidence "
+                "WHERE run_id=? AND phase='D2' ORDER BY sequence DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        kind, outcome, origin, disposition = row
+        if kind == "decision_record" and disposition == "transition_committed":
+            return None
+        policy_deny = kind == "decision_record" and (outcome, origin) == ("deny", "policy")
+        return "denied" if policy_deny else "unverified"
+
     @contextmanager
     def attempt(
         self,

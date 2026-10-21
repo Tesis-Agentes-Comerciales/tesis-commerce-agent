@@ -7,10 +7,11 @@ the demo launcher exports for its `b2` mode (`demo_stack.mode_environment`, poli
 Scenarios on the B0 lane (scripted router, never a real LLM):
 - S01: approving runs freshness, then D2 (POL-03..06 allow), then the AP2 signature in the same
   transaction as the approval; the order is confirmed and the AP2 evidence holds the consent and
-  its effect, in that order.
+  its effect, in that order. The trace shows the D2 step between the approval and the signed
+  authorization.
 - S04: the Merchant changes the offer after the terms were shown. Freshness refuses both the reread
-  and a client that posts anyway, before D2: no D2 row. A second purchase of the same buyer is
-  authorized by D2 and reaches its order.
+  and a client that posts anyway, before D2: no D2 row and no D2 refusal for the chat. A second
+  purchase of the same buyer is authorized by D2 and reaches its order.
 """
 
 import sqlite3
@@ -24,6 +25,8 @@ from commerce_agent.approval import ApprovalError
 from commerce_agent.config import Settings
 from commerce_agent.llm import ConversationMessage
 from commerce_agent.runtime import build_runtime
+from commerce_agent.trace.assembler import PurchaseTraces
+from commerce_agent.trace.models import AuthorizationDecisionStep
 from commerce_evaluation.demo_stack import MODES, mode_environment
 from commerce_evaluation.governance_pilot import D1RunKeys
 from tests.integration.live_purchase import (
@@ -124,6 +127,12 @@ def test_s01_d2_allows_the_approval_and_the_order_is_confirmed(b0, tmp_path, mon
     assert approved.authorization_evidence_id == rows[0][2] == approval_evidence(path, run_id)
     # Consent only once the approval exists (after the D2 commit), then its effect.
     assert ap2_kinds(path, run_id) == ["consent", "effect"]
+    steps = PurchaseTraces(settings).trace(run_id).steps
+    kinds = [step.kind for step in steps]
+    assert kinds.index("approval") < kinds.index("authorization_decision")
+    assert kinds.index("authorization_decision") < kinds.index("authorization_signed")
+    step = next(item for item in steps if isinstance(item, AuthorizationDecisionStep))
+    assert step.state == "done" and step.decision.outcome == "allow"
     b0.stack.record("b2:d2-s01", d2=rows[0][1])
 
 
@@ -156,6 +165,7 @@ def test_s04_freshness_refuses_before_d2_and_the_next_purchase_is_authorized(
             )
         assert stale.value.code == "checkout_terms_changed"
         assert d2_rows(settings.agent_database_path, run_id) == []
+        assert runtime.d2_gate is not None and runtime.d2_gate.refusal(run_id) is None
 
         # The lane's proxy refuses the cancel, so the second purchase starts directly.
         second = f"d2-s04-second-{episode.run_id}"

@@ -615,6 +615,96 @@ test.describe("términos que ya no valen", () => {
   }
 })
 
+test.describe("autorización al aprobar (D2)", () => {
+  const NOTHING_SIGNED = "No se firmó ninguna autorización ni se hizo ningún cobro."
+  const DENIED_TITLE = "La política de compra no autorizó esta compra"
+  const D2_DENIED = {
+    status: 409,
+    body: {
+      code: "d2_denied",
+      message:
+        "La política de compra no autorizó esta compra al aprobarla. No se firmó ninguna autorización ni se hizo ningún cobro.",
+    },
+  }
+
+  test("aprobar responde 409 d2_denied: sin firma ni cobro, la regla que falló y solo cancelar", async ({
+    page,
+  }) => {
+    await routeSession(page)
+    const denied = trace("authorization-denied", APPROVAL.run_id)
+    const calls = await routeAgent(page, {
+      approval: D2_DENIED,
+      trace: (calls) => {
+        if (callIndex(calls, "POST", "/cancel") >= 0) return { body: canceledTrace(denied) }
+        const refused = callIndex(calls, "POST", `/purchases/${APPROVAL.run_id}/approval`) >= 0
+        return { body: refused ? denied : trace("awaiting-approval", APPROVAL.run_id) }
+      },
+    })
+    await page.goto("/")
+    const card = await preparePurchase(page)
+    await card.getByTestId("approve-purchase").click()
+
+    // La tarjeta de aprobación cede su lugar: qué regla no se cumplió y una sola salida.
+    const deniedCard = page.getByTestId("stale-terms-card")
+    await expect(deniedCard.getByRole("heading", { name: DENIED_TITLE })).toBeVisible()
+    await expect(deniedCard.getByText(NOTHING_SIGNED)).toBeVisible()
+    await expect(deniedCard.getByText("La política no cambió desde que eligió el producto")).toBeVisible()
+    await expect(deniedCard.getByText("b2-hp-v2 · revisión 2")).toBeVisible()
+    await expect(deniedCard.getByRole("button")).toHaveText(["Cancelar compra"])
+    await expect(page.getByTestId("purchase-approval-card")).toHaveCount(0)
+    await expect(page.getByTestId("policy-blocked-card")).toHaveCount(0)
+    await expect(page.getByRole("alert")).toHaveCount(0)
+
+    // La actividad dice que la política la detuvo al aprobar, después de confirmar las condiciones.
+    const activity = page.getByTestId("purchase-activity")
+    await expect(activity).toHaveAttribute("data-status", "blocked")
+    await activity.getByRole("button", { name: /Bloqueada por la política de compra/ }).click()
+    const steps = activity.getByRole("listitem")
+    const refused = steps.filter({ hasText: "La política no autorizó la compra" })
+    await expect(refused).toHaveAttribute("data-state", "blocked")
+    await expect(refused).toContainText(NOTHING_SIGNED)
+    // «Antes de registrar tu aprobación» también contiene el texto: se busca el título exacto.
+    for (const control of ["Tu aprobación", "Firmar la autorización"]) {
+      const row = steps.filter({ has: page.getByText(control, { exact: true }) })
+      await expect(row).toHaveAttribute("data-state", "skipped")
+    }
+
+    await deniedCard.getByRole("button", { name: "Cancelar compra" }).click()
+    await expect(deniedCard).toHaveAttribute("data-status", "canceled")
+    await expect(page.getByText(/Cancelé la compra pendiente/)).toBeVisible()
+    expect(callIndex(calls, "POST", `/purchases/${APPROVAL.run_id}/cancel`)).toBeGreaterThanOrEqual(0)
+    expect(callIndex(calls, "POST", "/complete")).toBe(-1)
+  })
+
+  test("una compra pendiente con terms_status authorization_denied se puede cancelar tras recargar", async ({
+    page,
+  }) => {
+    await routeSession(page)
+    const pending = {
+      purchase: {
+        run_id: APPROVAL.run_id,
+        stage: "awaiting_confirmation",
+        checkout_id: APPROVAL.terms.checkout_id,
+        order_id: null,
+      },
+      approval_terms: null,
+      terms_status: "authorization_denied",
+    }
+    const calls = await routeAgent(page, { pending, canceled: canceledEcho })
+    await page.goto("/")
+    await expect(page.getByText("Recuperé tu compra pendiente. Revisa su estado antes de continuar.")).toBeVisible()
+    const deniedCard = page.getByTestId("stale-terms-card")
+    await expect(deniedCard.getByRole("heading", { name: DENIED_TITLE })).toBeVisible()
+    await expect(deniedCard.getByText(NOTHING_SIGNED)).toBeVisible()
+    await expect(page.getByTestId("purchase-approval-card")).toHaveCount(0)
+    await expect(page.getByRole("alert")).toHaveCount(0)
+
+    await deniedCard.getByRole("button", { name: "Cancelar compra" }).click()
+    await expect(deniedCard).toHaveAttribute("data-status", "canceled")
+    expect(calls.filter((call) => call.method === "POST" && call.path.endsWith("/approval"))).toHaveLength(0)
+  })
+})
+
 test("sin sesión muestra el acceso y no llama al agente", async ({ page }) => {
   await routeSession(page, { signedIn: false })
   const requests = agentRequests(page)
@@ -648,6 +738,26 @@ test.describe("móvil", () => {
     await routeAgent(page, { pending: stalePending("unavailable") })
     await page.goto("/")
     await expect(page.getByTestId("stale-terms-card")).toBeVisible()
+    expect(await fitsViewport(page)).toBe(true)
+  })
+
+  test("la tarjeta de la autorización negada, con su regla, cabe en 375 px", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 })
+    await routeSession(page)
+    await routeAgent(page, {
+      approval: { status: 409, body: { code: "d2_denied", message: "denied" } },
+      trace: (calls) => ({
+        body: trace(
+          callIndex(calls, "POST", "/approval") >= 0 ? "authorization-denied" : "awaiting-approval",
+          APPROVAL.run_id,
+        ),
+      }),
+    })
+    await page.goto("/")
+    const card = await preparePurchase(page)
+    await card.getByTestId("approve-purchase").click()
+    const denied = page.getByTestId("stale-terms-card")
+    await expect(denied.getByText("b2-hp-v2 · revisión 2")).toBeVisible()
     expect(await fitsViewport(page)).toBe(true)
   })
 

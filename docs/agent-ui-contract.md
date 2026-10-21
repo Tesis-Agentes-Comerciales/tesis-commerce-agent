@@ -199,7 +199,12 @@ Detalles que el contrato no fijaba y que el backend implementa así (`src/commer
   también al recargar: `terms_status` vale `changed`, `expired` o `unavailable`. Al presentar los
   términos de la compra pendiente, `checkout_expired` (por `expires_at` o porque el comercio ya
   marcó el checkout `expired`) se informa como `expired` y `checkout_not_ready` como `changed`, en
-  vez de un 409 (`docs/design/hp-p5a-definitive-failures.md`).
+  vez de un 409 (`docs/design/hp-p5a-definitive-failures.md`). Con D2 (`b2-hp-v2`), aprobar puede
+  responder 409 `d2_denied` (la política no autorizó) o `d2_unavailable`/`d2_allow_unapplied` (no se
+  pudo verificar o aplicar): la tarjeta pasa al mismo estado con «La política de compra no autorizó
+  esta compra» o «No pude verificar la autorización de la compra», dice que no se firmó nada y, con
+  la traza, muestra la regla que falló. Al recargar, `terms_status` vale `authorization_denied` o
+  `authorization_unverified` (`docs/design/hp-p3-d2-authorization.md`).
 - `checkout_not_ready`, y `checkout_expired` después de registrar la aprobación, llegan a la tarjeta
   con su texto en español, sin el `message` interno.
 - El texto final de un turno de compra es la explicación del modelo (más la nota de precio si

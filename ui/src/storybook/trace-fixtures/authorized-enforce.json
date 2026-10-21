@@ -1,0 +1,235 @@
+{
+  "run_id": "run_2d7b9e4f1a6c4835b0e9d3c7a1f5e824",
+  "status": "completed",
+  "policy_mode": "enforce",
+  "request": "Quiero audífonos negros por menos de 2 millones",
+  "merchant": "http://127.0.0.1:4120",
+  "merchant_name": "Synthetic Commerce Merchant",
+  "total": {
+    "minor": 192400000,
+    "currency": "COP"
+  },
+  "started_at": "2026-10-20T16:05:20.412Z",
+  "updated_at": "2026-10-20T16:06:07.392Z",
+  "steps": [
+    {
+      "id": "request",
+      "at": "2026-10-20T16:05:20.412Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "request"
+    },
+    {
+      "id": "selection",
+      "at": "2026-10-20T16:05:29.130Z",
+      "duration_ms": 8718,
+      "actor": "agent",
+      "state": "done",
+      "kind": "selection",
+      "product": "Sony WH-1000XM6 negro",
+      "total_minor": 189900000,
+      "currency": "COP"
+    },
+    {
+      "id": "policy_decision",
+      "at": "2026-10-20T16:05:29.134Z",
+      "duration_ms": 4,
+      "actor": "policy",
+      "state": "done",
+      "kind": "policy_decision",
+      "decision": {
+        "mode": "enforce",
+        "outcome": "allow",
+        "effect": "continued",
+        "policy": {
+          "set_id": "b2-hp-v2",
+          "revision": 1
+        },
+        "rules": [
+          {
+            "id": "POL-01",
+            "result": "pass",
+            "observed": "SON-XM6-BLK",
+            "expected": "BOS-QCU-BLK, SON-XM6-BLK"
+          },
+          {
+            "id": "POL-02",
+            "result": "pass",
+            "observed": "http://127.0.0.1:4120",
+            "expected": "http://127.0.0.1:4120"
+          },
+          {
+            "id": "POL-11",
+            "result": "pass",
+            "observed": {
+              "minor": 189900000,
+              "currency": "COP"
+            },
+            "expected": {
+              "minor": 200000000,
+              "currency": "COP"
+            }
+          }
+        ],
+        "reason_codes": [
+          "ALL_APPLICABLE_POLICIES_SATISFIED"
+        ],
+        "latency_ms": 4,
+        "decision_id": "decision:6a2e9c4b1f7d3058e2c9a1b4d6f8e037",
+        "evidence_id": "evidence:1c8e3a5f7b9d2046c8e1a3f5b7d9c204"
+      }
+    },
+    {
+      "id": "checkout_created",
+      "at": "2026-10-20T16:05:29.134Z",
+      "duration_ms": 1414,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "checkout_created",
+      "checkout_id": "cs_b81f04c6d2e9"
+    },
+    {
+      "id": "freshness_check:1",
+      "at": "2026-10-20T16:05:31.020Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "freshness_check",
+      "stage": "present",
+      "mode": "enforce",
+      "outcome": "fresh",
+      "changes": [],
+      "currency": "COP",
+      "offer_revision": 1,
+      "read_error": null,
+      "evidence_digest": "sha256:3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b"
+    },
+    {
+      "id": "freshness_check:2",
+      "at": "2026-10-20T16:06:05.150Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "freshness_check",
+      "stage": "approve",
+      "mode": "enforce",
+      "outcome": "fresh",
+      "changes": [],
+      "currency": "COP",
+      "offer_revision": 1,
+      "read_error": null,
+      "evidence_digest": "sha256:5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d"
+    },
+    {
+      "id": "approval",
+      "at": "2026-10-20T16:06:05.208Z",
+      "duration_ms": 34660,
+      "actor": "user",
+      "state": "done",
+      "kind": "approval",
+      "fingerprint": "9c1f4e7a2b8d06c3f5e91a4d7b2c8e0f6a3d9b1c4e7f2a5d8b0c3e6f9a2d5b8c",
+      "expires_at": "2026-10-20T16:20:31.020Z",
+      "approved_at": "2026-10-20T16:06:05.208Z"
+    },
+    {
+      "id": "authorization_decision",
+      "at": "2026-10-20T16:06:05.196Z",
+      "duration_ms": 3,
+      "actor": "policy",
+      "state": "done",
+      "kind": "authorization_decision",
+      "decision": {
+        "mode": "enforce",
+        "outcome": "allow",
+        "effect": "continued",
+        "policy": {
+          "set_id": "b2-hp-v2",
+          "revision": 1
+        },
+        "rules": [
+          {
+            "id": "POL-03",
+            "result": "pass",
+            "observed": null,
+            "expected": null
+          },
+          {
+            "id": "POL-04",
+            "result": "pass",
+            "observed": null,
+            "expected": null
+          },
+          {
+            "id": "POL-05",
+            "result": "pass",
+            "observed": {
+              "minor": 192400000,
+              "currency": "COP"
+            },
+            "expected": {
+              "minor": 200000000,
+              "currency": "COP"
+            }
+          },
+          {
+            "id": "POL-06",
+            "result": "pass",
+            "observed": null,
+            "expected": null
+          }
+        ],
+        "reason_codes": [
+          "ALL_APPLICABLE_POLICIES_SATISFIED"
+        ],
+        "latency_ms": 3,
+        "decision_id": "decision:e4b8d2a6c0f94137b5e9a3c7d1f8b260",
+        "evidence_id": "evidence:a7d3f9b1e5c84260d9b3f7a1c5e9d482"
+      }
+    },
+    {
+      "id": "authorization_signed",
+      "at": "2026-10-20T16:06:05.640Z",
+      "duration_ms": 432,
+      "actor": "user",
+      "state": "done",
+      "kind": "authorization_signed",
+      "mandates": [
+        "checkout",
+        "payment"
+      ]
+    },
+    {
+      "id": "payment_authorized",
+      "at": "2026-10-20T16:06:06.118Z",
+      "duration_ms": 478,
+      "actor": "payment",
+      "state": "done",
+      "kind": "payment_authorized",
+      "max_minor": 192400000,
+      "currency": "COP"
+    },
+    {
+      "id": "order_confirmed",
+      "at": "2026-10-20T16:06:07.392Z",
+      "duration_ms": 1274,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "order_confirmed",
+      "order_id": "ord_4b6a2d9c07",
+      "receipts": [
+        "checkout",
+        "payment"
+      ]
+    },
+    {
+      "id": "order_event:1",
+      "at": "2026-10-20T16:06:07.392Z",
+      "duration_ms": null,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "order_event",
+      "event_type": "order_create"
+    }
+  ]
+}

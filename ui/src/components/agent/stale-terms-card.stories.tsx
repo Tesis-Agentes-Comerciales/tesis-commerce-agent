@@ -9,6 +9,7 @@ import {
 } from "@/components/agent/stale-terms-card"
 import { SONORA } from "@/storybook/agent-fixtures"
 import { mouseClick } from "@/storybook/interactions"
+import { stepOf, TRACES } from "@/storybook/trace-fixtures"
 
 const NO_CHARGE = "No se hizo ningún cobro."
 
@@ -98,6 +99,52 @@ export const TermsExpired: Story = {
       canvas.getByRole("heading", { name: "Las condiciones que revisaste vencieron" }),
     ).toBeVisible()
     await expect(canvas.getByText(NO_CHARGE)).toBeVisible()
+    await expect(canvas.getByRole("button", { name: "Cancelar compra" })).toBeEnabled()
+  },
+}
+
+const NOTHING_SIGNED = "No se firmó ninguna autorización ni se hizo ningún cobro."
+const DENIED_RULES = stepOf(TRACES.authorizationDenied, "authorization_decision").decision.rules
+
+/**
+ * Aprobar respondió 409 `d2_denied`, o `terms_status: "authorization_denied"`: al aprobar, la
+ * política no autorizó la compra. Con la traza, la regla que falló y sus valores.
+ */
+export const AuthorizationDenied: Story = {
+  args: {
+    terms: "authorization_denied",
+    rules: DENIED_RULES.filter((rule) => rule.result === "fail"),
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("heading", { name: "La política de compra no autorizó esta compra" }),
+    ).toBeVisible()
+    await expect(canvas.getByText(NOTHING_SIGNED)).toBeVisible()
+    await expect(canvas.getByText("La política no cambió desde que eligió el producto")).toBeVisible()
+    await expect(canvas.getByText("No cumple")).toBeVisible()
+    await expect(canvas.getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Cancelar compra",
+    ])
+  },
+}
+
+/** Restaurada tras recargar, antes de que llegue la traza: lo explica sin reglas. */
+export const AuthorizationDeniedWithoutTrace: Story = {
+  args: { terms: "authorization_denied", productTitle: null },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText(NOTHING_SIGNED)).toBeVisible()
+    await expect(canvas.queryByRole("list", { name: "Reglas de la política de compra" })).toBeNull()
+  },
+}
+
+/** Aprobar respondió 409 `d2_unavailable` o `d2_allow_unapplied`: se detuvo por precaución. */
+export const AuthorizationUnverified: Story = {
+  args: { terms: "authorization_unverified" },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("heading", { name: "No pude verificar la autorización de la compra" }),
+    ).toBeVisible()
+    await expect(canvas.getByText(NOTHING_SIGNED)).toBeVisible()
     await expect(canvas.getByRole("button", { name: "Cancelar compra" })).toBeEnabled()
   },
 }

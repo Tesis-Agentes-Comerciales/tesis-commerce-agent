@@ -1,16 +1,20 @@
 import { cn } from "cn"
-import { AlertCircleIcon, BanIcon, LoaderCircleIcon, RefreshCwIcon } from "lucide-react"
+import { AlertCircleIcon, BanIcon, LoaderCircleIcon, RefreshCwIcon, ShieldXIcon } from "lucide-react"
 import { useId } from "react"
 
 import { pillButton } from "@/components/agent/agent-styles"
 import { useCardFocus } from "@/components/agent/use-card-focus"
+import { PolicyRuleTable } from "@/components/trace/policy-rule-table"
+import { NOTHING_SIGNED, type MerchantLabel } from "@/components/trace/trace-copy"
 import type { PendingTermsStatus } from "@/lib/commerce-api"
+import type { PolicyRule } from "@/lib/trace-contract"
 
 export type StaleTermsCardStatus = "stale" | "canceling" | "canceled"
 
 /**
  * Por qué ya no se puede aprobar: la oferta cambió, no se pudo leer o venció (la oferta o el
- * checkout). Es el mismo `terms_status` con el que el backend restaura la compra al recargar.
+ * checkout), o al aprobar la política no autorizó la compra o no se pudo verificar (D2). Es el mismo
+ * `terms_status` con el que el backend restaura la compra al recargar.
  */
 export type StaleTermsReason = PendingTermsStatus
 
@@ -19,6 +23,13 @@ export type StaleTermsCardProps = {
   status: StaleTermsCardStatus
   /** Producto de la compra, si se conoce; una compra restaurada no lo trae. */
   productTitle?: string | null
+  /**
+   * Reglas que no se cumplieron cuando la política no autorizó la compra (`authorization_denied`),
+   * si la traza ya las trajo; sin ellas la tarjeta solo lo explica.
+   */
+  rules?: PolicyRule[]
+  /** Comercio de la compra, para nombrarlo en las reglas. */
+  merchant?: MerchantLabel
   /** Mensaje saneado si cancelar falló; el botón sigue disponible para reintentar. */
   error?: string | null
   onCancel?: () => void
@@ -31,6 +42,12 @@ export type StaleTermsCardProps = {
 }
 
 const NO_CHARGE = "No se hizo ningún cobro."
+
+/** Las paradas de la autorización (D2) ocurren al aprobar: tampoco se firmó nada. */
+const AUTHORIZATION_REASONS: ReadonlySet<StaleTermsReason> = new Set([
+  "authorization_denied",
+  "authorization_unverified",
+])
 
 const COPY = {
   changed: {
@@ -48,17 +65,29 @@ const COPY = {
     explanation:
       "No sé si el precio y la disponibilidad siguen vigentes. Cancela esta compra y pídela de nuevo para revisarlas.",
   },
+  authorization_denied: {
+    title: "La política de compra no autorizó esta compra",
+    explanation:
+      "Al aprobar, la política revisó la compra otra vez y no se cumplió una regla. Cancela esta compra y pídela de nuevo.",
+  },
+  authorization_unverified: {
+    title: "No pude verificar la autorización de la compra",
+    explanation:
+      "Por precaución, la detuve antes de firmar. Cancela esta compra y pídela de nuevo.",
+  },
 } satisfies Record<StaleTermsReason, { title: string; explanation: string }>
 
 /**
- * Reemplaza a la tarjeta de aprobación cuando los términos ya no valen: aprobar no es posible y la
- * única salida es cancelar y pedir la compra otra vez. No es un error ni un bloqueo de la política,
- * así que va en ámbar y dice qué no ocurrió.
+ * Reemplaza a la tarjeta de aprobación cuando ya no se puede aprobar: los términos ya no valen o la
+ * política no autorizó la compra al aprobarla (D2). La única salida es cancelar y pedirla otra vez.
+ * No es un error: va en ámbar y dice qué no ocurrió.
  */
 export function StaleTermsCard({
   terms,
   status,
   productTitle,
+  rules = [],
+  merchant,
   error,
   onCancel,
   autoFocus = false,
@@ -69,6 +98,9 @@ export function StaleTermsCard({
   const copy = canceled
     ? { title: "Compra cancelada", explanation: "Ya puedes pedirla de nuevo en el chat." }
     : COPY[terms]
+  const authorization = AUTHORIZATION_REASONS.has(terms)
+  const nothingDone = authorization ? NOTHING_SIGNED : NO_CHARGE
+  const failedRules = canceled || terms !== "authorization_denied" ? [] : rules
   // Cancelada, el botón que se pulsó ya no está: el foco pasa al título.
   const controlsGone = canceled || !onCancel
   const { cardRef, titleRef, announce } = useCardFocus<HTMLElement>(
@@ -82,7 +114,7 @@ export function StaleTermsCard({
       ? "Cancelando la compra…"
       : error
         ? ""
-        : `${copy.title}. ${NO_CHARGE}`
+        : `${copy.title}. ${nothingDone}`
 
   return (
     <>
@@ -110,6 +142,8 @@ export function StaleTermsCard({
           >
             {canceled ? (
               <BanIcon className="size-5" aria-hidden />
+            ) : authorization ? (
+              <ShieldXIcon className="size-5" aria-hidden />
             ) : (
               <RefreshCwIcon className="size-5" aria-hidden />
             )}
@@ -123,7 +157,7 @@ export function StaleTermsCard({
             >
               {copy.title}
             </h3>
-            <p className="text-sm text-[#6b6b6b]">{NO_CHARGE}</p>
+            <p className="text-sm text-[#6b6b6b]">{nothingDone}</p>
           </div>
         </div>
 
@@ -132,6 +166,7 @@ export function StaleTermsCard({
             <p className="text-sm leading-5 font-medium wrap-break-word">{productTitle}</p>
           )}
           <p className="text-sm leading-5 text-[#3d3d3d]">{copy.explanation}</p>
+          {failedRules.length > 0 && <PolicyRuleTable rules={failedRules} merchant={merchant} />}
 
           {error && (
             <div
