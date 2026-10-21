@@ -143,6 +143,8 @@ RECEIPT_STATUSES: Mapping[str, str] = {
     "success": "success",
     "error": "error",
 }
+# The identifier each kind of receipt carries in its JWT and in its `receipt_recorded` event.
+RECEIPT_IDENTIFIERS = {"checkout": "order_id", "payment": "payment_id"}
 
 
 def _thumbprint(jwk: Mapping[str, Any]) -> str:
@@ -921,7 +923,9 @@ class HnpRunVerification(RunVerification):
                 "receipt_digest": event.body["receipt_digest"],
                 "rejected_by": outbox["rejected_by"],
             }
-            claims = _ap2_receipt(token, kind)
+            if set(receipts) != {kind}:
+                return mismatch("Un rechazo deja solo el recibo de error de quien rechazó", **refs)
+            claims, name = _ap2_receipt(token, kind), RECEIPT_IDENTIFIERS[kind]
             if not (
                 self._linked(event)
                 and event.body["receipt_digest"] == token_digest(token)
@@ -929,6 +933,7 @@ class HnpRunVerification(RunVerification):
                 and claims["reference"] == event.body["reference"] == links.get(kind)
                 and claims["error"] == event.body["error"] == outbox["ap2_error"]
                 and claims["iss"] == event.body["issuer"]
+                and claims[name] == event.body.get(name)
             ):
                 return mismatch("El recibo de error no es el del mandato cerrado", **refs)
             if _receipt_status(event.body.get("status")) != "error":
@@ -962,10 +967,9 @@ class HnpRunVerification(RunVerification):
             completion["checkout_id"],
         ) != (outbox["order_id"], self.checkout_id):
             return mismatch("Los recibos guardados no son los de la cadena", **refs)
-        identifiers = {"checkout": "order_id", "payment": "payment_id"}
         for kind, token in tokens.items():
             claims, body = _ap2_receipt(token, kind), receipts[kind].body
-            name = identifiers[kind]
+            name = RECEIPT_IDENTIFIERS[kind]
             if not (
                 _receipt_status(claims["status"]) == _receipt_status(body["status"]) == "success"
                 and claims["reference"] == links[kind]

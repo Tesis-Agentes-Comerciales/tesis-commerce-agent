@@ -5,8 +5,8 @@ mandate issuer and the Agent Key are the product's, over one real SQLite file, w
 tests/governance/test_hnp_gate.py wires them. Only the merchant (httpx.MockTransport), its AP2
 checkout signature (a key generated for the test) and the authority clock are doubles.
 
-The executor stops at UoW-2 (HNP-09b dispatches). `dispatch_with_order` and `reject_by_psp`
-drive the ledger's own dispatch steps as tests/support/delegation.py does, with AP2 receipts whose
+The executor stops at UoW-2 (HNP-09b dispatches). `dispatch_with_order`, `reject_by_psp` and
+`reject_by_merchant` drive the ledger's own dispatch steps as tests/support/delegation.py does, with AP2 receipts whose
 claims bind the closed mandates; `verify-evidence` reads their claims, never their signature.
 `record_results` writes the `completion_results` row that HNP-09b's UoW-3 is to write.
 """
@@ -239,10 +239,33 @@ class HnpChain:
             payment_id="pay_1",
         )
         # The ledger keeps the status lowercase, the form HNP-09b normalizes every receipt to; the
-        # JWT keeps the SDK's `Error`.
-        receipt = Receipt("payment", token, PSP, "error", reference, error="invalid_mandate")
+        # JWT keeps the SDK's `Error`. The event keeps the JWT's `payment_id`, as HNP-09b does.
+        receipt = Receipt(
+            "payment", token, PSP, "error", reference, error="invalid_mandate", payment_id="pay_1"
+        )
         step = self.ledger.reject_dispatch(self.task_id, lease, "invalid_mandate", receipt)
         assert step.status == "closed"
+
+    def reject_by_merchant(self) -> None:
+        """After the PSP's token, the merchant answers the completion with a verified AP2 error
+        receipt, without an order (`order_id` only comes with a success)."""
+        lease = self.lease()
+        for step in ("payment_sent", "payment_accepted", "complete_sent"):
+            assert self.ledger.advance_dispatch(self.task_id, lease, step).status == "applied"
+        merchant, reference = (
+            self.settings.merchant_base_url,
+            self.closed_links()["closed_checkout"],
+        )
+        token = receipt_jwt(
+            status="Error",
+            iss=merchant,
+            reference=reference,
+            error="invalid_mandate",
+            error_description="The checkout mandate does not verify",
+        )
+        receipt = Receipt("checkout", token, merchant, "error", reference, error="invalid_mandate")
+        closed = self.ledger.reject_dispatch(self.task_id, lease, "invalid_mandate", receipt)
+        assert closed.status == "closed"
 
 
 @contextmanager
