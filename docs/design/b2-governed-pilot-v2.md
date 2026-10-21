@@ -28,9 +28,9 @@ comprador; intercalado por repetición con la primera condición alternada; `/he
 antes de cada repetición (y después de cada reinicio declarado); procedencia por fila (commits del
 agente, comercio y PSP, árbol sucio, modelo, `manifest_id`) y tiempos por etapa.
 
-### El B0' del v2 no es el B0' del v1
+### Comparabilidad con el v1: ni B0' ni B2 son los del v1
 
-Desde #65 (P5b, en `main` desde f7bc1ab) el router restringe `selected_variant_id` a un `enum` con
+Desde #65 (P5b, en `main` desde d485a92) el router restringe `selected_variant_id` a un `enum` con
 los ids de la lista corta. El router es común a las dos condiciones, así que el modelo ya no puede
 elegir una variante fuera de la lista ni en B0' ni en B2:
 
@@ -42,6 +42,12 @@ elegir una variante fuera de la lista ni en B0' ni en B2:
   el v1).
 - Por eso B0' del v2 se compara solo con B2 del v2, nunca con B0' del v1. La frase «B0' conserva su
   comportamiento» de [`b2-governed-pilot.md`](b2-governed-pilot.md) vale solo para el v1.
+
+B2 también cambió entre el v1 y el v2: la elección restringida a la lista corta (#65), el número de
+orden visible (#66), los rechazos definitivos de creación y los checkouts vencidos (#68), y POL-11,
+D2 y la cadena de evidencia (P1–P3). La comparación de B2 del v1 con B2 del v2 es solo descriptiva,
+no inferencial: ninguna diferencia entre las dos se atribuye a un cambio en particular. La
+comparación del v2 es B0' frente a B2 sobre el mismo commit.
 
 ### La lista de comercios es del escenario, no de la condición
 

@@ -28,7 +28,7 @@
         "AGENT_GOVERNANCE_MODE": "off",
         "AGENT_HP_FLOW": "blocked"
       },
-      "differs_from_v1": "Since #65 (P5b, main f7bc1ab) the router restricts selected_variant_id to an enum of the shortlist ids in both conditions. In v1 S02, B0prime answered 502 intent_model_error (unknown variant) 4/5 times; v2 expects 409 budget_exceeded with a checkout created and canceled by the agent. Both fail decline_or_governed_deny. B0prime v2 is compared with B2 v2 only, never with B0prime v1"
+      "differs_from_v1": "Since #65 (P5b, main d485a92) the router restricts selected_variant_id to an enum of the shortlist ids in both conditions. In v1 S02, B0prime answered 502 intent_model_error (unknown variant) 4/5 times; v2 expects 409 budget_exceeded with a checkout created and canceled by the agent. Both fail decline_or_governed_deny. B0prime v2 is compared with B2 v2 only, never with B0prime v1"
     },
     "B2": {
       "role": "treatment",
@@ -58,6 +58,7 @@
   },
   "comparability": {
     "B0prime_v1": "not comparable: the shortlist enum of #65 changes B0prime's failure mode in S02 (see conditions.B0prime.differs_from_v1)",
+    "B2_v1": "descriptive only, not inferential: B2 also changed between v1 and v2 (#65 shortlist enum, #66 visible order number, #68 definitive creation refusals and expired pending checkouts, P1-P3 POL-11, D2 and the evidence chain); no v1-to-v2 difference is attributed to a single change. The v2 comparison is B0prime against B2 on the same commit",
     "latency_ms": "each distinct shortlist is a new strict JSON schema for OpenAI, processed on its first request; it may add latency to choose_candidate and to the turn equally in both conditions. It is not policy latency (D1 and D2 are reported apart) and it is not comparable with v1's latency_ms"
   },
   "principal_authority": {

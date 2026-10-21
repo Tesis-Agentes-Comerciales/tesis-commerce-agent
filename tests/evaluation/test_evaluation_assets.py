@@ -179,9 +179,12 @@ def test_v2_manifest_points_to_its_matrix_policy_and_controls() -> None:
     assert manifest["amendments_recorded"] == []
 
 
-def test_v2_declares_that_its_b0_prime_is_not_the_v1_one() -> None:
-    """#65 restricts the choice to the shortlist in both conditions: B0' changes from v1."""
+def test_v2_declares_that_neither_condition_is_the_v1_one() -> None:
+    """#65 changes B0' and B2; #66, #68 and P1-P3 change B2: v1 to v2 is descriptive only."""
     manifest = load_json("b2-pilot-v2.json")
+    comparability = manifest["comparability"]
 
     assert "#65" in manifest["conditions"]["B0prime"]["differs_from_v1"]
-    assert manifest["comparability"].keys() == {"B0prime_v1", "latency_ms"}
+    assert comparability.keys() == {"B0prime_v1", "B2_v1", "latency_ms"}
+    assert comparability["B2_v1"].startswith("descriptive only, not inferential")
+    assert all(change in comparability["B2_v1"] for change in ("#65", "#66", "#68", "P1-P3"))
