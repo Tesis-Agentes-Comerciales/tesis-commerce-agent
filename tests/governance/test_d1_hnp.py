@@ -35,6 +35,7 @@ from commerce_agent.governance.models import (
     SCHEMA,
     D1PolicyArtifact,
     EngineIdentity,
+    HnpAuthorizationRules,
     ObjectRef,
     PolicyDecision,
     SelectionPolicyInput,
@@ -101,6 +102,8 @@ def test_hnp_adds_its_own_d1_row_with_the_same_rules() -> None:
         ("D1", "HP"): ("POL-01", "POL-02", "POL-11"),
         ("D2", "HP"): ("POL-03", "POL-04", "POL-05", "POL-06"),
         ("D1", "HNP"): ("POL-01", "POL-02", "POL-11"),
+        ("D2", "HNP"): ("POL-03", "POL-04", "POL-05", "POL-06", "POL-07", "POL-08", "POL-09"),
+        ("D3", "HNP"): ("POL-09", "POL-10"),
     }
 
 
@@ -127,19 +130,29 @@ def test_b2_hnp_v1_governs_exactly_the_hnp_purchases(
     assert policy_set_matches_mode(policy_set_id, purchase_mode) is matches
 
 
-def test_b2_hnp_v1_is_built_in_code_with_the_d1_hnp_row() -> None:
+def test_b2_hnp_v1_is_built_in_code_with_its_d1_d2_and_d3_rows() -> None:
+    """Revision 2: the D1 row of revision 1 plus `authorization` (D2-HNP) and `dispatch` (D3)."""
     payload, binding = build_hnp_policy(merchant_ref=MERCHANT_REF)
 
     assert payload == (
         b'{"allowed_actions":["prepare_checkout"],"allowed_merchant_refs":["merchant-1"],'
-        b'"currency":"COP","policy_ids":["POL-01","POL-02","POL-11"],'
+        b'"authorization":{"allowed_actions":["complete_purchase"],'
+        b'"authentication_bases":["service_and_grant"],'
+        b'"policy_ids":["POL-03","POL-04","POL-05","POL-06","POL-07","POL-08","POL-09"],'
+        b'"profiles":["profile:ap2-hnp-v1"],"schema_version":"commerce-policy/1.0"},'
+        b'"currency":"COP","dispatch":{"allowed_actions":["commit_dispatch"],'
+        b'"policy_ids":["POL-09","POL-10"],"schema_version":"commerce-policy/1.0"},'
+        b'"policy_ids":["POL-01","POL-02","POL-11"],'
         b'"policy_set_id":"b2-hnp-v1","quantity":1,"schema_version":"commerce-policy/1.0",'
-        b'"version":1}'
+        b'"version":2}'
     )
     artifact = verify_artifact(payload, binding)
     assert (binding.policy_set_id, binding.version) == (HNP_POLICY_SET_ID, HNP_POLICY_REVISION)
     assert artifact.policy_ids == APPLICABLE_RULES[("D1", "HNP")]
-    assert artifact.authorization is None
+    assert isinstance(artifact.authorization, HnpAuthorizationRules)
+    assert artifact.authorization.policy_ids == APPLICABLE_RULES[("D2", "HNP")]
+    assert artifact.dispatch is not None
+    assert artifact.dispatch.policy_ids == APPLICABLE_RULES[("D3", "HNP")]
 
 
 def test_the_hp_builder_never_builds_b2_hnp_v1() -> None:

@@ -1,4 +1,4 @@
-"""Strict, immutable wire models for the first (D1 only) policy increment."""
+"""Strict, immutable wire models of the policy contract (policy-v1): D1, D2 and D3."""
 
 from collections.abc import Mapping
 from datetime import datetime
@@ -51,7 +51,7 @@ POLICY_REASONS: dict[PolicyId, str] = {
     "POL-10": "DISPATCH_AUTHORITY_CHANGED",
     "POL-11": "BUDGET_NOT_SATISFIABLE",
 }
-Phase = Literal["D1", "D2"]
+Phase = Literal["D1", "D2", "D3"]
 Rules = tuple[PolicyId, ...]
 # The rules each (phase, purchase mode) evaluates, in order, from b2-hp-v2 on. A new phase or
 # purchase mode adds its own row and leaves the others alone: a row is part of the bytes of the
@@ -61,6 +61,8 @@ APPLICABLE_RULES: Mapping[tuple[Phase, PurchaseMode], Rules] = MappingProxyType(
         ("D1", "HP"): ("POL-01", "POL-02", "POL-11"),
         ("D2", "HP"): ("POL-03", "POL-04", "POL-05", "POL-06"),
         ("D1", "HNP"): ("POL-01", "POL-02", "POL-11"),
+        ("D2", "HNP"): ("POL-03", "POL-04", "POL-05", "POL-06", "POL-07", "POL-08", "POL-09"),
+        ("D3", "HNP"): ("POL-09", "POL-10"),
     }
 )
 # b2-pilot-v1 predates the table: its published artifact evaluates POL-01 and POL-02 in D1.
@@ -327,7 +329,8 @@ class HpAuthorizationFacts(ContractModel):
     consent_binding_ref: ObjectRef
 
 
-def _constraint_set(values: tuple["ConstraintMatch", ...]) -> tuple["ConstraintMatch", ...]:
+def constraint_set(values: tuple["ConstraintMatch", ...]) -> tuple["ConstraintMatch", ...]:
+    """`constraint_matches` of D2 (both branches): one match per constraint, sorted by ref."""
     refs = tuple(match.constraint_ref for match in values)
     if len(set(refs)) != len(refs):
         raise ValueError("Duplicate constraint match")
@@ -345,7 +348,7 @@ class HpAuthorizationPolicyInput(PolicyHeader):
     selected_variant_id: Id
     terms: MaterialTerms
     freshness: FreshnessFacts
-    constraint_matches: Annotated[tuple[ConstraintMatch, ...], AfterValidator(_constraint_set)]
+    constraint_matches: Annotated[tuple[ConstraintMatch, ...], AfterValidator(constraint_set)]
     d1: ResolvedD1
     authorization_id: Id
     operation_id: Id
@@ -353,9 +356,9 @@ class HpAuthorizationPolicyInput(PolicyHeader):
     hp: HpAuthorizationFacts
 
 
-# D2 input: a union discriminated by `purchase_mode`. Only the HP branch exists; the HNP branch
-# (POL-07..09) joins as `HpAuthorizationPolicyInput | HnpAuthorizationPolicyInput` with
-# `Field(discriminator="purchase_mode")`, without changing the bytes of HP evidence.
+# The HP branch under the name the D2-HP gate and its tests use. The D2 input is the union
+# discriminated by `purchase_mode`, `hnp_models.D2PolicyInput`: its HNP branch lives outside this
+# module, so HP evidence keeps its bytes.
 AuthorizationPolicyInput = HpAuthorizationPolicyInput
 
 
@@ -441,11 +444,47 @@ class AuthorizationRules(ContractModel):
         return value
 
 
+class HnpAuthorizationRules(ContractModel):
+    """D2-HNP section of `b2-hnp-v1`: what POL-03..09 admit for an autonomous purchase.
+
+    `profiles` lists the authorization profiles whose proofs D2 and D3 accept, by the `id` of
+    their `ObjectRef` (`profile:ap2-hnp-v1`).
+    """
+
+    policy_ids: Rules
+    allowed_actions: tuple[Literal["complete_purchase"]]
+    authentication_bases: tuple[Literal["service_and_grant"]]
+    profiles: Annotated[Ids, Field(min_length=1)]
+
+    @field_validator("policy_ids")
+    @classmethod
+    def d2_hnp_row(cls, value: Rules) -> Rules:
+        if value != APPLICABLE_RULES[("D2", "HNP")]:
+            raise ValueError("The D2-HNP section lists the D2/HNP row of the table")
+        return value
+
+
+class DispatchRules(ContractModel):
+    """D3-HNP section of `b2-hnp-v1`: POL-09 and POL-10 before the dispatch is committed."""
+
+    policy_ids: Rules
+    allowed_actions: tuple[Literal["commit_dispatch"]]
+
+    @field_validator("policy_ids")
+    @classmethod
+    def d3_hnp_row(cls, value: Rules) -> Rules:
+        if value != APPLICABLE_RULES[("D3", "HNP")]:
+            raise ValueError("The D3-HNP section lists the D3/HNP row of the table")
+        return value
+
+
 class D1PolicyArtifact(ContractModel):
     """Offline reference profile, supplied through trusted configuration, not input.
 
-    `authorization` holds the D2-HP rules. An artifact without it is serialized exactly as
-    before (b2-pilot-v1 keeps its digest), and its purchases never run D2.
+    `authorization` holds the D2 rules of its purchase mode (`AuthorizationRules` for HP,
+    `HnpAuthorizationRules` only in `b2-hnp-v1`) and `dispatch` the D3 rules, only in
+    `b2-hnp-v1`. An artifact without them is serialized exactly as before (b2-pilot-v1 keeps
+    its digest), and its purchases never run D2 or D3.
     """
 
     policy_set_id: Id
@@ -456,9 +495,10 @@ class D1PolicyArtifact(ContractModel):
     allowed_merchant_refs: Ids
     currency: Literal["COP"]
     quantity: One
-    authorization: AuthorizationRules | None = Field(
+    authorization: AuthorizationRules | HnpAuthorizationRules | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    dispatch: DispatchRules | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("policy_ids")
     @classmethod
@@ -466,3 +506,15 @@ class D1PolicyArtifact(ContractModel):
         if value not in D1_PROFILES:
             raise ValueError("A D1 artifact lists the pilot's rules or a D1 row of the table")
         return value
+
+    @model_validator(mode="after")
+    def sections_of_its_mode(self) -> Self:
+        """C02 in the artifact: HNP sections only in b2-hnp-v1, HP ones never in it."""
+        hnp = self.policy_set_id == HNP_POLICY_SET_ID
+        if self.authorization is not None and hnp != isinstance(
+            self.authorization, HnpAuthorizationRules
+        ):
+            raise ValueError("The D2 section belongs to the other purchase mode")
+        if self.dispatch is not None and not isinstance(self.authorization, HnpAuthorizationRules):
+            raise ValueError("D3 only follows a D2-HNP section")
+        return self

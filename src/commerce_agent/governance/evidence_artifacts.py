@@ -7,7 +7,10 @@ from pydantic import model_validator
 
 from .canonical import canonical_bytes, parse_model, sha256_digest
 from .evaluator import (
+    ENGINE_SOURCES,
     ReferenceAuthorizationEvaluator,
+    ReferenceDispatchEvaluator,
+    ReferenceHnpAuthorizationEvaluator,
     ReferencePolicyEvaluator,
     measure_reference_engine,
     verify_artifact,
@@ -15,11 +18,15 @@ from .evaluator import (
 from .evidence import DecisionRecord, EvidenceError, EvidenceScope
 from .models import SCHEMA, ContractModel, EvaluationMetadata, PolicyDecision
 
-SOURCE_NAMES = ("__init__.py", "canonical.py", "models.py", "evaluator.py")
+SOURCE_NAMES = ENGINE_SOURCES
+# Archives of engines up to `reference-d1-d2:2`, before HNP: they stay verifiable by digest.
+LEGACY_SOURCE_NAMES = ("__init__.py", "canonical.py", "models.py", "evaluator.py")
 
 
 class EngineSource(ContractModel):
-    name: Literal["__init__.py", "canonical.py", "models.py", "evaluator.py"]
+    name: Literal[
+        "__init__.py", "canonical.py", "models.py", "evaluator.py", "hnp_models.py", "hnp_rules.py"
+    ]
     content: str
 
 
@@ -28,8 +35,9 @@ class ReferenceSourceArchive(ContractModel):
 
     @model_validator(mode="after")
     def exact_sources(self) -> "ReferenceSourceArchive":
-        if tuple(source.name for source in self.sources) != SOURCE_NAMES:
-            raise ValueError("Reference engine requires exactly four sources")
+        names = tuple(source.name for source in self.sources)
+        if names not in (SOURCE_NAMES, LEGACY_SOURCE_NAMES):
+            raise ValueError("Reference engine requires exactly its measured sources")
         return self
 
     def engine_digest(self) -> str:
@@ -40,7 +48,7 @@ class ReferenceSourceArchive(ContractModel):
 
 
 def capture_reference_sources() -> bytes:
-    """Explicit setup I/O, restricted to the four existing reference source files."""
+    """Explicit setup I/O, restricted to the measured reference source files."""
     root = Path(__file__).parent
     return canonical_bytes(
         {
@@ -111,7 +119,22 @@ def replay_reference(
         decided_at=record.decision.decided_at,
         latency_ms=record.decision.latency_ms,
     )
-    if record.decision.phase == "D2":
+    decision = record.decision
+    if decision.phase == "D3":
+        result = ReferenceDispatchEvaluator(
+            artifact_bytes=policy_bytes,
+            binding=scope.policy_binding,
+            identity=identity,
+            metadata=metadata,
+        ).evaluate(record.dispatch_input())
+    elif decision.phase == "D2" and decision.purchase_mode == "HNP":
+        result = ReferenceHnpAuthorizationEvaluator(
+            artifact_bytes=policy_bytes,
+            binding=scope.policy_binding,
+            identity=identity,
+            metadata=metadata,
+        ).evaluate(record.hnp_authorization_input())
+    elif decision.phase == "D2":
         result = ReferenceAuthorizationEvaluator(
             artifact_bytes=policy_bytes,
             binding=scope.policy_binding,

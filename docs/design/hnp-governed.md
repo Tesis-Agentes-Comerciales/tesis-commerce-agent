@@ -18,7 +18,7 @@ Valores **por defecto; pendientes de confirmar con el asesor**:
 - **D-1, alcance frente al documento:** el documento afirma «HNP implementado y probado en vivo»
   (Nivel 1 de §2.3 más HNP-I1). EC-HNP-03 entra solo si la corrida termina antes de congelar el
   documento.
-- **D-8, contrato operativo:** policy-v1 sigue «propuesto»; `b2-hnp-v1` revisión 1 (§7) es el
+- **D-8, contrato operativo:** policy-v1 sigue «propuesto»; `b2-hnp-v1` revisión 2 (§7) es el
   artefacto operativo de la tesis.
 
 **Nombres que se parecen.** `HNP-00`…`HNP-11`, `HNP-M1`, `HNP-P1`, `HNP-E1`…`E3`, `HNP-V1` e
@@ -731,7 +731,8 @@ y el PSP no ganan variables: reutilizan su confianza AP2 y `PAYMENT_MERCHANT_ID`
 
 ## 7. Policy set `b2-hnp-v1`
 
-Policy set nuevo, revisión 1, con las filas HNP de `APPLICABLE_RULES` (Adenda 1 de la ola HP):
+Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP de `APPLICABLE_RULES`
+(Adenda 1 de la ola HP):
 
 | `(fase, purchase_mode)` | Reglas, en orden | Acción | Policy set | PR |
 | --- | --- | --- | --- | --- |
@@ -750,36 +751,55 @@ Policy set nuevo, revisión 1, con las filas HNP de `APPLICABLE_RULES` (Adenda 1
   boundary (D1, D2 y D3) deniega con `GOV_ARTIFACT_MISMATCH`, sin llamar al motor, si
   `(policy_set_id == "b2-hnp-v1") != (purchase_mode == "HNP")`. HNP-05 además restringe
   `rules_apply` para que `D1_PILOT_RULES` valga solo con `purchase_mode="HP"`.
-- **Artefacto:** el mismo `D1PolicyArtifact` de P1/P3, con `policy_set_id="b2-hnp-v1"`, `version=1`,
+- **Artefacto:** el mismo `D1PolicyArtifact` de P1/P3, con `policy_set_id="b2-hnp-v1"`, `version=2`,
   `allowed_merchant_refs` (la lista del operador que evalúa POL-02 de HP,
   `AGENT_D1_ALLOWED_MERCHANT_ORIGINS`; sin ella, el comercio configurado), `currency="COP"`,
   `quantity=1` y:
   - `policy_ids = APPLICABLE_RULES[("D1", "HNP")]` y `allowed_actions = ("prepare_checkout",)`;
   - `authorization` en su variante HNP, `HnpAuthorizationRules{policy_ids =
     APPLICABLE_RULES[("D2", "HNP")], allowed_actions = ("complete_purchase",), authentication_bases =
-    ("service_and_grant",), profiles = ("ap2-hnp/v1",)}`; el campo pasa a ser `AuthorizationRules |
-    HnpAuthorizationRules | None`;
+    ("service_and_grant",), profiles = ("profile:ap2-hnp-v1",)}`; el campo pasa a ser
+    `AuthorizationRules | HnpAuthorizationRules | None`. El id del perfil es el `ObjectRef.id` de
+    gobernanza (K6): `Id` no admite `/`, así que `ap2-hnp/v1` (`ap2_hnp.PROFILE_ID`) se nombra
+    `profile:ap2-hnp-v1` (`hnp_policy.HNP_AUTHORIZATION_PROFILE_ID`);
   - `dispatch` nuevo, `DispatchRules{policy_ids = APPLICABLE_RULES[("D3", "HNP")], allowed_actions =
     ("commit_dispatch",)}`, tipado `DispatchRules | None`.
 
   Los campos nuevos quedan fuera de la forma canónica cuando son `None` (`exclude_if`, como
-  `authorization` en P3), así que los bytes de `b2-hp-v2` y de `b2-pilot-v1` no cambian.
+  `authorization` en P3), así que los bytes de `b2-hp-v2` y de `b2-pilot-v1` no cambian. El
+  artefacto valida C02 en sus secciones: `HnpAuthorizationRules` y `dispatch` solo en `b2-hnp-v1`,
+  `AuthorizationRules` nunca en él.
 - **Archivos y dueños:** `governance/hnp_policy.py` (`build_hnp_policy`) lo crea HNP-05 con la fila
   D1 y lo extiende HNP-06 con `authorization` y `dispatch`. En `governance/models.py`, HNP-05 agrega
   la fila `(D1, HNP)` y HNP-06 las filas `(D2, HNP)` y `(D3, HNP)`, `"D3"` en `Phase`,
   `HnpAuthorizationRules` (la contraparte de `AuthorizationRules` de P3, con `profiles`) y
   `DispatchRules`.
-- **Revisión. Decisión de spec:** HNP-05 crea `b2-hnp-v1` con la fila D1 y HNP-06 le agrega D2 y D3,
-  sin subir la revisión. Es el mismo patrón que P1/P3 con `b2-hp-v2`: no existe evidencia con ese
-  artefacto antes de la corrida.
+- **Revisión. Decisión de spec, corregida en HNP-06:** HNP-05 crea `b2-hnp-v1` revisión 1 con la
+  fila D1 y HNP-06 le agrega D2 y D3 en la revisión 2 (`HNP_POLICY_REVISION`). La bóveda de
+  procedencia rechaza bytes nuevos bajo una revisión que ya registró (`d1_provenance_policies`), así
+  que completar el artefacto sin subirla dejaría inservible cualquier base con un D1-HNP de la
+  revisión 1. La evidencia de la revisión 1 sigue verificándose con sus propios bytes.
+- **Entradas y motor:** la rama `hnp` vive en `governance/hnp_models.py`; la unión discriminada por
+  `purchase_mode` es `D2PolicyInput` (`parse_d2_input`), y `models.AuthorizationPolicyInput` sigue
+  nombrando la rama HP, con sus bytes. Los límites son `HnpD2PolicyBoundary` y `D3PolicyBoundary`
+  (`evaluator.py`), con `ReferenceHnpAuthorizationEvaluator` y `ReferenceDispatchEvaluator`; antes
+  del motor niegan C02, los prerrequisitos de `hnp_rules` y un perfil que el artefacto no admite
+  (`GOV_AUTHORIZATION_PROFILE_UNRESOLVED`). El motor medido agrega `hnp_models.py` y `hnp_rules.py`
+  a su manifiesto y pasa a `reference-d1-d2-d3:3`; los archivos del motor anterior (cuatro fuentes)
+  siguen verificándose.
 - **Reglas:** las de policy-v1 §6 con la rama `hnp` de `AuthorizationPolicyInput` (P3) y
   `DispatchPolicyInput`. Razones por id de política (`POLICY_REASONS`). Sin cortocircuito: N10 lista
   POL-09 y POL-10 cuando ambas fallan.
 - **Hechos del executor:** `PrincipalFacts` con `principal_ref="service:hnp-executor"`,
   `authentication_basis="service_and_grant"`, `owns_run` por el dueño del grant, y `permitted_actions`
   del grant (las tres acciones). `GrantFacts.agent_key_ref = agent_key_kid`. `authorization_profile`
-  = `{status, profile_ref: {id: "ap2-hnp/v1", version: 1, digest}}`, con el digest de las constantes
-  del perfil AP2 HNP (HNP-04).
+  = `{status, profile_ref: {id: "profile:ap2-hnp-v1", version: 1, digest}}`, con el digest de las
+  constantes del perfil AP2 HNP (`PROFILE_DIGEST`, HNP-04).
+- **POL-03 y POL-04 en HNP:** POL-03 no exige `principal_ref == owner_ref` (el principal es el
+  servicio; el dueño lo liga el grant con `owns_run`). POL-04 exige el allow de D1 de este episodio,
+  como en HP, y que el grant, la `reservation_intent` y la operación sean del run y del dueño
+  esperados (policy-v1, POL-04); por eso un grant de otro dueño también falla POL-07 y una reserva
+  de otro run también POL-09.
 
 ## 8. Escalamiento, revocación y kill switch
 
@@ -983,7 +1003,7 @@ historias.
   HP (§5.4). La traza de una compra HNP lee la compra de §4.6 (`purchases`, `completion_results`,
   `orders`), igual que HP.
 - En HNP no aparecen `approval` ni `authorization_signed`; `payment_authorized`, `order_confirmed`,
-  `order_event` y `failed` se reutilizan. `PolicyRef` muestra `b2-hnp-v1`, revisión 1.
+  `order_event` y `failed` se reutilizan. `PolicyRef` muestra `b2-hnp-v1`, revisión 2.
 
 ## 11. Condiciones
 
@@ -1074,7 +1094,8 @@ archivo caliente, no global. La coordinación del día está en el contrato de c
 13. Rutas internas rechazan cualquier `Origin`.
 14. El kill switch revoca (`operator`) los grants que alcanza; apagarlo no los reanuda.
 15. Constantes del perfil (300 s, 120 s, 60 s, 5 variantes, 280 caracteres) en código, no en settings.
-16. `b2-hnp-v1` armado en código, sin variable; HNP-05 lo crea y HNP-06 lo completa sin subir revisión.
+16. `b2-hnp-v1` armado en código, sin variable; HNP-05 crea la revisión 1 y HNP-06 la completa en
+    la revisión 2 (la bóveda no admite bytes nuevos en una revisión registrada).
 17. Fail-closed gana a escalar cuando D2/D3 niega con políticas de ambos grupos.
 18. Eslabones comunes con nombres de P2; los de cada modo son `not_applicable` en el otro.
 19. D2-HNP reutiliza `authorization_decision` de P3; D3 usa `dispatch_decision`; `TraceActor`
