@@ -52,7 +52,8 @@ class Choose:
 
 
 class Start:
-    """`start` as D1-HNP leaves it: the purchase at `stage`, then `code` (or a crash)."""
+    """`start` as D1-HNP leaves it: the purchase at `stage`, then `code`, a crash (None) or
+    an unexpected error ("error")."""
 
     def __init__(self, bench: Bench, stage: str, code: str | None) -> None:
         self.bench, self.stage, self.code = bench, stage, code
@@ -63,6 +64,8 @@ class Start:
             self.bench.store.update_purchase(run_id, stage=self.stage)
         if self.code is None:
             raise Crash
+        if self.code == "error":
+            raise RuntimeError("start broke")
         raise PurchaseServiceError("start stopped", code=self.code)
 
 
@@ -231,9 +234,12 @@ def test_a_d1_deny_closes_the_received_purchase_with_the_task(
     assert bench.effects() == NOTHING
 
 
-@pytest.mark.parametrize("code", ["d1_allow_unapplied", "d1_dispatch_blocked"])
+@pytest.mark.parametrize(
+    "code", ["d1_allow_unapplied", "d1_dispatch_blocked", "d1_dispatch_uncertain", "error"]
+)
 def test_a_selected_purchase_is_left_to_d1_recovery(tmp_path: Path, code: str) -> None:
-    """HNP-05b: an allow without its dispatch result has no HNP transition; no hook runs."""
+    """HNP-05b and K15: an allow without its dispatch result has no HNP transition, so no hook
+    runs, and whatever stopped `start` the task fails `governance_unavailable`."""
     bench = Bench(tmp_path, mode="enforce", purchases=started("selected", code))
 
     assert bench.run().status == "closed"
@@ -449,6 +455,40 @@ def test_the_kill_switch_cancels_at_the_next_unit_of_work(
     assert bench.purchase() == ("canceled", None)
 
 
+@pytest.mark.parametrize("mode", ["off", "enforce"])
+@pytest.mark.parametrize("where", ["merchant_jwt", "agent_key"])
+@pytest.mark.parametrize(
+    ("change", "ended"),
+    [("pulse", ("canceled", "kill_switch")), ("bump", ("failed", "state_conflict"))],
+)
+def test_nothing_between_uow1_and_uow2_escapes_the_commitment(
+    tmp_path: Path, mode: str, where: str, change: str, ended: tuple[str, str]
+) -> None:
+    """K10: UoW-C checks neither the switch nor the grant, so UoW-2 compares against what UoW-1
+    validated. A switch turned on and off during the close still cancels (§4.5, §8.4)."""
+    bench = Bench(tmp_path, mode=mode)  # type: ignore[arg-type]
+
+    def moved() -> None:
+        if change == "bump":
+            bench.bump_grant()
+            return
+        bench.ledger.set_kill_switch(True)
+        bench.ledger.set_kill_switch(False)
+
+    if where == "merchant_jwt":
+        bench.merchant.on_sign = moved
+    else:
+        bench.closer.before = moved
+
+    assert bench.run().status == "closed"
+
+    assert bench.ended() == ended
+    assert bench.effects() == CLOSED
+    reservation = bench.execution().reservation
+    assert reservation is not None and reservation.state == "released"
+    assert bench.purchase() == (("canceled", None) if change == "pulse" else ("failed", ended[1]))
+
+
 def test_the_kill_switch_at_the_claim_starts_nothing(tmp_path: Path) -> None:
     bench = Bench(tmp_path)
     bench.ledger.set_kill_switch(True)
@@ -548,6 +588,28 @@ def test_a_claim_that_cancels_closes_the_purchase_unless_d1_must_recover_it(
     assert bench.run().status == "closed"
 
     assert bench.ended() == ("canceled", "kill_switch")
+    assert bench.purchase() == purchase
+
+
+@pytest.mark.parametrize(
+    ("stage", "ended", "purchase"),
+    [
+        ("received", ("failed", "state_conflict"), ("failed", "state_conflict")),
+        ("selected", ("failed", "governance_unavailable"), ("selected", None)),
+    ],
+)
+def test_a_reclaim_after_start_crashed_fails_without_running_it_again(
+    tmp_path: Path, stage: str, ended: tuple[str, str], purchase: tuple[str, str | None]
+) -> None:
+    """K15: a `selected` purchase waits for D1's recovery; anything else is a state conflict."""
+    bench = Bench(tmp_path, mode="enforce", purchases=started(stage, code=None))
+    with pytest.raises(Crash):
+        bench.run()
+    bench.clock.advance(121)
+
+    assert bench.run().status == "closed"
+
+    assert bench.ended() == ended
     assert bench.purchase() == purchase
 
 

@@ -13,8 +13,9 @@ B0-HNP (`off`) runs the same ledger steps with `NullHnpPolicyGate`, without D1, 
 escalation: what B2-HNP escalates ends `failed` with the same code (§8.1, §11).
 
 A blocked unit of work already classified why (§4.5): the executor ends the task with that
-outcome, by CAS on its lease, and expects the authority its own last step returned, never a
-re-read one (K10). A lost lease ends nothing.
+outcome, by CAS on its lease. UoW-1 expects the claim's authority, and D3 and UoW-2 the one UoW-1
+validated (UoW-C checks neither the kill switch nor the grant): never a re-read one (K10). A lost
+lease ends nothing.
 """
 
 import logging
@@ -272,7 +273,8 @@ class HnpExecutionService:
             if ex.reservation is not None or self._store.purchase(run.run_id) is not None:
                 # A re-claim after progress. Resuming it is HNP-09b's; until then a re-claim
                 # never repeats a checkout or a close (§4.5, UoW-C).
-                self._end(run, "state_conflict", purchase=self._closable(run.run_id))
+                outcome = self._unrecovered(run.run_id) or "state_conflict"
+                self._end(run, outcome, purchase=self._closable(run.run_id))
             return self._execute(run, ex)
         except _Stopped as stopped:
             return stopped.step
@@ -308,16 +310,18 @@ class HnpExecutionService:
             d2_evidence_id=d2.evidence_id,
         )
         reserved = self._applied(run, self._ledger.reserve(reserve, hooks=d2.hooks), purchase)
-        closed, digest = self._close(run, checkout, reserved, operation_id, purchase)
-        d3 = self._decide(run, "D3", checkout, ids, closed.authority, purchase)
-        if closed.reservation is None:
-            raise LookupError("UoW-C returned without the reservation")
+        if reserved.reservation is None:
+            raise LookupError("UoW-1 returned without the reservation")
+        digest = self._close(run, checkout, reserved, operation_id, purchase)
+        # K10: UoW-C checks neither the switch nor the grant, so D3 and UoW-2 expect the authority
+        # and the reservation UoW-1 validated, never what UoW-C read back.
+        d3 = self._decide(run, "D3", checkout, ids, reserved.authority, purchase)
         commit = DispatchCommit(
             task_id=run.task_id,
             lease_id=run.lease_id,
-            expected=closed.authority,
+            expected=reserved.authority,
             reservation_id=reservation_id,
-            reservation_version=closed.reservation.state_version,
+            reservation_version=reserved.reservation.state_version,
             outbox_id=self._new_id("ob"),
             checkout_expires_at=checkout.expires_at,
             payment_request_digest=digest,
@@ -379,6 +383,7 @@ class HnpExecutionService:
         else:
             return prepared.checkout
         # §4.6: the terminal fails or cancels a `received` purchase and keeps what `start` left.
+        outcome = self._unrecovered(run.run_id) or outcome
         self._end(run, outcome, purchase=self._closable(run.run_id))
 
     def _start_outcome(self, run_id: str, code: str) -> OutcomeCode:
@@ -470,7 +475,8 @@ class HnpExecutionService:
         reserved: Execution,
         operation_id: str,
         purchase: int,
-    ) -> tuple[Execution, str]:
+    ) -> str:
+        """Step 8 and UoW-C; the digest of the PSP request the dispatch will send."""
         reservation = reserved.reservation
         if reservation is None:
             raise LookupError("UoW-1 returned without the reservation")
@@ -496,13 +502,10 @@ class HnpExecutionService:
             closed_checkout=_ledger_mandate(pair.checkout),
             closed_payment=_ledger_mandate(pair.payment),
         )
-        closed = self._applied(
-            run, self._ledger.record_closed_mandates(record), purchase, stage="uow2"
-        )
-        digest = payment_request_digest(
+        self._applied(run, self._ledger.record_closed_mandates(record), purchase, stage="uow2")
+        return payment_request_digest(
             operation_id=operation_id, checkout=checkout, checkout_jwt=checkout_jwt, closed=pair
         )
-        return closed, digest
 
     # Ending a run
 
@@ -566,6 +569,11 @@ class HnpExecutionService:
     def _stage(self, run_id: str) -> str | None:
         purchase = self._store.purchase(run_id)
         return None if purchase is None else purchase["stage"]
+
+    def _unrecovered(self, run_id: str) -> OutcomeCode | None:
+        """K15: a purchase `start` left `selected` (a D1 allow without its dispatch result) waits
+        for D1's recovery, so its task fails `governance_unavailable` whatever stopped `start`."""
+        return "governance_unavailable" if self._stage(run_id) == PurchaseStage.SELECTED else None
 
     def _closable(self, run_id: str) -> int | None:
         """The version of the purchase a task terminal closes (or keeps, §4.6); None without one.
