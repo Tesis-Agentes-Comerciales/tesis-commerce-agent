@@ -31,9 +31,7 @@ quedaron sin evaluar, y hoy faltan tres piezas para medirlo:
 | B | `feat/evidence-chain-receipts` | Tabla `ap2_evidence` de solo inserción y encadenada por digest, con un registro `consent` al aprobar y uno `effect` al completar. Solo hashes, identificadores y referencias |
 | C | `feat/evidence-chain-verifier` | `uv run verify-evidence` (miembro `evaluation`): JSON por eslabón y la métrica H2 agregada |
 
-**Fuera de alcance:** verificar el contenido del registro D2 (llega cuando P3 esté en `main`, en
-un PR posterior; este PR solo exige que exista),
-filtrar el despacho del comercio por corrida (necesita un cambio en el comercio, ver Riesgos),
+**Fuera de alcance:** filtrar el despacho del comercio por corrida (necesita un cambio en el comercio, ver Riesgos),
 verificar firmas JWS sin conexión (ver Decisiones) y cambios en la traza o la UI: el paso
 `order_event` ya existe en el contrato.
 
@@ -101,7 +99,7 @@ si los argumentos o las bases no sirven. El runner lo llama desde Python:
 | `d1_decision` | El ledger D1 (`governance_evidence`): digest del cuerpo, del input y del artefacto de política. Su `intent_ref` es el eslabón anterior. La reejecución es diagnóstica: solo un resultado distinto es `mismatch` |
 | `checkout_created` | La operación D1 apunta al `evidence_id`, al digest del cuerpo y al del input de la decisión; su resultado es `confirmed` con el `checkout_id` de la compra; digest del sobre. Con D1 en `deny`, un checkout, una operación de creación o una aprobación es `mismatch` (bypass) |
 | `freshness` | Cadena de `hp_evidence` recalculada; `present` y, si hubo aprobación o intento, `approve` del mismo checkout. Una aprobación guardada exige `approve` en `allow` |
-| `d2_decision` | Obligatorio en una compra aprobada cuya política D1 es `b2-hp-v2` o lista reglas D2 (POL-03..06): sin registro es `missing`, nunca `not_applicable`. Un registro D2 (fase distinta de D1 en `governance_evidence`) sale `missing` con `content_verified: false` hasta que el PR posterior verifique su contenido: presente no cuenta como verificado. Sin esa política, `not_applicable` |
+| `d2_decision` | Ver «Eslabón D2» abajo |
 | `approval` | `consent` coincide con `approvals`, verifica en la cadena hasta él y su `freshness_digest` es el `approve` |
 | `mandates` | Hash del `checkout_jwt`, digests de las divulgaciones SD-JWT, `checkout_hash` y `transaction_id` de ambos mandatos, monto del pago = total firmado, `sd_hash` = `consent`. El total, el monto y las monedas deben existir: dos nulos no coinciden |
 | `receipts` | Digest de cada recibo = `effect`; `reference` = `sd_hash` del mandato; `order_id` del recibo del comercio = orden; `effect` sigue a `consent` en la cadena. Con `--psp-db`, el PSP tiene ese pago para ese mandato |
@@ -124,11 +122,33 @@ referencia la decisión, y una orden después de ese rechazo es `mismatch`. Una 
 `uncertain` es `missing`. Una compra cancelada sin registros de frescura no muestra si llegó a
 ver los términos, así que su `freshness` sale `not_applicable`.
 
+**Eslabón D2** (D2-HP de P3, `docs/design/hp-p3-d2-authorization.md`). D2 es obligatorio si la
+compra llegó a aprobarse y su política es `b2-hp-v2` o algún artefacto de política del run
+(`governance_episodes` o `governance_decision_scopes`) lista POL-03..06 en `policy_ids` o en su
+sección `authorization`: sin registro D2 es `missing`, nunca `not_applicable`. Cada registro D2
+de `governance_evidence` (`phase = 'D2'`) se lee con el ledger, que recalcula su cuerpo, su
+alcance y su input, y además:
+
+- su `d1` (`decision_id`, `evidence_id`, `evidence_digest` = `sha256` de `canonical_bytes` del
+  registro D1, `input_digest`, `outcome`, `policy_binding`) es el D1 verificado del run, y
+  `operation_id` es el `transition_ref` de D1;
+- `freshness.source_offer_ref` es una comprobación `approve` de `hp_evidence` de ese checkout
+  (`hp-evidence:freshness_check`, versión = secuencia, digest de la fila);
+- un `allow` comparte el `policy_binding` de D1 (un `deny` puede nombrar otra revisión: POL-06 en
+  S08), y si se aplicó (`transition_committed`) su `transition_ref` es su `authorization_id`.
+
+Una compra aprobada exige exactamente una autorización D2 aplicada, que `approvals.
+authorization_evidence_id` apunte a ella y que su frescura sea el `approve` de la aprobación. Un
+`deny`, un input rechazado o un `allow` sin aplicar seguido de aprobación u orden es `mismatch`
+(bypass). Sin aprobación, el último registro D2 decide: un `deny` verificado deja `approval` y lo
+posterior en `not_applicable`. La reejecución de D2 es diagnóstica, como la de D1. D1 y D2 se leen
+por separado, así que alterar un registro D2 no rompe el eslabón D1.
+
 **Completa.** Una compra con orden o `effect` está completa solo si sus nueve eslabones son `ok`:
 para ella no se acepta `not_applicable`. Cualquier otra compra está completa si ningún eslabón es
-`missing` ni `mismatch`. Es la regla del pre-registro v2 (`is_complete(links, effect=…)`).
-Consecuencia: mientras D2 no esté en `main` ni se verifique su registro, ninguna compra con orden
-queda completa; la cadena de una compra B2 con orden sale `ok` en todo salvo `d2_decision`.
+`missing` ni `mismatch`. Es la regla del pre-registro v2 (`is_complete(links, effect=…)`). Una
+compra con orden y una política sin D2 (por ejemplo `b2-pilot-v1`) nunca queda completa: su
+`d2_decision` sale `not_applicable`.
 
 **Webhook.** El verificador no espera eventos: lee la base una vez. Quien lo llama despacha antes
 el outbox del comercio con el agente arriba (PR A) y verifica después de que el agente salió.
@@ -150,6 +170,11 @@ registros enlazados, así que sus eslabones salen `missing`: es la diferencia qu
   borradas tras aprobar y un `deny` vuelto `allow` o con checkout), cada eslabón sale con el
   estado esperado; las pruebas live verifican la compra B2 con el comercio real (todo `ok` salvo
   D2, incompleta) y los dos turnos de POL-02 (`deny` y `b2` en espera de aprobación).
+- Eslabón D2: una compra `b2-hp-v2` autorizada por D2 queda completa con los nueve `ok` (en
+  proceso y con el S01 live de `test_live_b2_d2_authorization.py`); un `deny` de D2 se verifica y
+  corta la cadena; un `deny` con POL-06 bajo otra revisión verifica; el digest y la operación de D1
+  que nombra D2, un `authorization_evidence_id` ajeno, el cuerpo D2, un `deny` vuelto `allow` y una aprobación
+  tras un `deny` dan `mismatch`.
 
 ## Decisiones
 

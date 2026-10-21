@@ -8,7 +8,8 @@ Scenarios on the B0 lane (scripted router, never a real LLM):
 - S01: approving runs freshness, then D2 (POL-03..06 allow), then the AP2 signature in the same
   transaction as the approval; the order is confirmed and the AP2 evidence holds the consent and
   its effect, in that order. The trace shows the D2 step between the approval and the signed
-  authorization.
+  authorization. Once the Merchant's `order_create` arrives, `verify-evidence` verifies the nine
+  links, D2 included, and the chain is complete.
 - S04: the Merchant changes the offer after the terms were shown. Freshness refuses both the reread
   and a client that posts anyway, before D2: no D2 row and no D2 refusal for the chat. A second
   purchase of the same buyer is authorized by D2 and reaches its order.
@@ -24,11 +25,13 @@ from commerce_agent.application.conversation import ConversationTurnRequest
 from commerce_agent.approval import ApprovalError
 from commerce_agent.config import Settings
 from commerce_agent.llm import ConversationMessage
+from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.runtime import build_runtime
 from commerce_agent.trace.assembler import PurchaseTraces
 from commerce_agent.trace.models import AuthorizationDecisionStep
 from commerce_evaluation.demo_stack import MODES, mode_environment
 from commerce_evaluation.governance_pilot import D1RunKeys
+from commerce_evaluation.verify_evidence import LINKS, verify_database
 from tests.integration.live_purchase import (
     PHONE_INTENT,
     PHONE_REQUEST,
@@ -133,7 +136,18 @@ def test_s01_d2_allows_the_approval_and_the_order_is_confirmed(b0, tmp_path, mon
     assert kinds.index("authorization_decision") < kinds.index("authorization_signed")
     step = next(item for item in steps if isinstance(item, AuthorizationDecisionStep))
     assert step.state == "done" and step.decision.outcome == "allow"
-    b0.stack.record("b2:d2-s01", d2=rows[0][1])
+
+    # The Merchant's dispatcher posts the order's `order_create` (as demo-stack and the runner).
+    with b0.receiver.delivering_to(SqliteAgentStore(path)):
+        b0.rpc("dispatch_webhooks", limit=50)
+    [verified] = verify_database(path, run_id=run_id, psp_database=b0.root / "payments.sqlite")
+    statuses = {name: link["status"] for name, link in verified["links"].items()}
+    assert statuses == dict.fromkeys(LINKS, "ok"), verified["links"]
+    assert verified["complete"] is True and verified["order_id"] == completed.order.id
+    d2 = verified["links"]["d2_decision"]["refs"]
+    assert (d2["evidence_id"], d2["outcome"], d2["replay"]) == (rows[0][2], "allow", "reproduced")
+    assert verified["links"]["receipts"]["refs"]["psp"] == "verified"
+    b0.stack.record("b2:d2-s01", d2=rows[0][1], chain_complete=verified["complete"])
 
 
 def test_s04_freshness_refuses_before_d2_and_the_next_purchase_is_authorized(

@@ -15,6 +15,10 @@ from typing import Any
 import jwt
 import pytest
 
+from commerce_agent.governance.canonical import canonical_bytes, input_digest, sha256_digest
+from commerce_agent.governance.evaluator import parse_authorization_input
+from commerce_agent.governance.evidence import parse_evidence
+from commerce_agent.persistence import SqliteAgentStore
 from commerce_evaluation.demo_stack import OTHER_MERCHANT
 from commerce_evaluation.verify_evidence import (
     LINKS,
@@ -26,7 +30,8 @@ from commerce_evaluation.verify_evidence import (
     verify_database,
 )
 from tests.evaluation.test_pilot_evidence import PSP_DELEGATIONS
-from tests.governance.test_hp_continuation import ask
+from tests.governance.test_d2_authorization import d2_settings, start_purchase, with_policy
+from tests.governance.test_hp_continuation import StoreMerchant, app_client, approve, ask
 from tests.governance.test_stale_terms_pending import presented
 from tests.support.ap2_purchase import Ap2Shop, ap2_shop
 
@@ -229,24 +234,41 @@ def test_a_manipulated_deny_is_a_mismatch(denied: Path, change: str) -> None:
     assert run["complete"] is False
 
 
-def test_an_approved_b2_hp_v2_purchase_without_d2_misses_it(tmp_path: Path) -> None:
-    database = tmp_path / "agent.db"
+@pytest.fixture
+def v2_purchase(tmp_path: Path) -> tuple[Path, Path]:
+    """A b2-hp-v2 purchase: D2 authorized the approval; the order and its event arrived."""
+    database = tmp_path / "v2.db"
     with ap2_shop(database, agent_d1_policy_set_id="b2-hp-v2") as shop:
         run_id = shop.buy()
         shop.deliver_order_create(run_id)
+    return database, psp_database(tmp_path / "v2-payments.db", shop, database)
 
-    # b2-hp-v2 carries the D2 rules: approving left a D2 record, present but not yet verified.
-    run = only_run(database)
-    assert statuses(run) == OK_B2 | {"d2_decision": "missing"}
-    assert run["links"]["d2_decision"]["refs"] == {
-        "records": 1,
-        "content_verified": False,
-        "policy_set_id": "b2-hp-v2",
-        "d2_required": True,
-    }
 
-    # Without that record (someone with the file deleted it) the approved purchase misses D2.
+def test_a_b2_hp_v2_purchase_authorized_by_d2_is_complete(v2_purchase: tuple[Path, Path]) -> None:
+    database, payments = v2_purchase
+
+    run = only_run(database, psp_database=payments)
+
+    assert statuses(run) == dict.fromkeys(LINKS, "ok")
+    assert run["complete"] is True
+    d2 = run["links"]["d2_decision"]["refs"]
+    assert (d2["outcome"], d2["disposition"], d2["replay"]) == (
+        "allow",
+        "transition_committed",
+        "reproduced",
+    )
+    assert (d2["policy_set_id"], d2["d2_required"]) == ("b2-hp-v2", True)
+    assert d2["freshness_digest"] == run["links"]["freshness"]["refs"]["approve_digest"]
+    assert d2["d1_evidence_digest"].startswith("sha256:")
+
+
+def test_an_approved_b2_hp_v2_purchase_without_d2_misses_it(
+    v2_purchase: tuple[Path, Path],
+) -> None:
+    database, _ = v2_purchase
+    # Someone with the file deleted the D2 record: the approved purchase misses D2.
     edit(database, "governance_evidence", "DELETE FROM governance_evidence WHERE phase = 'D2'")
+
     run = only_run(database)
 
     assert statuses(run) == OK_B2 | {"d2_decision": "missing"}
@@ -257,24 +279,152 @@ def test_an_approved_b2_hp_v2_purchase_without_d2_misses_it(tmp_path: Path) -> N
     assert run["complete"] is False
 
 
-def test_a_d2_record_counts_as_unverified_until_its_link_checks_it(tmp_path: Path) -> None:
-    database = tmp_path / "agent.db"
-    with closing(sqlite3.connect(database)) as connection, connection:
-        # The D2 schema is not on main yet: only the columns the verifier reads.
-        connection.execute(
-            "CREATE TABLE purchases (run_id TEXT, stage TEXT, selected_variant_id TEXT, "
-            "checkout_id TEXT, order_id TEXT, created_at TEXT)"
-        )
-        connection.execute(
-            "INSERT INTO purchases VALUES ('run-d2', 'received', NULL, NULL, NULL, 'now')"
-        )
-        connection.execute("CREATE TABLE governance_evidence (run_id TEXT, phase TEXT)")
-        connection.execute("INSERT INTO governance_evidence VALUES ('run-d2', 'D2')")
+def forge_d2(database: Path, change: Callable[[dict[str, Any]], None]) -> None:
+    """Rewrite the D2 record consistently (body, digests, columns) with `change` in its input:
+    the ledger still reads it, only its links to the rest of the run can tell."""
+    with closing(sqlite3.connect(database)) as connection:
+        [(evidence_id, body)] = connection.execute(
+            "SELECT evidence_id, body FROM governance_evidence WHERE phase = 'D2'"
+        ).fetchall()
+    record = json.loads(body)
+    data = json.loads(record["canonical_input_bytes"])
+    change(data)
+    forged_input = parse_authorization_input(canonical_bytes(data))
+    record["canonical_input_bytes"] = canonical_bytes(forged_input).decode()
+    record["decision"]["input_digest"] = input_digest(forged_input)
+    forged = canonical_bytes(parse_evidence(canonical_bytes(record))).decode()
+    edit(
+        database,
+        "governance_evidence",
+        "UPDATE governance_evidence SET body = ?, body_digest = ?, input_digest = ?, "
+        "canonical_input = ? WHERE evidence_id = ?",
+        forged,
+        sha256_digest(forged.encode()),
+        record["decision"]["input_digest"],
+        record["canonical_input_bytes"],
+        evidence_id,
+    )
 
+
+def other_digest(data: dict[str, Any]) -> None:
+    data["d1"]["evidence_digest"] = "sha256:" + "0" * 64
+
+
+def other_operation(data: dict[str, Any]) -> None:
+    data["operation_id"] = "operation:" + "0" * 32
+
+
+D2_TAMPERING: dict[str, tuple[Callable[[Path], None], str]] = {
+    "D1 digest named by D2": (
+        lambda db: forge_d2(db, other_digest),
+        "D2 no referencia la decisión D1 de la compra",
+    ),
+    "D1 operation named by D2": (
+        lambda db: forge_d2(db, other_operation),
+        "D2 no referencia la operación de D1",
+    ),
+    "another authorization": (
+        lambda db: edit(
+            db,
+            "approvals",
+            "UPDATE approvals SET authorization_evidence_id = 'evidence:' || hex(randomblob(16))",
+        ),
+        "La aprobación no apunta a la autorización D2",
+    ),
+    "D2 body": (
+        lambda db: body_edit(
+            "governance_evidence", "phase = 'D2'", "$.recorded_at", "2026-01-01T00:00:00Z"
+        )(db),
+        "El ledger D2 no verifica (GOV_INPUT_INVALID)",
+    ),
+}
+
+
+@pytest.mark.parametrize("change", sorted(D2_TAMPERING))
+def test_a_manipulated_d2_is_a_mismatch(v2_purchase: tuple[Path, Path], change: str) -> None:
+    database, _ = v2_purchase
+    tamper, detail = D2_TAMPERING[change]
+
+    tamper(database)
     run = only_run(database)
 
-    assert run["links"]["d2_decision"]["status"] == "missing"
-    assert run["links"]["d2_decision"]["refs"]["content_verified"] is False
+    assert (run["links"]["d2_decision"]["status"], run["links"]["d2_decision"]["detail"]) == (
+        "mismatch",
+        detail,
+    )
+    assert all(statuses(run)[name] == "ok" for name in LINKS[: LINKS.index("d2_decision")])
+    assert run["complete"] is False
+
+
+@pytest.fixture
+def d2_denied(tmp_path: Path) -> Path:
+    """D2 denied the approval (POL-04: the click names other terms than those last shown)."""
+    database = tmp_path / "d2-denied.db"
+    with ap2_shop(database, agent_d1_policy_set_id="b2-hp-v2") as shop:
+        run_id, terms = presented(shop.client, "turn-d2-deny")
+        SqliteAgentStore(database).save_approval_terms(run_id, {**terms, "fingerprint": "0" * 64})
+        denied = shop.client.post(
+            f"/purchases/{run_id}/approval",
+            json={
+                "expected_fingerprint": terms["fingerprint"],
+                "checkout_jwt": terms["checkout_jwt"],
+            },
+        )
+        assert (denied.status_code, denied.json()["code"]) == (409, "d2_denied"), denied.text
+    return database
+
+
+def test_a_d2_deny_verifies_and_stops_the_chain(d2_denied: Path) -> None:
+    run = only_run(d2_denied)
+
+    after = ("approval", "mandates", "receipts", "order_webhook")
+    assert statuses(run) == dict.fromkeys(LINKS, "ok") | dict.fromkeys(after, "not_applicable")
+    d2 = run["links"]["d2_decision"]["refs"]
+    assert (d2["outcome"], d2["disposition"], d2["replay"]) == ("deny", "blocked", "reproduced")
+    assert run["complete"] is True
+
+
+DENY_D2_TAMPERING: dict[str, tuple[Callable[[Path], None], str]] = {
+    "deny turned into allow": (
+        lambda db: edit(
+            db,
+            "governance_evidence",
+            "UPDATE governance_evidence SET outcome = 'allow', "
+            "body = json_set(body, '$.decision.outcome', 'allow') WHERE phase = 'D2'",
+        ),
+        "El ledger D2 no verifica (GOV_INPUT_INVALID)",
+    ),
+    "approved after a deny": (
+        lambda db: edit(db, "purchases", "UPDATE purchases SET stage = 'approved'"),
+        "La compra siguió aprobada sin una autorización D2 aplicada",
+    ),
+}
+
+
+@pytest.mark.parametrize("change", sorted(DENY_D2_TAMPERING))
+def test_a_manipulated_d2_deny_is_a_mismatch(d2_denied: Path, change: str) -> None:
+    tamper, detail = DENY_D2_TAMPERING[change]
+
+    tamper(d2_denied)
+    link = only_run(d2_denied)["links"]["d2_decision"]
+
+    assert (link["status"], link["detail"]) == ("mismatch", detail)
+
+
+def test_a_d2_deny_under_a_newer_policy_revision_verifies(tmp_path: Path) -> None:
+    """S08: the operator publishes revision 2 before the approval; D2 denies with POL-06 under
+    it while its input names D1's revision 1. That is the evidence, not a broken link."""
+    first = d2_settings(tmp_path / "agent.db")
+    merchant = StoreMerchant()
+    with app_client(first, merchant) as client:
+        run_id = start_purchase(client, "turn-pol06")
+    with app_client(with_policy(first, revision=2), merchant) as client:
+        assert approve(client, run_id).json()["code"] == "d2_denied"
+
+    link = only_run(first.agent_database_path)["links"]["d2_decision"]
+
+    assert link["status"] == "ok", link
+    assert (link["refs"]["outcome"], link["refs"]["policy_version"]) == ("deny", 2)
 
 
 def test_a_creation_the_merchant_refused_has_no_checkout_receipts_or_order(tmp_path: Path) -> None:

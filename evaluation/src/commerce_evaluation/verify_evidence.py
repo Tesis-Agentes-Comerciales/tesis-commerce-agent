@@ -35,9 +35,10 @@ from ap2.sdk.sdjwt import common
 
 from commerce_agent.ap2 import checkout_hash
 from commerce_agent.application.ap2_evidence import mandate_reference, receipt_summary, text_digest
-from commerce_agent.governance.canonical import parse_model, sha256_digest
+from commerce_agent.governance.canonical import canonical_bytes, parse_model, sha256_digest
 from commerce_agent.governance.dispatch_envelope import CheckoutCreationEnvelope
-from commerce_agent.governance.evidence import DecisionRecord, EvidenceError
+from commerce_agent.governance.evidence import DecisionEvidence, DecisionRecord, EvidenceError
+from commerce_agent.governance.models import APPLICABLE_RULES
 from commerce_agent.governance.provenance import HP_POLICY_SET_ID
 from commerce_agent.persistence import ap2_evidence_sqlite, hp_evidence_sqlite
 from commerce_agent.persistence.ap2_evidence_sqlite import Ap2Evidence
@@ -63,9 +64,10 @@ PRESENTED = {"awaiting_confirmation", "approved", "completing", "uncertain", "co
 APPROVED = {"approved", "completing", "uncertain", "completed"}
 # Tables whose rows show that the purchase reached D1.
 D1_TABLES = ("d1_provenance_sources", "governance_evidence", "d1_checkout_operations")
-# D2/HP rules (contract, addendum 1). The ("D2", "HP") row of APPLICABLE_RULES arrives with the
-# D2 PR; until then the ids are spelled here. A policy that lists any of them requires D2.
-D2_RULES = frozenset({"POL-03", "POL-04", "POL-05", "POL-06"})
+# D2/HP rules (contract, addendum 1): a policy whose artifact lists any of them requires D2.
+D2_RULES = frozenset(APPLICABLE_RULES[("D2", "HP")])
+# How D2 names the `approve` freshness check it read (governance/authorization.py).
+FRESHNESS_SOURCE_ID = "hp-evidence:freshness_check"
 
 
 @dataclass(frozen=True)
@@ -195,6 +197,7 @@ class RunVerification:
         self.consent: Ap2Evidence | None = None
         self.effect: Ap2Evidence | None = None
         self._ap2 = self._read_ap2()
+        self.d2_committed = self._d2_committed()
         self.has_d1 = any(
             _table(connection, table)
             and connection.execute(
@@ -241,15 +244,31 @@ class RunVerification:
 
     @property
     def approved(self) -> bool:
-        """Evidence only an approval leaves: the approval, its stage, consent or a completion."""
+        """Evidence only an approval leaves: the approval, its stage, a D2 allow applied with it,
+        consent or a completion."""
         unreadable = self._ap2 is not None and self._ap2.status == "mismatch"
         return (
             self.approval is not None
             or self.stage in APPROVED
+            or self.d2_committed
             or self.consent is not None
             or unreadable
             or self.completed
         )
+
+    def _d2_committed(self) -> bool:
+        """A D2 allow applied as a transition: it is written with the approval, never alone."""
+        if not _table(self.db, "governance_evidence"):
+            return False
+        try:
+            row = self.db.execute(
+                "SELECT 1 FROM governance_evidence WHERE run_id = ? AND phase = 'D2' "
+                "AND json_extract(body, '$.application.disposition') = 'transition_committed'",
+                (self.run_id,),
+            ).fetchone()
+        except sqlite3.Error:
+            return True
+        return row is not None
 
     def _order_events(self, order_ids: set[str]) -> list[tuple[str, str, str]]:
         """order_create events naming one of the run's orders or, in the payload, its checkout."""
@@ -328,17 +347,22 @@ class RunVerification:
             return missing("Sin ledger D1")
         rows = self.db.execute(
             "SELECT evidence_id, body_digest FROM governance_evidence WHERE run_id = ? "
-            "ORDER BY sequence",
+            "AND phase = 'D1' ORDER BY sequence",
             (self.run_id,),
         ).fetchall()
         if not rows:
             return missing("D1 no registró evidencia para esta compra")
         ledger = SqliteGovernanceEvidenceStore(self.db)
         try:
-            records = ledger.for_run(self.run_id)
+            # Only D1's records: a later D2 edit does not taint this link.
+            records = _ledger_records(ledger, [evidence_id for evidence_id, _ in rows])
         except EvidenceError as error:
             return mismatch(f"El ledger D1 no verifica ({error.code})")
-        decisions = [record for record in records if isinstance(record, DecisionRecord)]
+        decisions = [
+            record
+            for record in records
+            if isinstance(record, DecisionRecord) and record.decision.phase == "D1"
+        ]
         if not decisions:
             kinds = sorted({record.record_kind for record in records})
             return ok(f"D1 no llegó a decidir ({', '.join(kinds)})", records=len(records))
@@ -516,53 +540,168 @@ class RunVerification:
         return ok("Frescura al mostrar y al aprobar registrada", **refs)
 
     def _policy(self) -> tuple[str | None, frozenset[str]]:
-        """The run's D1 policy set and rule ids: the verified binding, else the stored artifact."""
-        artifact: Any = None
-        if _table(self.db, "governance_episodes"):
-            row = self.db.execute(
-                "SELECT policy_bytes FROM governance_episodes WHERE run_id = ?", (self.run_id,)
-            ).fetchone()
-            if row is not None and row[0] is not None:
-                try:
-                    artifact = json.loads(bytes(row[0]))
-                except ValueError:
-                    artifact = None
-        artifact = artifact if isinstance(artifact, dict) else {}
-        rules = artifact.get("policy_ids")
-        policy_set_id = self.policy_set_id or artifact.get("policy_set_id")
-        return (
-            policy_set_id if isinstance(policy_set_id, str) else None,
-            frozenset(rule for rule in rules if isinstance(rule, str))
-            if isinstance(rules, list)
-            else frozenset(),
-        )
+        """The run's policy set and rule ids, D1's and the `authorization` (D2-HP) section's, from
+        the verified binding and every policy artifact stored for the run (D1's episode and each
+        later decision's scope)."""
+        stored: list[Any] = []
+        for table in ("governance_episodes", "governance_decision_scopes"):
+            if _table(self.db, table):
+                stored += self.db.execute(
+                    f"SELECT policy_bytes FROM {table} WHERE run_id = ?", (self.run_id,)
+                ).fetchall()
+        policy_set_id, rules = self.policy_set_id, set[str]()
+        for (raw,) in stored:
+            try:
+                artifact = json.loads(bytes(raw)) if raw is not None else None
+            except ValueError:
+                artifact = None
+            if not isinstance(artifact, dict):
+                continue
+            section = artifact.get("authorization")
+            for ids in (
+                artifact.get("policy_ids"),
+                section.get("policy_ids") if isinstance(section, dict) else None,
+            ):
+                if isinstance(ids, list):
+                    rules |= {rule for rule in ids if isinstance(rule, str)}
+            if policy_set_id is None and isinstance(artifact.get("policy_set_id"), str):
+                policy_set_id = artifact["policy_set_id"]
+        return policy_set_id, frozenset(rules)
 
     def d2_decision(self) -> Link:
         policy_set_id, rules = self._policy()
         required = policy_set_id == HP_POLICY_SET_ID or bool(rules & D2_RULES)
-        refs = {"policy_set_id": policy_set_id, "d2_required": required and self.approved}
-        records = (
+        refs: dict[str, Any] = {
+            "policy_set_id": policy_set_id,
+            "d2_required": required and self.approved,
+        }
+        rows = (
             self.db.execute(
-                "SELECT count(*) FROM governance_evidence WHERE run_id = ? AND phase != 'D1'",
+                "SELECT evidence_id, record_kind FROM governance_evidence "
+                "WHERE run_id = ? AND phase != 'D1' ORDER BY sequence",
                 (self.run_id,),
-            ).fetchone()[0]
+            ).fetchall()
             if _table(self.db, "governance_evidence")
-            else 0
+            else []
         )
-        if records:
-            # Presence alone does not verify D2: until its link checks the record's content
-            # (follow-up PR, after D2 is on main), it counts as unverified, never as ok.
-            return missing(
-                "Registro D2 presente; su contenido aún no se verifica",
-                records=records,
-                content_verified=False,
-                **refs,
+        if not rows:
+            if required and self.approved:
+                return missing("La compra aprobada no tiene decisión D2", **refs)
+            if required:
+                return not_applicable("La compra no llegó a aprobarse: D2 no se evaluó", **refs)
+            return not_applicable(f"La política {policy_set_id or '(sin D1)'} no exige D2", **refs)
+        ledger = SqliteGovernanceEvidenceStore(self.db)
+        try:
+            d2 = _ledger_records(ledger, [evidence_id for evidence_id, _ in rows])
+        except EvidenceError as error:
+            return mismatch(f"El ledger D2 no verifica ({error.code})", **refs)
+        decisions = [record for record in d2 if isinstance(record, DecisionRecord)]
+        if self.decision is None:
+            return mismatch("Hay evidencia D2 sin una decisión D1 verificada", **refs)
+        for record in decisions:
+            problem = self._d2_links(record)
+            if problem is not None:
+                return mismatch(problem, evidence_id=record.evidence_id, **refs)
+        committed = [
+            record
+            for record in decisions
+            if record.application.disposition == "transition_committed"
+        ]
+        if len(committed) > 1:
+            return mismatch("Más de una autorización D2 aplicada", **refs)
+        if self.approved:
+            if not committed:
+                # A deny, an input D2 rejected or an allow it could not apply: then no approval.
+                return mismatch(
+                    "La compra siguió aprobada sin una autorización D2 aplicada", **refs
+                )
+            record = committed[0]
+            approval = self.approval
+            if approval is not None and approval.get("authorization_evidence_id") != (
+                record.evidence_id
+            ):
+                return mismatch("La aprobación no apunta a la autorización D2", **refs)
+            if (
+                self.approve_check is None
+                or record.authorization_input().freshness.source_offer_ref.digest
+                != self.approve_check.digest
+            ):
+                return mismatch("D2 no autorizó con la frescura de la aprobación", **refs)
+        elif not decisions:
+            kinds = sorted({record.record_kind for record in d2})
+            return ok(f"D2 no llegó a decidir ({', '.join(kinds)})", records=len(d2), **refs)
+        else:
+            record = decisions[-1]
+        data = record.authorization_input()
+        refs |= {
+            "decision_id": record.decision.decision_id,
+            "evidence_id": record.evidence_id,
+            "outcome": record.decision.outcome,
+            "disposition": record.application.disposition,
+            "authorization_id": data.authorization_id,
+            "policy_version": record.decision.policy_binding.version,
+            "d1_evidence_digest": data.d1.evidence_digest,
+            "freshness_digest": data.freshness.source_offer_ref.digest,
+        }
+        try:
+            ledger.replay(record.evidence_id)
+            refs["replay"] = "reproduced"
+        except EvidenceError as error:
+            if error.code == "GOV_OUTPUT_INVALID":
+                return mismatch("Reejecutar la política da otra decisión D2", **refs)
+            refs["replay"] = f"unavailable ({error.code})"
+        return ok(f"Decisión D2 {record.decision.outcome} verificada", **refs)
+
+    def _d2_links(self, record: DecisionRecord) -> str | None:
+        """What a D2 decision says about D1, the operation and freshness, against the run's own."""
+        d1 = self.decision
+        assert d1 is not None
+        data = record.authorization_input()
+        claimed = data.d1
+        if (
+            claimed.decision_id,
+            claimed.evidence_id,
+            claimed.evidence_digest,
+            claimed.input_digest,
+            claimed.outcome,
+            claimed.policy_binding,
+        ) != (
+            d1.decision.decision_id,
+            d1.evidence_id,
+            sha256_digest(canonical_bytes(d1)),
+            d1.decision.input_digest,
+            d1.decision.outcome,
+            d1.decision.policy_binding,
+        ):
+            return "D2 no referencia la decisión D1 de la compra"
+        if data.operation_id != d1.application.transition_ref:
+            return "D2 no referencia la operación de D1"
+        # An allow is evaluated under D1's policy; a deny may name another one (POL-06).
+        allow = record.decision.outcome == "allow"
+        if allow and record.decision.policy_binding != d1.decision.policy_binding:
+            return "D2 autorizó con otra política que D1"
+        if (
+            record.application.disposition == "transition_committed"
+            and record.application.transition_ref != data.authorization_id
+        ):
+            return "La transición de D2 no es su autorización"
+        source = data.freshness.source_offer_ref
+        checks = [
+            check
+            for check in (
+                hp_evidence_sqlite.read_run(self.db, self.run_id)
+                if _table(self.db, "hp_evidence")
+                else ()
             )
-        if required and self.approved:
-            return missing("La compra aprobada no tiene decisión D2", **refs)
-        if required:
-            return not_applicable("La compra no llegó a aprobarse: D2 no se evaluó", **refs)
-        return not_applicable(f"La política {policy_set_id or '(sin D1)'} no exige D2", **refs)
+            if check.record_kind == "freshness_check"
+            and check.sequence == source.version
+            and check.digest == source.digest
+            and check.body.get("stage") == "approve"
+            and check.body.get("checkout_id") == self.checkout_id
+        ]
+        if source.id != FRESHNESS_SOURCE_ID or not checks:
+            return "D2 no referencia una comprobación de frescura al aprobar"
+        return None
 
     def _ap2_records(self) -> Link | None:
         """The problem with the run's ap2_evidence, or None and consent/effect set."""
@@ -789,6 +928,16 @@ class RunVerification:
             order_id=self.order_id,
             payload_sha256=events[0][0],
         )
+
+
+def _ledger_records(
+    ledger: SqliteGovernanceEvidenceStore, evidence_ids: Sequence[str]
+) -> list[DecisionEvidence]:
+    """Each record read and checked by the ledger itself (body digest, scope, input)."""
+    records = [ledger.get(evidence_id) for evidence_id in evidence_ids]
+    if any(record is None for record in records):
+        raise EvidenceError("GOV_INPUT_INVALID")
+    return [record for record in records if record is not None]
 
 
 def _operation(operation: Mapping[str, Any]) -> dict[str, Any]:
