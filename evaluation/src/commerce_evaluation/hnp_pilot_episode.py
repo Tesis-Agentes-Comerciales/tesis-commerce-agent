@@ -634,16 +634,23 @@ def read_governance(database: Path, run_id: str | None) -> dict[str, Any]:
 
 def read_model_usage(database: Path) -> dict[str, Any] | None:
     """Every `model.*` row of stage_timings (all the invocation's model stages, not only
-    `model.hnp_select`); NULL tokens mean unknown, never 0. None without the table."""
+    `model.hnp_select`) with its `elapsed_ms`, which tells a retry after a timeout (the cost
+    margin); NULL tokens mean unknown, never 0. None without the table."""
     with closing(read_only(database)) as connection:
         if "stage_timings" not in _tables(connection):
             return None
         columns = {row[1] for row in connection.execute("PRAGMA table_info(stage_timings)")}
         tokens = "input_tokens, output_tokens" if "input_tokens" in columns else "NULL, NULL"
         rows = [
-            {"stage": stage, "outcome": outcome, "input_tokens": tin, "output_tokens": tout}
-            for stage, outcome, tin, tout in connection.execute(
-                f"SELECT stage, outcome, {tokens} FROM stage_timings "
+            {
+                "stage": stage,
+                "outcome": outcome,
+                "elapsed_ms": elapsed_ms,
+                "input_tokens": tin,
+                "output_tokens": tout,
+            }
+            for stage, outcome, elapsed_ms, tin, tout in connection.execute(
+                f"SELECT stage, outcome, elapsed_ms, {tokens} FROM stage_timings "
                 "WHERE stage LIKE 'model.%' ORDER BY sequence"
             )
         ]

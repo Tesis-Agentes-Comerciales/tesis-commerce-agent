@@ -461,6 +461,8 @@ def test_every_model_row_counts_and_unknown_tokens_stay_unknown(
     assert (read["calls"], read["calls_without_tokens"]) == (3, 1)
     assert (read["input_tokens"], read["output_tokens"]) == (1210, 305)
     assert [row["outcome"] for row in read["rows"]] == ["ok", "error", "ok"]
+    # The cost margin tells a retry after a timeout by the row's elapsed time.
+    assert all(isinstance(row["elapsed_ms"], float) for row in read["rows"])
 
 
 def test_the_consent_token_is_searched_in_the_agent_s_files(tmp_path: Path) -> None:
