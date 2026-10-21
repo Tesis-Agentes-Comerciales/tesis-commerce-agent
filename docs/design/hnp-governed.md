@@ -180,10 +180,35 @@ UoW-1 y no la que relee UoW-C, que no compara el kill switch ni el grant (K10). 
 `start` dejó `selected` termina `failed(governance_unavailable)` (K15). `payment_request_digest`
 fija la petición al PSP del despacho (clave `<operation_id>:payment`, `allowance` y los digests del
 checkout JWT y de los dos cerrados); 09b la reconstruye igual. Lo que §8.1 no nombra: un feed ilegible, un rechazo del comercio, una firma del
-checkout o un cierre que falla terminan `checkout_failed`; un selector que falla o elige fuera de la
-lista corta, `selection_not_eligible`; un grant ilegible y un re-claim con avance sin outbox,
-`state_conflict` (reanudarlo es de 09b). El `outcome_code` de un deny de D1 sale de los
+checkout o un cierre que falla terminan `checkout_failed`; un selector que falla o, en B0-HNP, elige
+fuera de la lista corta, `selection_not_eligible`; un grant ilegible y un re-claim con avance que no se puede
+reanudar (abajo), `state_conflict`. El `outcome_code` de un deny de D1 sale de los
 `reason_codes` de su evidencia (`sqlite_d1_denials`): POL-01, luego POL-02, luego POL-11.
+
+**K12 por condición (HNP-09b).** En B0-HNP la guarda de la lista corta del executor termina
+`failed(selection_not_eligible)` antes de `start`. En B2-HNP no hay guarda previa: la elección va a
+`start` y D1-HNP la niega con POL-01, con su evidencia y antes de cualquier POST; el terminal es el
+mismo por el mapeo de `reason_codes`. Así, en B2 los eslabones `intent` y `d1_decision` quedan
+completos (HN11 de `docs/design/hnp-pilot.md`). Una variante que ni siquiera es candidata del feed
+la rechaza `start` antes de D1 (`invalid_candidate`), con el mismo código.
+
+**Cómo lo arma HNP-09b, reanudación.** Un re-claim sigue desde el estado durable (§4.5). Con fila
+en el outbox pasa directo al despacho. Sin ella, solo sigue una reserva `reserved` con la compra en
+`checkout_prepared` y los cerrados que guardó UoW-C (`closed_request`), cuyo checkout y monto son
+los de la reserva: si `now ≥ iat + 300` del cerrado, termina `failed(close_expired_before_dispatch)`
+con la reserva `released(no_outbox)`; si no, recalcula `payment_request_digest` desde los cerrados
+guardados y corre D3 y UoW-2 con la `Authority` del re-claim (la que validó UoW-1 se perdió con la
+corrida), sin crear ni cerrar otra vez. Cualquier otro avance termina con el terminal que `start`
+dejó anotado o `state_conflict`. Lo que escapa de una corrida se clasifica: un `GovernanceError`
+(el hook de evidencia de un allow que no se pudo escribir, `GOV_EVIDENCE_UNAVAILABLE`) termina
+`failed(governance_unavailable)`, y un `LookupError` (una fila durable que desapareció bajo la
+corrida), `failed(state_conflict)`. Si no se puede escribir la evidencia de un deny, el terminal se
+escribe sin ella: una cancelación conserva su causa y lo demás termina
+`failed(governance_unavailable)`. **Decisión de 09b, alerta al operador:** los terminales de §8.1
+con alerta (`selection_not_eligible`, `merchant_not_allowed`, `mandate_proof_invalid`,
+`verifier_invalid_mandate`, `verifier_invalid_credential`; `OPERATOR_ALERTS`) dejan un registro
+`ERROR` en el logger `commerce_agent.hnp.alerts`, con `task_id`, estado y código y sin datos del
+dueño. No hay otro canal de notificación.
 
 **Arranque (HNP-09a).** Con `AGENT_HNP_ENABLED`, `build_runtime` arma el executor en un solo lugar,
 `delegation/bootstrap.build_hnp_executor`, que es donde 09b enchufa el despacho. En `enforce`, la
@@ -535,7 +560,12 @@ cierran la tarea si no hay outbox.
 
 **Lease y fencing.** Toda UoW posterior al claim (UoW-1, UoW-C, UoW-2, despacho y UoW-3) compara
 `hnp_tasks.lease_id` y `state='running'`, y renueva `lease_expires_at` (`now + 120 s`). Cada llamada
-externa tiene un timeout menor que el lease. Ante un CAS perdido, el executor relee y clasifica así:
+externa tiene un timeout menor que el lease. **Decisión de 09b:** el selector `llm` puede tardar
+más que el lease (`OPENAI_TIMEOUT_SECONDS` llega a 120 s y hay un reintento), así que antes del
+primer efecto (`start`) la corrida renueva su lease con `renew_lease`, por CAS de `lease_id` y
+`running`: si otro claim tomó la tarea mientras tanto, sale con `lease_lost` sin crear el checkout;
+si no, un claim concurrente encuentra el lease vigente. Ante un CAS perdido, el executor relee y
+clasifica así:
 
 - lease ajeno → sale sin escribir terminal;
 - `authority_epoch` cambió por una revocación del dueño → `canceled(revoked_by_owner)`;

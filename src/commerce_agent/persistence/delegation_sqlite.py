@@ -548,6 +548,14 @@ class SqliteDelegationLedger:
             _event(connection, ex, "task_claimed", "service", claimed, text, run_id=run_id)
             return Step("applied", _execution(connection, task_id))
 
+    def renew_lease(self, task_id: str, lease_id: str) -> Step:
+        """`reused` with the lease renewed while this run still holds it, even one that lapsed
+        while nobody re-claimed the task; `lease_lost` once another claim took it."""
+        with self._fenced(task_id, lease_id) as (connection, now, ex):
+            if ex is None:
+                return Step("lease_lost")
+            return _renewed(connection, ex, now)
+
     def reserve(
         self, request: ReservationRequest, *, hooks: Sequence[TransactionHook] = ()
     ) -> Step:

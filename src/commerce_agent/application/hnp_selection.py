@@ -4,8 +4,8 @@ The shortlist is `rank_candidates(feed, intent)` restricted to the grant's varia
 `AGENT_HNP_SELECTOR=deterministic` takes its first; `llm` asks the model to choose among exactly
 those ids and records the call's time and tokens in `stage_timings`. A selector only sees catalog
 observations, the intent and the buyer's preference text, and answers a variant id: never a
-mandate, key or amount. Whatever comes back, the executor checks it against the shortlist again
-(K12), so no selector widens the grant.
+mandate, key or amount. Whatever comes back is checked against the shortlist again (K12): by the
+executor's guard in B0-HNP and by D1-HNP's POL-01 in B2-HNP, so no selector widens the grant.
 """
 
 from contextlib import AbstractContextManager
