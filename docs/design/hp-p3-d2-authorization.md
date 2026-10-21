@@ -95,9 +95,19 @@ que se compara.
 | POL-05 | Moneda, cantidad 1 y variante coinciden; precio unitario y **total autoritativo del checkout** dentro de los límites no nulos de la intención; cobertura exacta de las restricciones duras y todas cumplen | `CHECKOUT_CONSTRAINT_MISMATCH` |
 | POL-06 | El `policy_binding` y el `context_version` de D1 son los esperados ahora | `POLICY_CONTEXT_MISMATCH` |
 
-Las cuatro se evalúan siempre, sin cortocircuito. El artefacto `b2-hp-v2` (decisión compartida 1)
-lleva una sección `authorization` con `policy_ids`, acciones y bases de autenticación admitidas. D2
-corre solo si el artefacto configurado la trae; `b2-pilot-v1` no la trae y no cambia.
+Las cuatro se evalúan siempre, sin cortocircuito. La tabla `APPLICABLE_RULES` de P1 gana la fila
+`("D2", "HP")` → POL-03..06 sin tocar la de D1; `rules_apply` solo admite el perfil piloto
+(POL-01, POL-02) en D1, y el límite D2 responde `GOV_ARTIFACT_MISMATCH` si el artefacto no trae la
+fila de la fase y el modo de la entrada. El artefacto `b2-hp-v2` revisión 1 (decisión compartida 1;
+aún sin evidencia publicada) lleva, además de su `policy_ids` D1, una sección `authorization`:
+
+```json
+{"policy_ids": ["POL-03", "POL-04", "POL-05", "POL-06"],
+ "allowed_actions": ["complete_purchase"], "authentication_bases": ["user_jwt"]}
+```
+
+`build_d1_policy` la agrega solo a `b2-hp-v2` (`D2_RULES_BY_POLICY_SET`). D2 corre solo si el
+artefacto configurado la trae; `b2-pilot-v1` no la trae, no serializa la clave y conserva sus bytes.
 
 ## Fail-closed
 
@@ -200,8 +210,8 @@ revisión de la política. POL-03 no muestra valores (sería la identidad del du
 | A | `feat(governance): authorize HP approvals with POL-03..06 (D2)` | Spec, modelos, motor, ledger, ensamblado, integración en la aprobación, mensajes de la API |
 | B | `feat(trace): show the D2 authorization step and its denial in the chat` | Paso de traza, `parsePurchaseTrace`, fixtures, tarjeta del deny, historias, E2E |
 
-B se apila sobre A. Las reglas D2 entran en `b2-hp-v2` cuando P1 (`feat/d1-budget-rule`) esté en la
-rama base.
+B se apila sobre A. A va rebasado sobre P1 (`feat/d1-budget-rule`): la fila D2 de la tabla y la
+sección `authorization` de `b2-hp-v2` son parte de A.
 
 ## Riesgos y desviaciones del contrato formal
 

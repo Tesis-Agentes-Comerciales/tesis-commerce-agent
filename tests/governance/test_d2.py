@@ -19,12 +19,17 @@ from commerce_agent.governance.evaluator import (
     verify_authorization_artifact,
 )
 from commerce_agent.governance.models import (
+    APPLICABLE_RULES,
+    D1_PILOT_RULES,
     SCHEMA,
     AuthorizationPolicyInput,
+    AuthorizationRules,
     D1PolicyArtifact,
     EvaluationMetadata,
     PolicyDecision,
+    rules_apply,
 )
+from commerce_agent.governance.provenance import build_d1_policy
 
 FIXTURES = Path(__file__).parent / "fixtures"
 POLICIES = ("POL-03", "POL-04", "POL-05", "POL-06")
@@ -220,6 +225,37 @@ def test_d1_artifact_bytes_are_unchanged() -> None:
     """b2-pilot-v1 and every artifact without D2 rules keep their exact bytes and digest."""
     raw = (FIXTURES / "d1-policy.json").read_bytes()
     assert canonical_bytes(parse_model(D1PolicyArtifact, raw)) == raw
+
+
+def test_d2_hp_is_its_own_row_of_the_table() -> None:
+    """D2/HP extends the table without touching D1; no other phase admits its rules."""
+    assert APPLICABLE_RULES[("D2", "HP")] == POLICIES
+    assert rules_apply(POLICIES, "D2", "HP")
+    assert not rules_apply(D1_PILOT_RULES, "D2", "HP")
+    assert not rules_apply(POLICIES, "D1", "HP")
+    assert not rules_apply(POLICIES, "D2", "HNP")
+    with pytest.raises(ValidationError):
+        AuthorizationRules(
+            schema_version=SCHEMA,
+            policy_ids=APPLICABLE_RULES[("D1", "HP")],
+            allowed_actions=("complete_purchase",),
+            authentication_bases=("user_jwt",),
+        )
+
+
+def test_only_b2_hp_v2_carries_d2_rules() -> None:
+    hp, hp_binding = build_d1_policy(policy_set_id="b2-hp-v2", version=1, merchant_ref="m")
+    rules = verify_authorization_artifact(hp, hp_binding)
+    assert rules.policy_ids == POLICIES
+    assert (rules.allowed_actions, rules.authentication_bases) == (
+        ("complete_purchase",),
+        ("user_jwt",),
+    )
+    pilot, pilot_binding = build_d1_policy(policy_set_id="b2-pilot-v1", version=1, merchant_ref="m")
+    assert b"authorization" not in pilot
+    with pytest.raises(GovernanceError) as error:
+        verify_authorization_artifact(pilot, pilot_binding)
+    assert error.value.reason == "GOV_ARTIFACT_MISMATCH"
 
 
 def test_decision_reports_exactly_its_phase_rules(

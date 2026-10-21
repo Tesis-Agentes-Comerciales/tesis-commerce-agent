@@ -15,6 +15,7 @@ from .models import (
     APPLICABLE_RULES,
     D1_PILOT_RULES,
     SCHEMA,
+    AuthorizationRules,
     D1PolicyArtifact,
     Id,
     ObjectRef,
@@ -30,6 +31,16 @@ HP_POLICY_SET_ID = "b2-hp-v2"
 # set, b2-pilot-v1 included, keeps the pilot's POL-01 and POL-02 with the same artifact bytes, so
 # its published runs stay reproducible.
 D1_RULES_BY_POLICY_SET: dict[str, Rules] = {HP_POLICY_SET_ID: APPLICABLE_RULES[("D1", "HP")]}
+# D2-HP section of each named policy set: only b2-hp-v2 authorizes approvals with POL-03..06.
+# A set without one (b2-pilot-v1) serializes no `authorization` key and never runs D2.
+D2_RULES_BY_POLICY_SET: dict[str, AuthorizationRules] = {
+    HP_POLICY_SET_ID: AuthorizationRules(
+        schema_version=SCHEMA,
+        policy_ids=APPLICABLE_RULES[("D2", "HP")],
+        allowed_actions=("complete_purchase",),
+        authentication_bases=("user_jwt",),
+    )
+}
 
 
 class ProvenanceModel(BaseModel):
@@ -196,7 +207,8 @@ def merchant_pseudonym(keys: ProvenanceKeys, merchant_base_url: str) -> str:
 def build_d1_policy(
     *, policy_set_id: str, version: int, merchant_ref: str | tuple[str, ...]
 ) -> tuple[bytes, PolicyBinding]:
-    """Build the COP/one-unit D1 profile from trusted configuration, never a fixture."""
+    """Build the COP/one-unit policy profile (D1, and D2-HP for b2-hp-v2) from trusted
+    configuration, never a fixture."""
     from .canonical import canonical_bytes, sha256_digest
 
     artifact = D1PolicyArtifact(
@@ -208,6 +220,7 @@ def build_d1_policy(
         allowed_merchant_refs=(merchant_ref,) if isinstance(merchant_ref, str) else merchant_ref,
         currency="COP",
         quantity=1,
+        authorization=D2_RULES_BY_POLICY_SET.get(policy_set_id),
     )
     payload = canonical_bytes(artifact)
     binding = PolicyBinding(

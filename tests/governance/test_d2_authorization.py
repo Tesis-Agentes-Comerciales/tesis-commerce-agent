@@ -330,6 +330,28 @@ def test_ap2_signs_only_after_the_d2_allow(tmp_path: Path) -> None:
     assert row is not None and row[0] == record.evidence_id and row[1] is not None
 
 
+def test_b2_hp_v2_authorizes_with_its_built_in_rules(tmp_path: Path) -> None:
+    """The demo configuration: no policy file, b2-hp-v2 carries D1 (with POL-11) and D2."""
+    settings = governed(tmp_path / "agent.db", agent_d1_policy_set_id="b2-hp-v2")
+    assert settings.agent_d1_policy_path is None
+    with app_client(settings, StoreMerchant()) as client:
+        run_id = start_purchase(client, "turn-hp-v2")
+        assert approve(client, run_id).status_code == 200
+        assert client.post(f"/purchases/{run_id}/complete").status_code == 200
+    d1, d2 = (item for item in evidence(settings.agent_database_path))
+    assert isinstance(d1, DecisionRecord) and isinstance(d2, DecisionRecord)
+    assert [rule.policy_id for rule in d1.decision.rule_results] == ["POL-01", "POL-02", "POL-11"]
+    assert [rule.policy_id for rule in d2.decision.rule_results] == [
+        "POL-03",
+        "POL-04",
+        "POL-05",
+        "POL-06",
+    ]
+    assert d2.decision.outcome == "allow"
+    assert d2.decision.policy_binding == d1.decision.policy_binding
+    assert approval_row(settings.agent_database_path, run_id) == (d2.evidence_id, None)
+
+
 def test_without_d2_rules_approval_is_unchanged(tmp_path: Path) -> None:
     settings = with_policy(governed(tmp_path / "agent.db"), authorization=None)
     merchant = StoreMerchant()
