@@ -83,7 +83,8 @@ class Merchant:
         if self.fault == "server_error":
             return httpx.Response(500, json={"detail": {"code": "internal"}})
         if self.fault == "client_error":
-            return httpx.Response(409, json={"detail": {"code": "idempotency_conflict"}})
+            # The merchant's 409 on creation; a reused key with other content is a 422 there.
+            return httpx.Response(409, json={"detail": {"code": "idempotency_in_flight"}})
         if self.fault == "malformed":
             return httpx.Response(201, json={"id": "cs_api_1"})
         return httpx.Response(201, json=self.current)

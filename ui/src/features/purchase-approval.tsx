@@ -6,6 +6,7 @@ import {
   StaleTermsCard,
   type ApprovalCardStatus,
   type StaleTermsCardStatus,
+  type StaleTermsReason,
 } from "@/components/agent"
 import { FAILURE_COPY } from "@/components/trace/trace-copy"
 import { usePurchaseSession, type LocalPurchase } from "@/features/purchase-session"
@@ -18,7 +19,6 @@ import {
   cancelPurchase,
   completePurchase,
   getApprovalTerms,
-  type PendingTermsStatus,
 } from "@/lib/commerce-api"
 
 const KNOWN_ERRORS: Record<string, string> = {
@@ -41,6 +41,10 @@ const KNOWN_ERRORS: Record<string, string> = {
   completion_in_progress: "La compra ya se está completando con el comercio.",
   // Lo lanza un checkout de otra compra y también uno que no quedó cancelado al cancelar.
   checkout_mismatch: "La respuesta del comercio no coincide con esta compra, así que me detuve.",
+  // Antes de aprobar, `checkout_expired` muestra la tarjeta de términos vencidos; esto cubre el resto.
+  checkout_expired: "El checkout del comercio venció, así que no seguí con la compra.",
+  checkout_not_ready:
+    "El checkout del comercio ya no está listo para pagar, así que no seguí con la compra.",
 }
 
 const TERMINAL_ERRORS = new Set(["payment_declined", "out_of_stock"])
@@ -169,7 +173,7 @@ function usePurchaseActions(runId: string) {
 
 type StaleTermsApprovalProps = {
   runId: string
-  terms: PendingTermsStatus
+  terms: StaleTermsReason
   product: ProductCard | null
 }
 

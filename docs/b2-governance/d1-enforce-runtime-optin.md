@@ -63,7 +63,9 @@ los puertos de `governance/runtime_dispatch.py`:
   no se pudo registrar), la compra responde `d1_unavailable`. Si la política ya permitió y lo
   que falló fue comprometer el allow, verificarlo, validar la sesión o reclamar la operación,
   responde `d1_allow_unapplied`, cuyo texto dice que la política permitió la compra. En los
-  dos casos no hubo POST.
+  dos casos no hubo POST. La traza guarda ese allow como bloqueado; la tarjeta del bloqueo, el paso
+  de la política y la fila de actividad dicen lo mismo que el chat: la política permitió y la compra
+  se detuvo por precaución.
 - **Verificación.** El gate lee el checkout con un GET y exige que sea idéntico a la
   respuesta del POST. Con el Merchant real lo es (prueba live
   `test_b2_governed_purchase_creates_once_and_awaits_approval`), así que se mantiene la

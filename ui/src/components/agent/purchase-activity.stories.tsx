@@ -178,6 +178,32 @@ export const BlockedWithCard: Story = {
   ),
 }
 
+/** La política permitió, pero el allow no se pudo dejar listo: la fila no culpa a la política. */
+export const BlockedAllowNotApplied: Story = {
+  args: {
+    trace: {
+      ...TRACES.blockedMerchant,
+      steps: TRACES.blockedMerchant.steps.map((step) =>
+        step.kind === "policy_decision"
+          ? {
+              ...step,
+              decision: {
+                ...step.decision,
+                outcome: "allow" as const,
+                rules: step.decision.rules.map((rule) => ({ ...rule, result: "pass" as const })),
+                reason_codes: [],
+              },
+            }
+          : step,
+      ),
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByRole("button", { name: /Detenida por precaución/ })).toBeVisible()
+    await expect(canvas.queryByText(/Bloqueada por la política/)).toBeNull()
+  },
+}
+
 export const BlockedProduct: Story = {
   args: { trace: TRACES.blockedProduct },
 }
@@ -237,6 +263,23 @@ export const StaleTermsUnavailable: Story = {
     await expect(
       canvas.getByRole("button", { name: /Detenida: condiciones sin confirmar/ }),
     ).toBeVisible()
+  },
+}
+
+/** La oferta venció: la fila lo dice igual que el chat. */
+export const StaleTermsOfferExpired: Story = {
+  args: {
+    trace: {
+      ...TRACES.staleTerms,
+      steps: TRACES.staleTerms.steps.map((step) =>
+        step.kind === "freshness_check" && step.state === "blocked"
+          ? { ...step, outcome: "unavailable", changes: [], read_error: "offer_expired" }
+          : step,
+      ),
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByRole("button", { name: /Detenida: la oferta venció/ })).toBeVisible()
   },
 }
 

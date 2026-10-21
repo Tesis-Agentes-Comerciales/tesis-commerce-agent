@@ -44,6 +44,7 @@ export {
   StaleTermsCard,
   type StaleTermsCardProps,
   type StaleTermsCardStatus,
+  type StaleTermsReason,
 } from "@/components/agent/stale-terms-card"
 export { ThinkingGroup, type ThinkingGroupProps } from "@/components/agent/thinking-group"
 export {

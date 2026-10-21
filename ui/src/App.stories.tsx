@@ -243,7 +243,15 @@ const STALE_APPROVAL = {
     status: 409,
     body: { code: "offer_expired", message: "La oferta del comercio venció, así que no seguí con la compra." },
   },
+  // Vencimiento natural del checkout: el `message` de REST es el interno, en inglés.
+  checkoutExpired: {
+    status: 409,
+    body: { code: "checkout_expired", message: "Checkout has expired" },
+  },
 } as const
+
+/** Solo en la sesión que recibió el error: al recargar, el backend lo informa como `changed`. */
+const EXPIRED_TITLE = "Las condiciones que revisaste vencieron"
 
 const STALE_TITLE: Record<PendingTermsStatus, string> = {
   changed: "Las condiciones del comercio cambiaron",
@@ -357,18 +365,46 @@ export const CancelCheckoutMismatch: Story = {
   },
 }
 
-/** Aprobar responde 409 `offer_expired`: la oferta venció, y se trata como condiciones que cambiaron. */
-export const OfferExpiredOnApprove: Story = {
+function expiredOnApprove(response: (typeof STALE_APPROVAL)["expired" | "checkoutExpired"]): Story {
+  return {
+    parameters: {
+      agentApi: { ...FAST_STREAM.agentApi, "POST /purchases/:runId/approval": response },
+    },
+    play: async (context) => {
+      const card = await approvalCard(context)
+      await context.userEvent.click(within(card).getByTestId("approve-purchase"))
+      const stale = await context.canvas.findByTestId("stale-terms-card", {}, STREAM_TIMEOUT)
+      await expect(within(stale).getByRole("heading", { name: EXPIRED_TITLE })).toBeVisible()
+      await expect(within(stale).getByRole("button", { name: "Cancelar compra" })).toBeEnabled()
+      await expect(context.canvas.queryByText(/Esperando tu aprobación|has expired/)).toBeNull()
+    },
+  }
+}
+
+/** Aprobar responde 409 `offer_expired`: la tarjeta dice que vencieron y solo deja cancelar. */
+export const OfferExpiredOnApprove: Story = expiredOnApprove(STALE_APPROVAL.expired)
+
+/** Aprobar responde 409 `checkout_expired`: el comercio también cancela un checkout vencido. */
+export const CheckoutExpiredOnApprove: Story = expiredOnApprove(STALE_APPROVAL.checkoutExpired)
+
+/** Aprobar responde 409 `checkout_not_ready`: el aviso va en español, sin el texto interno. */
+export const ApproveCheckoutNotReady: Story = {
   parameters: {
-    agentApi: { ...FAST_STREAM.agentApi, "POST /purchases/:runId/approval": STALE_APPROVAL.expired },
+    agentApi: {
+      ...FAST_STREAM.agentApi,
+      "POST /purchases/:runId/approval": {
+        status: 409,
+        body: { code: "checkout_not_ready", message: "Checkout is not ready for payment" },
+      },
+    },
   },
   play: async (context) => {
     const card = await approvalCard(context)
     await context.userEvent.click(within(card).getByTestId("approve-purchase"))
-    const stale = await context.canvas.findByTestId("stale-terms-card", {}, STREAM_TIMEOUT)
-    await expect(within(stale).getByRole("heading", { name: STALE_TITLE.changed })).toBeVisible()
-    await expect(within(stale).getByRole("button", { name: "Cancelar compra" })).toBeEnabled()
-    await expect(context.canvas.queryByText("Esperando tu aprobación")).toBeNull()
+    await expect(await within(card).findByRole("alert", {}, STREAM_TIMEOUT)).toHaveTextContent(
+      "El checkout del comercio ya no está listo para pagar, así que no seguí con la compra.",
+    )
+    await expect(context.canvas.queryByText(/not ready|Checkout is/)).toBeNull()
   },
 }
 

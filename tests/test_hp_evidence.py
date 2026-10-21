@@ -40,8 +40,10 @@ def test_append_once_reuses_an_identical_record_of_the_run(tmp_path: Path) -> No
     again = evidence.append_once("run-a", "governed_recovery", check("fresh"))
     other_run = evidence.append_once("run-b", "governed_recovery", check("fresh"))
     other_body = evidence.append_once("run-a", "governed_recovery", check("changed"))
+    # A, B, A keeps A and B: an identical record anywhere earlier in the run is reused.
+    repeat = evidence.append_once("run-a", "governed_recovery", check("fresh"))
 
-    assert again == first
+    assert again == first == repeat
     assert (other_run.run_id, other_run.sequence) == ("run-b", 1)
     assert (other_body.sequence, other_body.previous_digest) == (2, first.digest)
     assert len(evidence.for_run("run-a")) == 2 and evidence.verify_chain("run-a")
