@@ -45,6 +45,7 @@ from commerce_agent.delegation.models import (
     OPERATOR_REF,
     DelegationEvent,
     chain_is_valid,
+    receipt_status,
     token_digest,
 )
 from commerce_agent.domain import HardConstraints, PurchaseIntent
@@ -133,16 +134,6 @@ AFTER_D1 = frozenset(
 )
 # Of those, the ones a run past its checkout gives (D1's own deny never reaches it).
 AFTER_CHECKOUT = AFTER_D1 - {"merchant_not_allowed", "budget_not_satisfiable"}
-# Both forms of an AP2 receipt status the profile admits (docs/ap2-profile.md, Recibos): the SDK's,
-# which the JWTs carry, and the spec's, which the ledger keeps. Same table as `RECEIPT_STATUSES` of
-# `commerce_agent.delegation.models`, the ledger's normalization from HNP-09b on; kept here so a
-# `receipt_recorded` event verifies in either form, before and after that normalization.
-RECEIPT_STATUSES: Mapping[str, str] = {
-    "Success": "success",
-    "Error": "error",
-    "success": "success",
-    "error": "error",
-}
 # The identifier each kind of receipt carries in its JWT and in its `receipt_recorded` event.
 RECEIPT_IDENTIFIERS = {"checkout": "order_id", "payment": "payment_id"}
 
@@ -1124,8 +1115,13 @@ def _ap2_receipt(token: str, kind: str) -> dict[str, Any]:
 
 
 def _receipt_status(status: Any) -> str | None:
-    """A receipt status in the ledger's form (`success`/`error`); None outside the profile."""
-    return RECEIPT_STATUSES.get(status) if isinstance(status, str) else None
+    """A receipt status in the ledger's form (`success`/`error`) by the product's own table, which
+    takes either form of the profile (K17); None outside it, even for a non-string, so the link is a
+    plain `mismatch`."""
+    try:
+        return receipt_status(status)
+    except ValueError:
+        return None
 
 
 def _rows(connection: sqlite3.Connection, query: str, *values: Any) -> list[dict[str, Any]]:
