@@ -807,6 +807,13 @@ Textos fijos de la tarjeta de consentimiento (HNP-07): título «Autorizar una c
 «El total máximo incluye envío», «Un solo uso», «Vence el <fecha y hora>», «Puedes revocarla antes de
 que el agente comprometa el pago», botones «Autorizar» y «Cancelar».
 
+Rótulos fijos de las demás tarjetas (HNP-07, `ui/src/components/delegation/delegation-copy.ts`):
+títulos de estado «Delegación activa», «Compra en curso», «Compra completada», «Delegación
+revocada», «Compra cancelada» (kill switch), «Delegación vencida», «Compra no completada» y «Compra
+por confirmar» (un escalamiento usa `escalation.title`); filas «Total máximo», «Vence», «Entrega»,
+«Pago», «Última actividad» y «Tu indicación»; botones «Revocar» (§2.1) y «Comprar desde el chat»
+(§8.2). Manda el resultado de la tarea y, mientras no termina, el estado del grant.
+
 ### 8.4 Revocación y kill switch
 
 - **Dueño:** el UoW de revocación es idempotente. Sin reserva: `no_effect`. Reserva `reserved` sin
