@@ -1,0 +1,833 @@
+# Human Not Present gobernado
+
+Estado: **propuesta para aprobación** (HNP-00), 20-oct-2026. Fuentes: el contrato formal
+[`policy-v1.md`](../b2-governance/policy-v1.md) (POL-01..10, tipos y evidencia), la
+[aceptación](../b2-governance/policy-acceptance-v1.md) (HNP01–10 y C01–C12), el
+[perfil AP2](../ap2-profile.md) (sección «Human Not Present», parte de este mismo PR), las specs de
+la ola HP en curso (P1 `APPLICABLE_RULES` y `b2-hp-v2`, P2 `verify-evidence`, P3 D2-HP) y la
+especificación y el SDK de AP2 v0.2 fijados en `e1ea56d`.
+
+Decisiones de Yair ya tomadas: HNP se fusiona detrás de `AGENT_HNP_ENABLED=false` y la demo corre
+desde la etiqueta `demo-2026-10-23` (D-3); se agrega el brazo P y se pre-registra el empate B0/B2 en
+seguridad (D-2); se aceptan los valores por defecto de D-4 a D-7 y D-10; se enmienda `AGENTS.md`
+(D-9). D-1 (alcance frente al documento) y D-8 (policy-v1 como contrato operativo) siguen con sus
+valores por defecto hasta que Darío responda.
+
+Esta spec es la **fuente de los nombres compartidos** por los PRs HNP-01..HNP-I1: tablas y columnas,
+estados, rutas, códigos, settings, policy set, eventos, eslabones del verificador, pasos de traza y
+textos. Un PR que necesite otro nombre no lo cambia por su cuenta: lo reporta al líder. Donde el plan
+dejaba algo abierto, la decisión se marca **Decisión de spec** con su justificación.
+
+## 1. Problema
+
+Hoy el agente solo compra con el comprador presente: el clic autenticado sobre los términos exactos
+es la compuerta (HP). Human Not Present (HNP) es el caso en que el comprador autoriza antes, sobre un
+alcance acotado, y se va; el agente compra después sin él. Sin un diseño gobernado, HNP abre tres
+riesgos que AP2 y ACP no cierran por sí solos (policy-v1 §2, threat-model): gastar fuera de lo
+consentido, usar dos veces la misma autorización y seguir comprando después de revocarla. Además, la
+tesis necesita evidencia verificable de que cada compra autónoma salió de un consentimiento previo y
+de decisiones de política reproducibles.
+
+## 2. Alcance
+
+### 2.1 Qué es «HNP al 100 %»
+
+| # | Capacidad | Cierre verificable |
+| --- | --- | --- |
+| C1 | Consentimiento previo en la UI (Trusted Surface) sobre un alcance tipado | Grant v1 ligado a `scope_digest`; la tarjeta no muestra texto del modelo |
+| C2 | Mandatos abiertos AP2 v0.2 con `cnf`, cerrados con la Agent Key | La cadena válida verifica con el SDK; falla si se alteran total, comercio, variante, `cnf`, `sd_hash`, `checkout_hash` o si hay una restricción desconocida |
+| C3 | Verificación independiente en el comercio (cadena de checkout) y en el PSP (cadena de pago) | Rechazan con recibo de error AP2 aunque el agente se salte su PDP |
+| C4 | D2-HNP (POL-03..09) y D3-HNP (POL-09/10), fail-closed y reproducibles | Matriz P/N/F de POL-03..10 y C01–C11 |
+| C5 | Reserva de un solo uso por CAS, con outbox en la misma transacción que D3 | Dos ejecuciones producen una orden; un timeout nunca libera la reserva |
+| C6 | Revocación del dueño y kill switch del operador, re-chequeados al comprometer | Revocar antes del compromiso deja 0 efectos; después, la compra queda «en curso» |
+| C7 | Escalamiento HNP→HP | Fuera de alcance: 0 firmas, 0 presentaciones y un aviso visible |
+| C8 | Ejecución sin el humano | El token del comprador no se vuelve a usar después del consentimiento |
+| C9 | Identidad, atribución y evidencia encadenada | H2-HNP: compras HNP con cadena completa verificada / compras HNP |
+| C10 | Base HNP y evaluación pre-registrada (EC-HNP-03) | Manifiesto fusionado antes de correr (HNP-E1) |
+
+Monitoreo mínimo: «Mis delegaciones» (estado, vigencia, alcance, última actividad y Revocar), compras
+HNP en el historial y la traza, contadores HNP en `/health` y el verificador de evidencia. No hay
+detección de anomalías.
+
+### 2.2 Fuera de alcance
+
+| Fuera | Por qué |
+| --- | --- |
+| Recurrencia, presupuesto acumulado (`payment.agent_recurrence`, `payment.budget`) y más de una compra por grant | El perfil v1 es de una compra (policy-v1 §1); cambiaría POL-09 |
+| Subdelegación (cadenas de más de dos saltos), A2A, MCP, TAP | Ninguna interacción lo requiere |
+| Credencial del usuario (OpenID4VP, passkeys) | Mismo modelo de confianza que HP: firma el proveedor del agente |
+| Revocación remota instantánea en el comercio o el PSP | AP2 no la define; se mitiga con el `exp` del mandato abierto |
+| Disparadores por precio, monitoreo continuo, scheduler, varias instancias | Una instancia y disparo explícito |
+| Re-cotizar después de crear el checkout (D17-HNP) | Se escala, que es lo conservador |
+| Que el LLM proponga la delegación en el chat | Formulario/API determinista |
+| Anomalías, re-autorización periódica, push o correo | Solo actividad dentro de la app |
+| Reconciliación automática de un fallo parcial entre verificadores | Queda `uncertain` con reconciliación manual |
+| `shadow` para HNP | **Decisión de spec:** el arranque lo rechaza; ninguna condición del experimento lo usa y su semántica (observar sin bloquear) no está definida para D3 |
+| Divulgación selectiva de los mandatos abiertos | **Decisión de spec:** se presentan completos; no contienen datos personales (comercio, variantes, montos, instrumento) |
+| OPA, UCP, conformidad AP2 certificada, dinero real, 3DS, reembolsos, disputas | D11 y H01 siguen abiertos; todo es sandbox |
+
+### 2.3 Corte si el día se acorta
+
+1. **Nivel 1, núcleo:** HNP-00, 02, 03, 04, M1, P1, 05, 06, 08, 09a, 09b e I1.
+2. **Nivel 2, evaluación:** E1, E2, V1 y la corrida.
+3. **Nivel 3, UI y traza:** 01 (lado TS), 07, 10 y 11.
+
+Se cae primero el nivel 3. Sin UI, el runner consiente por API con el JWT del comprador.
+
+## 3. Flujo
+
+### 3.1 Componentes
+
+```
+Comprador ──JWT──> UI (Trusted Surface: tarjeta de delegación, sin texto del modelo)
+                     │ POST /delegations/proposals · POST /delegations · POST /delegations/{id}/revoke
+                     ▼
+┌────────────────────── Proceso del agente (una instancia, SQLite) ──────────────────────┐
+│ delegation_api (ownership)   DelegationService            HnpExecutionService          │
+│                              OpenMandateIssuer (clave     claim con lease · selector   │
+│ /internal/hnp/* (tokens)     del proveedor)               PurchaseService.start (D1)   │
+│                              ledger delegation_*          frescura · D2 · reserva      │
+│ Gobernanza: D1 · D2-HNP · D3-HNP · evidencia              AgentKeyCloser · D3 · outbox │
+│                                                           HnpDispatcher (PSP, comercio)│
+└───────────────┬───────────────────────────────────────────────┬────────────────────────┘
+                │ ACP + /ap2/checkout-jwt + /ap2/complete (cadena) │ delegate_payment (cadena de pago)
+                ▼                                                   ▼
+     Comercio: verifica la cadena de checkout            PSP: verifica la cadena de pago
+```
+
+El LLM solo participa en el selector (`AGENT_HNP_SELECTOR=llm`), con la elección restringida a los
+ids de la lista corta (P5b). Ninguna herramienta del modelo llega al emisor ni a la Agent Key.
+
+### 3.2 Fase 1, humano presente: propuesta y consentimiento
+
+1. El comprador elige en la UI una o más variantes del feed, el total máximo con envío, la vigencia,
+   los datos de entrega y, opcionalmente, una indicación propia.
+2. `POST /delegations/proposals` valida y devuelve el alcance exacto, su `scope_digest` y el
+   vencimiento de la propuesta (`AGENT_HNP_PROPOSAL_TTL_SECONDS`).
+3. La UI muestra la tarjeta. El clic «Autorizar» envía `POST /delegations {proposal_id,
+   scope_digest}`.
+4. El servidor verifica JWT, dueño, digest y vigencia de la propuesta; firma el checkout abierto y el
+   pago abierto con la clave del proveedor (`AGENT_AP2_PRIVATE_KEY_PEM`, `cnf` = Agent Key pública), y
+   en una transacción crea el grant (`active`, epoch 1), los mandatos abiertos, la tarea `scheduled` y
+   el evento `consented`.
+5. El comprador se va. Su JWT no vuelve a usarse para esta compra.
+
+### 3.3 Fase 2, humano no presente: ejecución
+
+Disparo: `POST /internal/hnp/tasks/{task_id}/run` con `AGENT_HNP_SERVICE_TOKEN`. Principal
+`service:hnp-executor`, `on_behalf_of` = dueño, ligado por el grant.
+
+| Paso | Qué hace | B0-HNP | B2-HNP |
+| --- | --- | --- | --- |
+| 1 | Claim (CAS + lease); kill switch apagado; grant `active` y `now < expires_at` | Sí | Sí |
+| 2 | Lista corta = `rank_candidates(feed, intent)` ∩ `scope.variant_ids`; selector | Sí | Sí |
+| 3 | D1 (POL-01/02/11, `purchase_mode=HNP`) antes de `create_checkout` | No | Sí |
+| 4 | Crea el checkout ACP con los datos de entrega del grant; guarda común de presupuesto | Sí | Sí |
+| 5 | Frescura de la oferta, `stage=close` | No | Sí |
+| 6 | D2-HNP (POL-03..09) con `open_proof` | No | Sí |
+| 7 | **UoW-1:** evidencia D2 + reserva CAS | Reserva sí | Sí |
+| 8 | `GET /ap2/checkout-jwt` y cierre con la Agent Key; **UoW-C** guarda los cerrados | Sí | Sí |
+| 9 | D3-HNP (POL-09/10) con `closed_proof` | No | Sí |
+| 10 | **UoW-2:** re-chequea epoch, kill switch y reserva; evidencia D3 + fila del outbox | Sí (sin D3) | Sí |
+| 11 | Despacho: PSP `delegate_payment` (cadena de pago) y comercio `/ap2/complete` (cadena de checkout); recibos | Sí | Sí |
+| 12 | **UoW-3:** reserva `consumed`, grant `consumed`, tarea `purchased` | Sí | Sí |
+| 13 | Actividad del dueño y traza | Sí | Sí |
+
+Una revocación o un kill switch comprometidos antes del paso 10 ganan: no hay outbox ni efecto.
+Después del paso 10 la compra está «en curso» y se reconcilia; no se promete cancelar.
+
+**Intención HNP. Decisión de spec:** la intención del episodio no la interpreta el modelo. Se deriva
+del alcance: `PurchaseIntent(hard=HardConstraints(currency="COP",
+max_total_amount_minor=scope.total_max_minor))`, guardada en el grant. En D1,
+`eligible_variant_ids` es la lista corta del paso 2 y `eligibility_algorithm_ref` identifica
+`rank_candidates+grant_scope/v1`. Así POL-01 cubre una selección fuera del grant.
+
+### 3.4 Dónde corren D1, D2-HNP y D3-HNP
+
+| Punto | Código | Políticas | Efecto protegido | Con deny |
+| --- | --- | --- | --- | --- |
+| D1-HNP | Compuerta D1 de `PurchaseService.start` con `purchase_mode=HNP` | POL-01, 02, 11 | `create_checkout` | 0 checkout. POL-11: `escalated`. POL-01/02: `failed` y alerta al operador |
+| D2-HNP | `HnpExecutionService`, después del checkout y de la frescura `current` | POL-03..09 | Reserva CAS y cierre | 0 reserva y 0 firma. POL-05/08: `escalated`. Otras: `failed` (§8.1) |
+| D3-HNP | Después del cierre, antes de UoW-2 | POL-09, 10 | Fila del outbox | 0 despacho; la reserva se libera (no hay outbox) |
+
+D1, D2 y D3 usan el evaluador de referencia en Python (D11 sigue abierto) y el policy set
+`b2-hnp-v1` (§7). `b2-pilot-v1` y `b2-hp-v2` no cambian.
+
+## 4. Contrato de datos
+
+### 4.1 Identificadores
+
+Todos cumplen `Id` de policy-v1 (`[A-Za-z0-9._:-]`, máximo 128) y se generan con `id_factory`
+(`<prefijo>_<uuid4 hex>`):
+
+| Prefijo | Objeto |
+| --- | --- |
+| `dpr_` | Propuesta |
+| `dg_` | Grant |
+| `dm_` | Mandato guardado |
+| `ht_` | Tarea |
+| `rsv_` | Reserva |
+| `op_` | Operación (identidad durable del efecto; una por reserva) |
+| `ob_` | Fila del outbox |
+
+`run_id` de la compra HNP: se asigna en el primer claim, con el mismo formato que las compras HP.
+Claves de idempotencia externas: `<operation_id>:payment` (PSP) y `<operation_id>:complete`
+(comercio).
+
+### 4.2 Alcance tipado y `scope_digest`
+
+`DelegationScope` es el tipo de policy-v1 §4: `merchant_refs` (el `merchant_ref` que D1 usa para el
+comercio configurado), `variant_ids` (1 a 5, únicos y ordenados), `currency="COP"`, `quantity_max=1`,
+`total_max_minor` (entero > 0, incluye envío), `destination_binding` (`PrivateBinding`
+`hmac-sha256/v1`), `instrument_ref="tesis_sandbox"` y `uses_max=1`.
+
+**Decisión de spec, clave del destino:** `destination_binding` usa la misma clave y el mismo esquema
+que `MaterialTerms.destination_binding` de D2 (hoy la clave HMAC del vault D1,
+`AGENT_D1_KEY_ID`/`AGENT_D1_HMAC_KEY_HEX`). Así POL-08 compara valores del mismo espacio. Por eso
+`AGENT_HNP_ENABLED=true` exige esas dos variables en cualquier modo de gobernanza.
+
+Lo que el comprador consiente es `ConsentScope`:
+
+```json
+{
+  "schema_version": "commerce-delegation/1.0",
+  "proposal_id": "dpr_…",
+  "owner_ref": "<sub del JWT>",
+  "scope": { "…DelegationScope…" },
+  "display": { "…ScopeView…" },
+  "presented_at": "2026-10-21T15:00:00.000Z",
+  "expires_at": "2026-10-22T15:00:00.000Z",
+  "preference_text": null
+}
+```
+
+`scope_digest = "sha256:" + hex(SHA256(b"commerce-delegation-scope/v1\0" + bytes))`, con `bytes` en
+`commerce-canonical-json/1` (policy-v1 §5).
+
+- **Decisión de spec, vencimiento fijo:** `expires_at` del grant se fija al proponer
+  (`presented_at + valid_for_seconds`), porque la tarjeta debe mostrar la hora exacta que se
+  consiente. La vigencia efectiva pierde a lo sumo el TTL de la propuesta.
+- **Decisión de spec, indicación del comprador:** `preference_text` (opcional, 1 a 280 caracteres) es
+  texto del propio comprador, no del modelo. Se muestra tal cual en la tarjeta, entra en el digest y
+  solo lo lee el selector LLM. Nunca entra en `DelegationScope` ni en el PDP. Lo necesita HN10.
+
+### 4.3 Tablas SQLite
+
+Las crea HNP-02 en la base del agente cuando `AGENT_HNP_ENABLED=true`, salvo `purchases` (HNP-05) y
+`governance_evidence` (P3 y HNP-06). Tiempos en `UtcTime` de policy-v1. Columnas marcadas
+**protegida** guardan datos personales o tokens: no salen en vistas, eventos, evidencia, traza ni
+logs. Es la misma protección que los mandatos HP (`ap2-profile.md`).
+
+**`delegation_proposals`**
+
+| Columna | Tipo y regla |
+| --- | --- |
+| `proposal_id` | TEXT PK |
+| `owner_id` | TEXT NOT NULL |
+| `scope_json` | TEXT NOT NULL, `json_valid`; `ConsentScope` canónico |
+| `scope_digest` | TEXT NOT NULL |
+| `checkout_details_json` | TEXT NOT NULL, **protegida**; `CheckoutDetails` (buyer y fulfillment) |
+| `presented_at`, `expires_at` | TEXT NOT NULL |
+| `grant_id` | TEXT NULL UNIQUE; se llena al consentir |
+
+**`delegation_grants`**
+
+| Columna | Tipo y regla |
+| --- | --- |
+| `grant_id` | TEXT PK |
+| `proposal_id` | TEXT NOT NULL UNIQUE |
+| `owner_id` | TEXT NOT NULL |
+| `grant_version` | INTEGER NOT NULL CHECK = 1 (el alcance es inmutable en v1) |
+| `scope_json`, `scope_digest` | Copia de la propuesta |
+| `intent_json` | TEXT NOT NULL; la intención derivada (§3.3) |
+| `checkout_details_json` | TEXT NOT NULL, **protegida** |
+| `state` | TEXT CHECK IN (`active`, `consumed`, `revoked`, `expired`) |
+| `revoked_reason` | TEXT NULL CHECK IN (`owner`, `operator`, `escalated`, `failed`); no nula si y solo si `state='revoked'` |
+| `authority_epoch` | INTEGER NOT NULL ≥ 1; +1 en cada paso a un estado terminal |
+| `state_version` | INTEGER NOT NULL ≥ 1; +1 en cada transición del grant o de su reserva |
+| `valid_from` | TEXT NOT NULL (= `consented_at`) |
+| `expires_at` | TEXT NOT NULL |
+| `consented_at`, `updated_at` | TEXT NOT NULL |
+| `closed_at` | TEXT NULL |
+| `agent_key_kid` | TEXT NOT NULL; thumbprint RFC 7638 (SHA-256, base64url) de la Agent Key pública |
+| `issuer_kid` | TEXT NOT NULL; thumbprint de la clave pública del proveedor |
+
+Índice `(owner_id, state)`.
+
+**`delegation_mandates`**
+
+| Columna | Tipo y regla |
+| --- | --- |
+| `mandate_id` | TEXT PK |
+| `grant_id` | TEXT NOT NULL |
+| `kind` | TEXT CHECK IN (`open_checkout`, `open_payment`, `closed_checkout`, `closed_payment`) |
+| `reservation_id` | TEXT NULL; no nula si y solo si `kind` empieza por `closed_` |
+| `token` | TEXT NOT NULL, **protegida**; SD-JWT abierto, o la cadena `abierto~~cerrado` |
+| `token_digest` | TEXT NOT NULL; `sha256:` + hex del token en ASCII |
+| `link_hash` | TEXT NOT NULL; abierto: hash del JWT del emisor (`conditional_transaction_id` del pago); cerrado: `sd_hash` del último segmento (= `reference` del recibo). Ver el perfil AP2 |
+| `public_jwk_json` | TEXT NOT NULL; JWK pública que verifica ese salto (emisor o Agent Key). Permite al verificador de evidencia re-verificar firmas sin conexión |
+| `created_at` | TEXT NOT NULL |
+
+UNIQUE `(grant_id, kind)`: un grant tiene a lo sumo un par abierto y un par cerrado.
+
+**`grant_reservations`**
+
+| Columna | Tipo y regla |
+| --- | --- |
+| `reservation_id` | TEXT PK |
+| `grant_id`, `owner_id`, `run_id`, `checkout_id` | TEXT NOT NULL |
+| `operation_id` | TEXT NOT NULL UNIQUE |
+| `amount_minor` | INTEGER NOT NULL ≥ 0; total autoritativo del checkout |
+| `currency` | TEXT NOT NULL CHECK = `COP` |
+| `expected_epoch` | INTEGER NOT NULL; `authority_epoch` al reservar |
+| `state` | TEXT CHECK IN (`reserved`, `committed`, `consumed`, `released`, `uncertain`) |
+| `state_version` | INTEGER NOT NULL ≥ 1 |
+| `release_basis` | TEXT NULL CHECK IN (`no_outbox`, `psp_error_receipt`) |
+| `uncertain_reason` | TEXT NULL CHECK IN (`dispatch_timeout`, `partial_verifier_failure`, `receipt_mismatch`) |
+| `d2_evidence_id` | TEXT NULL (nula en B0) |
+| `created_at`, `updated_at` | TEXT NOT NULL |
+
+```sql
+CREATE UNIQUE INDEX one_use_per_grant ON grant_reservations(grant_id)
+  WHERE state IN ('reserved','committed','uncertain','consumed');
+```
+
+**`hnp_tasks`**
+
+| Columna | Tipo y regla |
+| --- | --- |
+| `task_id` | TEXT PK |
+| `grant_id` | TEXT NOT NULL UNIQUE (una tarea por grant) |
+| `owner_id` | TEXT NOT NULL |
+| `run_id` | TEXT NULL UNIQUE |
+| `state` | TEXT CHECK IN (`scheduled`, `running`, `purchased`, `escalated`, `failed`, `canceled`, `uncertain`) |
+| `outcome_code` | TEXT NULL; código de §8.1, nulo en `scheduled`, `running` y `purchased` |
+| `claim_count` | INTEGER NOT NULL ≥ 0 |
+| `lease_id`, `lease_expires_at` | TEXT NULL; no nulos si y solo si `state='running'` |
+| `created_at`, `updated_at` | TEXT NOT NULL |
+| `finished_at` | TEXT NULL |
+
+**`dispatch_outbox`**
+
+| Columna | Tipo y regla |
+| --- | --- |
+| `outbox_id` | TEXT PK |
+| `reservation_id`, `operation_id` | TEXT NOT NULL UNIQUE |
+| `grant_id`, `run_id`, `checkout_id` | TEXT NOT NULL |
+| `amount_minor`, `currency`, `checkout_expires_at` | Lo necesario para reconstruir el cuerpo exacto de `delegate_payment` |
+| `payment_request_digest` | TEXT NOT NULL; digest del cuerpo del primer envío (el reintento debe coincidir) |
+| `authority_epoch`, `control_epoch` | INTEGER NOT NULL; observados al comprometer |
+| `d3_evidence_id` | TEXT NULL (nula en B0) |
+| `state` | TEXT CHECK IN (`committed`, `payment_sent`, `payment_accepted`, `complete_sent`, `completed`, `rejected`, `uncertain`) |
+| `rejected_by` | TEXT NULL CHECK IN (`psp`, `merchant`) |
+| `ap2_error` | TEXT NULL CHECK IN (`invalid_credential`, `invalid_mandate`, `unresolved_constraint`, `mandates_not_supported`) |
+| `order_id` | TEXT NULL |
+| `created_at`, `updated_at` | TEXT NOT NULL |
+
+El token `vt_…` del PSP **no** se guarda: al reanudar se reenvía el mismo cuerpo con la misma clave
+y el PSP devuelve el mismo token (su almacén lo deriva de la clave y del cuerpo). La tarjeta de prueba
+sale de la configuración, nunca de la base.
+
+**`delegation_events`**: bitácora solo de inserción, encadenada por grant como `hp_evidence`.
+
+| Columna | Tipo y regla |
+| --- | --- |
+| `grant_id`, `sequence` | PK; `sequence` ≥ 1 y consecutiva |
+| `event_type` | TEXT CHECK IN la lista de §9.1 |
+| `actor_kind` | TEXT CHECK IN (`user`, `service`, `operator`) |
+| `actor_ref` | TEXT NOT NULL; `sha256:` del `sub` (usuario), `service:hnp-executor` u `operator` |
+| `on_behalf_of` | TEXT NOT NULL; `sha256:` del dueño |
+| `task_id`, `run_id` | TEXT NULL |
+| `body` | TEXT NOT NULL, `json_valid`; sin datos personales ni tokens |
+| `recorded_at` | TEXT NOT NULL |
+| `previous_digest` | TEXT; nulo si y solo si `sequence = 1` |
+| `digest` | TEXT NOT NULL UNIQUE; `sha256:` de `b"delegation-event/v1\0"` + canónico de la fila sin `digest` |
+
+Disparadores como los de `hp_evidence`: encadenamiento, sin `UPDATE`, sin `DELETE`.
+
+**`hnp_controls`**: historial del kill switch, solo de inserción. **Decisión de spec:** una fila por
+cambio; el estado vigente es la fila con el mayor `control_epoch`. Así el cambio queda auditado sin
+otra tabla.
+
+| Columna | Tipo y regla |
+| --- | --- |
+| `control_epoch` | INTEGER PK ≥ 1; la fila 1 (`kill_switch=0`, `actor_ref='bootstrap'`) se crea con la tabla |
+| `kill_switch` | INTEGER CHECK IN (0, 1) |
+| `actor_ref` | TEXT NOT NULL (`operator` o `bootstrap`) |
+| `changed_at` | TEXT NOT NULL |
+
+**`purchases`** (HNP-05): `purchase_mode TEXT NOT NULL DEFAULT 'HP' CHECK IN ('HP','HNP')` y
+`grant_id TEXT NULL`, con `CHECK((purchase_mode = 'HNP') = (grant_id IS NOT NULL))`.
+`pending_purchase_view` excluye `purchase_mode='HNP'`: una ejecución autónoma nunca aparece como
+compra HP pendiente.
+
+**`governance_evidence`**: D1 ya existe y P3 agrega `phase='D2'`; HNP-06 agrega `phase='D3'`. Los
+registros HNP llevan `purchase_mode='HNP'`. `application.transition_ref` es `reservation_id` en D2-HNP
+y `outbox_id` en D3-HNP.
+
+### 4.4 Estados y transiciones
+
+**Propuesta:** `proposed` (fila sin `grant_id`) → `consented` (con `grant_id`). Vencida si
+`now ≥ expires_at`; no hay transición escrita.
+
+**Grant**
+
+| De | A | Disparador | UoW |
+| --- | --- | --- | --- |
+| — | `active` | Consentimiento válido | Consentimiento |
+| `active` | `consumed` | Orden con ambos recibos y `reference` correcta | UoW-3 |
+| `active` | `revoked(owner)` | `POST /delegations/{id}/revoke` o `revoke-all` | Revocación |
+| `active` | `revoked(operator)` | Claim, UoW-1 o UoW-2 con el kill switch encendido | Ese mismo UoW |
+| `active` | `revoked(escalated)` | La tarea pasa a `escalated` | El UoW que escala |
+| `active` | `revoked(failed)` | La tarea pasa a `failed` | El UoW que falla |
+| `active` | `expired` | Claim, UoW-1 o UoW-2 con `now ≥ expires_at` | Ese mismo UoW |
+
+Todo paso a un estado terminal suma 1 a `authority_epoch`. **Decisión de spec:** el plan nombraba
+`owner|operator|escalated`; se agrega `failed` porque con una tarea por grant un fallo deja el grant
+inútil, y «Mis delegaciones» no debe mostrarlo como activo. Una tarea `uncertain` deja el grant
+`active` (no se puede reusar por el índice de un solo uso). Si la orden llega después de una
+revocación, la reserva pasa a `consumed` y el grant sigue `revoked`. Las vistas muestran `expired`
+cuando un grant `active` ya venció, aunque la fila no se haya escrito.
+
+**Reserva**
+
+| De | A | Disparador |
+| --- | --- | --- |
+| — | `reserved` | UoW-1 |
+| `reserved` | `committed` | UoW-2 (con la fila del outbox) |
+| `reserved` | `released(no_outbox)` | Deny de D3, revocación, kill switch, vencimiento o cierre vencido antes de UoW-2 |
+| `committed` | `released(psp_error_receipt)` | El PSP responde con recibo de error: nada llegó al comercio |
+| `committed` | `consumed` | UoW-3 |
+| `committed` | `uncertain` | Timeout o 5xx después de enviar; recibo de error del comercio después del token del PSP; recibo con `reference` distinta |
+| `uncertain` | `consumed` | La reconciliación encuentra la orden y sus recibos |
+
+Nunca se libera una reserva con fila en el outbox salvo con el recibo de error del PSP. Una reserva
+`uncertain` no se libera automáticamente en v1.
+
+**Tarea**
+
+| De | A | Disparador |
+| --- | --- | --- |
+| — | `scheduled` | Consentimiento |
+| `scheduled` | `running` | Claim exitoso |
+| `scheduled` | `canceled` | Revocación antes del claim; claim con kill switch o grant vencido |
+| `running` | `running` | Re-claim con el lease vencido: reanuda desde el estado durable |
+| `running` | `purchased` / `escalated` / `failed` / `canceled` / `uncertain` | §8.1 |
+| `uncertain` | `purchased` | Reconciliación con orden |
+
+**Outbox:** `committed → payment_sent → payment_accepted → complete_sent → completed`;
+`payment_sent → rejected(psp)`; `complete_sent → rejected(merchant)`; `payment_sent` o
+`complete_sent` → `uncertain` ante timeout o 5xx.
+
+### 4.5 Unidades de trabajo
+
+Todas abren `BEGIN IMMEDIATE`, comparan versiones y escriben evento y evidencia en la misma
+transacción. El perdedor de un CAS recibe `GOV_STATE_CONFLICT` (evidencia `application_failure` en
+B2) y no avanza.
+
+| UoW | Compara | Escribe |
+| --- | --- | --- |
+| Consentimiento | Propuesta del dueño, sin grant, digest igual, `now < expires_at` de la propuesta | Grant, mandatos abiertos, tarea `scheduled`, `consented`, `mandates_issued` |
+| Claim | Tarea `scheduled` (o `running` con lease vencido), kill switch, grant `active` y vigente | Tarea `running`, lease de 120 s, `run_id`, `task_claimed` (o el terminal que corresponda) |
+| UoW-1 | Grant `active`, `authority_epoch`, `state_version`, `control_epoch` y kill switch, `now < expires_at` | Reserva `reserved`, evidencia D2 `transition_committed`, `reservation_reserved` |
+| UoW-C | Reserva `reserved` y propia | Mandatos cerrados, `mandates_closed` |
+| UoW-2 | Lo de UoW-1 más reserva `reserved` y su `state_version` | Reserva `committed`, outbox `committed`, evidencia D3, `dispatch_committed` |
+| UoW-3 | Outbox `completed`, recibos verificados | Reserva y grant `consumed`, tarea `purchased`, `receipt_recorded` ×2, `consumed`, `task_finished` |
+| Revocación | Grant del dueño | Grant `revoked(owner)`, epoch +1; reserva `reserved` → `released(no_outbox)`; tarea `scheduled` → `canceled`; `revoked` |
+| Kill switch | — | Fila nueva en `hnp_controls` (solo si cambia el valor) |
+
+**Decisión de spec, UoW-C:** el plan exige que un crash después del cierre no genere otro cierre. Por
+eso los cerrados se guardan apenas se firman, antes de D3. Al reanudar, si la reserva ya tiene
+cerrados se reutilizan; si vencieron (cierre de 300 s) y no hay outbox, la reserva se libera y la
+tarea termina `failed(close_expired_before_dispatch)`, sin firmar otro cierre.
+
+## 5. API
+
+Cuerpos JSON estrictos (`extra="forbid"`). Errores con la forma actual de la API: `{"code": "…",
+"message": "<español>"}`. Con `AGENT_HNP_ENABLED=false` ninguna ruta de esta sección se monta: 404
+genérico de FastAPI. Las rutas HP no cambian.
+
+### 5.1 Rutas del comprador (JWT, `current_buyer`)
+
+| Método y ruta | Cuerpo | Éxito | Errores |
+| --- | --- | --- | --- |
+| `POST /delegations/proposals` | `DelegationProposalRequest` | 201 `DelegationProposal` | 401; 422 `delegation_request_invalid`, `delegation_variant_unavailable`, `delegation_validity_exceeded` |
+| `POST /delegations` | `{proposal_id, scope_digest}` | 201 `DelegationView`; 200 con el mismo grant si la propuesta ya se consintió con ese digest | 401; 404 `delegation_proposal_not_found`; 409 `delegation_scope_mismatch`, `delegation_proposal_expired`; 503 `delegation_signer_unavailable` |
+| `GET /me/delegations` | — | 200 `DelegationList` (más recientes primero) | 401 |
+| `GET /delegations/{grant_id}` | — | 200 `DelegationView` | 401; 404 `delegation_not_found` |
+| `POST /delegations/{grant_id}/revoke` | — | 200 `RevokeReceipt`; repetir devuelve el mismo recibo | 401; 404 `delegation_not_found`; 409 `delegation_not_revocable` (grant `consumed` o `expired`) |
+| `POST /me/delegations/revoke-all` | — | 200 `RevokeAllReceipt` (solo los grants que estaban `active`) | 401 |
+
+Un grant o una propuesta de otro dueño responden 404, igual que una inexistente.
+
+`DelegationProposalRequest`: `variant_ids` (1 a 5, únicos), `total_max_minor` (entero > 0),
+`currency` (`"COP"`), `valid_for_seconds` (60 ≤ v ≤ `AGENT_HNP_MAX_VALIDITY_SECONDS`), `details`
+(`CheckoutDetails` de HP) y `preference_text` (opcional). Variante fuera del feed actual del comercio
+configurado o en otra moneda: `delegation_variant_unavailable`. Un total menor que todos los precios no
+se rechaza: D1 lo escalará con POL-11.
+
+### 5.2 Rutas internas (`/internal/hnp/*`)
+
+Requieren `Authorization: Bearer <token>`, se comparan en tiempo constante y nunca aceptan el JWT del
+comprador. **Decisión de spec, «sin CORS»:** el `CORSMiddleware` es global, así que estas rutas
+rechazan con 403 `hnp_origin_forbidden` cualquier petición con cabecera `Origin`. Un navegador no
+puede dispararlas.
+
+| Método y ruta | Token | Cuerpo | Éxito | Errores |
+| --- | --- | --- | --- | --- |
+| `POST /internal/hnp/tasks/{task_id}/run` | Servicio | — | 202 `TaskView` en `running` (la ejecución sigue en segundo plano); 200 `TaskView` terminal si el claim terminó la tarea (kill switch, vencida, revocada) | 401 `hnp_unauthorized`; 403 `hnp_origin_forbidden`; 404 `hnp_task_not_found`; 409 `hnp_task_not_runnable` (no `scheduled` o lease vigente) |
+| `GET /internal/hnp/tasks/{task_id}` | Servicio | — | 200 `TaskView` | 401; 403; 404 |
+| `POST /internal/hnp/kill-switch` | Operador | `{"enabled": bool}` | 200 `KillSwitchState {enabled, control_epoch, changed_at}`; el mismo valor no cambia el epoch | 401; 403; 422 `hnp_request_invalid` |
+
+El token de servicio no sirve para el kill switch ni el de operador para disparar tareas.
+
+### 5.3 Vistas (contrato de HNP-01)
+
+Pydantic en `src/commerce_agent/delegation/contract.py` y TypeScript en
+`ui/src/lib/delegation-contract.ts` (`parseDelegation*`), con las mismas fixtures
+`ui/src/storybook/fixtures/delegation-*.json`: `proposed`, `active`, `running`, `purchased`,
+`escalated`, `revoked`, `expired`, `failed` y `uncertain`.
+
+| Tipo | Campos |
+| --- | --- |
+| `ScopeView` | `merchant_name`, `variants: [{variant_id, title}]`, `total_max: Money`, `expires_at`, `destination_label` («Ciudad, Departamento»), `instrument_label`, `uses: 1`, `preference_text: str \| null` |
+| `DelegationProposal` | `proposal_id`, `scope: ScopeView`, `scope_digest`, `presented_at`, `expires_at` (de la propuesta) |
+| `TaskView` | `task_id`, `state`, `outcome_code \| null`, `run_id \| null`, `order_id \| null`, `message \| null`, `updated_at` |
+| `EscalationView` | `reason` (código de escalamiento), `title`, `message`, `prefill_request` |
+| `DelegationView` | `grant_id`, `state`, `revoked_reason \| null`, `scope: ScopeView`, `consented_at`, `expires_at`, `task: TaskView`, `escalation: EscalationView \| null`, `last_activity_at` |
+| `DelegationList` | `delegations: [DelegationView]` |
+| `RevokeReceipt` | `grant_id`, `state: "revoked"`, `revoked_at`, `effect: "no_effect" \| "released" \| "in_flight"`, `message` |
+| `RevokeAllReceipt` | `receipts: [RevokeReceipt]` |
+
+`Money` y `UtcTime` son los del contrato de traza. Los mensajes salen del backend (§8.3); la UI no
+los duplica. Las vistas nunca llevan mandatos, tokens, dirección completa ni `scope_digest` salvo en
+`DelegationProposal`.
+
+### 5.4 `/health` y `/me/purchases`
+
+`Health` agrega `hnp_enabled: bool`, `hnp_kill_switch: bool`, `hnp_active_grants: int`,
+`hnp_running_tasks: int` y `hnp_uncertain_tasks: int` (los conteos son 0 con el flag apagado).
+`PurchaseSummary` y `PurchaseTrace` agregan `purchase_mode: "HP" | "HNP"` (HNP-11; todas las
+fixtures existentes pasan a llevar `"HP"`).
+
+## 6. Settings
+
+| Variable | Tipo y valor por defecto | Regla | PR |
+| --- | --- | --- | --- |
+| `AGENT_HNP_ENABLED` | bool, `false` | Monta las rutas, crea las tablas y arranca el executor | 08 |
+| `AGENT_HNP_AGENT_KEY_PEM` | secreto | EC P-256 privada; distinta de `AGENT_AP2_PRIVATE_KEY_PEM` (el arranque compara las públicas) | 04 |
+| `AGENT_HNP_SERVICE_TOKEN` | secreto | ≥ 32 caracteres | 08 |
+| `AGENT_HNP_OPERATOR_TOKEN` | secreto | ≥ 32 caracteres; distinto del de servicio | 08 |
+| `AGENT_HNP_MAX_VALIDITY_SECONDS` | int, `86400` | 60 a 86400 | 08 |
+| `AGENT_HNP_PROPOSAL_TTL_SECONDS` | int, `600` | 60 a 1800 | 08 |
+| `AGENT_HNP_SELECTOR` | `deterministic` \| `llm`, `deterministic` | `llm` exige `OPENAI_*` como el resto del agente | 09a |
+
+Con `AGENT_HNP_ENABLED=true` el arranque exige además `AGENT_AUTH_MODE=jwt`,
+`AGENT_AP2_REQUIRED=true`, `AGENT_AP2_PRIVATE_KEY_PEM`, las tres variables HNP secretas,
+`AGENT_D1_KEY_ID` y `AGENT_D1_HMAC_KEY_HEX` (§4.2), y `AGENT_GOVERNANCE_MODE` en `off` o `enforce`;
+con `enforce`, `AGENT_HP_FLOW=governed`. Cualquier otra combinación falla al arrancar.
+
+**Decisión de spec, constantes y no settings:** cierres de 300 s, lease de 120 s, tolerancia de reloj
+de los verificadores de 60 s, 5 variantes por alcance y 280 caracteres de indicación. Son parte del
+perfil y de la evidencia; un ajuste por entorno los volvería una variable más del experimento. El
+selector guionado (adversarial) se inyecta por código en tests y en `commerce_evaluation`, nunca por
+variable de entorno.
+
+Las variables de evaluación (`HNP_PILOT_MAX_COST_USD`) son de E2 y no entran al producto. El comercio
+y el PSP no ganan variables: reutilizan su confianza AP2 y `PAYMENT_MERCHANT_ID` (`tesis_merchant`).
+
+## 7. Policy set `b2-hnp-v1`
+
+Policy set nuevo, revisión 1, con las filas HNP de `APPLICABLE_RULES` (Adenda 1 de la ola HP):
+
+| `(fase, purchase_mode)` | Reglas, en orden | Acción | Policy set | PR |
+| --- | --- | --- | --- | --- |
+| `(D1, HP)` | POL-01, 02, 11 | `prepare_checkout` | `b2-hp-v2` | P1 |
+| `(D2, HP)` | POL-03..06 | `complete_purchase` | `b2-hp-v2` | P3 |
+| `(D1, HNP)` | POL-01, 02, 11 | `prepare_checkout` | `b2-hnp-v1` | HNP-05 |
+| `(D2, HNP)` | POL-03, 04, 05, 06, 07, 08, 09 | `complete_purchase` | `b2-hnp-v1` | HNP-06 |
+| `(D3, HNP)` | POL-09, 10 | `commit_dispatch` | `b2-hnp-v1` | HNP-06 |
+
+- **Selección. Decisión de spec:** una compra HNP siempre se evalúa con `b2-hnp-v1`, armado en código
+  (`build_hnp_policy`, análogo a `build_d1_policy`), sin variable de entorno. Una entrada HNP con
+  `b2-hp-v2`, o HP con `b2-hnp-v1`, se deniega con `GOV_ARTIFACT_MISMATCH` sin llamar al motor (C02).
+- **Contenido:** `policy_set_id`, `version: 1`, las tres filas, `allowed_actions`
+  (`prepare_checkout`, `complete_purchase`, `commit_dispatch`), `allowed_merchant_refs` (el comercio
+  configurado), `currency: "COP"`, `quantity: 1` y una sección `authorization` con
+  `authentication_bases: ["service_and_grant"]` y `profiles: ["ap2-hnp/v1"]`.
+- **Revisión. Decisión de spec:** HNP-05 crea `b2-hnp-v1` con la fila D1 y HNP-06 le agrega D2 y D3,
+  sin subir la revisión. Es el mismo patrón que P1/P3 con `b2-hp-v2`: no existe evidencia con ese
+  artefacto antes de la corrida.
+- **Reglas:** las de policy-v1 §6 con la rama `hnp` de `AuthorizationPolicyInput` (P3) y
+  `DispatchPolicyInput`. Razones por id de política (`POLICY_REASONS`). Sin cortocircuito: N10 lista
+  POL-09 y POL-10 cuando ambas fallan.
+- **Hechos del executor:** `PrincipalFacts` con `principal_ref="service:hnp-executor"`,
+  `authentication_basis="service_and_grant"`, `owns_run` por el dueño del grant, y `permitted_actions`
+  del grant (las tres acciones). `GrantFacts.agent_key_ref = agent_key_kid`. `authorization_profile`
+  = `{status, profile_ref: {id: "ap2-hnp/v1", version: 1, digest}}`, con el digest de las constantes
+  del perfil AP2 HNP (HNP-04).
+
+## 8. Escalamiento, revocación y kill switch
+
+### 8.1 Resultados de la tarea
+
+| Estado | `outcome_code` | Causa | Reserva | Grant | Aviso |
+| --- | --- | --- | --- | --- | --- |
+| `escalated` | `budget_not_satisfiable` | D1 POL-11 | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `no_candidate_in_scope` | Lista corta vacía | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `offer_changed` | Frescura `changed` al cerrar; se cancela el checkout propio | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `terms_out_of_scope` | D2 niega solo con POL-05 y/o POL-08 | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `authorization_profile_unresolved` | `GOV_AUTHORIZATION_PROFILE_UNRESOLVED` | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `verifier_unresolved_constraint`, `verifier_mandates_not_supported` | Recibo de error del PSP con ese código | `released(psp_error_receipt)` | `revoked(escalated)` | Escalamiento |
+| `canceled` | `revoked_by_owner` | Revocación del dueño antes de UoW-2 | `released(no_outbox)` | `revoked(owner)` | Revocación |
+| `canceled` | `kill_switch` | Kill switch antes de UoW-2 | `released(no_outbox)` | `revoked(operator)` | Kill switch |
+| `canceled` | `grant_expired` | Vencido en claim, UoW-1 o UoW-2 | `released(no_outbox)` | `expired` | Vencimiento |
+| `failed` | `selection_not_eligible`, `merchant_not_allowed` | D1 POL-01 / POL-02; alerta al operador | — | `revoked(failed)` | Fallo |
+| `failed` | `policy_denied` | D2 o D3 niega con POL-03/04/06/07/09/10 (sin revocación ni kill switch de por medio) | `released(no_outbox)` si había | `revoked(failed)` | Fallo |
+| `failed` | `governance_unavailable` | `GOV_ENGINE_UNAVAILABLE`, `GOV_OUTPUT_INVALID`, `GOV_ARTIFACT_MISMATCH`, `GOV_EVIDENCE_UNAVAILABLE`, `GOV_FACTS_UNAVAILABLE`, `GOV_INPUT_INVALID`, `GOV_FRESHNESS_UNRESOLVED` | Ídem | `revoked(failed)` | Fallo |
+| `failed` | `state_conflict` | Perdió un CAS | Ídem | `revoked(failed)` | Fallo |
+| `failed` | `verifier_invalid_mandate`, `verifier_invalid_credential` | Recibo de error del PSP; alerta al operador | `released(psp_error_receipt)` | `revoked(failed)` | Fallo |
+| `failed` | `checkout_failed` | El comercio rechaza crear o actualizar el checkout | — | `revoked(failed)` | Fallo |
+| `failed` | `budget_guard` | La guarda común cancela el checkout (total autoritativo sobre el máximo) | — | `revoked(failed)` | Fallo |
+| `failed` | `close_expired_before_dispatch` | §4.5 | `released(no_outbox)` | `revoked(failed)` | Fallo |
+| `uncertain` | `dispatch_timeout`, `partial_verifier_failure`, `receipt_mismatch` | Después del outbox | `uncertain` | `active` | Incierto |
+| `purchased` | — | Orden con ambos recibos | `consumed` | `consumed` | Compra |
+
+- Un deny de D2 o D3 que incluye una política de `failed` (POL-03/04/06/07/09/10) gana sobre
+  POL-05/08: **decisión de spec**, fail-closed antes que devolver la decisión.
+- POL-10 denegada por una revocación o un kill switch ya comprometidos termina como
+  `canceled(revoked_by_owner)` o `canceled(kill_switch)`, no como `policy_denied`.
+- **B0-HNP nunca escala.** Sin PDP ni frescura, las causas que en B2 escalan terminan `failed` con el
+  mismo `outcome_code` y sin `EscalationView` («No (falla con código)» del plan).
+- Recibo de error del comercio después del token del PSP: `uncertain(partial_verifier_failure)`,
+  aunque el código AP2 sea de escalamiento; el fallo parcial entre verificadores es de reconciliación
+  manual (fuera de alcance).
+
+### 8.2 Escalamiento
+
+Equivale a `unresolved_constraint` de AP2: la decisión vuelve al humano. No se firma ni se presenta
+nada (o, si el PSP rechazó, nada llegó al comercio), se libera la reserva, se cancela el checkout
+propio, la tarea queda `escalated(reason)` y el grant `revoked(escalated)`. En el MVP el humano decide
+con una compra HP nueva en el chat: el CTA «Comprar desde el chat» prellena `prefill_request`
+(«Quiero comprar <título> por hasta <total>»). Convertir la ejecución escalada en una compra HP con un
+clic queda fuera.
+
+### 8.3 Textos canónicos
+
+Viven en `delegation/contract.py` (`HNP_MESSAGES`, HNP-01) y llegan a la UI en `message`. Título del
+escalamiento: **«Necesito tu decisión»**.
+
+| Clave | Texto |
+| --- | --- |
+| `escalation.budget_not_satisfiable` | El precio de catálogo de la opción disponible ya supera el total máximo que autorizaste. |
+| `escalation.no_candidate_in_scope` | Ninguna de las opciones que autorizaste está disponible ahora. |
+| `escalation.offer_changed` | La oferta del comercio cambió antes de que cerrara la compra. |
+| `escalation.terms_out_of_scope` | El total del comercio, con envío, o algún término quedó fuera de lo que autorizaste. |
+| `escalation.authorization_profile_unresolved` | No pude comprobar que la compra encaje en tu autorización. |
+| `escalation.verifier_unresolved_constraint` | El proveedor de pagos no pudo comprobar una condición de tu autorización. |
+| `escalation.verifier_mandates_not_supported` | El proveedor de pagos no acepta compras delegadas en este momento. |
+| `escalation.suffix_before_presentation` | No firmé ni presenté ninguna autorización de pago, no se hizo ningún cobro y cerré la delegación. Si todavía quieres comprar, hazlo desde el chat y apruébala tú. |
+| `escalation.suffix_rejected_by_psp` | El proveedor de pagos la rechazó, así que no se hizo ningún cobro, y cerré la delegación. Si todavía quieres comprar, hazlo desde el chat y apruébala tú. |
+| `revoke.no_effect` | Revocaste la delegación. El agente ya no puede comprar con ella. |
+| `revoke.released` | Revocaste la delegación antes de que el agente comprometiera el pago. No se presentó ninguna autorización ni se hizo ningún cobro. |
+| `revoke.in_flight` | Revocaste la delegación, pero el agente ya había comprometido el pago. Esa compra sigue en curso y aquí verás cómo termina; no puedo prometer que se cancele. |
+| `revoke.not_revocable` | Esta delegación ya terminó, así que no hay nada que revocar. |
+| `task.kill_switch` | El operador detuvo las compras delegadas. Cerré tu delegación y no se hizo ningún cobro. Si todavía quieres comprar, hazlo desde el chat. |
+| `task.grant_expired` | Tu delegación venció antes de que el agente comprara. No se hizo ningún cobro. |
+| `task.revoked_by_owner` | Revocaste la delegación antes de la compra. No se hizo ningún cobro. |
+| `task.failed` | Detuve la compra delegada por precaución porque no pude verificar todo lo necesario. No se hizo ningún cobro y cerré la delegación. |
+| `task.uncertain` | No sé todavía si la compra delegada se completó: el comercio o el proveedor de pagos no confirmó el resultado. No voy a intentarlo con otra autorización; la estoy conciliando. |
+| `task.purchased` | Compré <título> por <total> con tu delegación. Orden <número>. |
+| `task.running` | Estoy haciendo la compra que delegaste. |
+| `task.scheduled` | Tu delegación está activa y lista para que el agente compre. |
+
+Textos fijos de la tarjeta de consentimiento (HNP-07): título «Autorizar una compra sin ti»,
+«El total máximo incluye envío», «Un solo uso», «Vence el <fecha y hora>», «Puedes revocarla antes de
+que el agente comprometa el pago», botones «Autorizar» y «Cancelar».
+
+### 8.4 Revocación y kill switch
+
+- **Dueño:** el UoW de revocación es idempotente. Sin reserva: `no_effect`. Reserva `reserved` sin
+  outbox: `released`. Outbox comprometido: `in_flight`, sin promesa de cancelar; la compra sigue y
+  se reconcilia. Una tarea `running` sin outbox detecta el epoch nuevo en su siguiente UoW y termina
+  `canceled(revoked_by_owner)`.
+- **Operador:** el kill switch solo agrega una fila a `hnp_controls`. Todo claim, UoW-1 y UoW-2
+  posterior lo ve, de cualquier dueño. **Decisión de spec:** al toparse con él, el grant pasa a
+  `revoked(operator)` y la tarea a `canceled(kill_switch)`; apagarlo después no reanuda delegaciones
+  viejas.
+- **Expiración:** `exp` del mandato abierto = `expires_at` del grant (lo verifican el comercio y el
+  PSP), más el chequeo local en claim, POL-07 y UoW-1/2. Cierres con `exp = iat + 300`.
+
+## 9. Evidencia y verificador
+
+### 9.1 Eventos de `delegation_events`
+
+| `event_type` | Actor | Cuerpo (sin datos personales ni tokens) |
+| --- | --- | --- |
+| `consented` | `user` | `proposal_id`, `scope_digest`, `presented_at`, `consented_at`, `grant_version`, `authority_epoch`, `task_id` |
+| `mandates_issued` | `service` | Por mandato abierto: `token_digest`, `link_hash`, `issuer_kid`; `cnf_kid`, `exp`, `payment_reference` |
+| `task_claimed` | `service` | `run_id`, `claim_count`, `lease_expires_at`, `trigger: "service_token"` |
+| `reservation_reserved` | `service` | `reservation_id`, `operation_id`, `amount_minor`, `expected_epoch`, `state_version`, `d2_evidence_id` |
+| `mandates_closed` | `service` | Por cerrado: `token_digest`, `link_hash` (`sd_hash` del último salto), `checkout_hash`, `agent_key_kid` |
+| `dispatch_committed` | `service` | `outbox_id`, `d3_evidence_id`, `authority_epoch`, `control_epoch` |
+| `receipt_recorded` | `service` | `kind: payment \| checkout`, `receipt_digest`, `issuer`, `status`, `reference`, `error`, `payment_id` u `order_id` |
+| `reservation_released` | `service`, `user` u `operator` | `reservation_id`, `release_basis` |
+| `reservation_uncertain` | `service` | `reservation_id`, `uncertain_reason` |
+| `consumed` | `service` | `reservation_id`, `order_id` |
+| `revoked` | `user`, `operator` o `service` | `revoked_reason`, `epoch_before`, `epoch_after`, `effect` |
+| `expired` | `service` | `expires_at`, `observed_at` |
+| `kill_switch_blocked` | `service` | `control_epoch`, `stage: claim \| uow1 \| uow2` |
+| `task_finished` | `service` | `state`, `outcome_code`, `run_id` |
+
+Todos llevan `actor_kind`, `actor_ref`, `on_behalf_of`, `task_id` y `run_id` en la fila. Las
+decisiones D1/D2/D3 viven en `governance_evidence` y la frescura `close` en `hp_evidence`, con la
+atribución en su cabecera (`principal_ref`, `owner_ref`).
+
+### 9.2 Eslabones del verificador (HNP-V1, sobre `verify-evidence` de P2)
+
+Cada eslabón es `ok`, `missing`, `mismatch` o `not_applicable`. **Decisión de spec:** los eslabones
+comunes conservan el nombre de P2 y se evalúan según `purchases.purchase_mode`; los propios de cada
+modo son `not_applicable` en el otro (`approval` y `mandates` son solo HP).
+
+| Orden | Eslabón | Modo | Qué recalcula |
+| --- | --- | --- | --- |
+| 1 | `intent` | Ambos | Digest de la intención (en HNP, la derivada del grant) |
+| 2 | `delegation_consent` | HNP | Cadena de `delegation_events` hasta `consented`; `scope_digest` recalculado desde `scope_json` de la propuesta; `presented_at ≤ consented_at < expires_at` de la propuesta |
+| 3 | `open_mandates` | HNP | `token_digest` y `link_hash` desde el token; firma con `public_jwk_json`; `cnf` = `agent_key_kid`; restricciones = alcance; `payment.reference` = `link_hash` del checkout abierto |
+| 4 | `task_activation` | HNP | `task_claimed` con actor `service` y el mismo `run_id` |
+| 5 | `d1_decision` | Ambos | Como P2, con `purchase_mode` igual al de la compra |
+| 6 | `checkout_created` | Ambos | Como P2 |
+| 7 | `freshness` | Ambos | En HNP, `close` del mismo checkout en `allow` |
+| 8 | `d2_decision` | Ambos | En HNP, registro D2 `b2-hnp-v1` con `transition_ref` = `reservation_id` |
+| 9 | `reservation` | HNP | Fila de la reserva y `reservation_reserved` coinciden (operación, monto, epoch) |
+| 10 | `closed_mandates` | HNP | `sd_hash` del cerrado = hash del abierto presentado; firma con la Agent Key; `checkout_hash` = hash del `checkout_jwt`; `transaction_id` = `checkout_hash` |
+| 11 | `d3_decision` | HNP | Registro D3 con `transition_ref` = `outbox_id` del outbox |
+| 12 | `receipts` | Ambos | En HNP, `reference` = `link_hash` de cada cerrado; `order_id` = orden |
+| 13 | `order_webhook` | Ambos | Como P2 |
+| 14 | `consumption` | HNP | `consumed` y estados finales de reserva y grant |
+
+**Terminales de un bloqueo:** si la tarea terminó sin compra, la cadena se corta en un eslabón
+`revocation`, `kill_switch` o `escalation` (o en el registro del PDP que negó) y los eslabones
+posteriores son `not_applicable`. La firma de los recibos del comercio y del PSP no se re-verifica
+(sus claves no se guardan), igual que en P2.
+
+- **H2-HNP:** compras HNP con cadena completa verificada / compras HNP con orden.
+- **H2-HNP-bloqueo:** ejecuciones bloqueadas con cadena completa hasta la decisión que bloqueó /
+  ejecuciones bloqueadas.
+
+## 10. Traza (HNP-11)
+
+UI y backend en el mismo commit: Pydantic (`trace/models.py`), `parsePurchaseTrace`, fixtures e
+historias.
+
+| `kind` | Actor | Campos nuevos | Título |
+| --- | --- | --- | --- |
+| `delegation_consented` | `user` | `grant_id`, `total_max: Money`, `expires_at` | «Delegación autorizada» |
+| `task_activated` | `agent` | `trigger: "service"` | «Compra delegada en marcha» |
+| `freshness_check` | `agent` | `stage` agrega `"close"` | «Oferta vigente al cerrar» |
+| `authorization_decision` | `policy` | (el de P3) `decision: PolicyDecision` | En HNP: «Autorización delegada verificada» |
+| `reservation` | `agent` | `outcome: reserved \| released \| consumed \| uncertain`, `amount: Money` | «Uso único reservado» |
+| `mandates_closed` | `agent` | — | «Autorización cerrada por el agente» |
+| `dispatch_decision` | `policy` | `decision: PolicyDecision` | «Despacho autorizado» |
+| `revoked` | `user` u `operator` | `by: owner \| operator`, `effect` | «Delegación revocada» |
+| `escalated` | `agent` | `reason` (código de §8.1) | «Necesito tu decisión» |
+
+- **Decisión de spec:** D2-HNP reutiliza el paso `authorization_decision` que introduce P3 (si P3 se
+  fusiona con otro nombre, HNP-11 usa el de `main`), y D3 tiene su propio `dispatch_decision`.
+- `TraceActor` agrega `"operator"`. `PurchaseTrace` agrega `purchase_mode` (§5.4).
+- En HNP no aparecen `approval` ni `authorization_signed`; `payment_authorized`, `order_confirmed`,
+  `order_event` y `failed` se reutilizan. `PolicyRef` muestra `b2-hnp-v1`, revisión 1.
+
+## 11. Condiciones
+
+| Mecanismo | B0-HNP (`off`) | B2-HNP (`enforce`) | P (ablación, solo evaluación) |
+| --- | --- | --- | --- |
+| Consentimiento, mandatos abiertos, cierre con la Agent Key, verificación en comercio y PSP | Sí | Sí | Sí |
+| Claim de tarea; grant vigente y no revocado en el claim; kill switch | Sí (común, policy-v1 §9) | Sí | No |
+| Reserva CAS y re-chequeo del epoch en el compromiso | Sí (común) | Sí | No |
+| Lista corta restringida al grant; guarda común de presupuesto; idempotencia | Sí | Sí | Lista sin restringir; la guarda sí |
+| D1, D2-HNP y D3-HNP, frescura, escalamiento, cadena de evidencia | No (falla con código) | Sí | No |
+
+- Se pre-registra que B0-HNP y B2-HNP empatan en seguridad por construcción en casi todos los
+  escenarios (D-2). B2 puede mostrar contención temprana, escalamiento, evidencia y latencia.
+- El brazo P vive solo en `commerce_evaluation` (HNP-E3): compone cierre y gateways sin el ledger. El
+  producto no gana ningún interruptor inseguro.
+- **Pendiente de Yair:** la regla enmendada de `AGENTS.md` nombra D2-HNP/D3-HNP como parte de la
+  compuerta HNP, y B0-HNP no los corre. Esta spec trata B0-HNP como condición experimental de la
+  evaluación (sandbox, sin dinero real), no como modo de despliegue. Si Yair no lo acepta, B0-HNP
+  debe correr D2/D3 en modo de solo registro o la regla debe nombrar la excepción.
+
+## 12. Plan de PRs y criterios de aceptación
+
+Reglas comunes: un tema por PR, spec y contrato antes que código, TDD, CI en verde, Conventional
+Commits en inglés y descripción en español, menos de unas 500 líneas de producto sin tests. HNP entra
+detrás de `AGENT_HNP_ENABLED=false`; la demo corre desde la etiqueta `demo-2026-10-23`.
+
+| PR | Repo | Depende de | Nombres de esta spec que introduce | Aceptación |
+| --- | --- | --- | --- | --- |
+| HNP-00 · `docs(design)` | agente | — | Todos (esta spec, perfil AP2 HNP, mapeo HNP01–10, enmienda de `AGENTS.md`) | Yair aprueba la spec o acepta sus valores por defecto |
+| HNP-01 · `feat(contract): delegation API and task contracts with fixtures` | agente | 00 | §5.3, `HNP_MESSAGES` | Ambos lados parsean las mismas fixtures y rechazan campos desconocidos (paso 2 de `docs/workflow.md`) |
+| HNP-02 · `feat(delegation): grant ledger…` | agente | 00 | §4.3 salvo `purchases`/`governance_evidence`, §4.4, §4.5, §9.1 | SQLite real con hilos: de dos reservas gana una; reintento devuelve la misma; revocar antes del compromiso no deja outbox y después deja «en curso»; no se libera con outbox; timeout → `uncertain` sin liberar; kill switch bloquea claim y compromiso; sobrevive al reinicio; revocación idempotente; dueño ajeno = no encontrado; la cadena de eventos verifica. HNP03/04/05/06/09/10 a nivel del store |
+| HNP-03 · `feat(governance): HNP policy facts and reference rules POL-07..POL-10` | agente | 00 | `governance/hnp_models.py`, `hnp_rules.py`, `hnp_ports.py` (`HnpPolicyGate.decide_d2/decide_d3`) | P/N/F de POL-07..10; N10 lista POL-09 y POL-10; `now == expires_at` deniega; uso incoherente = `GOV_FACTS_UNAVAILABLE`; C02; modelos estrictos |
+| HNP-04 · `feat(ap2): issue open mandates and close them with the agent key` | agente | 00 | `ap2_hnp.py` (`OpenMandateIssuer`, `AgentKeyCloser`, `project_acp_checkout`, `verify_open_proof`, `verify_closed_proof`), `AGENT_HNP_AGENT_KEY_PEM`, perfil `ap2-hnp/v1` | Fixtures de oro con reloj inyectado; la cadena válida verifica con `MandateClient.verify` y las cadenas del SDK; rechaza total fuera de rango, payee, variante, comercio, cierre con otra clave, `sd_hash` ajeno, `checkout_hash` distinto y restricción desconocida; ninguna herramienta del modelo llega al firmante |
+| HNP-M1 · `feat(ap2): verify Human Not Present checkout mandate chains` | comercio | 00 | Verificación de la cadena de checkout y recibos de error (perfil AP2) | El camino HP no cambia; cadena válida → orden; cada alteración de HNP-04 → código AP2 correcto; CI del comercio en verde |
+| HNP-P1 · `feat(ap2): verify Human Not Present payment mandate chains` | PSP | 00 | Verificación de la cadena de pago, `ap2_checkout_mandate`, recibos de error | El camino HP no cambia; cadena válida → token; alteraciones → 4xx con recibo de error; CI del PSP en verde |
+| HNP-05 · `feat(governance): D1 for HNP episodes` | agente | P1-HP | `purchases.purchase_mode/grant_id`, filtro de `pending_purchase_view`, fila `(D1, HNP)`, `b2-hnp-v1` | D1 en HNP deja evidencia con `HNP`; bytes de la evidencia HP y hashes históricos sin cambios |
+| HNP-06 · `feat(governance): D2-HNP and D3-HNP decisions with evidence` | agente | P3-HP, 02, 03, 04 | Rama `hnp`, `phase=D3`, filas `(D2, HNP)` y `(D3, HNP)` | P/N/F de POL-03..10 por el boundary; motor que lanza → `GOV_ENGINE_UNAVAILABLE`; C01–C05, C09, C11; replay reproduce |
+| HNP-07 · `feat(ui): delegation consent, status and escalation cards in Storybook` | agente | 01 | Textos fijos de §8.3 | `test-storybook` verde con `play` y axe; sistema monocromo; textos en español |
+| HNP-08 · `feat(api): delegation consent, revoke and kill switch routes` | agente | 01, 02, 04 | §5.1, §5.2 salvo `run`, §5.4 (`/health`), §6 salvo selector | Dueño ajeno 404; digest distinto o propuesta vencida 409; revocación idempotente; kill switch sin token 401; flag apagado 404; rutas HP sin cambios; los mandatos del consentimiento verifican con HNP-04 |
+| HNP-09a · `feat(hnp): autonomous executor up to the dispatch commitment` | agente | 02, 03, 04, 05 (P5b para `llm`) | Pasos 1–10, `NullHnpPolicyGate` en `off`, `AGENT_HNP_SELECTOR`, tokens del modelo en `stage_timings` | Gateways falsos y SQLite real: contadores de create, firma y compromiso en cada deny; conflicto CAS; revocación antes de UoW-1 y entre UoW-1 y UoW-2; kill switch; frescura `changed` → `escalated` sin firma |
+| HNP-E1 · `docs(evaluation): HNP pilot v1 pre-registration` | agente | 00 | `docs/design/hnp-pilot.md`, `evaluation/data/hnp-pilot-v1.json`, `hnp-scenarios.json` | Yair aprueba los oráculos antes de correr |
+| HNP-09b · `feat(hnp): dispatch, receipts, escalation and the service trigger` | agente | 09a, 06, 08, M1, P1 | Paso 11–13, `POST /internal/hnp/tasks/{id}/run`, `ap2_checkout_mandate`, cadena en `/ap2/complete` | Crash después de reserva, cierre, outbox o token no genera cierre nuevo; timeout → `uncertain` con la reserva; `unresolved_constraint` escala; `invalid_mandate` falla con alerta; `reference` distinta → `uncertain` |
+| HNP-10 · `feat(ui): wire delegations into the chat` | agente | 07, 08 | `ui/src/features/delegations.tsx` | E2E de Playwright con API simulada: formulario → propuesta → consentimiento; «Mis delegaciones» con Revocar |
+| HNP-11 · `feat(trace): Human Not Present steps in the purchase trace` | agente | 06, 09a (P3-HP) | §10, `purchase_mode` en traza e historial | Mismas fixtures en Pydantic y `parsePurchaseTrace`; historias por paso |
+| HNP-E2 · `feat(evaluation): HNP pilot runner on the governance pilot harness` | agente | E1, 08 (rebase sobre P4-HP) | `hnp-pilot`, `HNP_PILOT_MAX_COST_USD` | `--dry-run`; sin tope de costo se niega a correr; la salida del dry-run del piloto v1 no cambia |
+| HNP-V1 · `feat(evaluation): verify HNP evidence chains` | agente | P2-HP, 02, 06 | §9.2 | Fixtures sintéticas de `agent.db`: cadena completa, bloqueada y manipulada dan el estado esperado por eslabón |
+| HNP-I1 · `test(integration): live HNP purchase, double use, revocation race and escalation` | agente | 09b, M1, P1 | `test_live_hnp.py`, carril HNP de `live_purchase.py` | Compra con dos recibos y cadena verificada; precio sobre el límite → `escalated`, 0 firmas; dos disparos → 1 orden; revocación con `FaultProxy` en `/ap2/checkout-jwt` → 0 órdenes y 0 tokens; cadenas alteradas directo al comercio y al PSP → rechazo; restricción desconocida, crash y timeout. Se corre a mano con `RUN_LIVE_STACK=1` |
+| HNP-E3 (opcional) · `feat(evaluation): protocol-only HNP ablation arm` | agente | 09b | `commerce_evaluation/hnp/protocol_only.py` | Compone cierre y gateways sin ledger; el producto no cambia |
+
+Orden de fusión: ola 1 (02, 03, 04, 01; M1 y P1 en sus repos), ola 2 (05, 06, 08, 09a, 07, E1), ola
+3 (09b, 11, 10, V1, E2, I1, E3). La coordinación del día está en el contrato de coordinación del
+líder.
+
+## 13. Riesgos
+
+1. **P3 no fusionado:** HNP-06 y HNP-11 se bloquean. 09a programa contra `HnpPolicyGate`.
+2. **P4 y E2 tocan el runner:** E2 se rebasa sobre P4 y solo importa funciones.
+3. **Puente ACP→SDK (H01):** si la proyección al Checkout del SDK no encaja, el comercio evalúa
+   `allowed_merchants` y `line_items` con su propio código sobre ACP y se declara.
+4. **Tres repos con CI separado** y el nightly sin `MERCHANT_REPO_TOKEN`: I1 se corre a mano.
+5. **Contención en SQLite** (D1, `hp_evidence` y el ledger en la misma base): transacciones cortas con
+   `BEGIN IMMEDIATE`.
+6. **Compra HNP como pendiente HP:** el filtro de HNP-05 es obligatorio.
+7. **`parsePurchaseTrace` estricto:** HNP-11 lleva UI y backend juntos y actualiza todas las fixtures
+   con `purchase_mode`.
+8. **Expansión del alcance** (re-cotizar, conversión con un clic): fuera.
+9. **Código HNP visible antes de la demo:** el flag lo evita.
+10. **Capacidad de revisión:** si un PR del nivel 1 necesita dos rondas, el nivel 3 se corre.
+11. **B0-HNP frente a la regla de `AGENTS.md`** (§11): pendiente de Yair.
+
+## 14. Resumen de decisiones de spec
+
+1. `shadow` con HNP se rechaza al arrancar.
+2. Los mandatos abiertos se presentan completos, sin divulgación selectiva.
+3. La intención HNP se deriva del alcance; la lista corta es `rank_candidates ∩ grant`.
+4. `destination_binding` usa la clave HMAC de D2 (vault D1); HNP exige esas variables siempre.
+5. `expires_at` del grant se fija al proponer.
+6. `preference_text` del comprador, en el digest y solo para el selector.
+7. Tabla `delegation_proposals` (el plan no listaba dónde vive la propuesta).
+8. `delegation_mandates.public_jwk_json` para re-verificar firmas sin conexión.
+9. `revoked_reason` agrega `failed`.
+10. UoW-C guarda los cerrados antes de D3; sin cierre nuevo al reanudar.
+11. El recibo de error del PSP libera la reserva; el del comercio después del token la deja `uncertain`.
+12. `hnp_controls` es un historial de solo inserción.
+13. Rutas internas rechazan cualquier `Origin`.
+14. El kill switch revoca (`operator`) los grants que alcanza; apagarlo no los reanuda.
+15. Constantes del perfil (300 s, 120 s, 60 s, 5 variantes, 280 caracteres) en código, no en settings.
+16. `b2-hnp-v1` armado en código, sin variable; HNP-05 lo crea y HNP-06 lo completa sin subir revisión.
+17. Fail-closed gana a escalar cuando D2/D3 niega con políticas de ambos grupos.
+18. Eslabones comunes con nombres de P2; los de cada modo son `not_applicable` en el otro.
+19. D2-HNP reutiliza `authorization_decision` de P3; D3 usa `dispatch_decision`; `TraceActor`
+    agrega `operator`.
+20. Las del perfil AP2 HNP (`docs/ap2-profile.md`): hash de `payment.reference`, `reference` de los
+    recibos, tolerancia de reloj, proveedor de clave raíz y mapeo de errores.
