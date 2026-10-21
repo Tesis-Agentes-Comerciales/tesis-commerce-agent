@@ -1,0 +1,28 @@
+{
+  "proposal_id": "dpr_728f9d1dde5d4f4dafbed58d2329a466",
+  "scope": {
+    "merchant_name": "Synthetic Commerce Merchant",
+    "variants": [
+      {
+        "variant_id": "BOS-QCU-BLK",
+        "title": "Bose QuietComfort Ultra negro"
+      },
+      {
+        "variant_id": "SON-XM6-BLK",
+        "title": "Sony WH-1000XM6 negro"
+      }
+    ],
+    "total_max": {
+      "minor": 200000000,
+      "currency": "COP"
+    },
+    "expires_at": "2026-10-22T15:00:00.000Z",
+    "destination_label": "Bogotá, Cundinamarca",
+    "instrument_label": "Tarjeta de prueba del sandbox",
+    "uses": 1,
+    "preference_text": "Si los dos están disponibles, prefiero los Sony."
+  },
+  "scope_digest": "sha256:3f6c2b8e9a14d07c5e21b4f8a6d93c0e7b52f1a4c8d06e39b7a21f5c4e8d0b6a",
+  "presented_at": "2026-10-21T15:00:00.000Z",
+  "expires_at": "2026-10-21T15:10:00.000Z"
+}

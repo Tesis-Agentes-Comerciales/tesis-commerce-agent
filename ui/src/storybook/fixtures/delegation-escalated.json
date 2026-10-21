@@ -1,0 +1,41 @@
+{
+  "grant_id": "dg_d88fe535693244e3961468cc82fce16c",
+  "state": "revoked",
+  "revoked_reason": "escalated",
+  "scope": {
+    "merchant_name": "Synthetic Commerce Merchant",
+    "variants": [
+      {
+        "variant_id": "SON-XM6-BLK",
+        "title": "Sony WH-1000XM6 negro"
+      }
+    ],
+    "total_max": {
+      "minor": 150000000,
+      "currency": "COP"
+    },
+    "expires_at": "2026-10-22T09:00:00.000Z",
+    "destination_label": "Bogotá, Cundinamarca",
+    "instrument_label": "Tarjeta de prueba del sandbox",
+    "uses": 1,
+    "preference_text": null
+  },
+  "consented_at": "2026-10-21T09:00:31.208Z",
+  "expires_at": "2026-10-22T09:00:00.000Z",
+  "task": {
+    "task_id": "ht_5ab7de062da14b909fb65e5a9e330da5",
+    "state": "escalated",
+    "outcome_code": "budget_not_satisfiable",
+    "run_id": "run_90647501ac0c40c48c798e4096bbfcbf",
+    "order_id": null,
+    "message": null,
+    "updated_at": "2026-10-21T11:15:09.577Z"
+  },
+  "escalation": {
+    "reason": "budget_not_satisfiable",
+    "title": "Necesito tu decisión",
+    "message": "El precio de catálogo de la opción disponible ya supera el total máximo que autorizaste. No firmé ni presenté ninguna autorización de pago, no se hizo ningún cobro y cerré la delegación. Si todavía quieres comprar, hazlo desde el chat y apruébala tú.",
+    "prefill_request": "Quiero comprar Sony WH-1000XM6 negro por hasta COP 1.500.000"
+  },
+  "last_activity_at": "2026-10-21T11:15:09.577Z"
+}

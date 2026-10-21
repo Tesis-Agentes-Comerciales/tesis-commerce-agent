@@ -1,0 +1,36 @@
+{
+  "grant_id": "dg_4e1b7c09a2d34f6e8b5a0c3d7f9e2b14",
+  "state": "active",
+  "revoked_reason": null,
+  "scope": {
+    "merchant_name": "Synthetic Commerce Merchant",
+    "variants": [
+      {
+        "variant_id": "SON-XM6-BLK",
+        "title": "Sony WH-1000XM6 negro"
+      }
+    ],
+    "total_max": {
+      "minor": 200000000,
+      "currency": "COP"
+    },
+    "expires_at": "2026-10-22T07:00:00.000Z",
+    "destination_label": "Bogotá, Cundinamarca",
+    "instrument_label": "Tarjeta de prueba del sandbox",
+    "uses": 1,
+    "preference_text": null
+  },
+  "consented_at": "2026-10-21T07:00:09.118Z",
+  "expires_at": "2026-10-22T07:00:00.000Z",
+  "task": {
+    "task_id": "ht_9c3f5e7a1b2d4c6e8f0a1b3c5d7e9f02",
+    "state": "uncertain",
+    "outcome_code": "dispatch_timeout",
+    "run_id": "run_1a3c5e7f9b2d4f6a8c0e2b4d6f8a0c3e",
+    "order_id": null,
+    "message": "No sé todavía si la compra delegada se completó: el comercio o el proveedor de pagos no confirmó el resultado. No voy a intentarlo con otra autorización; la estoy conciliando.",
+    "updated_at": "2026-10-21T07:31:55.040Z"
+  },
+  "escalation": null,
+  "last_activity_at": "2026-10-21T07:31:55.040Z"
+}

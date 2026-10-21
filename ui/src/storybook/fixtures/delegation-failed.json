@@ -1,0 +1,40 @@
+{
+  "grant_id": "dg_ed08fa80379c4f93ba3efffa8365f4d4",
+  "state": "revoked",
+  "revoked_reason": "failed",
+  "scope": {
+    "merchant_name": "Synthetic Commerce Merchant",
+    "variants": [
+      {
+        "variant_id": "BOS-QCU-BLK",
+        "title": "Bose QuietComfort Ultra negro"
+      },
+      {
+        "variant_id": "SON-XM6-BLK",
+        "title": "Sony WH-1000XM6 negro"
+      }
+    ],
+    "total_max": {
+      "minor": 200000000,
+      "currency": "COP"
+    },
+    "expires_at": "2026-10-22T08:00:00.000Z",
+    "destination_label": "Bogotá, Cundinamarca",
+    "instrument_label": "Tarjeta de prueba del sandbox",
+    "uses": 1,
+    "preference_text": null
+  },
+  "consented_at": "2026-10-21T08:00:44.873Z",
+  "expires_at": "2026-10-22T08:00:00.000Z",
+  "task": {
+    "task_id": "ht_568774c4b79a4963abe5fd1c45b12190",
+    "state": "failed",
+    "outcome_code": "policy_denied",
+    "run_id": "run_63c02f1022094aa9b7f646470c67912a",
+    "order_id": null,
+    "message": "Detuve la compra delegada por precaución porque no pude verificar todo lo necesario. No se hizo ningún cobro y cerré la delegación.",
+    "updated_at": "2026-10-21T08:30:19.336Z"
+  },
+  "escalation": null,
+  "last_activity_at": "2026-10-21T08:30:19.336Z"
+}

@@ -1,0 +1,28 @@
+{
+  "receipts": [
+    {
+      "grant_id": "dg_6f2a8c4e0b1d4f3a9c7e5b2d8f0a6c41",
+      "state": "revoked",
+      "revoked_reason": "owner",
+      "revoked_at": "2026-10-21T16:00:00.512Z",
+      "effect": "no_effect",
+      "message": "Revocaste la delegación. El agente ya no puede comprar con ella."
+    },
+    {
+      "grant_id": "dg_b7d9f1a3c5e74b2d8f0a2c4e6b8d0f13",
+      "state": "revoked",
+      "revoked_reason": "owner",
+      "revoked_at": "2026-10-21T16:00:00.512Z",
+      "effect": "released",
+      "message": "Revocaste la delegación antes de que el agente comprometiera el pago. No se presentó ninguna autorización ni se hizo ningún cobro."
+    },
+    {
+      "grant_id": "dg_e3c5a7b9d1f24e6a8c0b2d4f6a8c0e25",
+      "state": "revoked",
+      "revoked_reason": "owner",
+      "revoked_at": "2026-10-21T16:00:00.512Z",
+      "effect": "in_flight",
+      "message": "Revocaste la delegación, pero el agente ya había comprometido el pago. Esa compra sigue en curso y aquí verás cómo termina; no puedo prometer que se cancele."
+    }
+  ]
+}
