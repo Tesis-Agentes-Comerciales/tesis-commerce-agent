@@ -35,6 +35,8 @@ ASSISTANT_FEED = Path(__file__).parent / "fixtures" / "assistant_feed"
 MERCHANT_ORIGIN = "http://127.0.0.1:4120"
 CHECKOUT_ID = "cs_storybook_1"
 ORDER_ID = "ord_storybook_1"
+# The number the receipt shows (`order_number`), as in ui/src/storybook/fixtures.ts.
+ORDER_NUMBER = "STORYBOOK-001"
 
 GREETING_REQUEST = "hola"
 GREETING_REPLY = "¡Hola! Dime qué producto buscas y, si quieres, tu presupuesto o preferencias."
@@ -211,6 +213,8 @@ class Merchant:
     requests: list[str] = field(default_factory=list)
     status: str = "ready_for_payment"
     created: int = 0
+    # None leaves it out of the order, as a merchant that only sends the order ID.
+    order_number: str | None = ORDER_NUMBER
 
     @property
     def checkout_id(self) -> str:
@@ -267,6 +271,8 @@ class Merchant:
                 "line_items": [],
                 "totals": completed["totals"],
             }
+            if self.order_number is not None:
+                completed["order"]["order_number"] = self.order_number
             return httpx.Response(200, json=completed)
         raise AssertionError(f"Unexpected request: {request.method} {path}")
 
