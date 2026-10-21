@@ -1,0 +1,38 @@
+{
+  "fixture_only": "Claves generadas para estas fixtures de prueba. No son secretos de ningún entorno y nunca deben configurarse fuera de las pruebas.",
+  "provider": {
+    "role": "AGENT_AP2_PRIVATE_KEY_PEM: firma los mandatos abiertos (raíz de confianza)",
+    "public_jwk": {
+      "crv": "P-256",
+      "kid": "oU9e6EepbCVnLygMxW4tE0HqF3pwJaW6f_ipWtUn0Ao",
+      "kty": "EC",
+      "x": "ltuInGmdM0X0ksfQZRfDDUn-3FT8lbQx58VnbMVCJWo",
+      "y": "tMlg0AciPRt5KnrSRxwd9x5xVPziX7UhYSplLLuup4I"
+    },
+    "private_key_pem": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgr+5NhF050L+lntw2\n1+b3xLckR/sKR5WPmldNRPocXWehRANCAASW24icaZ0zRfSSx9BlF8MNSf7cVPyV\ntDHnxWdsxUIlarTJYNAHIj0beSp60kccHfcecVT84l+1IWEqZSy7rqeC\n-----END PRIVATE KEY-----\n"
+  },
+  "agent_key": {
+    "role": "AGENT_HNP_AGENT_KEY_PEM: firma los cierres (cnf de los abiertos)",
+    "public_jwk": {
+      "crv": "P-256",
+      "kid": "0em2-sieKh82pIJQaeGh8AF4Z9aBp3m_g2uvphp47Fg",
+      "kty": "EC",
+      "x": "4YfQnB-ExzduBz6PhAY-PrMr2YMqMZv5QvZljPbhWYU",
+      "y": "vuWh-n5NS7sHeS4vH94sgspwkygkOiBOLGOOKbY1J-o"
+    },
+    "private_key_pem": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPW7uewVL4y2OwOpI\nEPTLfqR0dasicsn75/qerwPs/cKhRANCAAThh9CcH4THN24HPo+EBj4+syvZgyox\nm/lC9mWM9uFZhb7lofp+TUu7B3kuLx/eLILKcJMoJDogTixjjim2NSfq\n-----END PRIVATE KEY-----\n"
+  },
+  "merchant": {
+    "role": "MERCHANT_AP2_PRIVATE_KEY_PEM: firma el checkout JWT",
+    "public_jwk": {
+      "crv": "P-256",
+      "kid": "qCGQkrYlpapxI-lbAYodxgnOSfpkzNPg2ayQG7_L-Eg",
+      "kty": "EC",
+      "x": "rS0BQGR-mo7CzU95075nxCjeEy4_Gg1bEFR7MRp-iV4",
+      "y": "2GNLKuKLlW3vzrf2PIRrSl7oG7RMD8IX682nHf2-T7A",
+      "alg": "ES256",
+      "use": "sig"
+    },
+    "private_key_pem": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgEhLwuD81oUEn7rUC\nX9c91nj28Oyz3yTz8BTLbS1XJxChRANCAAStLQFAZH6ajsLNT3nTvmfEKN4TLj8a\nDVsQVHsxGn6JXthjSyrii5Vt78639jyEa0pe6Bu0TA/CF+vNpx39vk+w\n-----END PRIVATE KEY-----\n"
+  }
+}

@@ -59,3 +59,14 @@ def test_hp_flow_defaults_to_blocked_and_reads_its_variable(
     monkeypatch.setenv("AGENT_HP_FLOW", "anything")
     with pytest.raises(ValidationError):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_the_hnp_agent_key_is_optional_and_never_printed(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert Settings(_env_file=None).agent_hnp_agent_key_pem is None  # type: ignore[call-arg]
+
+    monkeypatch.setenv("AGENT_HNP_AGENT_KEY_PEM", "fixture-agent-key")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.agent_hnp_agent_key_pem is not None
+    assert settings.agent_hnp_agent_key_pem.get_secret_value() == "fixture-agent-key"
+    assert "fixture-agent-key" not in repr(settings)

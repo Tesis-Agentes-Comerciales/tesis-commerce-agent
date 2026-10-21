@@ -1,6 +1,6 @@
 # AP2 v0.2: perfil sintético (Human Present y Human Not Present)
 
-Referencia fijada: [especificación AP2 v0.2, commit `e1ea56d`](https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/specification.md). AP2 autoriza el pago; ACP sigue definiendo el checkout comercial. Este perfil no mueve dinero real. La sección [Human Not Present](#human-not-present-perfil-ap2-hnpv1) es el contrato de HNP-04 (agente), HNP-M1 (comercio) y HNP-P1 (PSP); hasta que esos PRs se fusionen, solo Human Present está implementado.
+Referencia fijada: [especificación AP2 v0.2, commit `e1ea56d`](https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/specification.md). AP2 autoriza el pago; ACP sigue definiendo el checkout comercial. Este perfil no mueve dinero real. La sección [Human Not Present](#human-not-present-perfil-ap2-hnpv1) es el contrato de HNP-04 (agente), HNP-M1 (comercio) y HNP-P1 (PSP). El lado del agente está en `src/commerce_agent/ap2_hnp.py`, todavía sin un flujo que lo use; el comercio (HNP-M1) y el PSP (HNP-P1) ya verifican las cadenas HNP.
 
 ## Fronteras de confianza
 
@@ -26,8 +26,8 @@ Los tres flags deben activarse juntos. Si se habilita solo uno, la compra falla 
 ## Human Not Present (perfil `ap2-hnp/v1`)
 
 Contrato compartido por el agente (HNP-04), el comercio (HNP-M1) y el PSP (HNP-P1). El flujo, los
-estados y las decisiones de política están en [la spec de HNP](design/hnp-governed.md). Nada de esta
-sección está implementado al fusionar HNP-00.
+estados y las decisiones de política están en [la spec de HNP](design/hnp-governed.md). El lado del
+agente está implementado (ver [Implementación en el agente](#implementación-en-el-agente-hnp-04)).
 
 La columna «Fuente» dice de dónde sale cada afirmación:
 
@@ -50,7 +50,7 @@ La columna «Fuente» dice de dónde sale cada afirmación:
 | `cnf` | `{"jwk": <Agent Key pública>}` en los dos abiertos. Agent Key: `AGENT_HNP_AGENT_KEY_PEM`, ES256, distinta de la del proveedor | spec (`cnf` es obligatorio mientras el mandato está abierto, RFC 7800); SDK (`ParsedToken.cnf_jwk` lee `cnf.jwk`) |
 | Cierre | KB-SD-JWT terminal (`typ` `kb+sd-jwt`) firmado con la Agent Key, sin `cnf` | SDK (`kb_sd_jwt`: un salto terminal no lleva `cnf`; probado) |
 | Vínculo cerrado → abierto | `sd_hash` (modo por defecto de `present`): hash del abierto tal como se presenta, con sus divulgaciones. `verify_binding` del SDK también acepta `issuer_jwt_hash`; los verificadores exigen `sd_hash` y rechazan un cerrado con `issuer_jwt_hash` con `invalid_credential` | SDK (`verify_binding`, leído); la exigencia es perfil |
-| Algoritmo de hash | SHA-256, base64url sin relleno; los tokens no llevan `_sd_alg` | SDK (`_hash_for_alg(None)`); spec (sha-256 por defecto) |
+| Algoritmo de hash | SHA-256, base64url sin relleno. Abiertos y cerrados llevan `"_sd_alg": "sha-256"` en el payload: lo agrega el SDK al emitir, no el agente | SDK (`issue_sd_jwt`, probado en las fixtures de oro); spec (sha-256 por defecto) |
 | Vigencia del abierto | `iat` = consentimiento; `exp` = `expires_at` del grant | perfil |
 | Vigencia del cerrado | `exp = iat + 300` | perfil (igual que HP) |
 | Tiempo en la verificación | Los verificadores pasan `clock_skew_seconds=60` al SDK y además exigen, en **cada** segmento (abierto y cerrado): `iat` y `exp` presentes, `iat ≤ now + 60` y `now < exp` sin holgura; si no, `invalid_credential`. El cerrado además cumple `exp − iat ≤ 300` | SDK: `_check_time_claims` solo valida `exp` e `iat` si existen, aplica la holgura también a `exp` y su valor por defecto es 300 s (con él, un abierto vencido hace 200 s todavía verifica; probado). perfil: la holgura de 60 s vale solo para `iat`, como HP; `exp` es estricto, como HP en el comercio y en el PSP |
@@ -81,6 +81,8 @@ La columna «Fuente» dice de dónde sale cada afirmación:
   `unresolved_constraint` (perfil).
 - Los abiertos no fijan `payee`, `payment_amount`, `payment_instrument`, `pisp` ni `execution_date`.
   Un abierto que los traiga da `unresolved_constraint` (perfil).
+- Cada abierto lleva exactamente las restricciones de su tabla, una vez cada una (checkout: 2; pago:
+  4). Una faltante o repetida da `unresolved_constraint` (perfil).
 - **Hash de `payment.reference`:** `conditional_transaction_id` = base64url(SHA-256 del JWT del
   emisor del checkout abierto), es decir `compute_issuer_jwt_hash`. **No verificable:** la spec pide
   que la cadena de checkout contenga un abierto «con un hash que coincida», con `_sd_alg` o sha-256,
@@ -223,6 +225,36 @@ determinista que corre igual en el agente y en el comercio:
 El SDK exige `links` y su enum de estados no tiene `ready_for_payment` (SDK, probado). Los datos del
 comprador y los mensajes no se proyectan: ninguna restricción los usa. Es una adaptación declarada:
 no implementamos UCP ni afirmamos conformidad AP2 de HNP.
+
+### Implementación en el agente (HNP-04)
+
+`src/commerce_agent/ap2_hnp.py` (perfil `ap2-hnp/v1`):
+
+- `OpenMandateIssuer.issue` firma los dos abiertos al consentir, con la clave del proveedor y `cnf` =
+  la Agent Key pública; rechaza una Agent Key igual a la del proveedor. `AgentKeyCloser.close` los
+  cierra con `AGENT_HNP_AGENT_KEY_PEM` sobre un checkout `ready_for_payment` en COP y devuelve las
+  dos cadenas con su `link_hash` (= `reference` de los recibos).
+- `verify_open_proof` y `verify_closed_proof` reciben una `MandateTrust` (JWK del proveedor, Agent
+  Key pública, issuer del comercio) y el reloj `now`, y devuelven `MandateProof(status, error)` con
+  los códigos de [Errores](#errores). `verify_closed_proof` exige que el primer segmento de cada
+  cadena sea el abierto del grant.
+- `PROFILE_DIGEST` = `sha256:` + SHA-256 de `commerce-ap2-hnp-profile/v1\0` seguido del JSON canónico
+  de las constantes del perfil (`vct`, restricciones, comercio, instrumento, tiempos).
+- **Reloj inyectado.** Nada lee `time.time()`: los abiertos usan `consented_at` y `expires_at`, y
+  el cerrado y el `iat` de la cabecera del salto KB son el mismo `closed_at`
+  (`present_closed_mandate(issued_at=…)`). No se usa `MandateClient.present`: toma el `iat` de
+  `time.time()` y escribe la presentación completa en `<venv>/lib/python3.12/.logs/mandate_operations.log`
+  (SDK). `MandateClient.verify` registra ahí solo conteos y banderas. Los verificadores pasan
+  `current_time` = `now` al SDK.
+- **Fixtures de oro:** `tests/fixtures/ap2_hnp/keys.json` (claves solo de prueba) y `cases.json`
+  (perfil y su digest, `now`, issuer del comercio, grant y diez casos con el resultado esperado del
+  agente, el comercio y el PSP). `now` = 2026-10-21T15:00:00Z, consentimiento `now − 2 h`, Checkout
+  JWT `now − 60`, cierre `now − 30`: se verifican con `current_time = now`, no con la hora real.
+  El reloj del verificador no llega a `jwt.decode` del Checkout JWT: PyJWT lee su propia hora, así
+  que también hay que fijarla (por ejemplo, parcheando `jwt.api_jwt.datetime`).
+  Se regeneran con `uv run python scripts/export_ap2_hnp_fixtures.py`, que crea claves nuevas, así
+  que cambian todas las firmas: copie el directorio completo.
+- Ninguna herramienta del modelo importa este módulo (`tests/test_ap2_hnp_boundary.py`).
 
 ### Lo que HNP no afirma
 
