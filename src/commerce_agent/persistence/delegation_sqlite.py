@@ -28,6 +28,7 @@ from ..delegation.models import (
     ConsentResult,
     DelegationEvent,
     DispatchCommit,
+    DispatchStep,
     EventType,
     Execution,
     GrantRecord,
@@ -40,6 +41,7 @@ from ..delegation.models import (
     OutcomeCode,
     ProposalDraft,
     ProposalRecord,
+    Receipt,
     ReleaseBasis,
     ReservationRecord,
     ReservationRequest,
@@ -51,6 +53,7 @@ from ..delegation.models import (
     TaskFinish,
     TaskRecord,
     TaskState,
+    UncertainReason,
     event_digest,
     token_digest,
 )
@@ -225,8 +228,14 @@ _TABLES: dict[Callable[..., Any], str] = {
     ReservationRecord: "grant_reservations",
     OutboxRecord: "dispatch_outbox",
 }
-_KEYS = {"hnp_tasks": "task_id", "grant_reservations": "reservation_id"}
+_KEYS = {
+    "hnp_tasks": "task_id",
+    "grant_reservations": "reservation_id",
+    "dispatch_outbox": "outbox_id",
+}
 _LEASE = timedelta(seconds=LEASE_SECONDS)
+_DISPATCH_STEPS = ("committed", "payment_sent", "payment_accepted", "complete_sent", "completed")
+_SENT = ("payment_sent", "complete_sent")  # §4.4: only a send can end in doubt
 _CANCELLATIONS = frozenset({"revoked_by_owner", "kill_switch", "grant_expired"})
 _UNCERTAIN = frozenset({"dispatch_timeout", "partial_verifier_failure", "receipt_mismatch"})
 _VERIFIER_OUTCOMES: dict[Ap2Error, OutcomeCode] = {
@@ -671,6 +680,136 @@ class SqliteDelegationLedger:
             _event(connection, ex, "dispatch_committed", "service", committed, text)
             return _applied(connection, ex, now, hooks)
 
+    def advance_dispatch(
+        self, task_id: str, lease_id: str, to: DispatchStep, *, order_id: str | None = None
+    ) -> Step:
+        """One forward step of the outbox; repeating the current step is a no-op."""
+        if (to == "completed") != (order_id is not None):
+            raise ValueError("Only the completed step carries the order")
+        with self._fenced(task_id, lease_id) as (connection, now, ex):
+            if ex is None:
+                return Step("lease_lost")
+            outbox = ex.outbox
+            if outbox is not None and outbox.state == to:
+                if order_id != outbox.order_id:
+                    raise ValueError("A completed dispatch keeps its order")
+                return _renewed(connection, ex, now)
+            if outbox is None or _next_dispatch_step(outbox.state) != to:
+                return Step("blocked", ex)
+            changes: dict[str, object] = {"state": to, "updated_at": utc_text(now)}
+            if order_id is not None:
+                changes["order_id"] = order_id
+            _update(connection, "dispatch_outbox", outbox.outbox_id, **changes)
+            return _applied(connection, ex, now, ())
+
+    def mark_uncertain(
+        self,
+        task_id: str,
+        lease_id: str,
+        reason: UncertainReason,
+        *,
+        hooks: Sequence[TransactionHook] = (),
+    ) -> Step:
+        """Timeout, 5xx or 4xx without a valid receipt after a send: the reservation is kept."""
+        with self._fenced(task_id, lease_id) as (connection, now, ex):
+            if ex is None:
+                return Step("lease_lost")
+            if ex.outbox is None or ex.outbox.state not in _SENT:
+                return Step("blocked", ex)
+            text = utc_text(now)
+            _update(
+                connection,
+                "dispatch_outbox",
+                ex.outbox.outbox_id,
+                state="uncertain",
+                updated_at=text,
+            )
+            _settle_uncertain(connection, ex, reason, text)
+            return _closed(connection, ex, hooks)
+
+    def reject_dispatch(
+        self,
+        task_id: str,
+        lease_id: str,
+        ap2_error: Ap2Error,
+        receipt: Receipt,
+        *,
+        escalate: bool = True,
+        hooks: Sequence[TransactionHook] = (),
+    ) -> Step:
+        """A verified AP2 error receipt. From the PSP nothing reached the merchant: the
+        reservation is released and the task escalates or fails (B0-HNP never escalates, so it
+        passes `escalate=False`). From the merchant, after the PSP token: `uncertain`."""
+        if receipt.status != "error" or receipt.error != ap2_error:
+            raise ValueError("An error receipt with that AP2 error rejects the dispatch")
+        with self._fenced(task_id, lease_id) as (connection, now, ex):
+            if ex is None:
+                return Step("lease_lost")
+            outbox = ex.outbox
+            rejected_by = {"payment_sent": "psp", "complete_sent": "merchant"}.get(
+                outbox.state if outbox else ""
+            )
+            if outbox is None or rejected_by is None:
+                return Step("blocked", ex)
+            if receipt.kind != ("payment" if rejected_by == "psp" else "checkout"):
+                raise ValueError("The receipt comes from the verifier that was sent to")
+            text = utc_text(now)
+            _update(
+                connection,
+                "dispatch_outbox",
+                outbox.outbox_id,
+                state="rejected",
+                rejected_by=rejected_by,
+                ap2_error=ap2_error,
+                error_receipt_jwt=receipt.jwt,
+                updated_at=text,
+            )
+            _receipt_event(connection, ex, receipt, text)
+            if rejected_by == "merchant":
+                _settle_uncertain(connection, ex, "partial_verifier_failure", text)
+            else:
+                outcome = _VERIFIER_OUTCOMES[ap2_error]
+                escalates = escalate and outcome in _ESCALATIONS
+                state = "escalated" if escalates else "failed"
+                _close_task(connection, ex, state, outcome, text, release="psp_error_receipt")
+            return _closed(connection, ex, hooks)
+
+    def record_completion(
+        self,
+        task_id: str,
+        lease_id: str,
+        payment_receipt: Receipt,
+        checkout_receipt: Receipt,
+        *,
+        hooks: Sequence[TransactionHook] = (),
+    ) -> Step:
+        """UoW-3: the order with both receipts consumes the reservation and the grant. A grant
+        revoked or expired after the commitment stays so; the reservation is consumed anyway."""
+        if (payment_receipt.kind, checkout_receipt.kind) != ("payment", "checkout") or (
+            payment_receipt.error is not None or checkout_receipt.error is not None
+        ):
+            raise ValueError("UoW-3 takes the payment and checkout receipts, without error")
+        with self._fenced(task_id, lease_id) as (connection, now, ex):
+            if ex is None:
+                return Step("lease_lost")
+            outbox, reservation, grant = ex.outbox, ex.reservation, ex.grant
+            if outbox is None or reservation is None or outbox.state != "completed":
+                return Step("blocked", ex)
+            if checkout_receipt.order_id != outbox.order_id:
+                raise ValueError("The checkout receipt names the completed order")
+            text = utc_text(now)
+            _update_reservation(connection, reservation, text, state="consumed")
+            if grant.state == "active":
+                _close_grant(connection, grant, "consumed", None, text)
+            else:
+                _bump_grant(connection, grant, text)
+            for receipt in (payment_receipt, checkout_receipt):
+                _receipt_event(connection, ex, receipt, text)
+            consumed = {"reservation_id": reservation.reservation_id, "order_id": outbox.order_id}
+            _event(connection, ex, "consumed", "service", consumed, text)
+            _finish(connection, ex, "purchased", None, text)
+            return _closed(connection, ex, hooks)
+
     def finish_task(self, request: TaskFinish, *, hooks: Sequence[TransactionHook] = ()) -> Step:
         """The terminal of a task without an outbox row (spec §8.1), by CAS on its lease. It
         releases a held reservation and closes an active grant with the matching cause."""
@@ -968,8 +1107,10 @@ def _close_task(
     text: str,
     *,
     stage: KillSwitchStage | None = None,
+    release: ReleaseBasis = "no_outbox",
 ) -> None:
-    """A terminal of spec §8.1: release the held reservation, close an active grant, end."""
+    """A terminal of spec §8.1: release the held reservation, close an active grant, end. A PSP
+    error receipt releases a committed reservation: nothing reached the merchant."""
     grant, reservation = ex.grant, ex.reservation
     actor: ActorKind = "operator" if outcome == "kill_switch" else "service"
     if outcome == "kill_switch":
@@ -978,9 +1119,10 @@ def _close_task(
         ).fetchone()
         blocked = {"control_epoch": switched_on, "stage": stage}
         _event(connection, ex, "kill_switch_blocked", "service", blocked, text)
-    released = reservation is not None and reservation.state == "reserved"
+    held = "reserved" if release == "no_outbox" else "committed"
+    released = reservation is not None and reservation.state == held
     if reservation is not None and released:
-        _release(connection, ex, reservation, "no_outbox", actor, text)
+        _release(connection, ex, reservation, release, actor, text)
     target = _GRANT_CLOSE.get(outcome) or _GRANT_CLOSE.get(state)
     if grant.state == "active" and target is not None:
         _close_grant(connection, grant, *target, text)
@@ -998,6 +1140,21 @@ def _close_task(
     elif released:
         _bump_grant(connection, grant, text)
     _finish(connection, ex, state, outcome, text)
+
+
+def _settle_uncertain(
+    connection: sqlite3.Connection, ex: Execution, reason: UncertainReason, text: str
+) -> None:
+    """After the outbox the reservation is never released by doubt: it stays `uncertain`."""
+    if ex.reservation is None:
+        raise LookupError("An outbox row without its reservation")
+    _update_reservation(
+        connection, ex.reservation, text, state="uncertain", uncertain_reason=reason
+    )
+    _bump_grant(connection, ex.grant, text)
+    body = {"reservation_id": ex.reservation.reservation_id, "uncertain_reason": reason}
+    _event(connection, ex, "reservation_uncertain", "service", body, text)
+    _finish(connection, ex, "uncertain", reason, text)
 
 
 def _release(
@@ -1097,6 +1254,24 @@ def _event(
     )
 
 
+def _receipt_event(
+    connection: sqlite3.Connection, ex: Execution, receipt: Receipt, text: str
+) -> None:
+    body: dict[str, object] = {
+        "kind": receipt.kind,
+        "receipt_digest": token_digest(receipt.jwt),
+        "issuer": receipt.issuer,
+        "status": receipt.status,
+        "reference": receipt.reference,
+        "error": receipt.error,
+    }
+    if receipt.kind == "payment":
+        body["payment_id"] = receipt.payment_id
+    else:
+        body["order_id"] = receipt.order_id
+    _event(connection, ex, "receipt_recorded", "service", body, text)
+
+
 def _revocation_effect(connection: sqlite3.Connection, grant_id: str) -> RevokeEffect:
     (body,) = connection.execute(
         "SELECT body FROM delegation_events WHERE grant_id = ? AND event_type = 'revoked' "
@@ -1104,6 +1279,12 @@ def _revocation_effect(connection: sqlite3.Connection, grant_id: str) -> RevokeE
         (grant_id,),
     ).fetchone()
     return json.loads(body)["effect"]
+
+
+def _next_dispatch_step(state: str) -> str | None:
+    if state not in _DISPATCH_STEPS[:-1]:
+        return None
+    return _DISPATCH_STEPS[_DISPATCH_STEPS.index(state) + 1]
 
 
 def _run_id(ex: Execution) -> str:
