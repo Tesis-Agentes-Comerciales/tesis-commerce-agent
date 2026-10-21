@@ -5,7 +5,7 @@ import { expect, waitFor } from "storybook/test"
 import { PolicyBlockedCard } from "@/components/agent/policy-blocked-card"
 import { PurchaseActivity } from "@/components/agent/purchase-activity"
 import type { PurchaseTrace, TraceStep } from "@/lib/trace-contract"
-import { decisionOf, stepOf, TRACES } from "@/storybook/trace-fixtures"
+import { decisionOf, lastStepOf, stepOf, TRACES } from "@/storybook/trace-fixtures"
 
 const meta = {
   title: "Agent/PurchaseActivity",
@@ -308,6 +308,65 @@ export const Phone375: Story = {
       const label = canvas.getByText(summary, { selector: "button span" })
       await expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth)
     }
+  },
+}
+
+/** Nada de la fila ni de lo que hay dentro (anillos de foco incluidos) sale de la columna del hilo. */
+async function expectNoHorizontalOverflow(canvasElement: HTMLElement, width: number) {
+  const root = canvasElement.querySelector<HTMLElement>("[data-testid='phone-column']")
+  await expect(root?.scrollWidth).toBeLessThanOrEqual(width)
+  for (const element of canvasElement.querySelectorAll<HTMLElement>("[data-testid='phone-column'] *")) {
+    if (element.classList.contains("sr-only")) continue
+    await expect(element.getBoundingClientRect().right).toBeLessThanOrEqual(
+      (root?.getBoundingClientRect().right ?? 0) + 1,
+    )
+  }
+}
+
+/**
+ * Teléfono de 320 px: el hilo deja 288 px y el mensaje, con su `px-2`, 272. El resumen pasa a dos
+ * líneas en vez de cortarse («Bloqueada por la política de co…»).
+ */
+export const Phone320: Story = {
+  render: () => (
+    <div className="w-[288px] space-y-1 px-2" data-testid="phone-column">
+      {ALL_STATUSES.map((trace) => (
+        <PurchaseActivity key={trace.run_id} trace={trace} />
+      ))}
+    </div>
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    for (const summary of [
+      "Bloqueada por la política de compra",
+      "Detenida: cambiaron las condiciones",
+      "Compra por confirmar con el comercio",
+    ]) {
+      const label = canvas.getByText(summary, { selector: "button span" })
+      await expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth)
+      await expect(label.scrollHeight).toBeLessThanOrEqual(label.clientHeight)
+    }
+    await expectNoHorizontalOverflow(canvasElement, 288)
+  },
+}
+
+/**
+ * A 320 px, abierta y con el detalle técnico: los identificadores se leen enteros, debajo de su
+ * rótulo, en lugar de quedar en «sh…».
+ */
+export const Phone320Open: Story = {
+  args: { trace: TRACES.staleTerms, defaultOpen: true },
+  render: (args) => (
+    <div className="w-[288px] px-2" data-testid="phone-column">
+      <PurchaseActivity {...args} />
+    </div>
+  ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    await userEvent.click(canvas.getByText("Detalle técnico"))
+    const digest = lastStepOf(TRACES.staleTerms, "freshness_check").evidence_digest
+    const value = canvas.getByText(digest)
+    await expect(value).toBeVisible()
+    await expect(value.scrollWidth).toBeLessThanOrEqual(value.clientWidth)
+    await expectNoHorizontalOverflow(canvasElement, 288)
   },
 }
 

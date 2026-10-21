@@ -16,7 +16,11 @@ export type EvidenceRefsProps = {
   className?: string
 }
 
-/** Identificadores técnicos en mono, cada uno con su botón de copiar. */
+/**
+ * Identificadores técnicos en mono, cada uno con su botón de copiar. Con espacio (desde 28rem) van
+ * en una fila y el valor se recorta; en una columna estrecha, como el chat a 320 px, el rótulo va
+ * encima y el valor se lee entero, partido en varias líneas.
+ */
 export function EvidenceRefs({ refs, className }: EvidenceRefsProps) {
   if (refs.length === 0) {
     return (
@@ -24,15 +28,15 @@ export function EvidenceRefs({ refs, className }: EvidenceRefsProps) {
     )
   }
   return (
-    <dl className={cn("space-y-0.5", className)}>
+    <dl className={cn("@container space-y-0.5", className)}>
       {refs.map((ref, index) => (
         <div
           key={`${index}:${ref.label}`}
-          className="flex min-h-10 items-center justify-between gap-3 sm:min-h-8"
+          className="pt-1.5 @md:flex @md:min-h-10 @md:items-center @md:justify-between @md:gap-3 @md:pt-0 sm:@md:min-h-8"
         >
-          <dt className="shrink-0 text-xs text-[#6b6b6b]">{ref.label}</dt>
-          <dd className="flex min-w-0 items-center gap-1">
-            <span className="truncate font-mono text-xs" title={ref.value}>
+          <dt className="text-xs text-[#6b6b6b] @md:shrink-0">{ref.label}</dt>
+          <dd className="flex min-w-0 items-center justify-between gap-1 @md:justify-end">
+            <span className="min-w-0 font-mono text-xs break-all @md:truncate" title={ref.value}>
               {ref.value}
             </span>
             <CopyButton evidence={ref} />

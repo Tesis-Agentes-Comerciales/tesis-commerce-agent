@@ -2,7 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect } from "storybook/test"
 
 import { ControlTimeline } from "@/components/trace/control-timeline"
-import { TRACES } from "@/storybook/trace-fixtures"
+import type { TraceStep } from "@/lib/trace-contract"
+import { stepOf, TRACES } from "@/storybook/trace-fixtures"
 
 /** Filas de primer nivel: las reglas de la política forman una lista anidada. */
 function timelineRows(canvasElement: HTMLElement) {
@@ -101,6 +102,93 @@ export const PolicyOffBeforeSelection: Story = {
   play: async ({ canvas, canvasElement }) => {
     await expect(timelineRows(canvasElement)).toHaveLength(1)
     await expect(canvas.queryByText("Política desactivada")).toBeNull()
+  },
+}
+
+const POLICY_OFF_REQUEST = stepOf(TRACES.policyOff, "request")
+const POLICY_OFF_SELECTION = stepOf(TRACES.policyOff, "selection")
+
+/** `failed` como lo escribe el backend cuando el checkout no se pudo crear: lo registra el agente. */
+const CHECKOUT_NOT_CREATED: TraceStep = {
+  id: "failed",
+  at: "2026-10-20T16:33:31.020Z",
+  duration_ms: null,
+  actor: "agent",
+  state: "error",
+  kind: "failed",
+  code: "purchase_failed",
+}
+
+/**
+ * Sin política, el checkout no se pudo crear (la etapa pasa a `failed` después de elegir). La fila
+ * desactivada va justo después de la elección, antes del fallo: así ocurrió.
+ */
+export const PolicyOffCheckoutFailed: Story = {
+  args: {
+    trace: {
+      ...TRACES.policyOff,
+      status: "failed",
+      total: null,
+      steps: [POLICY_OFF_REQUEST, POLICY_OFF_SELECTION, CHECKOUT_NOT_CREATED],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const titles = timelineRows(canvasElement).map((row) => row.querySelector("p")?.textContent)
+    await expect(titles).toEqual([
+      "Pedido recibido",
+      "Producto elegido",
+      "Política desactivada",
+      "La compra no se pudo completar",
+      "Crear el checkout",
+      "Tu aprobación",
+      "Firmar la autorización",
+      "Autorizar el pago",
+      "Confirmar la orden",
+    ])
+  },
+}
+
+/**
+ * Sin política y sin producto elegido: la compra terminó antes. Entre lo que no ocurrió, la política
+ * figura como desactivada (no como un control pendiente) y después de la elección.
+ */
+export const PolicyOffEndedBeforeSelection: Story = {
+  args: {
+    trace: {
+      ...TRACES.policyOff,
+      status: "failed",
+      total: null,
+      steps: [POLICY_OFF_REQUEST, { ...CHECKOUT_NOT_CREATED, at: "2026-10-20T16:33:29.130Z" }],
+    },
+  },
+  play: async ({ canvas, canvasElement }) => {
+    const titles = timelineRows(canvasElement).map((row) => row.querySelector("p")?.textContent)
+    await expect(titles.slice(0, 4)).toEqual([
+      "Pedido recibido",
+      "La compra no se pudo completar",
+      "Elegir el producto",
+      "Política desactivada",
+    ])
+    await expect(canvas.queryByText("Revisar la política de compra")).toBeNull()
+  },
+}
+
+/** Teléfono de 320 px: la regla que falló, con la URL entera y sin desbordar la columna. */
+export const Phone320: Story = {
+  args: { trace: TRACES.blockedMerchant },
+  decorators: [
+    (Story) => (
+      <div className="w-[288px]">
+        <Story />
+      </div>
+    ),
+  ],
+  play: async ({ canvas, canvasElement }) => {
+    const value = canvas.getByText("https://tienda-aliada.example.test")
+    await expect(value).toBeVisible()
+    await expect(value.scrollWidth).toBeLessThanOrEqual(value.clientWidth)
+    const timeline = canvasElement.querySelector("ol")
+    await expect(timeline?.scrollWidth).toBeLessThanOrEqual(288)
   },
 }
 

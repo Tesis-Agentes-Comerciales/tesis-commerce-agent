@@ -63,12 +63,22 @@ export const Offline: Story = {
   },
 }
 
+/** La fila de actividad del mensaje no anuncia nada: la tarjeta de la compra ya lo hace. */
+function expectActivitySilent({ canvasElement }: PlayContext) {
+  return expect(
+    canvasElement.querySelectorAll("[data-testid='purchase-activity'] [role='status']"),
+  ).toHaveLength(0)
+}
+
 export const PurchaseFlow: Story = {
   parameters: FAST_STREAM,
   play: async (context) => {
     const card = await approvalCard(context)
     await context.userEvent.click(within(card).getByTestId("approve-purchase"))
     await waitFor(() => expect(card).toHaveAttribute("data-status", "completed"), STREAM_TIMEOUT)
+    // «Aprobar y comprar» ya no está: el foco queda en el título de la tarjeta, no en el <body>.
+    await expect(within(card).getByRole("heading", { name: "Compra completada" })).toHaveFocus()
+    await expectActivitySilent(context)
     // purchase-updated reproduce purchase-completed.sse.
     await expect(
       await context.canvas.findByText(/La compra quedó completada/, {}, STREAM_TIMEOUT),
@@ -83,6 +93,7 @@ export const CancelFlow: Story = {
     const card = await approvalCard(context)
     await context.userEvent.click(within(card).getByRole("button", { name: "Cancelar" }))
     await waitFor(() => expect(card).toHaveAttribute("data-status", "canceled"), STREAM_TIMEOUT)
+    await expect(within(card).getByRole("heading", { name: "Compra cancelada" })).toHaveFocus()
     await expect(
       await context.canvas.findByText(/Cancelé la compra pendiente/, {}, STREAM_TIMEOUT),
     ).toBeVisible()
@@ -209,16 +220,24 @@ const STALE_TITLE: Record<PendingTermsStatus, string> = {
   unavailable: "No pude confirmar las condiciones con el comercio",
 }
 
-/** Aprobar responde 409: la tarjeta deja solo «Cancelar compra» y después se pide de nuevo. */
+/**
+ * Aprobar responde 409: la tarjeta deja solo «Cancelar compra» y después se pide de nuevo. Todo con
+ * el teclado: el foco sigue a la tarjeta (aprobación → términos cambiados → cancelada) y nunca cae
+ * al <body>.
+ */
 export const TermsChangedOnApprove: Story = {
   parameters: {
     agentApi: { ...FAST_STREAM.agentApi, "POST /purchases/:runId/approval": STALE_APPROVAL.changed },
   },
   play: async (context) => {
     const card = await approvalCard(context)
-    await context.userEvent.click(within(card).getByTestId("approve-purchase"))
+    within(card).getByTestId("approve-purchase").focus()
+    await context.userEvent.keyboard("{Enter}")
     const stale = await context.canvas.findByTestId("stale-terms-card", {}, STREAM_TIMEOUT)
-    await expect(within(stale).getByRole("heading", { name: STALE_TITLE.changed })).toBeVisible()
+    const title = within(stale).getByRole("heading", { name: STALE_TITLE.changed })
+    await expect(title).toBeVisible()
+    await expect(title).toHaveFocus()
+    await expectActivitySilent(context)
     await expect(within(stale).getByText("No se hizo ningún cobro.")).toBeVisible()
     await expect(within(stale).getAllByRole("button").map((button) => button.textContent)).toEqual([
       "Cancelar compra",
@@ -226,8 +245,11 @@ export const TermsChangedOnApprove: Story = {
     await expect(context.canvas.queryByText(/no longer|recarga la página/i)).toBeNull()
     await expect(context.canvas.queryByText("Esperando tu aprobación")).toBeNull()
 
-    await context.userEvent.click(within(stale).getByRole("button", { name: "Cancelar compra" }))
+    await context.userEvent.tab()
+    await expect(within(stale).getByRole("button", { name: "Cancelar compra" })).toHaveFocus()
+    await context.userEvent.keyboard("{Enter}")
     await waitFor(() => expect(stale).toHaveAttribute("data-status", "canceled"), STREAM_TIMEOUT)
+    await expect(within(stale).getByRole("heading", { name: "Compra cancelada" })).toHaveFocus()
     await expect(
       await context.canvas.findByText(/Cancelé la compra pendiente/, {}, STREAM_TIMEOUT),
     ).toBeVisible()
@@ -251,6 +273,51 @@ export const TermsUnavailableOnApprove: Story = {
     const stale = await context.canvas.findByTestId("stale-terms-card", {}, STREAM_TIMEOUT)
     await expect(within(stale).getByRole("heading", { name: STALE_TITLE.unavailable })).toBeVisible()
     await expect(within(stale).getByRole("button", { name: "Cancelar compra" })).toBeEnabled()
+  },
+}
+
+/**
+ * La compra ya no espera aprobación (se aprobó o canceló en otra pestaña): el backend responde 409
+ * `invalid_stage` con su texto interno en inglés. La tarjeta lo dice en español y no promete nada.
+ */
+export const ApproveInvalidStage: Story = {
+  parameters: {
+    agentApi: {
+      ...FAST_STREAM.agentApi,
+      "POST /purchases/:runId/approval": {
+        status: 409,
+        body: { code: "invalid_stage", message: "Purchase is not awaiting approval" },
+      },
+    },
+  },
+  play: async (context) => {
+    const card = await approvalCard(context)
+    await context.userEvent.click(within(card).getByTestId("approve-purchase"))
+    await expect(await within(card).findByRole("alert", {}, STREAM_TIMEOUT)).toHaveTextContent(
+      "Esta compra cambió de estado y ya no admite esta acción.",
+    )
+    await expect(context.canvas.queryByText(/awaiting|Purchase is/)).toBeNull()
+  },
+}
+
+/** Cancelar: el comercio no canceló el checkout esperado (409 `checkout_mismatch`). */
+export const CancelCheckoutMismatch: Story = {
+  parameters: {
+    agentApi: {
+      ...FAST_STREAM.agentApi,
+      "POST /purchases/:runId/cancel": {
+        status: 409,
+        body: { code: "checkout_mismatch", message: "Merchant did not cancel the expected checkout" },
+      },
+    },
+  },
+  play: async (context) => {
+    const card = await approvalCard(context)
+    await context.userEvent.click(within(card).getByRole("button", { name: "Cancelar" }))
+    await expect(await within(card).findByRole("alert", {}, STREAM_TIMEOUT)).toHaveTextContent(
+      "El comercio respondió con un checkout que no coincide con esta compra, así que me detuve.",
+    )
+    await expect(context.canvas.queryByText(/Merchant|expected checkout/)).toBeNull()
   },
 }
 

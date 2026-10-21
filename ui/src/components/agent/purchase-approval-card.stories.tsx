@@ -122,14 +122,29 @@ async function expectTermsTotal({ args, canvas }: PlayContext) {
   await expect(canvas.getByText(total.code)).toBeVisible()
 }
 
-/** Mientras hay una petición en curso nada se puede pulsar dos veces. */
-async function expectBusy({ canvas, canvasElement }: PlayContext, live: string) {
+/**
+ * Mientras hay una petición en curso nada se puede pulsar dos veces. Los botones van con
+ * `aria-disabled` (no `disabled`) para que el que se pulsó conserve el foco: Enter no hace nada.
+ */
+async function expectBusy({ args, canvas, canvasElement, userEvent }: PlayContext, live: string) {
   await expect(canvasElement.querySelector("[data-testid=purchase-approval-card]")).toHaveAttribute(
     "aria-busy",
     "true",
   )
   await expect(canvas.getByRole("status")).toHaveTextContent(live)
-  for (const button of canvas.getAllByRole("button")) await expect(button).toBeDisabled()
+  for (const button of canvas.getAllByRole("button")) {
+    await expect(button).toHaveAttribute("aria-disabled", "true")
+    button.focus()
+    await userEvent.keyboard("{Enter}")
+  }
+  await expect(args.onApprove).not.toHaveBeenCalled()
+  await expect(args.onCancel).not.toHaveBeenCalled()
+}
+
+/** Tabula hasta el control, como lo haría alguien con teclado. */
+async function tabTo({ userEvent }: PlayContext, target: HTMLElement) {
+  for (let step = 0; step < 10 && document.activeElement !== target; step++) await userEvent.tab()
+  await expect(target).toHaveFocus()
 }
 
 /** Aprobar recorre los estados con temporizadores locales hasta "completed". */
@@ -158,6 +173,74 @@ export const CancelBeforeApproval: Story = {
     await expect(args.onApprove).not.toHaveBeenCalled()
     await expect(canvas.queryByTestId("approve-purchase")).toBeNull()
     await expect(canvas.getByText("No se registró ninguna aprobación ni cargo.")).toBeVisible()
+  },
+}
+
+/**
+ * Con el teclado: «Aprobar y comprar» conserva el foco mientras registra y completa; al terminar, el
+ * botón ya no está y el foco pasa al título «Compra completada». El lector lo lee al llegar, así que
+ * la región de estado no lo repite.
+ */
+export const KeyboardApproveFocus: Story = {
+  play: async (context) => {
+    const { canvas, userEvent } = context
+    const approve = canvas.getByRole("button", { name: "Aprobar y comprar" })
+    await tabTo(context, approve)
+    await userEvent.keyboard("{Enter}")
+    await expect(canvas.getByRole("status")).toHaveTextContent("Registrando aprobación…")
+    await expect(approve).toHaveFocus()
+    await waitFor(
+      () => expect(canvas.getByRole("status")).toHaveTextContent("Completando compra…"),
+      SETTLE,
+    )
+    await expect(approve).toHaveFocus()
+    const title = await canvas.findByRole("heading", { name: "Compra completada" }, SETTLE)
+    await expect(title).toHaveFocus()
+    await expect(canvas.getByRole("status")).toBeEmptyDOMElement()
+    // Desde el título, el siguiente control es el de la tarjeta.
+    await userEvent.tab()
+    await expect(canvas.getByRole("button", { name: "Nueva compra" })).toHaveFocus()
+  },
+}
+
+/** Con el teclado: cancelar deja el foco en «Cancelar» y, cancelada, en el título. */
+export const KeyboardCancelFocus: Story = {
+  play: async (context) => {
+    const { canvas, userEvent } = context
+    const cancel = canvas.getByRole("button", { name: "Cancelar" })
+    await tabTo(context, cancel)
+    await userEvent.keyboard("{Enter}")
+    await expect(canvas.getByRole("status")).toHaveTextContent("Cancelando la compra…")
+    await expect(cancel).toHaveFocus()
+    const title = await canvas.findByRole("heading", { name: "Compra cancelada" }, SETTLE)
+    await expect(title).toHaveFocus()
+    await expect(canvas.getByRole("status")).toBeEmptyDOMElement()
+  },
+}
+
+/**
+ * Si la persona ya está en otro control (el compositor del chat, por ejemplo) el foco no se mueve:
+ * el cambio llega por la región de estado.
+ */
+export const AnnouncesWhenFocusIsElsewhere: Story = {
+  render: (args) => (
+    <div className="space-y-3">
+      <InteractiveApprovalCard {...args} />
+      <button type="button">Otro control</button>
+    </div>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Aprobar y comprar" }))
+    const elsewhere = canvas.getByRole("button", { name: "Otro control" })
+    await userEvent.click(elsewhere)
+    await waitFor(
+      () =>
+        expect(canvas.getByRole("status")).toHaveTextContent(
+          "Compra completada. El comercio registró la orden.",
+        ),
+      SETTLE,
+    )
+    await expect(elsewhere).toHaveFocus()
   },
 }
 

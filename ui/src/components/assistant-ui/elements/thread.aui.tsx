@@ -7,13 +7,14 @@ import {
   SuggestionPrimitive,
   ThreadPrimitive,
   useAssistantTransportState,
+  useAuiEvent,
   useAuiState,
   type PartState,
   type ReasoningMessagePartComponent,
   type TextMessagePartComponent,
 } from "@assistant-ui/react"
 import { ArrowDownIcon, ArrowUpIcon, CheckIcon, CopyIcon, SquareIcon } from "lucide-react"
-import { useEffect, useMemo, useState, type ComponentType, type FC } from "react"
+import { useEffect, useMemo, useRef, useState, type ComponentType, type FC } from "react"
 
 import { cn } from "cn"
 
@@ -36,7 +37,7 @@ import {
   blockingDecision,
   useMessagePurchaseTrace,
 } from "@/features/purchase-trace"
-import { useMessageStaleTerms } from "@/features/stale-terms"
+import { messageHasPurchaseCard, useMessageStaleTerms } from "@/features/stale-terms"
 import {
   AGENT_TOOL_NAMES,
   MAX_MESSAGE_CHARS,
@@ -214,7 +215,11 @@ function AssistantMessage() {
       {purchaseTrace &&
         activityVisible(purchaseTrace, status) &&
         !(staleTerms && purchaseTrace.status === "awaiting_approval") && (
-        <PurchaseActivity trace={purchaseTrace} className="mb-3" />
+        <PurchaseActivity
+          trace={purchaseTrace}
+          announce={!messageHasPurchaseCard(parts)}
+          className="mb-3"
+        />
       )}
 
       {layout.prominent.length > 0 && (
@@ -317,9 +322,20 @@ function StarterSuggestion() {
 }
 
 function Composer({ autoFocus }: { autoFocus: boolean }) {
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  // Al empezar una respuesta el compositor toma el foco (así lo recupera quien pulsó una sugerencia,
+  // que desaparece), salvo que esté en un mensaje: aprobar o cancelar una compra también empieza un
+  // turno (`purchase-updated`), y el foco debe quedarse en su tarjeta.
+  useAuiEvent("thread.runStart", () => {
+    if (!autoFocus || document.activeElement?.closest("[data-message-id]")) return
+    inputRef.current?.focus({ preventScroll: true })
+  })
+
   return (
     <ComposerPrimitive.Root className="relative flex w-full items-end gap-1 rounded-[28px] border border-[#e5e5e5] bg-white p-2 focus-within:border-[#cfcfcf]">
       <ComposerPrimitive.Input
+        ref={inputRef}
+        unstable_focusOnRunStart={false}
         placeholder="Describe lo que quieres comprar..."
         className="max-h-52 min-h-9 flex-1 resize-none bg-transparent py-1.5 pr-2 pl-3 text-base leading-6 outline-none placeholder:text-[#8e8e8e]"
         rows={1}

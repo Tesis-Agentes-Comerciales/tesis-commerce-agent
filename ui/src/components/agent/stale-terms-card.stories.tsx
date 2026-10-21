@@ -97,8 +97,13 @@ export const RestoredWithoutProduct: Story = {
 
 export const Canceling: Story = {
   args: { status: "canceling" },
-  play: async ({ canvas }) => {
-    await expect(canvas.getByRole("button", { name: "Cancelando…" })).toBeDisabled()
+  play: async ({ args, canvas, userEvent }) => {
+    const button = canvas.getByRole("button", { name: "Cancelando…" })
+    // `aria-disabled` y no `disabled`: el botón que se pulsó conserva el foco mientras cancela.
+    await expect(button).toHaveAttribute("aria-disabled", "true")
+    button.focus()
+    await userEvent.keyboard("{Enter}")
+    await expect(args.onCancel).not.toHaveBeenCalled()
     await expect(canvas.getByRole("status")).toHaveTextContent("Cancelando la compra…")
   },
 }
@@ -123,19 +128,73 @@ export const CancelFailed: Story = {
   },
 }
 
-/** Cancelar: un error, el reintento y la compra cancelada, con el aviso para lectores de pantalla. */
+/**
+ * Cancelar con el teclado: un error, el reintento y la compra cancelada. El error lo anuncia su
+ * aviso y el botón conserva el foco para reintentar; cancelada, el botón ya no está y el foco pasa al
+ * título, que el lector lee al llegar (la región de estado no lo repite).
+ */
 export const CancelAndRetry: Story = {
   render: (args) => <InteractiveStaleTermsCard {...args} failFirst />,
   play: async ({ args, canvas, userEvent }) => {
-    await userEvent.click(canvas.getByRole("button", { name: "Cancelar compra" }))
+    const cancel = canvas.getByRole("button", { name: "Cancelar compra" })
+    await userEvent.tab()
+    await expect(cancel).toHaveFocus()
+    await userEvent.keyboard("{Enter}")
     await expect(await canvas.findByRole("alert")).toHaveTextContent("No pude comunicarme")
-    await userEvent.click(canvas.getByRole("button", { name: "Cancelar compra" }))
-    await waitFor(() =>
-      expect(canvas.getByRole("heading", { name: "Compra cancelada" })).toBeVisible(),
-    )
-    await expect(canvas.getByRole("status")).toHaveTextContent(`Compra cancelada. ${NO_CHARGE}`)
+    await expect(cancel).toHaveFocus()
+    await expect(canvas.getByRole("status")).toBeEmptyDOMElement()
+    await userEvent.keyboard("{Enter}")
+    const title = await canvas.findByRole("heading", { name: "Compra cancelada" })
+    await waitFor(() => expect(title).toHaveFocus())
+    await expect(canvas.getByRole("status")).toBeEmptyDOMElement()
     await expect(canvas.queryByRole("alert")).toBeNull()
     await expect(args.onCancel).toHaveBeenCalledTimes(2)
+  },
+}
+
+/** Cancelada mientras la persona estaba en otro control: no se le quita el foco y se anuncia. */
+export const CanceledWhileFocusElsewhere: Story = {
+  render: (args) => (
+    <div className="space-y-3">
+      <InteractiveStaleTermsCard {...args} />
+      <button type="button">Otro control</button>
+    </div>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Cancelar compra" }))
+    const elsewhere = canvas.getByRole("button", { name: "Otro control" })
+    await userEvent.click(elsewhere)
+    await waitFor(() =>
+      expect(canvas.getByRole("status")).toHaveTextContent(`Compra cancelada. ${NO_CHARGE}`),
+    )
+    await expect(elsewhere).toHaveFocus()
+  },
+}
+
+/** Aprobar respondió que los términos cambiaron: esta tarjeta reemplaza a la de aprobación. */
+function ReplacesApproval(props: StaleTermsCardProps) {
+  const [stale, setStale] = useState(false)
+  return stale ? (
+    <StaleTermsCard {...props} autoFocus />
+  ) : (
+    <button type="button" onClick={() => setStale(true)}>
+      Aprobar y comprar
+    </button>
+  )
+}
+
+/** El botón pulsado desaparece con la tarjeta de aprobación: el foco pasa al título de esta. */
+export const ReplacesApprovalCard: Story = {
+  render: (args) => <ReplacesApproval {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.tab()
+    await userEvent.keyboard("{Enter}")
+    const title = await canvas.findByRole("heading", {
+      name: "Las condiciones del comercio cambiaron",
+    })
+    await expect(title).toHaveFocus()
+    await userEvent.tab()
+    await expect(canvas.getByRole("button", { name: "Cancelar compra" })).toHaveFocus()
   },
 }
 
