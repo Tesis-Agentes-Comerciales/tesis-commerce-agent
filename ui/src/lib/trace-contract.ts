@@ -2,7 +2,11 @@
 // cual de `GET /purchases/{run_id}/trace`; el modelo Pydantic del backend valida las mismas fixtures
 // de src/storybook/trace-fixtures/. La traza nunca trae JWT, mandatos ni tokens de pago.
 
-export type TraceActor = "user" | "agent" | "policy" | "merchant" | "payment"
+/** `operator`: el kill switch de las compras delegadas (HNP). */
+export type TraceActor = "user" | "agent" | "policy" | "merchant" | "payment" | "operator"
+
+/** Compra con la persona presente (HP) o delegada (HNP, docs/design/hnp-governed.md §10). */
+export type PurchaseMode = "HP" | "HNP"
 
 export type PurchaseStatus =
   | "in_progress"
@@ -39,6 +43,8 @@ export interface PurchaseTrace {
   updated_at: string
   /** En orden cronológico. */
   steps: TraceStep[]
+  /** Solo en una compra delegada (`"HNP"`); una compra HP no lo trae. */
+  purchase_mode?: PurchaseMode
 }
 
 export type TraceStep = {
@@ -57,18 +63,42 @@ export type TraceStep = {
   | { kind: "approval"; fingerprint: string; expires_at: string; approved_at: string | null }
   /**
    * D2: al aprobar, la política revisa la compra (POL-03..06) antes de firmar. `state: "blocked"`
-   * si la detuvo: no se registró la aprobación ni se firmó nada.
+   * si la detuvo: no se registró la aprobación ni se firmó nada. En una compra delegada revisa
+   * además el grant (POL-07..09) antes de reservar el uso único.
    */
   | { kind: "authorization_decision"; decision: PolicyDecision }
   | { kind: "authorization_signed"; mandates: ("checkout" | "payment")[] }
   | { kind: "payment_authorized"; max_minor: number; currency: string }
   | { kind: "order_confirmed"; order_id: string; receipts: ("checkout" | "payment")[] }
   | { kind: "order_event"; event_type: string }
-  | { kind: "canceled"; by: "user" | "budget" }
+  /** `expiry`: la delegación venció antes de comprar. */
+  | { kind: "canceled"; by: "user" | "budget" | "expiry" }
   | { kind: "failed"; code: string }
   | ({ kind: "freshness_check" } & FreshnessCheck)
   | ({ kind: "governed_recovery" } & GovernedRecovery)
+  // Compra delegada (HNP): el consentimiento reemplaza al pedido y nadie aprueba ni firma al final.
+  /** `total_max` incluye el envío. */
+  | { kind: "delegation_consented"; grant_id: string; total_max: Money; expires_at: string }
+  /** Uno por cada vez que el servicio toma la tarea: el segundo la reanuda. */
+  | { kind: "task_activated"; trigger: "service" }
+  | { kind: "reservation"; outcome: "reserved" | "released" | "consumed" | "uncertain"; amount: Money }
+  | { kind: "mandates_closed" }
+  /** D3: la política revisa la autoridad justo antes de comprometer el despacho (POL-09, POL-10). */
+  | { kind: "dispatch_decision"; decision: PolicyDecision }
+  | { kind: "revoked"; by: "owner" | "operator"; effect: "no_effect" | "released" | "in_flight" }
+  /** La decisión volvió a la persona: no se firmó ni se cobró nada. */
+  | { kind: "escalated"; reason: EscalationReason }
 )
+
+/** Códigos de escalamiento del ledger de delegación (hnp-governed.md §8.1). */
+export type EscalationReason =
+  | "budget_not_satisfiable"
+  | "no_candidate_in_scope"
+  | "offer_changed"
+  | "terms_out_of_scope"
+  | "authorization_profile_unresolved"
+  | "verifier_unresolved_constraint"
+  | "verifier_mandates_not_supported"
 
 export type StepKind = TraceStep["kind"]
 
@@ -77,7 +107,8 @@ export type StepKind = TraceStep["kind"]
 
 /** Frescura de la oferta: `state` es `blocked` cuando la comprobación detuvo la compra. */
 export interface FreshnessCheck {
-  stage: "present" | "approve"
+  /** `close`: antes de que una compra delegada reserve su uso único. */
+  stage: "present" | "approve" | "close"
   mode: "shadow" | "enforce"
   outcome: "fresh" | "changed" | "unavailable"
   /** Solo los campos que cambiaron: el valor del checkout frente al de la oferta viva. */
@@ -138,7 +169,7 @@ export interface PolicyDecision {
   effect: "observed" | "blocked" | "continued"
   policy: { set_id: string; revision: number }
   rules: {
-    /** "POL-01", "POL-02", "POL-11"; al aprobar, "POL-03" a "POL-06". */
+    /** "POL-01", "POL-02", "POL-11"; al aprobar, "POL-03" a "POL-06"; al delegar, hasta "POL-10". */
     id: string
     result: "pass" | "fail" | "not_evaluated"
     /**
@@ -171,6 +202,7 @@ export interface PurchaseSummary {
   approved_at: string | null
   order_id: string | null
   duration_ms: number | null
+  purchase_mode?: PurchaseMode
 }
 
 // Validación en tiempo de ejecución. La API no es confiable y las fixtures JSON no se pueden
@@ -198,6 +230,11 @@ const nullable =
   (check: Check): Check =>
   (value, path) =>
     value === null ? null : check(value, path)
+/** Campo que el backend omite cuando no aplica, como `purchase_mode` en una compra HP. */
+const optional =
+  (check: Check): Check =>
+  (value, path) =>
+    value === undefined ? null : check(value, path)
 
 function firstFailure(failures: (string | null)[]) {
   return failures.find((failure) => failure !== null) ?? null
@@ -259,7 +296,7 @@ const STEP_BASE: Fields<StepBase> = {
   id: text,
   at: nullable(utc),
   duration_ms: nullable(count),
-  actor: oneOf<TraceActor>("user", "agent", "policy", "merchant", "payment"),
+  actor: oneOf<TraceActor>("user", "agent", "policy", "merchant", "payment", "operator"),
   state: oneOf<StepState>("done", "running", "waiting", "blocked", "error", "skipped"),
 }
 
@@ -290,10 +327,10 @@ const STEP_FIELDS: { [K in StepKind]: StepFields<K> } = {
   payment_authorized: { max_minor: count, currency },
   order_confirmed: { order_id: text, receipts: listOf(receiptKind) },
   order_event: { event_type: text },
-  canceled: { by: oneOf("user", "budget") },
+  canceled: { by: oneOf("user", "budget", "expiry") },
   failed: { code: text },
   freshness_check: {
-    stage: oneOf<FreshnessCheck["stage"]>("present", "approve"),
+    stage: oneOf<FreshnessCheck["stage"]>("present", "approve", "close"),
     mode: oneOf<FreshnessCheck["mode"]>("shadow", "enforce"),
     outcome: oneOf<FreshnessCheck["outcome"]>("fresh", "changed", "unavailable"),
     changes: listOf(freshnessChange),
@@ -326,6 +363,29 @@ const STEP_FIELDS: { [K in StepKind]: StepFields<K> } = {
     currency: nullable(currency),
     evidence_digest: text,
   },
+  delegation_consented: { grant_id: text, total_max: money, expires_at: utc },
+  task_activated: { trigger: oneOf("service") },
+  reservation: {
+    outcome: oneOf("reserved", "released", "consumed", "uncertain"),
+    amount: money,
+  },
+  mandates_closed: {},
+  dispatch_decision: { decision: shape(POLICY_DECISION) },
+  revoked: {
+    by: oneOf("owner", "operator"),
+    effect: oneOf("no_effect", "released", "in_flight"),
+  },
+  escalated: {
+    reason: oneOf<EscalationReason>(
+      "budget_not_satisfiable",
+      "no_candidate_in_scope",
+      "offer_changed",
+      "terms_out_of_scope",
+      "authorization_profile_unresolved",
+      "verifier_unresolved_constraint",
+      "verifier_mandates_not_supported",
+    ),
+  },
 }
 
 const step: Check = (value, path) => {
@@ -354,6 +414,7 @@ const purchaseTrace = shape({
   started_at: utc,
   updated_at: utc,
   steps: listOf(step),
+  purchase_mode: optional(oneOf<PurchaseMode>("HP", "HNP")),
 } satisfies Fields<PurchaseTrace>)
 
 /** Valida una traza de la API o de una fixture; el error nombra la ruta del primer campo inválido. */
