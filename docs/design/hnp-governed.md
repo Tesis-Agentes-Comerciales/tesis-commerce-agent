@@ -604,9 +604,14 @@ El token de servicio no sirve para el kill switch ni el de operador para dispara
 ### 5.3 Vistas (contrato de HNP-01)
 
 Pydantic en `src/commerce_agent/delegation/contract.py` y TypeScript en
-`ui/src/lib/delegation-contract.ts` (`parseDelegation*`), con las mismas fixtures
-`ui/src/storybook/fixtures/delegation-*.json`: `proposed`, `active`, `running`, `purchased`,
-`escalated`, `revoked`, `expired`, `failed` y `uncertain`.
+`ui/src/lib/delegation-contract.ts` (`parseDelegationProposal`, `parseDelegationView`,
+`parseDelegationList`, `parseDelegationRevokeReceipt` y `parseDelegationRevokeAllReceipt`), con las
+mismas fixtures `ui/src/storybook/fixtures/delegation-*.json`: `proposed`, `active`, `running`,
+`purchased`, `escalated`, `revoked`, `expired`, `failed` y `uncertain`, más `revoke-receipts` (un
+`RevokeAllReceipt` con los tres `effect`). Ambos lados rechazan además los pares de estados que
+la spec no permite: `revoked_reason` solo en `revoked`, `outcome_code` según §8.1 (en `failed`
+también los de escalamiento, por B0-HNP), `escalation` solo con la tarea `escalated` y con su mismo
+código, y un `RevokeReceipt` de otra causa que `owner` solo con `no_effect` (§5.1).
 
 | Tipo | Campos |
 | --- | --- |
@@ -767,7 +772,11 @@ clic queda fuera.
 ### 8.3 Textos canónicos
 
 Viven en `delegation/contract.py` (`HNP_MESSAGES`, HNP-01) y llegan a la UI en `message`. Título del
-escalamiento: **«Necesito tu decisión»**.
+escalamiento: **«Necesito tu decisión»** (clave `escalation.title`; el prellenado de §8.2 es
+`escalation.prefill_request`). `<título>`, `<total>` y `<número>` son los campos `{title}`,
+`{total}` y `{order_id}` de `str.format`. El `message` de un escalamiento es el texto de su código
+seguido del sufijo (`escalation_message`): `suffix_rejected_by_psp` para los dos `verifier_*`, y
+`suffix_before_presentation` para los demás.
 
 | Clave | Texto |
 | --- | --- |
