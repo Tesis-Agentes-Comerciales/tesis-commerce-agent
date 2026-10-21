@@ -335,9 +335,11 @@ artefactos.
 5. **¿El bloque va dentro del JSONL o en un archivo hermano?** Recomiendo dentro de la fila: una
    sola fuente que el rescore ignora, por ~1 MB más.
 6. **¿Hace falta una enmienda de medición en `hnp-pilot.md` antes de la etiqueta?** Recomiendo que
-   sí. Agrega registros y no cambia condiciones, oráculos ni criterios.
+   sí. Agrega registros y no cambia condiciones, oráculos ni criterios. El texto propuesto es M1,
+   en «Enmiendas» de [`hnp-pilot.md`](hnp-pilot.md), pendiente de aprobación.
 7. **Si T3 no entra antes de la etiqueta, ¿se extrae el bloque después?** Recomiendo que sí, a
-   `*.flow-trace.jsonl` con la misma clave de fila y sin editar el JSONL.
+   `*.flow-trace.jsonl` con la misma clave de fila y sin editar el JSONL. Con T1 y T3 se puede:
+   `build_flow_trace` da el mismo bloque sobre el `agent.db` y el `feed/` del artefacto guardado.
 8. **¿`run_id` en `stage_timings`, o `failure_code` en la compra cuando D1 niega?** Recomiendo no
    tocarlos ahora: `model_requests` lleva el `run_id` y el bloque deriva la etapa. Lo de
    `failure_code` es un arreglo aparte de la máquina de estados.
