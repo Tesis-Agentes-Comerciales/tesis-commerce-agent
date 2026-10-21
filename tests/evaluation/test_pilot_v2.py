@@ -317,7 +317,11 @@ PREPARED = {
     ("status", "code", "success"),
     [
         (409, "d2_denied", 1),
+        (409, "d2_unavailable", 1),
         (409, "d1_continuation_blocked", 1),
+        # D2 allowed the revoked approval; only the write stopped it.
+        (409, "d2_allow_unapplied", 0),
+        (403, "d2_denied", 0),
         (409, "checkout_expired", 0),
         (409, "invalid_stage", 0),
         (503, "d2_unavailable", 0),
@@ -1048,6 +1052,8 @@ def test_dry_run_of_v2_shows_policy_authority_stimuli_and_readiness(
     monkeypatch.setattr(
         governance_pilot, "repository_provenance", lambda _: RepositoryProvenance("a" * 40, False)
     )
+    refs: list[str] = []
+    monkeypatch.setattr(governance_pilot, "ref_commit", lambda _, ref: refs.append(ref))
 
     code = run_main(
         [
@@ -1072,7 +1078,23 @@ def test_dry_run_of_v2_shows_policy_authority_stimuli_and_readiness(
     assert setup["S01"]["allowed_merchant_origins"] == [MERCHANT]
     assert setup["S08"]["stimuli"] == ["policy_revision_change", "submit_presented_approval"]
     assert setup["S01"]["approval_flow"] == "approve_and_complete"
-    assert set(output["integration_readiness"]) == {"policy_rules", "evidence_verifier"}
+    readiness = output["integration_readiness"]
+    assert set(readiness) == {"policy_rules", "evidence_verifier", "agent_base"}
+    # Without the pilot-v2-base tag in the checkout, the base is not ready.
+    assert refs == ["pilot-v2-base"]
+    assert readiness["agent_base"] == {"ready": False, "ref": "pilot-v2-base", "ref_commit": None}
+
+
+@pytest.mark.parametrize(("tagged", "ready"), [("a" * 40, True), ("b" * 40, False)])
+def test_the_v2_base_is_ready_only_on_the_tagged_commit(
+    tagged: str, ready: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(governance_pilot, "ref_commit", lambda *_: tagged)
+    head = RepositoryProvenance("a" * 40, False)
+
+    assert governance_pilot.base_readiness(V2_MANIFEST, head)["agent_base"]["ready"] is ready
+    # v1 registers no base: it runs on whatever commit is checked out, as it did.
+    assert governance_pilot.base_readiness(load_manifest(PILOT_MANIFEST), head) == {}
 
 
 def test_a_live_v2_run_without_its_integrations_stops_before_any_service(
@@ -1084,8 +1106,9 @@ def test_a_live_v2_run_without_its_integrations_stops_before_any_service(
     monkeypatch.setattr(
         governance_pilot,
         "integration_readiness",
-        lambda _: {"evidence_verifier": {"ready": False, "entry_point": "verify-evidence"}},
+        lambda _: {"evidence_verifier": {"ready": False, "module": VERIFIER_MODULE}},
     )
+    monkeypatch.setattr(governance_pilot, "ref_commit", lambda *_: "d" * 40)
     started: list[object] = []
     forbidden: Callable[..., object] = lambda *args, **kwargs: started.append(args)  # noqa: E731
     monkeypatch.setattr(governance_pilot, "_run", forbidden)
@@ -1097,7 +1120,9 @@ def test_a_live_v2_run_without_its_integrations_stops_before_any_service(
     )
 
     assert code == 1
-    assert "evidence_verifier" in capsys.readouterr().err
+    refusal = capsys.readouterr().err
+    # The verifier is missing and HEAD (c…) is not pilot-v2-base (d…).
+    assert "evidence_verifier" in refusal and "agent_base" in refusal
     assert started == []
 
 
