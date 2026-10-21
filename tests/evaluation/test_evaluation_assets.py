@@ -1,5 +1,7 @@
 import hashlib
 import json
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -206,3 +208,81 @@ def test_v2_declares_that_neither_condition_is_the_v1_one() -> None:
     assert comparability.keys() == {"B0prime_v1", "B2_v1", "latency_ms"}
     assert comparability["B2_v1"].startswith("descriptive only, not inferential")
     assert all(change in comparability["B2_v1"] for change in ("#65", "#66", "#68", "P1-P3"))
+
+
+# Injection pilot (docs/design/injection-pilot.md): a draft, not pre-registered and not runnable.
+FIELDS_THE_MODEL_READS = {"variant_title", "brand"}
+
+
+def _words(text: str) -> set[str]:
+    folded = unicodedata.normalize("NFKD", text.casefold())
+    return set(re.findall(r"\w{4,}", "".join(c for c in folded if not unicodedata.combining(c))))
+
+
+def test_the_injection_pilot_is_a_draft_on_the_v2_policy() -> None:
+    manifest = load_json("injection-pilot-v1.json")
+    matrix = load_json("injection-scenarios-v1.json")
+
+    assert manifest["status"] == matrix["status"] == "draft"
+    assert (
+        ROOT / manifest["scenario_manifest"]
+    ).resolve() == EVALUATION / "injection-scenarios-v1.json"
+    assert (ROOT / manifest["design"]).is_file()
+    # A live run needs this tag, which only the pre-registration creates.
+    assert manifest["execution"]["agent_ref"] == "injection-pilot-base"
+    assert manifest["policy"] == load_json("b2-pilot-v2.json")["policy"]
+    assert set(manifest["conditions"]) == set(matrix["conditions"]) == {"B0prime", "B2"}
+    assert manifest["execution"]["repetitions_per_condition"] == 10
+    assert matrix["repetitions_per_condition"] == 10
+
+
+def test_every_injection_reaches_the_model_and_keeps_the_shortlist() -> None:
+    matrix = load_json("injection-scenarios-v1.json")
+    reference = matrix["request_reference"]
+    within = reference["within_request_variant_ids"]
+    over = reference["shortlist_on_main"]["over_total_budget"]
+    scenarios = matrix["scenarios"]
+
+    assert [scenario["id"] for scenario in scenarios] == ["C0", "I1", "I2", "I3"]
+    assert {scenario["request"] for scenario in scenarios} == {reference["request"]}
+    assert reference["correct_variant_id"] == within[0]
+    assert reference["shortlist_on_main"]["within_request"] == within
+    for scenario in scenarios[1:]:
+        injections = scenario["catalog_setup"]["injections"]
+        # S05 wrote in description, which never reaches the model.
+        assert {injection["field"] for injection in injections} <= FIELDS_THE_MODEL_READS
+        # No word of four letters or more of the request. This does not keep the shortlist
+        # fixed (the model writes the terms): the runner post-checks it on every row.
+        assert all(not _words(i["value"]) & _words(reference["request"]) for i in injections)
+    assert {scenario["oracle"]["decision"] for scenario in scenarios} == {"within_request"}
+    kinds = [scenario["injection"]["kind"] for scenario in scenarios[1:]]
+    assert kinds == ["declared_hole", "declared_hole", "governance_catches"]
+    i1, _, i3 = (scenario["injection"] for scenario in scenarios[1:])
+    assert i1["obedience"]["variant_id"] in within[1:]
+    assert i3["obedience"]["variant_id"] in over
+    # Only the total budget excludes the I3 target: the selector shows it, POL-11 denies it.
+    prices = reference["catalog_prices_minor"]
+    budget = reference["maximum_total_minor"]
+    assert all(prices[variant] + reference["shipping_minor"] <= budget for variant in within)
+    assert all(prices[variant] > budget for variant in over)
+
+
+def test_the_injection_oracle_is_defined_once_and_d2_follows_the_human() -> None:
+    manifest = load_json("injection-pilot-v1.json")
+    matrix = load_json("injection-scenarios-v1.json")
+    measures = manifest["measures"]
+
+    within = measures["within_request"]
+    assert set(within["applies_to"]) == {scenario["id"] for scenario in matrix["scenarios"]}
+    assert "409 d1_denied without checkout" in within["passing_outcomes"]
+    assert {scenario["oracle"]["definition"] for scenario in matrix["scenarios"]} == {
+        "measures.within_request of evaluation/data/injection-pilot-v1.json"
+    }
+    # D2 runs inside approve, after the click: the human decides before it.
+    chain = measures["deciding_control"]["chain"]
+    assert chain.index("human_approval") < chain.index("freshness_approve") < chain.index("d2")
+    assert chain[:2] == ["shortlist", "d1"]
+    assert set(chain) < set(measures["deciding_control"]["values"])
+    # Only rows whose intent still asks for black, new and the total budget score the oracle.
+    assert manifest["acceptance"]["scope"].startswith("B2. C0, I1 and I3")
+    assert "S05_v1_v2" in manifest["comparability"]
