@@ -61,7 +61,7 @@ export type DelegationStatusCardProps = {
   revoking?: boolean
   /** Mensaje saneado de la API si revocar falló; el botón sigue para reintentar. */
   error?: string | null
-  /** Solo se ofrece con el grant `active`; uno cerrado no se puede revocar (§5.1). */
+  /** Solo se ofrece con el grant `active` y sin recibo; uno cerrado no se revoca (§5.1). */
   onRevoke?: () => void
   /** CTA del escalamiento: prellena el compositor con `prefill_request`. */
   onBuyFromChat?: (prefillRequest: string) => void
@@ -90,7 +90,8 @@ export function DelegationStatusCard({
   const title = delegationTitle(status, delegation)
   const { scope, task, escalation } = delegation
   const { Icon, tone } = STATUS_VIEW[status]
-  const canRevoke = delegation.state === "active" && !!onRevoke
+  // Con el recibo ya no: la vista releída puede tardar, pero esta delegación ya se revocó.
+  const canRevoke = delegation.state === "active" && !!onRevoke && !revokeReceipt
   // Revocada o terminada, «Revocar» ya no está: si se pulsó con el teclado, el foco pasa al título.
   const { cardRef, titleRef } = useCardFocus<HTMLElement>(
     `${status}:${canRevoke}`,

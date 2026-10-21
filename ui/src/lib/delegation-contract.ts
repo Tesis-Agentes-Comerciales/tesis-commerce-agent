@@ -85,6 +85,9 @@ export interface DelegationProposal {
   expires_at: string
 }
 
+/** Lo que `POST /delegations` recibe: la propuesta y el digest del alcance que se mostró. */
+export type DelegationConsent = Pick<DelegationProposal, "proposal_id" | "scope_digest">
+
 export interface TaskView {
   task_id: string
   state: TaskState
@@ -135,6 +138,15 @@ export interface RevokeReceipt {
 /** `POST /me/delegations/revoke-all`: un recibo por delegación que estaba activa. */
 export interface RevokeAllReceipt {
   receipts: RevokeReceipt[]
+}
+
+/**
+ * Hasta cuándo se puede autorizar la propuesta. Su `expires_at` es el del TTL, pero el servidor
+ * también la da por vencida cuando pasa el de la delegación, que se fijó al proponer y puede llegar
+ * antes (`valid_for_seconds` corto): manda el primero (§4.2, §5.1).
+ */
+export function proposalDeadline({ expires_at, scope }: DelegationProposal): string {
+  return Date.parse(scope.expires_at) < Date.parse(expires_at) ? scope.expires_at : expires_at
 }
 
 // Validación en tiempo de ejecución, con las mismas reglas que el modelo Pydantic. Los ayudantes

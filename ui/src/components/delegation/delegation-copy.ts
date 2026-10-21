@@ -15,6 +15,8 @@ export const CONSENT_COPY = {
 
 /** «Vence el <fecha y hora>». */
 export const expiresOn = (dateTime: string) => `Vence el ${dateTime}`
+/** Hasta cuándo vale la propuesta: después, «Autorizar» responde 409 (HNP-10). */
+export const authorizeBy = (dateTime: string) => `Puedes autorizarla hasta el ${dateTime}`
 
 export const SCOPE_LABEL = {
   total: "Total máximo",
@@ -29,6 +31,45 @@ export const SCOPE_LABEL = {
 export const REVOKE_LABEL = "Revocar"
 /** §8.2: el CTA del escalamiento prellena la compra HP en el chat. */
 export const BUY_FROM_CHAT_LABEL = "Comprar desde el chat"
+
+// Textos de «Delegaciones» en el chat (HNP-10): el formulario de la propuesta y la lista.
+
+export const FORM_COPY = {
+  title: "Delegar una compra",
+  subtitle: "El agente compra una sola vez, dentro de lo que autorices.",
+  offers: "Opciones que puede comprar",
+  noOffers:
+    "Primero busca en el chat lo que quieres comprar: aquí aparecen las opciones que te mostré.",
+  catalogPrice: (amount: string) => `Catálogo: ${amount}`,
+  total: "Total máximo con envío (pesos)",
+  validity: "Vigencia",
+  destination: "Entrega",
+  destinationHint: "Por ahora el comercio solo entrega en Bogotá D.C.",
+  addressLine: "Dirección",
+  city: "Ciudad",
+  state: "Departamento",
+  preference: "Tu indicación (opcional)",
+  submit: "Preparar la autorización",
+  cancel: "Cancelar",
+} as const
+
+/** Vigencias que ofrece el formulario; el servidor admite hasta `AGENT_HNP_MAX_VALIDITY_SECONDS`. */
+export const VALIDITY_OPTIONS = [
+  { seconds: 3_600, label: "1 hora" },
+  { seconds: 21_600, label: "6 horas" },
+  { seconds: 86_400, label: "24 horas" },
+] as const
+
+export const DELEGATIONS_COPY = {
+  title: "Delegaciones",
+  description:
+    "Autoriza al agente a comprar sin ti, con un tope y por un tiempo. Puedes revocarlo cuando quieras.",
+  newDelegation: "Nueva delegación",
+  mine: "Mis delegaciones",
+  none: "Todavía no tienes delegaciones.",
+  loading: "Cargando tus delegaciones…",
+  revokeAll: "Revocar todo",
+} as const
 
 /**
  * Lo que la tarjeta dice de una delegación. Manda el resultado de la tarea; mientras la tarea no

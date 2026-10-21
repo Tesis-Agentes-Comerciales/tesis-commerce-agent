@@ -31,7 +31,7 @@ clasificada por dónde se crea, sin `pytestmark` ni `skipif` propios:
 | 1. Unitarias y contratos | Dominio, aplicación, gobernanza, persistencia, ACP/AP2 congelados, hashes de la evidencia histórica de gobernanza, frontera del repositorio | `tests/` sin `integration/` | Cada PR (`python-tests`) | `uv run pytest` |
 | 1. Autenticación | Registro, sesión y JWT verificable con JWKS contra el servidor real | `auth/test/` | Cada PR (`auth`) | `cd auth && npm ci && npm test` |
 | 2. Merchant + PostgreSQL | Persistencia, D17, ACP HTTP del Merchant | Repositorio del Merchant | Cada PR del Merchant | Ver su `docs/testing.md` |
-| 3. UI | Lint, build, historias de Storybook con interacción y axe en Chromium | `ui/` | Cada PR (`ui`) | `cd ui && npm ci && npm run lint && npm run build && npm run test-storybook` |
+| 3. UI | Lint, build, historias de Storybook con interacción y axe en Chromium, y pruebas unitarias de Vitest en Node (`src/**/*.test.ts`, dentro de `test-storybook`) | `ui/` | Cada PR (`ui`) | `cd ui && npm ci && npm run lint && npm test && npm run build && npm run test-storybook` |
 | 4. Sistema | Agent ↔ Merchant ↔ proveedor de pagos con PostgreSQL desechable; gobernanza con fallos inyectados, compras B0 y ACP, compra B0 desde el navegador | `tests/integration/` | Cada noche y a pedido (`nightly.yml`) | [`tests/integration/README.md`](../tests/integration/README.md) |
 | 3. UI E2E | Recorridos de chat en el navegador con Playwright, sobre el build y con backends simulados | `ui/e2e/` | Cada PR (`ui`) | `cd ui && npm run e2e` |
 | 5. Evaluación | Experimento HNP y piloto de gobernanza sin red ni modelo (dry-run): forma de resultados, costos, trazas, guardas de gasto | `tests/evaluation/` y entrypoints | Cada PR, dentro de `python-tests` | `uv run pytest -m evaluation`, `uv run hnp-matrix --dry-run --env-file .env.example`, `uv run governance-pilot --dry-run` |
@@ -70,7 +70,8 @@ prueba está en las secciones de equivalencia de [`tests/integration/README.md`]
   cobertura del producto, los dry-run de `hnp-matrix` y `governance-pilot` (sin red; escriben en
   `.local/`) y un resumen de cobertura en la página del job.
 - `auth`: `npm ci` y `npm test` en `auth/`.
-- `ui`: `npm ci`, lint, build, `build-storybook`, `test-storybook` y `npm run e2e` en Chromium.
+- `ui`: `npm ci`, lint, build, `build-storybook`, `test-storybook` (historias y el proyecto `unit`)
+  y `npm run e2e` en Chromium.
   Playwright sale de `ui/package-lock.json` (`npx --no-install`), nunca de una versión sin fijar.
 
 `nightly.yml` corre a las 06:23 UTC y con `workflow_dispatch`, donde se puede elegir la rama o

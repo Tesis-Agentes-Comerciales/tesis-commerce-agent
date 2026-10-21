@@ -10,7 +10,8 @@
     "preview": "vite preview --host 127.0.0.1",
     "storybook": "storybook dev --host 127.0.0.1 -p 6006",
     "build-storybook": "storybook build",
-    "test-storybook": "vitest run --project=storybook",
+    "test": "vitest run --project=unit",
+    "test-storybook": "vitest run --project=storybook --project=unit",
     "e2e": "playwright test"
   },
   "dependencies": {

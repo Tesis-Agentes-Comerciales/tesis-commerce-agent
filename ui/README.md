@@ -83,11 +83,14 @@ carga: `sb.mock` cambia `src/lib/auth-client.ts` por `src/lib/__mocks__/auth-cli
   `src/storybook/trace-fixtures/`, una por escenario. `Trace/Contract` valida cada JSON de esa carpeta
   con `parsePurchaseTrace` (`src/lib/trace-contract.ts`); el modelo Pydantic del backend validará los
   mismos archivos ([`docs/design/trace-panel.md`](../docs/design/trace-panel.md)).
-- `Delegation/*` cubre las tarjetas de Human Not Present (`src/components/delegation/`, sin
-  cablear): el consentimiento de la propuesta, el estado de cada delegación y su tarea, el
-  escalamiento «Necesito tu decisión» y el recibo de revocación, con las fixtures de
-  `src/storybook/fixtures/delegation-*.json`. Los mensajes llegan escritos del backend y se muestran
-  tal cual ([`docs/design/hnp-governed.md`](../docs/design/hnp-governed.md) §8.3).
+- `Delegation/*` cubre las piezas de Human Not Present (`src/components/delegation/`): el
+  formulario, el consentimiento de la propuesta, el estado de cada delegación y su tarea, el
+  escalamiento «Necesito tu decisión», el recibo de revocación y «Mis delegaciones», con las
+  fixtures de `src/storybook/fixtures/delegation-*.json` y las secuencias reales de la API de
+  `src/storybook/fixtures/delegation-api/` (`uv run python scripts/export_delegation_replays.py`;
+  `tests/test_delegation_replay.py` falla si se desactualizan). Los mensajes llegan escritos del
+  backend y se muestran tal cual ([`docs/design/hnp-governed.md`](../docs/design/hnp-governed.md)
+  §8.3).
   `Delegation/Contract` valida esas fixtures con los `parseDelegation*` de
   `src/lib/delegation-contract.ts`.
 - `Auth/SessionGate` cubre la puerta de sesión: pendiente, sin sesión (el doble rechaza las
@@ -100,13 +103,16 @@ carga: `sb.mock` cambia `src/lib/auth-client.ts` por `src/lib/__mocks__/auth-cli
 (`@storybook/addon-vitest`, `vitest.config.ts`): render, `play` y axe de `addon-a11y`. Cualquier
 violación de accesibilidad hace fallar la historia (`a11y.test: "error"`); una historia solo puede
 bajarla a `"todo"` con una razón escrita. No necesita Storybook levantado. La primera vez hace falta el
-navegador de Playwright: `npx playwright install chromium` (en Linux/CI, `--with-deps`).
+navegador de Playwright: `npx playwright install chromium` (en Linux/CI, `--with-deps`). También corre
+el proyecto `unit` de Vitest (`src/**/*.test.ts` en Node; solo él con `npm test`), así el job `ui` de
+CI lo ejecuta sin un paso nuevo.
 
 ## Verificación
 
 ```sh
 npx tsc -b
 npm run lint
+npm test
 npm run build
 npm run build-storybook
 npm run test-storybook
