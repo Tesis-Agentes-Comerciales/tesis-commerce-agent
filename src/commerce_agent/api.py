@@ -77,14 +77,18 @@ class ApprovalReceipt(BaseModel):
     stage: str = "approved"
 
 
-TermsStatus = Literal["changed", "unavailable"]
+TermsStatus = Literal["changed", "expired", "unavailable"]
 
-# Freshness refusals that leave a pending purchase visible: the live offer changed or could not
-# be read. The purchase is not refreshed; the buyer cancels it and asks again (b2-governed-pilot).
+# Refusals to present the terms that leave a pending purchase visible: the live offer changed,
+# expired or could not be read, or the checkout expired or stopped being ready for payment. The
+# purchase is not refreshed; the buyer cancels it and asks again (b2-governed-pilot,
+# hp-p5a-definitive-failures).
 _STALE_TERMS: dict[str, TermsStatus] = {
     "checkout_terms_changed": "changed",
-    # The merchant no longer offers these terms: for the buyer, the conditions changed.
-    "offer_expired": "changed",
+    "offer_expired": "expired",
+    "checkout_expired": "expired",
+    # The checkout is no longer payable (e.g. the merchant canceled it): the terms changed.
+    "checkout_not_ready": "changed",
     "offer_freshness_unavailable": "unavailable",
 }
 

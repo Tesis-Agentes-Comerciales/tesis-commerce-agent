@@ -228,8 +228,8 @@ export const RequestRejected: Story = {
   },
 }
 
-// Términos que ya no valen (S04): la oferta cambió o no se pudo leer. El `message` es el texto
-// interno del backend; la tarjeta no lo muestra.
+// Términos que ya no valen (S04): la oferta cambió, venció o no se pudo leer, o el checkout venció.
+// El `message` es el texto interno del backend; la tarjeta no lo muestra.
 const STALE_APPROVAL = {
   changed: {
     status: 409,
@@ -243,18 +243,18 @@ const STALE_APPROVAL = {
     status: 409,
     body: { code: "offer_expired", message: "La oferta del comercio venció, así que no seguí con la compra." },
   },
-  // Vencimiento natural del checkout: el `message` de REST es el interno, en inglés.
+  // Checkout vencido, por `expires_at` o porque el comercio ya lo marcó `status: "expired"`: las
+  // dos causas responden `checkout_expired`. El `message` de REST es el interno, en inglés.
   checkoutExpired: {
     status: 409,
     body: { code: "checkout_expired", message: "Checkout has expired" },
   },
 } as const
 
-/** Solo en la sesión que recibió el error: al recargar, el backend lo informa como `changed`. */
-const EXPIRED_TITLE = "Las condiciones que revisaste vencieron"
-
+/** Título de la tarjeta por motivo; es el mismo en la sesión que recibió el error y al recargar. */
 const STALE_TITLE: Record<PendingTermsStatus, string> = {
   changed: "Las condiciones del comercio cambiaron",
+  expired: "Las condiciones que revisaste vencieron",
   unavailable: "No pude confirmar las condiciones con el comercio",
 }
 
@@ -374,7 +374,7 @@ function expiredOnApprove(response: (typeof STALE_APPROVAL)["expired" | "checkou
       const card = await approvalCard(context)
       await context.userEvent.click(within(card).getByTestId("approve-purchase"))
       const stale = await context.canvas.findByTestId("stale-terms-card", {}, STREAM_TIMEOUT)
-      await expect(within(stale).getByRole("heading", { name: EXPIRED_TITLE })).toBeVisible()
+      await expect(within(stale).getByRole("heading", { name: STALE_TITLE.expired })).toBeVisible()
       await expect(within(stale).getByRole("button", { name: "Cancelar compra" })).toBeEnabled()
       await expect(context.canvas.queryByText(/Esperando tu aprobación|has expired/)).toBeNull()
     },
@@ -447,3 +447,9 @@ export const RestoredTermsChanged: Story = restoredStaleStory("changed")
 
 /** Tras recargar, `terms_status: "unavailable"`: la oferta no se pudo leer. */
 export const RestoredTermsUnavailable: Story = restoredStaleStory("unavailable")
+
+/**
+ * Tras recargar, `terms_status: "expired"`: venció la oferta o el checkout (antes, `GET
+ * /me/pending-purchase` respondía 409 con el checkout vencido). Se puede cancelar.
+ */
+export const RestoredTermsExpired: Story = restoredStaleStory("expired")

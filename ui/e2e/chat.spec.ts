@@ -86,6 +86,12 @@ const STALE_TERMS = {
     body: { code: "offer_freshness_unavailable", message: "Live offer could not be read" },
     title: "No pude confirmar las condiciones con el comercio",
   },
+  // El checkout venció; al recargar, `GET /me/pending-purchase` lo informa como `expired`.
+  expired: {
+    status: 409,
+    body: { code: "checkout_expired", message: "Checkout has expired" },
+    title: "Las condiciones que revisaste vencieron",
+  },
 } as const
 
 /** Compra pendiente restaurada sin términos, como la devuelve `GET /me/pending-purchase`. */
@@ -405,7 +411,7 @@ test.describe("actividad de la compra", () => {
 })
 
 test.describe("términos que ya no valen", () => {
-  for (const termsStatus of ["changed", "unavailable"] as const) {
+  for (const termsStatus of ["changed", "unavailable", "expired"] as const) {
     const stale = STALE_TERMS[termsStatus]
     test(`aprobar responde ${stale.status} ${stale.body.code}: sin cobro, se cancela y se pide de nuevo`, async ({
       page,
@@ -428,7 +434,7 @@ test.describe("términos que ya no valen", () => {
       await expect(staleCard.getByText("No se hizo ningún cobro.", { exact: true })).toBeVisible()
       await expect(staleCard.getByRole("button")).toHaveText(["Cancelar compra"])
       await expect(page.getByTestId("purchase-approval-card")).toHaveCount(0)
-      await expect(page.getByText(/recarga la página|no longer|could not/i)).toHaveCount(0)
+      await expect(page.getByText(/recarga la página|no longer|could not|has expired/i)).toHaveCount(0)
       await expect(page.getByRole("alert")).toHaveCount(0)
       // Ni el plan ni la actividad siguen esperando una aprobación que ya no es posible.
       await expect(page.getByText("Esperando tu aprobación")).toHaveCount(0)

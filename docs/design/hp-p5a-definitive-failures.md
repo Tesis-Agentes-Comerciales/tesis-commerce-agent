@@ -104,7 +104,7 @@ que no entra en la tabla.
   `VERIFIED_NOT_CREATED`.
 - `api.py`: `TermsStatus = changed | expired | unavailable`. `error_response` da el texto en
   español a `out_of_stock` e `invalid_item` cuando llegan como `PurchaseServiceError` (el rechazo
-  gobernado), como ya hace con `offer_expired`.
+  gobernado), como ya hace con `offer_expired`; responde 409.
 - `approval.py`: orden nuevo de `require_approvable`.
 - UI: `ui/src/lib/commerce-api.ts` (`PendingTermsStatus`), `stale-terms.ts`, `stale-terms-card.tsx`,
   `trace-copy.ts`. La traza no cambia de contrato: `failed` ya lleva `code` libre.
@@ -113,8 +113,11 @@ que no entra en la tabla.
 
 - `StaleTermsCard` ya tiene la variante `expired`; ahora también llega al recargar.
 - Historias: `App.stories.tsx` suma `RestoredTermsExpired` (compra restaurada con
-  `terms_status: "expired"`, se cancela). `control-step.stories.tsx` suma el paso `failed` con
-  `offer_expired`. E2E: la compra restaurada vencida se cancela.
+  `terms_status: "expired"`, se cancela). `control-step.stories.tsx` suma
+  `FailedCreationRefused`, el paso `failed` con `offer_expired` traducido.
+- E2E (`ui/e2e/chat.spec.ts`): los recorridos de «términos que ya no valen» suman `expired`:
+  aprobar responde 409 `checkout_expired` y la compra restaurada con `terms_status: "expired"`;
+  en los dos la compra se cancela.
 
 ## Impacto en B0
 
