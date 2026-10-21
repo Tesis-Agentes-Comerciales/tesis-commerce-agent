@@ -3,9 +3,10 @@
 `hnp-pilot --dry-run` validates the manifest and its matrix, prints the registered plan, the
 environment of each condition (names only), the integration readiness and whether a live run would
 start; it never starts a service or calls a model. A live run refuses without `HNP_LIVE=1`,
-without the oracles' approval in the committed manifest, without `HNP_PILOT_MAX_COST_USD` (or above
-the manifest's cap), off the registered agent commit, on a dirty worktree or with a missing
-integration; past its guards, this checkout has no episode runner yet.
+without the oracles' approval in the committed manifest, without `HNP_PILOT_MAX_COST_USD` (or
+above the manifest's cap), off the registered agent commit, on a dirty worktree, with a missing
+integration, under pytest or with a port of the stack in use; it stops cleanly once the
+accumulated model cost reaches the cap.
 """
 
 from __future__ import annotations
@@ -18,12 +19,16 @@ import json
 import os
 import re
 import secrets
+import socket
 import subprocess
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+import tempfile
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
+from uuid import uuid4
 
 from pydantic import ValidationError
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
@@ -44,7 +49,7 @@ from commerce_evaluation.governance_pilot import (
     base_readiness,
     repository_provenance,
 )
-from commerce_evaluation.paths import DATA, ROOT
+from commerce_evaluation.paths import DATA, RESULTS, ROOT
 from commerce_evaluation.pilot_policy import ALLOWLIST, HP_V2_POLICY, scenario_environment
 
 MANIFEST = DATA / "hnp-pilot-v1.json"
@@ -839,6 +844,76 @@ def dry_run_document(preparation: Preparation) -> dict[str, Any]:
     }
 
 
+# Live run ----------------------------------------------------------------------------------------
+
+
+Execute = Callable[[PlannedEpisode, int], dict[str, Any]]
+
+
+def run_plan(
+    plan: Sequence[PlannedEpisode],
+    execute: Execute,
+    *,
+    cap_usd: float,
+    spent: Callable[[], float],
+    result_file: TextIO,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Run the plan in order and write each row as it ends. After every episode `spent` gives the
+    invocation's model cost, every row re-valued (`CostMeter.total_usd`); reaching the cap stops
+    the invocation with the rows so far. Before that episode the total was under the cap, so the
+    cap is passed by at most what that episode added."""
+    rows: list[dict[str, Any]] = []
+    stop: dict[str, Any] = {"stopped_by": None, "accumulated_cost_usd": 0.0, "cap_usd": cap_usd}
+    for index, episode in enumerate(plan):
+        if not episode.runs:
+            continue
+        row = execute(episode, index)
+        accumulated = spent()
+        row["accumulated_cost_usd"] = stop["accumulated_cost_usd"] = round(accumulated, 6)
+        rows.append(row)
+        result_file.write(json.dumps(row, ensure_ascii=False) + "\n")
+        result_file.flush()
+        if accumulated >= cap_usd:
+            stop |= {
+                "stopped_by": "cost_cap",
+                "after_episode": episode.key(),
+                "not_run": [later.key() for later in plan[index + 1 :] if later.runs],
+            }
+            break
+    return rows, stop
+
+
+def busy_ports(ports: Iterable[int]) -> list[int]:
+    """Ports of the loopback stack that something already holds. The runner waits for a 200 on
+    each port, so another stack there (a demo-stack) would stand in for the pilot's merchant and
+    PSP, with other AP2 keys."""
+    busy: list[int] = []
+    for port in ports:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.settimeout(0.5)
+            listening = probe.connect_ex(("127.0.0.1", port)) == 0
+        if not listening:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                try:
+                    probe.bind(("127.0.0.1", port))
+                except OSError:
+                    listening = True
+        if listening:
+            busy.append(port)
+    return busy
+
+
+def require_live_start(ports: Iterable[int], environ: Mapping[str, str]) -> None:
+    """Past the guards: never under pytest, and only on free ports."""
+    if "PYTEST_CURRENT_TEST" in environ:
+        raise PilotError("A live HNP pilot run never starts under pytest")
+    busy = busy_ports(ports)
+    if busy:
+        raise PilotError(
+            f"Ports already in use: {busy}; stop the other stack before a live HNP pilot run"
+        )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=MANIFEST)
@@ -856,8 +931,18 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--smoke", action="store_true", help="one repetition per cell; validates the harness"
     )
+    parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--merchant-repo", type=Path, default=ROOT.parent / "tesis-commerce-merchant"
+    )
+    parser.add_argument(
+        "--payment-repo", type=Path, default=ROOT.parent / "tesis-payment-provider-sandbox"
+    )
     parser.add_argument("--merchant-port", type=int, default=4120)
+    parser.add_argument("--payment-port", type=int, default=4130)
+    parser.add_argument("--agent-port", type=int, default=43125)
     parser.add_argument("--auth-port", type=int, default=4215)
+    parser.add_argument("--skip-postgres-start", action="store_true")
     return parser
 
 
@@ -876,7 +961,34 @@ def _run(arguments: argparse.Namespace) -> int:
         print(json.dumps(dry_run_document(preparation), ensure_ascii=False))
         return 0
     require_guards(preparation.guards)
-    raise PilotError("This checkout has no live HNP episode runner yet")
+    require_live_start(
+        (
+            arguments.merchant_port,
+            arguments.payment_port,
+            arguments.agent_port,
+            arguments.auth_port,
+        ),
+        os.environ,
+    )
+    assert preparation.cost.cap_usd is not None
+    from commerce_evaluation.hnp_pilot_live import run_live
+
+    output = arguments.output
+    if output is None:
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        output = RESULTS / f"hnp-pilot-{stamp}.jsonl"
+    output = output.resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="hnp-pilot-") as temporary:
+        summary = run_live(
+            preparation,
+            arguments=arguments,
+            output=output,
+            temp=Path(temporary),
+            invocation_id=f"hnp-pilot-{uuid4().hex[:12]}",
+        )
+    print(json.dumps(summary, ensure_ascii=False))
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:

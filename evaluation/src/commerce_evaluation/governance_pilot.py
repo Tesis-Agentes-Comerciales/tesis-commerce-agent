@@ -2054,6 +2054,187 @@ def require_registered_run(
         )
 
 
+# Service secrets a log tail never shows.
+SERVICE_SECRETS = (
+    "MERCHANT_WEBHOOK_SECRET",
+    "AGENT_APPROVAL_SECRET",
+    "PAYMENT_AGENT_BEARER_TOKEN",
+    "PAYMENT_MERCHANT_BEARER_TOKEN",
+    "PAYMENT_TOKEN_SECRET",
+    "AGENT_AP2_PRIVATE_KEY_PEM",
+    "MERCHANT_AP2_PRIVATE_KEY_PEM",
+    "PAYMENT_AP2_PRIVATE_KEY_PEM",
+)
+
+
+def services_environment(
+    *, merchant_port: int, payment_port: int, agent_port: int, auth_port: int
+) -> dict[str, str]:
+    """The process environment plus the loopback stack's origins and per-invocation secrets.
+
+    `AGENT_AP2_PRIVATE_KEY_PEM` is the provider key the merchant and the PSP trust.
+    """
+    environment = os.environ.copy()
+    environment.pop("VIRTUAL_ENV", None)
+    agent_key = _ap2_private_key()
+    merchant_key = _ap2_private_key()
+    payment_key = _ap2_private_key()
+    agent_jwk = JWK.from_pem(agent_key.encode()).export_public()
+    merchant_jwk = JWK.from_pem(merchant_key.encode()).export_public()
+    merchant_origin = f"http://127.0.0.1:{merchant_port}"
+    environment.update(
+        {
+            "ACP_API_BASE_URL": merchant_origin,
+            "MERCHANT_BASE_URL": merchant_origin,
+            "PAYMENT_PROVIDER_URL": f"http://127.0.0.1:{payment_port}",
+            "WEBHOOK_RECEIVER_URL": f"http://127.0.0.1:{agent_port}",
+            "MERCHANT_WEBHOOK_SECRET": secrets.token_urlsafe(32),
+            "AGENT_APPROVAL_SECRET": secrets.token_urlsafe(32),
+            "PAYMENT_AGENT_BEARER_TOKEN": secrets.token_urlsafe(32),
+            "PAYMENT_MERCHANT_BEARER_TOKEN": secrets.token_urlsafe(32),
+            "PAYMENT_TOKEN_SECRET": secrets.token_urlsafe(32),
+            "PAYMENT_DATABASE_PATH": "",
+            "PAYMENT_SANDBOX_CLOCK_AT": "2026-09-10T14:05:00Z",
+            "AGENT_SANDBOX_CLOCK_AT": "2026-09-10T14:05:00Z",
+            "AGENT_AP2_REQUIRED": "true",
+            "AGENT_AP2_PRIVATE_KEY_PEM": agent_key,
+            "MERCHANT_AP2_REQUIRED": "true",
+            "MERCHANT_AP2_PRIVATE_KEY_PEM": merchant_key,
+            "MERCHANT_AP2_AGENT_JWK_JSON": agent_jwk,
+            "PAYMENT_AP2_REQUIRED": "true",
+            "PAYMENT_AP2_AGENT_JWK_JSON": agent_jwk,
+            "PAYMENT_AP2_MERCHANT_JWK_JSON": merchant_jwk,
+            "PAYMENT_AP2_MERCHANT_ISSUER": merchant_origin,
+            "PAYMENT_AP2_PRIVATE_KEY_PEM": payment_key,
+            "BETTER_AUTH_URL": f"http://127.0.0.1:{auth_port}",
+            "BETTER_AUTH_SECRET": secrets.token_urlsafe(32),
+            "PORT": str(auth_port),
+            "NO_PROXY": "127.0.0.1,localhost",
+            "no_proxy": "127.0.0.1,localhost",
+        }
+    )
+    return environment
+
+
+def prepare_services(
+    agent: Path,
+    merchant: Path,
+    payment: Path,
+    environment: dict[str, str],
+    *,
+    skip_postgres_start: bool,
+) -> None:
+    """Install the three checkouts and migrate the merchant's PostgreSQL."""
+    _run(["uv", "sync", "--frozen", "--all-groups"], cwd=agent, env=environment)
+    _run(["uv", "sync", "--frozen", "--all-groups"], cwd=merchant, env=environment)
+    _run(["uv", "sync", "--frozen", "--all-groups"], cwd=payment, env=environment)
+    require_merchant_run_checkouts(merchant, environment)
+    if not skip_postgres_start:
+        _run(
+            ["docker", "compose", "up", "-d", "--wait", "postgres"],
+            cwd=merchant,
+            env=environment,
+        )
+    _run(["uv", "run", "python", "-m", "commerce_lab.db", "migrate"], cwd=merchant, env=environment)
+
+
+@contextmanager
+def running_services(
+    *,
+    agent: Path,
+    merchant: Path,
+    payment: Path,
+    environment: dict[str, str],
+    temp: Path,
+    merchant_port: int,
+    payment_port: int,
+) -> Iterator[None]:
+    """Auth, PSP and merchant while the block runs; on any error, their redacted log tails."""
+    environment["PAYMENT_DATABASE_PATH"] = str(temp / "payments.db")
+    environment["AUTH_DATABASE_PATH"] = str(temp / "auth.db")
+    auth_log = temp / "auth.log"
+    merchant_log = temp / "merchant.log"
+    payment_log = temp / "payment.log"
+    processes: list[subprocess.Popen[str]] = []
+    logs = []
+    try:
+        for command, cwd, log_path in (
+            (["node", "server.js"], agent / "auth", auth_log),
+            (
+                [
+                    str(payment / ".venv" / "bin" / "python"),
+                    "-m",
+                    "uvicorn",
+                    "tesis_payment_provider.api:app_factory",
+                    "--factory",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(payment_port),
+                ],
+                payment,
+                payment_log,
+            ),
+            (
+                [
+                    str(merchant / ".venv" / "bin" / "python"),
+                    "-m",
+                    "uvicorn",
+                    "commerce_lab.api:app",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(merchant_port),
+                ],
+                merchant,
+                merchant_log,
+            ),
+        ):
+            log = log_path.open("w", encoding="utf-8")
+            logs.append(log)
+            processes.append(
+                subprocess.Popen(
+                    command,
+                    cwd=cwd,
+                    env=environment,
+                    text=True,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                )
+            )
+        _wait_http(f"{environment['BETTER_AUTH_URL']}/api/auth/jwks", processes[0], 30)
+        _wait_http(
+            f"{environment['PAYMENT_PROVIDER_URL']}/health",
+            processes[1],
+            30,
+            require_ok_status=True,
+        )
+        _wait_http(
+            f"{environment['MERCHANT_BASE_URL']}/health/ready",
+            processes[2],
+            30,
+            require_ok_status=True,
+        )
+        yield
+    except Exception:
+        for name, log_path in (
+            ("auth", auth_log),
+            ("payment", payment_log),
+            ("merchant", merchant_log),
+        ):
+            for log in logs:
+                log.flush()
+            tail = _tail(log_path, tuple(environment[secret] for secret in SERVICE_SECRETS))
+            if tail:
+                print(f"{name} log tail:\n{tail}", file=sys.stderr)
+        raise
+    finally:
+        for process in reversed(processes):
+            _terminate(process)
+        for log in logs:
+            log.close()
+
+
 def _run_pilot() -> int:
     arguments = _parser().parse_args()
     manifest_path = arguments.manifest.resolve()
@@ -2161,15 +2342,13 @@ def _run_pilot() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     summary_path = output.with_suffix(".summary.json")
 
-    environment = os.environ.copy()
-    environment.pop("VIRTUAL_ENV", None)
-    agent_key = _ap2_private_key()
-    merchant_key = _ap2_private_key()
-    payment_key = _ap2_private_key()
-    agent_jwk = JWK.from_pem(agent_key.encode()).export_public()
-    merchant_jwk = JWK.from_pem(merchant_key.encode()).export_public()
-    payment_origin = f"http://127.0.0.1:{arguments.payment_port}"
-    auth_origin = f"http://127.0.0.1:{arguments.auth_port}"
+    environment = services_environment(
+        merchant_port=arguments.merchant_port,
+        payment_port=arguments.payment_port,
+        agent_port=arguments.agent_port,
+        auth_port=arguments.auth_port,
+    )
+    auth_origin = environment["BETTER_AUTH_URL"]
     # Only the agent receives them, so the D1 keys never reach the other services or their logs.
     environments = condition_environments(
         conditions,
@@ -2179,108 +2358,22 @@ def _run_pilot() -> int:
     )
     chain = evidence_chain_check(manifest)
     digests = PolicyDigests()
-    environment.update(
-        {
-            "ACP_API_BASE_URL": merchant_origin,
-            "MERCHANT_BASE_URL": merchant_origin,
-            "PAYMENT_PROVIDER_URL": payment_origin,
-            "WEBHOOK_RECEIVER_URL": f"http://127.0.0.1:{arguments.agent_port}",
-            "MERCHANT_WEBHOOK_SECRET": secrets.token_urlsafe(32),
-            "AGENT_APPROVAL_SECRET": secrets.token_urlsafe(32),
-            "PAYMENT_AGENT_BEARER_TOKEN": secrets.token_urlsafe(32),
-            "PAYMENT_MERCHANT_BEARER_TOKEN": secrets.token_urlsafe(32),
-            "PAYMENT_TOKEN_SECRET": secrets.token_urlsafe(32),
-            "PAYMENT_DATABASE_PATH": "",
-            "PAYMENT_SANDBOX_CLOCK_AT": "2026-09-10T14:05:00Z",
-            "AGENT_SANDBOX_CLOCK_AT": "2026-09-10T14:05:00Z",
-            "AGENT_AP2_REQUIRED": "true",
-            "AGENT_AP2_PRIVATE_KEY_PEM": agent_key,
-            "MERCHANT_AP2_REQUIRED": "true",
-            "MERCHANT_AP2_PRIVATE_KEY_PEM": merchant_key,
-            "MERCHANT_AP2_AGENT_JWK_JSON": agent_jwk,
-            "PAYMENT_AP2_REQUIRED": "true",
-            "PAYMENT_AP2_AGENT_JWK_JSON": agent_jwk,
-            "PAYMENT_AP2_MERCHANT_JWK_JSON": merchant_jwk,
-            "PAYMENT_AP2_MERCHANT_ISSUER": merchant_origin,
-            "PAYMENT_AP2_PRIVATE_KEY_PEM": payment_key,
-            "BETTER_AUTH_URL": auth_origin,
-            "BETTER_AUTH_SECRET": secrets.token_urlsafe(32),
-            "PORT": str(arguments.auth_port),
-            "NO_PROXY": "127.0.0.1,localhost",
-            "no_proxy": "127.0.0.1,localhost",
-        }
-    )
-
-    _run(["uv", "sync", "--frozen", "--all-groups"], cwd=agent, env=environment)
-    _run(["uv", "sync", "--frozen", "--all-groups"], cwd=merchant, env=environment)
-    _run(["uv", "sync", "--frozen", "--all-groups"], cwd=payment, env=environment)
-    require_merchant_run_checkouts(merchant, environment)
     mechanisms = mechanisms_by_scenario(manifest_path)
-    if not arguments.skip_postgres_start:
-        _run(
-            ["docker", "compose", "up", "-d", "--wait", "postgres"],
-            cwd=merchant,
-            env=environment,
-        )
-    _run(["uv", "run", "python", "-m", "commerce_lab.db", "migrate"], cwd=merchant, env=environment)
+    prepare_services(
+        agent, merchant, payment, environment, skip_postgres_start=arguments.skip_postgres_start
+    )
 
     with tempfile.TemporaryDirectory(prefix="governance-pilot-") as temporary:
         temp = Path(temporary)
-        environment["PAYMENT_DATABASE_PATH"] = str(temp / "payments.db")
-        environment["AUTH_DATABASE_PATH"] = str(temp / "auth.db")
-        auth_log = temp / "auth.log"
-        merchant_log = temp / "merchant.log"
-        payment_log = temp / "payment.log"
-        processes: list[subprocess.Popen[str]] = []
-        logs = []
-        try:
-            for command, cwd, log_path in (
-                (["node", "server.js"], agent / "auth", auth_log),
-                (
-                    [
-                        str(payment / ".venv" / "bin" / "python"),
-                        "-m",
-                        "uvicorn",
-                        "tesis_payment_provider.api:app_factory",
-                        "--factory",
-                        "--host",
-                        "127.0.0.1",
-                        "--port",
-                        str(arguments.payment_port),
-                    ],
-                    payment,
-                    payment_log,
-                ),
-                (
-                    [
-                        str(merchant / ".venv" / "bin" / "python"),
-                        "-m",
-                        "uvicorn",
-                        "commerce_lab.api:app",
-                        "--host",
-                        "127.0.0.1",
-                        "--port",
-                        str(arguments.merchant_port),
-                    ],
-                    merchant,
-                    merchant_log,
-                ),
-            ):
-                log = log_path.open("w", encoding="utf-8")
-                logs.append(log)
-                processes.append(
-                    subprocess.Popen(
-                        command,
-                        cwd=cwd,
-                        env=environment,
-                        text=True,
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
-                    )
-                )
-            _wait_http(f"{auth_origin}/api/auth/jwks", processes[0], 30)
-            _wait_http(f"{payment_origin}/health", processes[1], 30, require_ok_status=True)
-            _wait_http(f"{merchant_origin}/health/ready", processes[2], 30, require_ok_status=True)
+        with running_services(
+            agent=agent,
+            merchant=merchant,
+            payment=payment,
+            environment=environment,
+            temp=temp,
+            merchant_port=arguments.merchant_port,
+            payment_port=arguments.payment_port,
+        ):
             auth = AuthClient(auth_origin)
             actor_id = auth.signup()
             if _decode_jwt_subject(auth.token()) != actor_id:
@@ -2329,35 +2422,6 @@ def _run_pilot() -> int:
                 encoding="utf-8",
             )
             print(json.dumps(summary, ensure_ascii=False))
-        except Exception:
-            for name, log_path in (
-                ("auth", auth_log),
-                ("payment", payment_log),
-                ("merchant", merchant_log),
-            ):
-                for log in logs:
-                    log.flush()
-                tail = _tail(
-                    log_path,
-                    (
-                        environment["MERCHANT_WEBHOOK_SECRET"],
-                        environment["AGENT_APPROVAL_SECRET"],
-                        environment["PAYMENT_AGENT_BEARER_TOKEN"],
-                        environment["PAYMENT_MERCHANT_BEARER_TOKEN"],
-                        environment["PAYMENT_TOKEN_SECRET"],
-                        environment["AGENT_AP2_PRIVATE_KEY_PEM"],
-                        environment["MERCHANT_AP2_PRIVATE_KEY_PEM"],
-                        environment["PAYMENT_AP2_PRIVATE_KEY_PEM"],
-                    ),
-                )
-                if tail:
-                    print(f"{name} log tail:\n{tail}", file=sys.stderr)
-            raise
-        finally:
-            for process in reversed(processes):
-                _terminate(process)
-            for log in logs:
-                log.close()
     return 0
 
 
