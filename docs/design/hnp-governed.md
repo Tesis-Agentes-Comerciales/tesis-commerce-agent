@@ -169,6 +169,22 @@ la evidencia. `PurchaseService.start(grant=...)` crea la compra con `purchase_mo
 impide cambiar el modo o el grant después) y se detiene en `checkout_prepared`, con el journal
 post-create en `observed`. `claim_completion`, como `pending_purchase`, solo ve compras HP.
 
+**Cómo lo arma HNP-09a.** `HnpExecutionService.run(task_id)` (`application/hnp_execution.py`) hace
+los pasos 1 a 10 y devuelve el `Step` que terminó la corrida: `applied` con UoW-2 comprometida,
+`closed` con su terminal o `lease_lost`. Recibe por inyección el ledger, el store, `start`, el
+gateway ACP, el `AgentKeyCloser`, la compuerta (`NullHnpPolicyGate` en `off`, sin frescura ni D1) y
+el selector (`HnpSelector`; `DeterministicHnpSelector` toma la primera de la lista corta). Lee del
+ledger el grant, la intención y los datos de entrega; el selector solo ve la lista corta, la
+intención y `preference_text`. UoW-1 espera la `Authority` del claim; D3 y UoW-2, la que validó
+UoW-1 y no la que relee UoW-C, que no compara el kill switch ni el grant (K10). Una compra que
+`start` dejó `selected` termina `failed(governance_unavailable)` (K15). `payment_request_digest` fija la petición al PSP del despacho (clave
+`<operation_id>:payment`, `allowance` y los digests del checkout JWT y de los dos cerrados); 09b la
+reconstruye igual. Lo que §8.1 no nombra: un feed ilegible, un rechazo del comercio, una firma del
+checkout o un cierre que falla terminan `checkout_failed`; un selector que falla o elige fuera de la
+lista corta, `selection_not_eligible`; un grant ilegible y un re-claim con avance sin outbox,
+`state_conflict` (reanudarlo es de 09b). El `outcome_code` de un deny de D1 sale de los
+`reason_codes` de su evidencia (`sqlite_d1_denials`): POL-01, luego POL-02, luego POL-11.
+
 ### 3.4 Dónde corren D1, D2-HNP y D3-HNP
 
 | Punto | Código | Políticas | Efecto protegido | Con deny |

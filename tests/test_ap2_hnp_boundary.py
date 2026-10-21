@@ -12,6 +12,8 @@ MODEL_FACING = (
     "commerce_agent.llm.catalog_tool",
     "commerce_agent.llm.conversation_router",
     "commerce_agent.application.conversation",
+    # What the HNP selector sees: the shortlist, the intent and the buyer's preference text.
+    "commerce_agent.application.hnp_selection",
 )
 
 
@@ -31,7 +33,11 @@ def test_model_facing_modules_never_load_the_hnp_signers() -> None:
 
 
 def test_no_model_facing_source_names_the_hnp_signers() -> None:
-    model_sources = [*(SOURCE / "llm").glob("*.py"), SOURCE / "application" / "conversation.py"]
+    model_sources = [
+        *(SOURCE / "llm").glob("*.py"),
+        SOURCE / "application" / "conversation.py",
+        SOURCE / "application" / "hnp_selection.py",
+    ]
     signers = ("ap2_hnp", "OpenMandateIssuer", "AgentKeyCloser", "present_closed_mandate")
 
     assert [

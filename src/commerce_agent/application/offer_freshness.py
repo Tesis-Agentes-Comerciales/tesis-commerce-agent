@@ -1,9 +1,12 @@
-"""Live-offer freshness before Human Present terms are shown or signed (b2-governed-pilot).
+"""Live-offer freshness before terms are shown, approved or closed (b2-governed-pilot).
 
 The merchant checkout keeps a snapshot of its offer, so its GET and the approval fingerprint do
 not move when the offer changes. The guard re-reads the live offer and applies the predicate the
 merchant uses at completion, so stale terms stop before AP2 mandates exist. Revision is
 evidence only: a new revision with the same terms is still fresh.
+
+Human Present checks at `present` and `approve`; the Human Not Present executor checks at `close`,
+before D2-HNP, the reservation and the Agent Key close (docs/design/hnp-governed.md §3.3, step 5).
 """
 
 import logging
@@ -22,7 +25,7 @@ from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
 # The only destination the lab serves; ACP checkout creation sends none.
 LAB_DESTINATION = DeliveryContext(country="CO", city="Bogota", postal_code="110111")
 FreshnessMode = Literal["shadow", "enforce"]
-FreshnessStage = Literal["present", "approve"]
+FreshnessStage = Literal["present", "approve", "close"]
 
 
 class OfferReader(Protocol):
