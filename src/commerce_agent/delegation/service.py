@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from commerce_agent.acp.destination import merchant_fulfillment
 from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.ap2_hnp import (
     MERCHANT_NAME,
@@ -159,6 +160,12 @@ class DelegationService:
     def propose(self, owner_id: str, request: DelegationProposalRequest) -> DelegationProposal:
         if request.valid_for_seconds > self._max_validity:
             raise DelegationError("delegation_validity_exceeded")
+        # POL-08 compares this binding with D2's over the merchant's echo: bind (and later send)
+        # the destination as the merchant normalizes it, and refuse one it would never accept.
+        fulfillment = merchant_fulfillment(request.details.fulfillment)
+        if fulfillment is None:
+            raise DelegationError("delegation_destination_unsupported")
+        details = request.details.model_copy(update={"fulfillment": fulfillment})
         feed = self._feed()
         offered = {
             item.variant_id: item for item in feed.candidates if item.currency.upper() == "COP"
@@ -170,7 +177,6 @@ class DelegationService:
         presented_at = utc_text(now)
         expires_at = utc_text(now + timedelta(seconds=request.valid_for_seconds))
         keys = self._trust.keys
-        fulfillment = request.details.fulfillment
         consent = {
             "schema_version": "commerce-delegation/1.0",
             "proposal_id": proposal_id,
@@ -214,7 +220,7 @@ class DelegationService:
             owner_id=owner_id,
             scope_json=payload.decode(),
             scope_digest=scope_digest(scope),
-            checkout_details_json=canonical_bytes(request.details).decode(),
+            checkout_details_json=canonical_bytes(details).decode(),
             presented_at=presented_at,
             expires_at=utc_text(now + self._ttl),
         )

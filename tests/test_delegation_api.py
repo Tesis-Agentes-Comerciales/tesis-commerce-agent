@@ -12,6 +12,7 @@ from contextlib import closing
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Protocol
+from uuid import UUID
 
 import httpx
 import pytest
@@ -28,6 +29,7 @@ from commerce_agent.api import create_app
 from commerce_agent.application.purchase import CheckoutDetails
 from commerce_agent.buyer_auth import BuyerPrincipal
 from commerce_agent.config import Settings
+from commerce_agent.delegation import service as delegation_service
 from commerce_agent.delegation.contract import (
     HNP_MESSAGES,
     DelegationList,
@@ -300,6 +302,81 @@ def test_the_destination_binding_is_the_one_d2_computes_over_the_merchant_echo(
         expected["value"],
     )
     assert binding.binding_id == f"destination:{proposal['proposal_id']}"
+
+
+def with_address(**changes: str) -> dict[str, Any]:
+    body = details()
+    body["fulfillment"]["address"] |= changes
+    return body
+
+
+# The merchant echoes every spelling of the city it accepts as "Bogota"
+# (tests/fixtures/merchant_destination/cases.json), so this is the echo D2 binds.
+MERCHANT_ECHO = details()["fulfillment"]
+
+
+def test_the_consented_destination_is_the_one_the_merchant_echoes(
+    client: TestClient, ledger: SqliteDelegationLedger
+) -> None:
+    echo = destination_binding(KEYS, "any", MERCHANT_ECHO)
+    for city in ("Bogotá", "Bogota", "  BOGOTÁ "):
+        response = propose(client, details=with_address(city=city))
+        assert response.status_code == 201, response.text
+        proposal = response.json()
+
+        stored = ledger.proposal("buyer-a", proposal["proposal_id"])
+        assert stored is not None
+        binding = parse_consent_scope(stored.scope_json.encode()).scope.destination_binding
+        assert (binding.scheme, binding.key_id, binding.value) == (
+            echo["scheme"],
+            echo["key_id"],
+            echo["value"],
+        ), city
+        # The executor sends the stored details: the merchant echoes what was bound.
+        sent = CheckoutDetails.model_validate_json(stored.checkout_details_json)
+        assert sent.fulfillment.model_dump(mode="json") == MERCHANT_ECHO, city
+        assert proposal["scope"]["destination_label"] == "Bogota, DC"
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        {"city": "Medellín"},
+        {"city": "Bogotá"},  # decomposed accent: the merchant does not fold it
+        {"state": "Cundinamarca"},
+        {"country": "Colombia"},
+        {"postal_code": "110221"},
+    ],
+)
+def test_a_destination_the_merchant_refuses_is_rejected_without_writing(
+    tmp_path: Path, client: TestClient, address: dict[str, str]
+) -> None:
+    response = propose(client, details=with_address(**address))
+
+    error(response, 422, "delegation_destination_unsupported")
+    assert "Calle 100" not in response.text
+    with closing(sqlite3.connect(tmp_path / "agent.db")) as connection:
+        written = connection.execute(
+            "SELECT (SELECT count(*) FROM delegation_proposals)"
+            " + (SELECT count(*) FROM delegation_events)"
+        ).fetchone()
+    assert written == (0,)
+
+
+def test_the_spelling_of_the_city_does_not_change_the_consented_scope(
+    tmp_path: Path, clock: AuthorityClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(delegation_service, "uuid4", lambda: UUID(int=1))
+    proposals = []
+    for directory, city in (("accented", "Bogotá"), ("plain", "Bogota")):
+        (tmp_path / directory).mkdir()
+        with TestClient(build(tmp_path / directory, clock)) as client:
+            proposal = propose(client, details=with_address(city=city)).json()
+            assert consent(client, proposal).status_code == 201
+        proposals.append(proposal)
+
+    # Same proposal id, clock and buyer: one scope, so one digest to consent to.
+    assert proposals[0] == proposals[1]
 
 
 @pytest.mark.parametrize(
