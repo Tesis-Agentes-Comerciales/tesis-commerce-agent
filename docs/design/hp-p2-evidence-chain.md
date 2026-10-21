@@ -43,7 +43,10 @@ verificar firmas JWS sin conexión (ver Decisiones) y cambios en la traza o la U
   (`webhook-dispatch --limit 20`) mientras vigila los servicios. Solo le pasa
   `WEBHOOK_RECEIVER_URL` (el origen del agente) y `MERCHANT_WEBHOOK_SECRET` (el mismo del
   agente). Las entregas van a `webhooks.log` del arranque; una falla se avisa una vez y la demo
-  sigue.
+  sigue. Cada pasada corre en su propio grupo de procesos con un límite de 10 s: si se cuelga,
+  o al apagar con una pasada en curso, el lanzador mata el grupo entero (`uv run` deja un hijo
+  `python`), así que no quedan huérfanos. Un error al lanzarlo, al leer su salida o al escribir
+  `webhooks.log` tampoco detiene la demo ni retrasa la detección de un servicio caído.
 - Runner del piloto: si `GET /purchases/{run_id}` trae `order_id`, despacha en lotes hasta vaciar
   el outbox, con el agente de la repetición todavía arriba, y guarda en la fila
   `merchant_webhooks` (`count`, `by_outcome`). Sin orden no despacha y el campo queda `null`. El
