@@ -16,21 +16,34 @@ A blocked unit of work already classified why (§4.5): the executor ends the tas
 outcome, by CAS on its lease. UoW-1 expects the claim's authority, and D3 and UoW-2 the one UoW-1
 validated (UoW-C checks neither the kill switch nor the grant): never a re-read one (K10). A lost
 lease ends nothing.
+
+A re-claim resumes from the durable state (§4.5): an outbox row is left to its dispatch; the
+closed mandates UoW-C kept are reused for D3 and UoW-2 while they are valid; any other progress
+ends `state_conflict`. Nothing is created or closed twice.
 """
 
+import json
 import logging
 import sqlite3
 from collections.abc import Callable, Sequence
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, NoReturn, Protocol
 
+import jwt
+
 from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.acp.models import CheckoutSession
 from commerce_agent.ap2 import checkout_hash
-from commerce_agent.ap2_hnp import MERCHANT_ID, MandatePair
+from commerce_agent.ap2_hnp import (
+    CLOSED_TTL_SECONDS,
+    MERCHANT_ID,
+    MandatePair,
+    closed_checkout_jwt,
+    closed_issued_at,
+)
 from commerce_agent.ap2_hnp import SignedMandate as SignedAp2Mandate
 from commerce_agent.application.hnp_selection import HnpSelector
 from commerce_agent.application.offer_freshness import FreshnessStage
@@ -48,6 +61,7 @@ from commerce_agent.delegation.models import (
     DispatchCommit,
     Execution,
     KillSwitchStage,
+    MandateRecord,
     OutcomeCode,
     ReservationRequest,
     SignedMandate,
@@ -58,6 +72,7 @@ from commerce_agent.delegation.models import (
 from commerce_agent.delegation.ports import TransactionHook
 from commerce_agent.domain import PurchaseIntent, rank_candidates
 from commerce_agent.governance.canonical import canonical_bytes, sha256_digest
+from commerce_agent.governance.evaluator import GovernanceError
 from commerce_agent.governance.evidence import DecisionRecord
 from commerce_agent.governance.hnp_models import ConsentScope, parse_consent_scope
 from commerce_agent.governance.hnp_policy import HnpGrant
@@ -106,7 +121,19 @@ _START_OUTCOMES: dict[str, OutcomeCode] = {
     "invalid_candidate": "selection_not_eligible",
     "no_candidate": "no_candidate_in_scope",
 }
+# §8.1, «alerta al operador»: these terminals may mean altered mandates or a scope the operator
+# misconfigured. Each is logged once at ERROR on `commerce_agent.hnp.alerts`, with ids only.
+OPERATOR_ALERTS: frozenset[OutcomeCode] = frozenset(
+    {
+        "selection_not_eligible",
+        "merchant_not_allowed",
+        "mandate_proof_invalid",
+        "verifier_invalid_mandate",
+        "verifier_invalid_credential",
+    }
+)
 _log = logging.getLogger(__name__)
+_alerts = logging.getLogger("commerce_agent.hnp.alerts")
 
 
 class PurchaseStarter(Protocol):
@@ -144,6 +171,12 @@ class MandateCloser(Protocol):
         checkout: CheckoutSession,
         closed_at: datetime,
     ) -> MandatePair: ...
+
+
+class CheckoutCanceler(Protocol):
+    def cancel_checkout(
+        self, checkout_id: str, *, idempotency_key: str, reason_code: str | None = None
+    ) -> CheckoutSession: ...
 
 
 class NullHnpPolicyGate:
@@ -185,6 +218,80 @@ def payment_request_digest(
         "ap2_checkout_mandate": token_digest(closed.checkout.token),
     }
     return sha256_digest(PAYMENT_REQUEST_DOMAIN + canonical_bytes(request))
+
+
+@dataclass(frozen=True)
+class ClosedRequest:
+    """What UoW-C fixed for a reservation: the merchant's signed checkout and both closed chains."""
+
+    checkout: CheckoutSession
+    checkout_jwt: str = field(repr=False)
+    closed: MandatePair = field(repr=False)
+
+
+def closed_request(
+    ledger: SqliteDelegationLedger, grant_id: str, reservation_id: str
+) -> ClosedRequest | None:
+    """The closed pair UoW-C stored for the reservation and the checkout its Checkout JWT carries;
+    None without both or with a checkout that cannot be read back."""
+    kept = {m.kind: m for m in ledger.mandates(grant_id) if m.reservation_id == reservation_id}
+    checkout_mandate, payment_mandate = kept.get("closed_checkout"), kept.get("closed_payment")
+    if checkout_mandate is None or payment_mandate is None:
+        return None
+    checkout_jwt = closed_checkout_jwt(checkout_mandate.token)
+    try:
+        # Step 8 verified its signature against the merchant's JWKS before closing; the outbox
+        # digest or D3's `closed_proof` checks that it is still that token.
+        claims = jwt.decode(checkout_jwt, options={"verify_signature": False})
+        checkout = CheckoutSession.model_validate(claims["checkout"])
+        closed = MandatePair(_ap2_mandate(checkout_mandate), _ap2_mandate(payment_mandate))
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError):
+        return None
+    return ClosedRequest(checkout, checkout_jwt, closed)
+
+
+def purchase_terminal(task_id: str, run_id: str, version: int) -> TransactionHook:
+    """The purchase side of a task terminal (§4.6), from the task the unit of work just closed:
+    `failed` with its code, or `canceled` for an escalation or a cancellation."""
+
+    def close(connection: sqlite3.Connection) -> None:
+        state, outcome = connection.execute(
+            "SELECT state, outcome_code FROM hnp_tasks WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        stage = "failed" if state == "failed" else "canceled"
+        SqliteAgentStore.transition_hnp_purchase(
+            connection,
+            run_id,
+            expected_state_version=version,
+            stage=stage,
+            failure_code=outcome if stage == "failed" else None,
+        )
+
+    return close
+
+
+def cancel_escalated_checkout(
+    store: SqliteAgentStore, merchant: CheckoutCanceler, run_id: str, checkout_id: str
+) -> None:
+    """§8.2: an escalation cancels its own checkout, once per run, at best effort."""
+    try:
+        key = store.idempotency_key(run_id, "checkout.cancel.escalation")
+        merchant.cancel_checkout(checkout_id, idempotency_key=key, reason_code="other")
+    except Exception:
+        # Harmless: without the closed mandates, or after the PSP's rejection, nobody completes it.
+        _log.warning("HNP escalation could not cancel its checkout")
+
+
+def alert_operator(step: Step) -> None:
+    """The operator's alert of §8.1, for a terminal that needs a person to look at it."""
+    ex = step.execution
+    if step.status == "closed" and ex is not None and ex.task.outcome_code in OPERATOR_ALERTS:
+        _alerts.error(
+            "HNP task %s ended %s(%s): the operator must review it",
+            ex.task.task_id,
+            ex.task.state,
+            ex.task.outcome_code,
+        )
 
 
 def sqlite_d1_denials(path: Path) -> Callable[[str], tuple[str, ...]]:
@@ -268,16 +375,62 @@ class HnpExecutionService:
         ex = claimed.execution
         if ex.outbox is not None:
             return claimed  # committed before a crash: its dispatch resumes it (HNP-09b)
+        step = self._prepare(ex)
+        alert_operator(step)
+        return step
+
+    def _prepare(self, ex: Execution) -> Step:
+        """Steps 1 to 10, or their recovery after a crash: the UoW-2 step, or the terminal."""
         run = _Run.of(ex)
         try:
-            if ex.reservation is not None or self._store.purchase(run.run_id) is not None:
-                # A re-claim after progress. Resuming it is HNP-09b's; until then a re-claim
-                # never repeats a checkout or a close (§4.5, UoW-C).
-                outcome = self._unrecovered(run.run_id) or "state_conflict"
+            try:
+                if ex.reservation is not None or self._store.purchase(run.run_id) is not None:
+                    return self._recover(run, ex)
+                return self._execute(run, ex)
+            except (GovernanceError, LookupError) as error:
+                # §8.1: evidence that cannot be written fails closed (`GOV_EVIDENCE_UNAVAILABLE`),
+                # and a durable row that went missing under the run is a conflict.
+                governance = isinstance(error, GovernanceError)
+                _log.warning("HNP execution stopped: %s", type(error).__name__)
+                outcome = "governance_unavailable" if governance else "state_conflict"
                 self._end(run, outcome, purchase=self._closable(run.run_id))
-            return self._execute(run, ex)
         except _Stopped as stopped:
             return stopped.step
+
+    def _recover(self, run: _Run, ex: Execution) -> Step:
+        """A re-claim after progress, without an outbox row (§4.5, UoW-C). Only a reservation whose
+        closed mandates UoW-C kept goes on, reusing them while they are valid; nothing is created
+        or closed again."""
+        version, reservation = self._closable(run.run_id), ex.reservation
+        request = None
+        prepared = self._stage(run.run_id) == PurchaseStage.CHECKOUT_PREPARED
+        if reservation is not None and reservation.state == "reserved" and prepared:
+            request = closed_request(self._ledger, run.grant_id, reservation.reservation_id)
+        if (
+            reservation is None
+            or request is None
+            or version is None
+            or (request.checkout.id, request.checkout.total_minor)
+            != (reservation.checkout_id, reservation.amount_minor)
+        ):
+            self._end(run, self._unrecovered(run.run_id) or "state_conflict", purchase=version)
+        try:
+            closed_at = closed_issued_at(request.closed.payment.token)
+        except ValueError:
+            closed_at = 0
+        if self._clock().timestamp() >= closed_at + CLOSED_TTL_SECONDS:
+            self._end(run, "close_expired_before_dispatch", stage="uow2", purchase=version)
+        digest = payment_request_digest(
+            operation_id=reservation.operation_id,
+            checkout=request.checkout,
+            checkout_jwt=request.checkout_jwt,
+            closed=request.closed,
+        )
+        ids = (reservation.reservation_id, reservation.operation_id)
+        # The re-claim's authority stands for the claim's: the one UoW-1 validated is gone.
+        return self._commit(
+            run, request.checkout, ids, ex.authority, reservation.state_version, digest, version
+        )
 
     def _execute(self, run: _Run, ex: Execution) -> Step:
         try:
@@ -291,6 +444,7 @@ class HnpExecutionService:
         except Exception:
             self._end(run, "checkout_failed")
         variant_id = self._select(run, feed, intent, consent)
+        self._hold(run)
         checkout = self._start(run, feed, intent, consent, details, variant_id)
         purchase = self._store.purchase_state_version(run.run_id)
         if self._stage(run.run_id) != PurchaseStage.CHECKOUT_PREPARED or purchase is None:
@@ -317,13 +471,27 @@ class HnpExecutionService:
         digest = self._close(run, checkout, reserved, operation_id, purchase)
         # K10: UoW-C checks neither the switch nor the grant, so D3 and UoW-2 expect the authority
         # and the reservation UoW-1 validated, never what UoW-C read back.
-        d3 = self._decide(run, "D3", checkout, ids, reserved.authority, purchase)
+        version = reserved.reservation.state_version
+        return self._commit(run, checkout, ids, reserved.authority, version, digest, purchase)
+
+    def _commit(
+        self,
+        run: _Run,
+        checkout: CheckoutSession,
+        ids: tuple[str, str],
+        expected: Authority,
+        reservation_version: int,
+        digest: str,
+        purchase: int,
+    ) -> Step:
+        """Steps 9 and 10: D3-HNP and UoW-2, which commits the outbox row."""
+        d3 = self._decide(run, "D3", checkout, ids, expected, purchase)
         commit = DispatchCommit(
             task_id=run.task_id,
             lease_id=run.lease_id,
-            expected=reserved.authority,
-            reservation_id=reservation_id,
-            reservation_version=reserved.reservation.state_version,
+            expected=expected,
+            reservation_id=ids[0],
+            reservation_version=reservation_version,
             # The id the D3 allow names as its transition (§4.3); B0-HNP has none.
             outbox_id=d3.transition_ref or self._new_id("ob"),
             checkout_expires_at=checkout.expires_at,
@@ -334,6 +502,14 @@ class HnpExecutionService:
         step = self._ledger.commit_dispatch(commit, hooks=hooks)
         self._applied(run, step, purchase, stage="uow2", lost=d3.conflict_hooks)
         return step
+
+    def _hold(self, run: _Run) -> None:
+        """Before the first effect (`start`): the selector may be a model call longer than the
+        lease, so the run renews the lease it still holds, or stops if another run re-claimed the
+        task meanwhile (§4.5). The lease's CAS lets only one of them advance."""
+        step = self._ledger.renew_lease(run.task_id, run.lease_id)
+        if step.status != "reused":
+            raise _Stopped(step)
 
     # Steps 2 to 5
 
@@ -542,11 +718,22 @@ class HnpExecutionService:
         """The terminal of §8.1 by CAS, with the purchase closed in the same unit of work when
         `start` prepared it; an escalation also cancels its own checkout (§8.2)."""
         state = _terminal(outcome, escalates=self._mode == "enforce")
-        if purchase is not None:
-            hooks = (*hooks, self._closing(run, purchase))
-        step = self._finish(run, state, outcome, stage, hooks)
+        closing = (
+            () if purchase is None else (purchase_terminal(run.task_id, run.run_id, purchase),)
+        )
+        try:
+            step = self._finish(run, state, outcome, stage, (*hooks, *closing))
+        except GovernanceError:
+            if not hooks:
+                raise
+            # §8.1: the decision's evidence could not be written (`GOV_EVIDENCE_UNAVAILABLE`), so
+            # the terminal goes without it. A cancellation keeps its cause; anything else fails.
+            _log.warning("HNP terminal evidence unavailable")
+            if outcome not in _CANCELLATIONS:
+                state, outcome = "failed", "governance_unavailable"
+            step = self._finish(run, state, outcome, stage, closing)
         if state == "escalated" and checkout is not None and step.status == "closed":
-            self._cancel(run.run_id, checkout)
+            cancel_escalated_checkout(self._store, self._checkout, run.run_id, checkout.id)
         raise _Stopped(step)
 
     def _finish(
@@ -566,14 +753,6 @@ class HnpExecutionService:
             owner = TaskFinish(run.task_id, run.lease_id, "canceled", "revoked_by_owner")
             return self._ledger.finish_task(owner, hooks=hooks)
         return step
-
-    def _cancel(self, run_id: str, checkout: CheckoutSession) -> None:
-        try:
-            key = self._store.idempotency_key(run_id, "checkout.cancel.escalation")
-            self._checkout.cancel_checkout(checkout.id, idempotency_key=key, reason_code="other")
-        except Exception:
-            # Harmless: without the closed mandates nobody can complete that checkout.
-            _log.warning("HNP escalation could not cancel its checkout")
 
     # The purchase (§4.6): its transitions run inside the ledger's unit of work.
 
@@ -605,8 +784,7 @@ class HnpExecutionService:
         version = None if run_id is None else self._closable(run_id)
         if ex is None or run_id is None or version is None:
             return ()
-        run = _Run(task_id, "", run_id, ex.task.grant_id, ex.task.owner_id)
-        return (self._closing(run, version),)
+        return (purchase_terminal(task_id, run_id, version),)
 
     @staticmethod
     def _completing(run_id: str, version: int) -> TransactionHook:
@@ -616,25 +794,6 @@ class HnpExecutionService:
             )
 
         return complete
-
-    @staticmethod
-    def _closing(run: _Run, version: int) -> TransactionHook:
-        """`failed` with the task's code, or `canceled` for an escalation or a cancellation."""
-
-        def close(connection: sqlite3.Connection) -> None:
-            state, outcome = connection.execute(
-                "SELECT state, outcome_code FROM hnp_tasks WHERE task_id = ?", (run.task_id,)
-            ).fetchone()
-            failed = state == "failed"
-            SqliteAgentStore.transition_hnp_purchase(
-                connection,
-                run.run_id,
-                expected_state_version=version,
-                stage="failed" if failed else "canceled",
-                failure_code=outcome if failed else None,
-            )
-
-        return close
 
 
 def _terminal(outcome: OutcomeCode, *, escalates: bool) -> Terminal:
@@ -653,6 +812,10 @@ def _cancellation(ex: Execution, expected: Authority, now: datetime) -> OutcomeC
     if grant.state == "expired" or now >= utc_moment(grant.expires_at):
         return "grant_expired"
     return None
+
+
+def _ap2_mandate(record: MandateRecord) -> SignedAp2Mandate:
+    return SignedAp2Mandate(record.token, record.link_hash, json.loads(record.public_jwk_json))
 
 
 def _ledger_mandate(mandate: SignedAp2Mandate) -> SignedMandate:
