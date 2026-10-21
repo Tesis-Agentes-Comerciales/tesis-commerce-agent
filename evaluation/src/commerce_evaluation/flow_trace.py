@@ -352,7 +352,9 @@ def build_hp_flow_trace(agent_db: Path, graph_db: Path, secrets: Iterable[str]) 
     """A Human Present run's `flow_trace`, swept: each conversation turn from `graph_db`, then its
     purchases as the HNP block reads them, with the presented total and the approval (only whether
     each mandate exists) instead of the delegation. One agent runs one pilot row, so every
-    purchase, model request and webhook of the database is the row's."""
+    purchase, model request and webhook of the database is the row's. Its runs are each turn's
+    and each purchase's, and those of the application records: a governed recovery can end a
+    turn before any purchase, and without the graph only `hp_evidence` names its run."""
     with closing(read_only(agent_db)) as connection:
         database = _Database(connection)
         purchases = database.rows(
@@ -363,15 +365,23 @@ def build_hp_flow_trace(agent_db: Path, graph_db: Path, secrets: Iterable[str]) 
             "FROM purchases purchase LEFT JOIN approval_terms terms "
             "ON terms.run_id = purchase.run_id ORDER BY purchase.created_at",
         )
-        run_ids = [row["run_id"] for row in purchases]
         requests = _model_requests(database)
+        turns = _turns(graph_db, requests, database.unavailable)
+        recorded = database.rows(
+            "hp_evidence", "SELECT DISTINCT run_id FROM hp_evidence ORDER BY run_id"
+        )
+        run_ids = list(
+            dict.fromkeys(
+                row["run_id"] for rows in (turns or [], purchases, recorded) for row in rows
+            )
+        )
         timings = _timings(database)
         decisions = _decisions(database, run_ids)
         purchase = _last(purchases)
         trace = {
             "schema_version": SCHEMA,
             "run_ids": run_ids,
-            "turns": _turns(graph_db, requests, database.unavailable),
+            "turns": turns,
             "decisions": decisions,
             "freshness": _hp_evidence(database, run_ids, "freshness_check"),
             "recovery": _hp_evidence(database, run_ids, "governed_recovery"),
@@ -731,7 +741,9 @@ def _candidate(ranked: Mapping[str, Any]) -> dict[str, Any]:
 def _choice(values: Mapping[str, Any], shortlisted: bool) -> dict[str, Any] | None:
     """`choose_candidate`'s answer as the graph kept it: a pick with its message, or a
     clarification. None when the turn never chose, or when the governed flow explained a pick
-    outside the shortlist: that variant is in `recovery` and the answer in `model_requests`."""
+    outside the shortlist: `recovery` keeps that pick, as its `variant_id` when the catalog has
+    it and otherwise (`not_in_catalog`) only as `selected_variant_sha256`; the id the model gave
+    is in the `output` of its `model.choose_candidate` request."""
     selected = values.get("selected_variant_id")
     if selected:
         message = values.get("selection_message")

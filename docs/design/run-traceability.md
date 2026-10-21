@@ -165,10 +165,13 @@ Lo que difiere de la tabla:
 - **`shortlist[]`** lleva `title` (el del producto) y además `variant_title`: el título de la
   variante es lo que distingue 128 GB de 256 GB, y las inyecciones mutan los dos títulos.
 - **`choice`** sale de G: `purchase` con `selected_variant_id` y su `message` (el
-  `selection_message` del grafo), o `clarify` con el mensaje de `choose_candidate`. Es `null` si el turno no eligió o si el flujo gobernado
-  explicó una elección fuera de la lista: esa variante está en `recovery[]` y la respuesta del
-  modelo, en `model_requests[].output`. `intent` es la intención ya alineada con el catálogo; la
-  del modelo, antes de alinearla, está en el `output` de la petición de `model.route`.
+  `selection_message` del grafo), o `clarify` con el mensaje de `choose_candidate`. Es `null` si
+  el turno no eligió o si el flujo gobernado explicó una elección fuera de la lista. Esa elección
+  queda en `recovery[]`: su `variant_id` si la variante está en el catálogo, y si no
+  (`not_in_catalog`) solo `selected_variant_sha256`. El id que dio el modelo está en el `output`
+  de su petición `model.choose_candidate` (`model_requests[]`). `intent` es la intención ya
+  alineada con el catálogo; la del modelo, antes de alinearla, está en el `output` de la petición
+  de `model.route`.
 - **`checkout`** es el de T3 ({`checkout_id`, `purchase_stage`, `failure_code`}; el `status` de la
   tabla es `purchase_stage`) más `total_minor` y `currency` de los términos presentados, leídos con
   `json_extract`: el resto de los términos (comprador, JWT) nunca sale de SQLite. `currency` va como
@@ -176,8 +179,12 @@ Lo que difiere de la tabla:
 - **`approval`** {`fingerprint`, `approved_at`, `mandates` {`checkout`, `payment`}}: la presencia
   de cada mandato se decide en SQLite (`IS NOT NULL`), así que nunca se leen mandatos, el JWT del
   checkout ni la firma.
-- **`recovery[]`**: los cuerpos `governed_recovery` de `hp_evidence`. **`webhooks[]`** conserva
-  `order_id`, como en HNP.
+- **`run_ids`** son los de cada turno, cada compra y cada registro de `hp_evidence`, sin repetir.
+  Una recuperación gobernada (`selection_outside_shortlist` o `no_candidate`) termina el turno
+  antes de crear la compra y queda bajo el `run_id` del turno. Sin `agent.graph.db`, solo
+  `hp_evidence` nombra ese run.
+- **`recovery[]`**: los cuerpos `governed_recovery` de `hp_evidence` de esos runs. **`webhooks[]`**
+  conserva `order_id`, como en HNP.
 - **`errors[]`** suma `purchases.failure_code` (etapa `purchase`). No lleva el HTTP del turno
   (`turn_http` del ejemplo): el bloque es función de las bases, y el código ya está en
   `http_status` y `error_response` de la fila.

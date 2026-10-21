@@ -8,6 +8,7 @@ merchant and the payment provider as doubles and the model as a router double or
 stopped run's databases alone.
 """
 
+import hashlib
 import io
 import json
 import shutil
@@ -85,6 +86,21 @@ OVER_BUDGET = CandidateDecision(
     action="purchase", assistant_message=REASON, selected_variant_id=PIXEL_8
 )
 QUERY = "celular negro nuevo"
+# In the phones feed but sold out, and an id no feed has: both outside the shortlist.
+PIXEL_9 = "BBGooglePixel9-128GB"
+UNKNOWN = "BBNotInTheFeed-1GB"
+# No phone of the feed is red: the turn ends before any purchase.
+RED = ROUTED.model_copy(
+    update={
+        "intent": S05_INTENT.model_copy(
+            update={
+                "hard": S05_INTENT.hard.model_copy(
+                    update={"required_options": (OptionConstraint(name="color", value="rojo"),)}
+                )
+            }
+        )
+    }
+)
 JWT = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJidXllciJ9.c2lnbmF0dXJl"
 BEARER = "Bearer " + "b" * 40
 PEM = (
@@ -145,6 +161,26 @@ def s05_deny(directory: Path) -> Path:
     return checkpointed(directory)
 
 
+def explained(router: StubConversationRouter) -> Callable[[Path], Path]:
+    """A turn the governed recovery ends before any purchase: it explains, nothing is created."""
+
+    def run(directory: Path) -> Path:
+        with s05_app(directory, router) as client:
+            response = turn(client)
+        assert response.status_code == 200, response.text
+        assert response.json()["purchase"] is None, response.text
+        return checkpointed(directory)
+
+    return run
+
+
+def picking(variant_id: str) -> StubConversationRouter:
+    pick = CandidateDecision(
+        action="purchase", assistant_message=REASON, selected_variant_id=variant_id
+    )
+    return StubConversationRouter(ROUTED, pick)
+
+
 def lookup(directory: Path) -> Path:
     """The same turn with the real router: it looks the catalog up before routing."""
     server = ModelServer(
@@ -194,6 +230,9 @@ RUNS: dict[str, Callable[[Path], Path]] = {
     "s05_deny": s05_deny,
     "lookup": lookup,
     "b2_purchase": b2_purchase,
+    "sold_out_pick": explained(picking(PIXEL_9)),
+    "unknown_pick": explained(picking(UNKNOWN)),
+    "no_candidate": explained(StubConversationRouter(RED)),
 }
 
 
@@ -472,6 +511,46 @@ def test_secrets_never_leave_their_columns_and_seeded_shapes_end_redacted(
     assert {"stage": "model.route", "code": f"Error {REDACTED}", "source": "model_requests"} in (
         trace["errors"]
     )
+
+
+@pytest.mark.parametrize(
+    ("run", "kind", "cause", "variant_id", "picked"),
+    [
+        ("sold_out_pick", "selection_outside_shortlist", "unavailable", PIXEL_9, PIXEL_9),
+        # Not in the feed: the record keeps only the digest of the id the model gave, which is
+        # in the output of its `model.choose_candidate` request.
+        ("unknown_pick", "selection_outside_shortlist", "not_in_catalog", None, UNKNOWN),
+        ("no_candidate", "no_candidate", "no_match", None, None),
+    ],
+)
+def test_a_recovery_that_ends_the_turn_before_any_purchase_is_in_the_block(
+    run_dir: Callable[..., Path],
+    run: str,
+    kind: str,
+    cause: str,
+    variant_id: str | None,
+    picked: str | None,
+) -> None:
+    """The recovery is the turn's evidence, under its run, though no purchase row names it."""
+    directory = run_dir(run)
+    trace = trace_of(directory)
+
+    run_id = turn_run_id(TURN_ID)
+    [step] = trace["turns"]
+    assert trace["run_ids"] == [step["run_id"]] == [run_id]
+    [recovery] = trace["recovery"]
+    assert (recovery["kind"], recovery["cause"], recovery["run_id"]) == (kind, cause, run_id)
+    assert recovery["variant_id"] == variant_id
+    digest = picked and hashlib.sha256(picked.encode()).hexdigest()
+    assert recovery["selected_variant_sha256"] == digest
+    # No pick the shortlist backs, and nothing D1 or the merchant saw: D1 never ran.
+    assert step["choice"] is None
+    assert trace["checkout"] is None and trace["decisions"] is None
+    # Without the graph, the application record still names the run.
+    (directory / "agent.graph.db").unlink()
+    blind = trace_of(directory)
+    assert blind["turns"] is None
+    assert (blind["run_ids"], blind["recovery"]) == (trace["run_ids"], trace["recovery"])
 
 
 def test_without_the_graph_database_the_turns_are_null_and_named(
