@@ -18,7 +18,7 @@ from typing import Any, Literal
 import pytest
 
 from commerce_agent.delegation.models import LEASE_SECONDS
-from tests.support.hnp_dispatch import ORDER_ID, MerchantApi, Psp, dispatching
+from tests.support.hnp_dispatch import FOREIGN, ORDER_ID, MerchantApi, Psp, dispatching
 from tests.support.hnp_executor import Bench, Crash
 
 Mode = Literal["off", "enforce"]
@@ -244,6 +244,23 @@ def test_the_merchant_without_an_order_leaves_the_purchase_uncertain(
     assert_in_doubt(built, reason)
     assert rows(built)["outbox"][:3] == outbox
     assert len(psp.delegations) == 1 and merchant.cancels == []
+
+
+@pytest.mark.parametrize("answer", sorted(FOREIGN))
+def test_an_order_of_another_checkout_leaves_the_purchase_uncertain(
+    tmp_path: Path, answer: str
+) -> None:
+    """The merchant's receipt verifies against the chain, but its order names another checkout:
+    UoW-3 would refuse it after `completed`, which has no way to `uncertain`, and the task would
+    stay running for ever. The dispatch doubts first, as HP's `completion_mismatch`."""
+    built, psp, merchant = bench(tmp_path, merchant=MerchantApi(answer), mode="enforce")
+
+    step = built.run()
+
+    assert step.status == "closed"
+    assert_in_doubt(built, "receipt_mismatch")
+    assert rows(built)["outbox"][:4] == ("uncertain", None, None, None)
+    assert len(psp.delegations) == len(merchant.completions) == 1 and merchant.cancels == []
 
 
 @pytest.mark.parametrize(

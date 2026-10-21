@@ -28,6 +28,13 @@ from tests.support.hnp_executor import Bench
 from tests.test_completion_client import completed_checkout
 
 AP2_ERRORS = ("invalid_credential", "invalid_mandate", "unresolved_constraint")
+# A verified receipt over the right chain, for an order that names another checkout in the
+# answer's `checkout.id`, its `order.checkout_session_id` or both.
+FOREIGN = {
+    "other_checkout": {"checkout", "order"},
+    "other_checkout_id": {"checkout"},
+    "other_order_checkout": {"order"},
+}
 ORDER_ID = "ord_1"
 HNP_ORDER_ID = "ord_hnp_1"
 
@@ -153,16 +160,18 @@ class MerchantApi:
         if answer in AP2_ERRORS:
             receipt = self.signer.error(chain, answer)
             return httpx.Response(422, json={"code": answer, "checkout_receipt_jwt": receipt})
+        foreign = FOREIGN.get(answer, set[str]())
         order = {
             **completed_checkout()["order"],
             "id": ORDER_ID,
-            "checkout_session_id": checkout_id,
+            "checkout_session_id": "cs_other" if "order" in foreign else checkout_id,
         }
         receipt = self.signer.success(chain, order_id=ORDER_ID)
         if answer == "wrong_reference":
             receipt = self.signer.success(chain, order_id=ORDER_ID, reference="sha256-of-another")
         self.issued.append(receipt)
-        completed = {**acp_session(checkout_id, "completed"), "order": order}
+        session_id = "cs_other" if "checkout" in foreign else checkout_id
+        completed = {**acp_session(session_id, "completed"), "order": order}
         reply = httpx.Response(200, json={"checkout": completed, "checkout_receipt_jwt": receipt})
         self._replies[key] = reply
         return reply
