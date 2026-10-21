@@ -17,8 +17,9 @@ and moves on only with what the verifier answered:
   failed (§8.1); a valid merchant error receipt: `uncertain(partial_verifier_failure)`;
 - no classifiable answer (timeout, transport error, 5xx): `uncertain(dispatch_timeout)`;
 - an answer without a valid receipt (a 4xx without one, 409 `idempotency_conflict` included; a
-  receipt that does not verify or names another chain or order), or a request that no longer
-  matches its digest: `uncertain(receipt_mismatch)`.
+  receipt that does not verify or names another chain or order), an order of another checkout, a
+  request that no longer matches its digest or a purchase that is gone:
+  `uncertain(receipt_mismatch)`.
 
 From `payment_accepted` the only way to `uncertain` is through `complete_sent`, and from
 `completed` there is none: a run that cannot fetch the receipts again leaves the task running, and
@@ -137,9 +138,15 @@ class HnpDispatcher:
 
     def _dispatch(self, ex: Execution) -> Step:
         task, outbox = ex.task, ex.outbox
-        version = None if task.run_id is None else self._store.purchase_state_version(task.run_id)
-        if outbox is None or task.lease_id is None or task.run_id is None or version is None:
-            raise LookupError("A dispatch without its outbox, lease, run or purchase")
+        if outbox is None or task.lease_id is None or task.run_id is None:
+            # The caller's contract: the executor dispatches only a task it claimed (its lease),
+            # after UoW-2 wrote the outbox row, which requires the run. Without them nothing can
+            # be fenced or settled.
+            raise ValueError("A dispatch needs a claimed task with its run and its outbox row")
+        version = self._store.purchase_state_version(task.run_id)
+        purchase = (
+            () if version is None else (purchase_terminal(task.task_id, task.run_id, version),)
+        )
         send = _Send(
             task.task_id,
             task.lease_id,
@@ -147,7 +154,7 @@ class HnpDispatcher:
             outbox.operation_id,
             outbox.checkout_id,
             outbox.order_id,
-            (purchase_terminal(task.task_id, task.run_id, version),),
+            purchase,
         )
         state = outbox.state
         if state == "committed":
@@ -157,12 +164,19 @@ class HnpDispatcher:
         if state not in ("payment_sent", "complete_sent", "completed"):
             return Step("blocked", ex)  # `rejected` and `uncertain` closed the task with them
         request = closed_request(self._ledger, task.grant_id, outbox.reservation_id)
-        if request is None or outbox.payment_request_digest != payment_request_digest(
-            operation_id=outbox.operation_id,
-            checkout=request.checkout,
-            checkout_jwt=request.checkout_jwt,
-            closed=request.closed,
+        if (
+            version is None
+            or request is None
+            or outbox.payment_request_digest
+            != payment_request_digest(
+                operation_id=outbox.operation_id,
+                checkout=request.checkout,
+                checkout_jwt=request.checkout_jwt,
+                closed=request.closed,
+            )
         ):
+            # With an outbox row the only terminals are `purchased`, `uncertain` and the PSP's
+            # error receipt (§8.1): a purchase gone under the run is doubt, with nothing to move.
             _log.error("HNP dispatch of task %s no longer matches its commitment", task.task_id)
             self._doubt(send, "receipt_mismatch")
         payment = self._pay(send, request, rejectable=state == "payment_sent")
@@ -246,9 +260,12 @@ class HnpDispatcher:
     def _complete(
         self, send: _Send, request: ClosedRequest, payment: SandboxPaymentData
     ) -> tuple[CheckoutSessionWithOrder, str]:
-        """The order and its receipt, which `complete_checkout_ap2` verified against the chain."""
+        """The order and its receipt, which `complete_checkout_ap2` verified against the chain,
+        for the checkout the outbox names. An order of another checkout (`checkout.id` or
+        `order.checkout_session_id`) is doubt before `completed`, as HP's `completion_mismatch`:
+        UoW-3 would refuse it, and from `completed` there is no way to `uncertain`."""
         try:
-            return self._merchant.complete_checkout_ap2(
+            completed, receipt = self._merchant.complete_checkout_ap2(
                 send.checkout_id,
                 payment,
                 request.closed.checkout.token,
@@ -260,6 +277,11 @@ class HnpDispatcher:
             if error.receipt is not None and _client_error(error.status_code):
                 self._rejected_by_merchant(send, request, error.receipt)
             self._doubt(send, "receipt_mismatch")
+        ordered = (completed.id, completed.order.checkout_session_id)
+        if ordered != (send.checkout_id, send.checkout_id):
+            _log.error("HNP dispatch of task %s got the order of another checkout", send.task_id)
+            self._doubt(send, "receipt_mismatch")
+        return completed, receipt
 
     def _rejected_by_merchant(self, send: _Send, request: ClosedRequest, receipt: str) -> NoReturn:
         """After the PSP's token: a partial failure between verifiers, left `uncertain` (§8.1)."""

@@ -179,10 +179,13 @@ intención y `preference_text`. UoW-1 espera la `Authority` del claim; D3 y UoW-
 UoW-1 y no la que relee UoW-C, que no compara el kill switch ni el grant (K10). Una compra que
 `start` dejó `selected` termina `failed(governance_unavailable)` (K15). `payment_request_digest`
 fija la petición al PSP del despacho (clave `<operation_id>:payment`, `allowance` y los digests del
-checkout JWT y de los dos cerrados); 09b la reconstruye igual. Lo que §8.1 no nombra: un feed ilegible, un rechazo del comercio, una firma del
-checkout o un cierre que falla terminan `checkout_failed`; un selector que falla o, en B0-HNP, elige
-fuera de la lista corta, `selection_not_eligible`; un grant ilegible y un re-claim con avance que no se puede
-reanudar (abajo), `state_conflict`. El `outcome_code` de un deny de D1 sale de los
+checkout JWT y de los dos cerrados); 09b la reconstruye igual. El `merchant_id` del `allowance` es
+`MERCHANT_ID` del perfil, el payee de los cerrados; el cliente del PSP manda el suyo, que es el
+mismo por defecto y que ningún setting cambia (la prueba del runtime fija que coincidan). Lo que
+§8.1 no nombra: un feed ilegible, un rechazo del comercio, una firma del checkout o un cierre que
+falla terminan `checkout_failed`; un selector que falla o, en B0-HNP, elige fuera de la lista
+corta, `selection_not_eligible`; un grant ilegible y un re-claim con avance que no se puede reanudar
+(abajo), `state_conflict`. El `outcome_code` de un deny de D1 sale de los
 `reason_codes` de su evidencia (`sqlite_d1_denials`): POL-01, luego POL-02, luego POL-11.
 
 **K12 por condición (HNP-09b).** En B0-HNP la guarda de la lista corta del executor termina
@@ -548,6 +551,24 @@ evaluación, `uncertain` es un resultado terminal.
 rejected(merchant)`; `payment_sent` o `complete_sent` → `uncertain` ante timeout, 5xx o 4xx sin
 recibo válido.
 
+**Decisión de 09b (corrección), el despacho siempre termina fail-closed:**
+
+- **Orden de otro checkout.** Si el comercio responde con un recibo válido para la cadena pero la
+  orden nombra otro checkout (`checkout.id` u `order.checkout_session_id` distintos del
+  `checkout_id` del outbox), el despacho termina `uncertain(receipt_mismatch)` antes de
+  `completed`, como `completion_mismatch` en HP, y la reserva queda `uncertain`. Antes llegaba a
+  `completed`, UoW-3 la rechazaba y la tarea quedaba `running` y la compra `completing` para
+  siempre.
+- **Compra que desapareció.** Con fila en el outbox, una compra que ya no está en `purchases` no
+  puede terminar `failed(state_conflict)`, como sin outbox (§3.3), porque los únicos terminales con
+  outbox son `purchased`, `uncertain` y los del recibo de error del PSP (§8.1). La spec no fijaba
+  cuál, así que se usa el de la duda: se trata como una petición que ya no coincide con su digest
+  (anota el envío sin mandarlo) y termina `uncertain(receipt_mismatch)`, sin hook de la compra
+  porque no hay fila que mover. Con el outbox ya en `completed` el ledger no pasa a `uncertain`:
+  la corrida sale `blocked`, sin repetir envíos, y deja la tarea `running` con un registro `ERROR`.
+- **Sin lease, run ni outbox no hay despacho.** Una ejecución así es un error del llamador
+  (`ValueError`): el claim fija el lease y UoW-2 exige el run y escribe el outbox.
+
 ### 4.5 Unidades de trabajo
 
 Todas abren `BEGIN IMMEDIATE`, leen `now` adentro (§3.4, «Reloj»), comparan versiones y escriben
@@ -658,7 +679,9 @@ recuperación de D1.
 `completion_results` (snapshot y los dos JWT de recibo), la proyección `orders` (`_project_order`),
 `purchases.order_id` y `stage='completed'`, más lo del ledger (§4.5). Los eventos `receipt_recorded`
 guardan `receipt_digest = "sha256:" + hex(SHA256(<JWT en ASCII>))` de esos mismos dos JWT. HNP-11 y
-HNP-V1 leen `completion_results` y `orders`, como en HP.
+HNP-V1 leen `completion_results` y `orders`, como en HP. `record_hnp_completion` exige que la orden
+sea del checkout de la compra (`checkout.id` y `order.checkout_session_id`); el despacho lo
+comprueba antes de pasar el outbox a `completed`, y si no, la compra pasa a `uncertain` (§4.4).
 
 ## 5. API
 
@@ -947,9 +970,10 @@ Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP d
   clasificable (timeout, error de transporte o 5xx, incluido el 503 `mandates_not_supported` sin
   recibo); `receipt_mismatch` cuando la respuesta no trae un recibo válido (4xx sin recibo, 409
   `idempotency_conflict`, recibo que no verifica o que nombra otra cadena u otra orden) o cuando la
-  petición ya no coincide con su digest; `partial_verifier_failure` con el recibo de error válido
-  del comercio. Como el ledger solo pasa a `uncertain` desde un envío, un digest distinto con el
-  outbox en `committed` anota `payment_sent` sin enviar nada y termina `uncertain(receipt_mismatch)`.
+  petición ya no coincide con su digest, la orden es de otro checkout o la compra desapareció
+  (§4.4); `partial_verifier_failure` con el recibo de error válido del comercio. Como el ledger
+  solo pasa a `uncertain` desde un envío, un digest distinto con el outbox en `committed` anota
+  `payment_sent` sin enviar nada y termina `uncertain(receipt_mismatch)`.
 
 ### 8.2 Escalamiento
 

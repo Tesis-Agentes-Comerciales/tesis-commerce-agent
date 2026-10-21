@@ -210,6 +210,10 @@ def payment_request_digest(
 
     Every send of `<operation_id>:payment` must rebuild exactly this request from the outbox row
     and the stored closed mandates. The sandbox card comes from configuration and is not part of it.
+    `merchant_id` is the profile's `MERCHANT_ID`, the payee of both closed mandates, while the PSP
+    client sends its own: the same id by default, which no setting or caller overrides (the runtime
+    test pins the request it sends). A PSP of another merchant refuses the allowance anyway
+    (`merchant_mismatch`, no receipt), so a divergence ends in doubt, never in a payment.
     """
     request = {
         "idempotency_key": f"{operation_id}:payment",

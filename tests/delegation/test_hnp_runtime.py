@@ -17,6 +17,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from commerce_agent.ap2_hnp import MERCHANT_ID
 from commerce_agent.application.hnp_dispatch import HnpDispatcher
 from commerce_agent.application.hnp_execution import HnpExecutionService, NullHnpPolicyGate
 from commerce_agent.application.hnp_selection import DeterministicHnpSelector, ModelHnpSelector
@@ -143,6 +144,9 @@ def test_b0_hnp_runs_a_consented_task_to_its_purchase(tmp_path: Path) -> None:
         HNP_ORDER_ID,
     )
     assert merchant.creations() == 1 and len(psp.delegations) == len(merchant.completions) == 1
+    # The PSP client the runtime builds names the merchant `payment_request_digest` fixes.
+    [(_, body)] = psp.delegations
+    assert body["allowance"]["merchant_id"] == MERCHANT_ID
     assert columns(tmp_path / "agent.db") == [*HP_COLUMNS, "input_tokens", "output_tokens"]
 
 
