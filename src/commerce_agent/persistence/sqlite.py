@@ -585,6 +585,86 @@ class SqliteAgentStore:
             raise RuntimeError("HNP purchase is not at the expected version and stage")
         return expected_state_version + 1
 
+    @staticmethod
+    def record_hnp_completion(
+        connection: sqlite3.Connection,
+        run_id: str,
+        snapshot: dict[str, Any],
+        *,
+        expected_state_version: int,
+        checkout_receipt_jwt: str,
+        payment_receipt_jwt: str,
+    ) -> int:
+        """UoW-3 of an HNP purchase on the caller's connection and transaction (§4.6): CAS from
+        `completing` to `completed`, with the order, its `orders` projection and both receipts in
+        `completion_results`. The caller verified the receipts. Anything else raises, so the
+        ledger's unit of work rolls back whole. Returns the new `state_version`."""
+        if type(expected_state_version) is not int or expected_state_version < 1:
+            raise ValueError("Invalid HNP purchase completion")
+        if not checkout_receipt_jwt or not payment_receipt_jwt:
+            raise ValueError("An HNP completion carries both receipts")
+        if not connection.in_transaction:
+            raise RuntimeError("An HNP purchase completion needs the caller's transaction")
+        checkout_id, order_id, status, order = _completion_order(snapshot)
+        purchase = connection.execute(
+            "SELECT checkout_id FROM purchases WHERE run_id = ? AND purchase_mode = 'HNP' "
+            "AND state_version = ? AND stage = 'completing'",
+            (run_id, expected_state_version),
+        ).fetchone()
+        if purchase is None or purchase[0] != checkout_id:
+            raise RuntimeError("HNP purchase is not completing at the expected version")
+        now = _timestamp()
+        _project_order(
+            connection,
+            order_id=order_id,
+            checkout_id=checkout_id,
+            status=status,
+            snapshot=json.dumps(order, sort_keys=True, separators=(",", ":")),
+            updated_at=now,
+        )
+        connection.execute(
+            """
+            INSERT INTO completion_results
+              (run_id, checkout_id, order_id, snapshot, completed_at,
+               checkout_receipt_jwt, payment_receipt_jwt)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                checkout_id,
+                order_id,
+                json.dumps(snapshot, sort_keys=True, separators=(",", ":")),
+                now,
+                checkout_receipt_jwt,
+                payment_receipt_jwt,
+            ),
+        )
+        connection.execute(
+            "UPDATE purchases SET stage = 'completed', order_id = ?, updated_at = ?, "
+            "state_version = state_version + 1 WHERE run_id = ? AND state_version = ?",
+            (order_id, now, run_id, expected_state_version),
+        )
+        return expected_state_version + 1
+
+    def record_operation_key(self, run_id: str, operation: str, idempotency_key: str) -> None:
+        """Notes an operation whose key was fixed elsewhere (HNP's dispatch takes its keys from the
+        outbox), as `idempotency_key` notes its own: the first note keeps its time."""
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO operation_keys (run_id, operation, idempotency_key, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (run_id, operation) DO NOTHING
+                """,
+                (run_id, operation, idempotency_key, _timestamp()),
+            )
+            row = connection.execute(
+                "SELECT idempotency_key FROM operation_keys WHERE run_id = ? AND operation = ?",
+                (run_id, operation),
+            ).fetchone()
+        if row is None or row[0] != idempotency_key:
+            raise RuntimeError("Operation key could not be persisted")
+
     def idempotency_key(self, run_id: str, operation: str) -> str:
         now = _timestamp()
         candidate = f"agent_{secrets.token_urlsafe(24)}"
@@ -632,19 +712,7 @@ class SqliteAgentStore:
     ) -> None:
         if (checkout_receipt_jwt is None) != (payment_receipt_jwt is None):
             raise ValueError("AP2 completion requires both receipts")
-        checkout_id = snapshot.get("id")
-        order = snapshot.get("order")
-        if not isinstance(checkout_id, str) or not isinstance(order, dict):
-            raise ValueError("Completion snapshot is missing checkout or order")
-        order_id = order.get("id")
-        order_checkout_id = order.get("checkout_session_id")
-        status = order.get("status")
-        if (
-            not isinstance(order_id, str)
-            or order_checkout_id != checkout_id
-            or (status is not None and not isinstance(status, str))
-        ):
-            raise ValueError("Completion order does not match checkout")
+        checkout_id, order_id, status, order = _completion_order(snapshot)
         serialized = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
         order_serialized = json.dumps(order, sort_keys=True, separators=(",", ":"))
         now = _timestamp()
@@ -675,7 +743,7 @@ class SqliteAgentStore:
                 connection,
                 order_id=order_id,
                 checkout_id=checkout_id,
-                status=status or "created",
+                status=status,
                 snapshot=order_serialized,
                 updated_at=now,
             )
@@ -855,6 +923,23 @@ def _can_advance_order(current: str, incoming: str) -> bool:
     return incoming_rank >= current_rank
 
 
+def _completion_order(snapshot: dict[str, Any]) -> tuple[str, str, str, dict[str, Any]]:
+    """Checkout id, order id, order status (`created` if absent) and order of a completion."""
+    checkout_id = snapshot.get("id")
+    order = snapshot.get("order")
+    if not isinstance(checkout_id, str) or not isinstance(order, dict):
+        raise ValueError("Completion snapshot is missing checkout or order")
+    order_id = order.get("id")
+    status = order.get("status")
+    if (
+        not isinstance(order_id, str)
+        or order.get("checkout_session_id") != checkout_id
+        or (status is not None and not isinstance(status, str))
+    ):
+        raise ValueError("Completion order does not match checkout")
+    return checkout_id, order_id, status or "created", order
+
+
 def _project_order(
     connection: sqlite3.Connection,
     *,
@@ -868,9 +953,10 @@ def _project_order(
         "SELECT checkout_id, status FROM orders WHERE order_id = ?", (order_id,)
     ).fetchone()
     if existing is not None:
-        if existing["checkout_id"] != checkout_id:
+        # By position: the delegation ledger's connection (UoW-3) returns plain tuples.
+        if existing[0] != checkout_id:
             raise RuntimeError("Order ID is already associated with a different checkout")
-        if not _can_advance_order(str(existing["status"]), status):
+        if not _can_advance_order(str(existing[1]), status):
             return
     connection.execute(
         """

@@ -362,7 +362,7 @@ export function PurchaseApprovalCard({
 
           <div>
             <p className="text-xs font-medium text-[#6b6b6b]">{copy.total}</p>
-            <p className="mt-0.5 flex items-baseline gap-1.5">
+            <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
               <span
                 className={cn(
                   "text-[2rem] leading-10 font-semibold tracking-[-0.04em] tabular-nums",
@@ -585,8 +585,10 @@ function Actions({
 
   // `aria-disabled` y no `disabled`: un botón desactivado pierde el foco, y el que se pulsó debe
   // conservarlo mientras la compra avanza. Sin `onClick` no se puede pulsar dos veces.
+  // Lado a lado, «Cancelar» y «Registrando aprobación…» piden unos 364 px: en una tarjeta de menos
+  // de 28rem (408 px de contenido) se apilan. En un teléfono de 320 px, lado a lado, se cortaban.
   return (
-    <div className={cn("grid gap-2", recorded ? "grid-cols-1" : "grid-cols-[auto_1fr]")}>
+    <div className={cn("grid grid-cols-1 gap-2", !recorded && "@md:grid-cols-[auto_1fr]")}>
       {!recorded && (
         <button
           type="button"

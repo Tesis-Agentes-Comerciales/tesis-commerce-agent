@@ -1,8 +1,9 @@
 """One HNP pilot episode with doubles of the agent API, the merchant, the agent process and the
 buyer; and the readings after the stop on a real agent.db (hnp_pilot_episode).
 
-`POST /internal/hnp/tasks/{id}/run` is HNP-09b's and not on main yet: the double answers as
-spec §5.2 says (202 running, 200 terminal, 409 `hnp_task_not_runnable`).
+The agent API double answers `POST /internal/hnp/tasks/{id}/run` (HNP-09b) as spec §5.2 says
+(202 running, 200 terminal, 409 `hnp_task_not_runnable`). The readings run the real executor and
+dispatch over the merchant's and the PSP's doubles.
 """
 
 import json
@@ -15,7 +16,10 @@ from typing import Any
 
 import pytest
 
+from commerce_agent.governance.evidence import ApplicationFailure, DecisionRecord
+from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.persistence.stage_timings_sqlite import ModelUsage, SqliteStageTimings
+from commerce_evaluation import verify_evidence
 from commerce_evaluation.governance_pilot import ConditionMismatchError, HttpResult
 from commerce_evaluation.hnp_pilot import load_pilot
 from commerce_evaluation.hnp_pilot_agent import scripted_selector
@@ -35,9 +39,16 @@ from commerce_evaluation.hnp_pilot_episode import (
     trigger_label,
     verify_health,
 )
-from tests.delegation.test_hnp_runtime import consented, governed_hnp, runtime
+from commerce_evaluation.hnp_pilot_scoring import chain_vector_match
+from tests.delegation.test_hnp_runtime import (
+    consented,
+    feed_with_another_candidate,
+    governed_hnp,
+    runtime,
+)
 from tests.governance.test_stale_terms_pending import Ap2Merchant
-from tests.test_delegation_api import MERCHANT
+from tests.support.hnp_dispatch import HnpMerchant, Psp
+from tests.test_delegation_api import MERCHANT, hnp_settings
 
 _, MATRIX = load_pilot()
 SCENARIOS = {scenario["id"]: scenario for scenario in MATRIX["scenarios"]}
@@ -380,9 +391,10 @@ def test_trigger_labels_follow_the_oracle() -> None:
 
 
 @pytest.fixture
-def committed_b2(tmp_path: Path) -> tuple[Path, str, str]:
-    """B2-HNP run to the commitment by the real executor (dispatch is HNP-09b's)."""
-    built = runtime(governed_hnp(tmp_path), Ap2Merchant(MERCHANT))
+def purchased_b2(tmp_path: Path) -> tuple[Path, str, str]:
+    """B2-HNP run to its purchase by the real executor and dispatch (HNP-09b), over the merchant's
+    and the PSP's doubles."""
+    built = runtime(governed_hnp(tmp_path), HnpMerchant(MERCHANT), Psp())
     try:
         assert built.hnp_executor is not None
         step = built.hnp_executor.run(consented(built))
@@ -392,13 +404,23 @@ def committed_b2(tmp_path: Path) -> tuple[Path, str, str]:
     return tmp_path / "agent.db", step.execution.grant.grant_id, step.execution.task.run_id
 
 
-def test_the_ledger_and_the_decisions_of_a_b2_run(committed_b2: tuple[Path, str, str]) -> None:
-    database, grant_id, run_id = committed_b2
+def test_the_ledger_and_the_decisions_of_a_b2_run(purchased_b2: tuple[Path, str, str]) -> None:
+    database, grant_id, run_id = purchased_b2
     ledger = read_ledger(database, grant_id)
-    assert ledger["task"]["run_id"] == run_id and ledger["task"]["state"] == "running"
-    types = [event["event_type"] for event in ledger["events"]]
-    assert types[:4] == ["consented", "mandates_issued", "task_claimed", "reservation_reserved"]
-    assert "mandates_closed" in types
+    assert ledger["task"]["run_id"] == run_id and ledger["task"]["state"] == "purchased"
+    assert ledger["grant"]["state"] == "consumed"
+    assert [event["event_type"] for event in ledger["events"]] == [
+        "consented",
+        "mandates_issued",
+        "task_claimed",
+        "reservation_reserved",
+        "mandates_closed",
+        "dispatch_committed",
+        "receipt_recorded",
+        "receipt_recorded",
+        "consumed",
+        "task_finished",
+    ]
     governance = read_governance(database, run_id)
     assert governance["governance"] == {
         "D1": "allow",
@@ -412,35 +434,104 @@ def test_the_ledger_and_the_decisions_of_a_b2_run(committed_b2: tuple[Path, str,
         "D2": 1,
         "D3": 1,
     }
-    # Every decision names its owner; the D1-HNP input has no principal (D2 and D3 do).
+    # Every decision names its owner and, D1-HNP included, the executor as its principal.
     assert governance["attribution"] == {
         "rows": 3,
         "owner_ref": 3,
-        "principal_ref": 2,
-        "complete": 2,
+        "principal_ref": 3,
+        "complete": 3,
     }
     assert read_governance(database, None)["governance"]["D1"] == "not_reached"
 
 
-def test_hn11_in_b2_ends_before_d1_on_main(tmp_path: Path) -> None:
-    """The registered oracle expects a POL-01 deny in D1; the shortlist guard comes first."""
-    with scripted_selector("BBOnePlus11-256GB"):
-        built = runtime(governed_hnp(tmp_path), Ap2Merchant(MERCHANT))
+def test_a_failure_row_leaves_the_attribution_of_the_decisions(
+    purchased_b2: tuple[Path, str, str],
+) -> None:
+    """Outside a decision_record, governance_evidence keeps canonical_input NULL (its CHECK): the
+    attribution counts the decision records only (manifest decisions_pending 13)."""
+    database, _, run_id = purchased_b2
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        store = SqliteGovernanceEvidenceStore(connection)
+        *_, d3 = store.for_run(run_id)
+        assert isinstance(d3, DecisionRecord)
+        data, version = d3.any_input(), d3.application.expected_state_version
+        failure = ApplicationFailure(
+            schema_version=d3.schema_version,
+            record_kind="application_failure",
+            evidence_id="application-failed",
+            sequence=d3.sequence + 1,
+            recorded_at=d3.recorded_at,
+            run_id=run_id,
+            trace_id=data.trace_id,
+            decision_id=data.decision_id,
+            reason_code="GOV_STATE_CONFLICT",
+            expected_state_version=version,
+            observed_state_version=None,
+            replayability="not_evaluable",
+        )
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            store.record_decision(failure, expected_state_version=version)
+        kinds = "SELECT record_kind, canonical_input FROM governance_evidence ORDER BY sequence"
+        assert connection.execute(kinds).fetchall()[-1] == ("application_failure", None)
+    governance = read_governance(database, run_id)
+    assert governance["governance"]["D3"] == "application_failure"
+    assert governance["attribution"] == {
+        "rows": 3,
+        "owner_ref": 3,
+        "principal_ref": 3,
+        "complete": 3,
+    }
+
+
+# HN11 (K12, spec §3.3): the scripted variant is in the feed and inside the total but outside the
+# grant; SON-02 stands here for the registered OnePlus 11.
+
+
+@pytest.mark.parametrize("condition", ["B0-HNP", "B2-HNP"])
+def test_hn11_ends_as_its_oracle_says(tmp_path: Path, condition: str) -> None:
+    """B2-HNP: the choice passes `start` and D1-HNP denies it with POL-01 before any POST.
+    B0-HNP: the shortlist guard ends the task before `start`. Same terminal, 0 checkouts."""
+    base = governed_hnp(tmp_path) if condition == "B2-HNP" else hnp_settings(tmp_path)
+    settings = base.model_copy(update={"agent_feed_path": feed_with_another_candidate(tmp_path)})
+    merchant = Ap2Merchant(MERCHANT)
+    with scripted_selector("SON-02"):
+        built = runtime(settings, merchant)
     try:
         assert built.hnp_executor is not None
         step = built.hnp_executor.run(consented(built))
     finally:
         built.close()
     assert step.execution is not None
-    governance = read_governance(tmp_path / "agent.db", step.execution.task.run_id)
-    assert governance["governance"]["D1"] == "not_reached"
-    assert governance["governance"]["deny"] is None
+    task, grant_id = step.execution.task, step.execution.grant.grant_id
+    oracle, database = SCENARIOS["HN11"]["oracle"][condition], tmp_path / "agent.db"
+    grant = read_ledger(database, grant_id)["grant"]
+    assert {"state": task.state, "outcome_code": task.outcome_code} == oracle["task"]
+    assert {"state": grant["state"], "revoked_reason": grant["revoked_reason"]} == oracle["grant"]
+    assert merchant.creations() == oracle["effects"]["merchant_checkouts"] == 0
+    governance = read_governance(database, task.run_id)["governance"]
+    [chain] = [
+        document
+        for document in verify_evidence.verify_database(database, grant_id=grant_id)
+        if document.get("purchase_mode") == "HNP"
+    ]
+    if condition == "B2-HNP":
+        assert governance == oracle["governance"]
+        assert chain_vector_match(oracle, chain) == 1
+        return
+    assert oracle["governance"] is None and governance["D1"] == "not_reached"
+    # Reported, the manifest unchanged: the registered B0-HNP vector has intent and d1_decision
+    # missing, but HNP-V1 marks both not_applicable when the task ends before `start`.
+    links = chain["links"]
+    assert (links["intent"]["status"], links["d1_decision"]["status"]) == ("not_applicable",) * 2
+    assert chain_vector_match(oracle, chain) == 0
 
 
 def test_every_model_row_counts_and_unknown_tokens_stay_unknown(
-    committed_b2: tuple[Path, str, str],
+    purchased_b2: tuple[Path, str, str],
 ) -> None:
-    database, _, _ = committed_b2
+    database, _, _ = purchased_b2
     assert read_model_usage(database) == {
         "calls": 0,
         "rows": [],
@@ -486,9 +577,9 @@ def test_time_to_effect_runs_from_the_claim_to_the_end() -> None:
 
 
 def test_observe_reads_the_effects_after_the_stop(
-    committed_b2: tuple[Path, str, str], tmp_path: Path
+    purchased_b2: tuple[Path, str, str], tmp_path: Path
 ) -> None:
-    database, grant_id, _ = committed_b2
+    database, grant_id, _ = purchased_b2
     psp = tmp_path / "payments.db"
     with closing(sqlite3.connect(psp)) as connection, connection:
         connection.execute("CREATE TABLE delegations (checkout_id TEXT, result_json TEXT)")
@@ -517,16 +608,20 @@ def test_observe_reads_the_effects_after_the_stop(
         "merchant_checkouts": 1,
         "checkouts_canceled": 0,
         "agent_key_closures": 1,
-        "chains_presented": 0,
+        "chains_presented": 2,
         "psp_tokens": 1,
         "orders": 1,
     }
     assert observed["task"] == {"state": "purchased", "outcome_code": None}
-    assert observed["grant"] == {"state": "active", "revoked_reason": None}
+    assert observed["grant"] == {"state": "consumed", "revoked_reason": None}
     assert observed["governance"]["D3"] == "allow" and observed["escalation_view"] is False
-    assert observed["order"]["variant_id"] == "SON-01"
-    # Before HNP-09b nobody records the merchant's snapshot: the destination stays unmeasured.
-    assert observed["order"]["destination_matches_grant"] is None
+    # The dispatch (HNP-09b) keeps the merchant's completion snapshot: the destination is measured.
+    assert observed["order"] == {
+        "variant_id": "SON-01",
+        "total_minor": 74000,
+        "destination_matches_grant": True,
+        "source": "merchant_snapshot",
+    }
     assert observed["buyer_token_after_consent"] == 0
     assert observed["attribution"]["governance_evidence"]["rows"] == 3
     assert "evidence_chain" not in observed

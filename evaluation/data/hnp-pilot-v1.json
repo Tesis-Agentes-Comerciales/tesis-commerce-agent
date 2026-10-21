@@ -439,6 +439,7 @@
     "9 runner_cost_margin (HNP-E2): every model.* row is priced at the registered prices; the client retries once with a 90 s timeout, so a row without tokens is charged 2 x max(USD 0.01, the invocation's costliest priced call), a row with tokens whose elapsed_ms exceeds 90 s adds one more, and an unreadable usage is charged as a row without tokens; the margin is recomputed for every row at each check",
     "10 runner_effect_proxies (HNP-E2): chains_presented counts the grant's receipt_recorded events and agent_key_closures its mandates_closed events",
     "11 runner_oracle_match (HNP-E2): oracle_match leaves the evidence chain out (it is chain_vector_match); HN04's vector, which no H2 rate counts, joins its oracle criterion (oracle_criterion)",
-    "12 runner_startup_additions (HNP-E2): the agent's startup needs two variables this manifest leaves out; B0-HNP gets AGENT_D1_AES_KEY_HEX generated per invocation, B2-HNP gets AGENT_D1_POLICY_SET_ID=b2-hp-v2 and AGENT_D1_POLICY_REVISION=1 (the HP D1 gate); neither changes an HNP decision"
+    "12 runner_startup_additions (HNP-E2): the agent's startup needs two variables this manifest leaves out; B0-HNP gets AGENT_D1_AES_KEY_HEX generated per invocation, B2-HNP gets AGENT_D1_POLICY_SET_ID=b2-hp-v2 and AGENT_D1_POLICY_REVISION=1 (the HP D1 gate); neither changes an HNP decision",
+    "13 runner_attribution_scope (HNP-E2): the governance_evidence half of attribution_completeness counts the decision_record rows only; an input_rejected or application_failure row has canonical_input NULL by the table's CHECK, so it names no principal_ref or owner_ref and, read literally, would lower a run below 100 %"
   ]
 }

@@ -6,6 +6,7 @@ only. Its creation observation stops before every post-create commercial effect.
 There is deliberately no automatic remote replay, even after an unsent claim.
 """
 
+import hmac
 import json
 import logging
 import secrets
@@ -63,7 +64,13 @@ from .evidence import (
     EvidenceScope,
 )
 from .evidence_artifacts import capture_reference_sources
-from .hnp_policy import HnpGrant, build_hnp_policy, grant_shortlist, hnp_d1_configuration
+from .hnp_policy import (
+    HnpGrant,
+    build_hnp_policy,
+    executor_principal,
+    grant_shortlist,
+    hnp_d1_configuration,
+)
 from .models import (
     SCHEMA,
     EvaluationMetadata,
@@ -305,6 +312,16 @@ class SqliteD1EnforceGate:
                 "selected_variant_id": candidate.variant_id,
                 "merchant_ref": ctx.merchant_ref,
                 **({} if unit is None else {"selected_unit_minor": unit}),
+                # D1-HNP names the executor for attribution (§9.1); no D1 rule reads it.
+                **(
+                    {}
+                    if grant is None
+                    else {
+                        "principal": executor_principal(
+                            owns_run=_grant_owned_by(connection, grant.grant_id, owner_id)
+                        )
+                    }
+                ),
             }
             key = creation_idempotency_key(
                 self._keys.pseudonym_key,
@@ -901,3 +918,20 @@ def _committed_transition(history: tuple[DecisionEvidence, ...]) -> DecisionReco
         ),
         None,
     )
+
+
+def _grant_owned_by(connection: sqlite3.Connection, grant_id: str, owner_id: str) -> bool:
+    """`owns_run` of the D1-HNP principal: the delegation ledger shows the grant's owner as the
+    run's owner (§7). No D1 rule reads it, so D1-HNP does not require the ledger: without the
+    grant's row it is `False`, and D2-HNP, which evaluates it, fails closed without that row."""
+    ledger = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='delegation_grants'"
+    ).fetchone()
+    row = (
+        None
+        if ledger is None
+        else connection.execute(
+            "SELECT owner_id FROM delegation_grants WHERE grant_id=?", (grant_id,)
+        ).fetchone()
+    )
+    return row is not None and hmac.compare_digest(str(row[0]).encode(), owner_id.encode())
