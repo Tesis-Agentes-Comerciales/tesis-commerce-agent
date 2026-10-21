@@ -83,6 +83,14 @@ def agent_settings(plan: DemoPlan, monkeypatch: pytest.MonkeyPatch) -> Settings:
     return Settings(_env_file=None)  # type: ignore[call-arg]
 
 
+def d1_rules(settings: Settings) -> tuple[str, int, tuple[str, ...]]:
+    """The policy set, revision and D1 rules the agent assembles from this environment."""
+    configured = configured_d1(settings, None)
+    assert configured.policy_binding is not None
+    policy = verify_artifact(configured.policy_bytes, configured.policy_binding)
+    return policy.policy_set_id, policy.version, policy.policy_ids
+
+
 def allowed_refs(settings: Settings) -> tuple[str, bool]:
     """POL-02's allowlist as the agent builds it, and whether it contains the demo merchant."""
     configured = configured_d1(settings, None)
@@ -106,6 +114,7 @@ def test_b2_runs_enforce_and_governed_with_d1_keys_and_the_merchant_allowed(
     assert settings.agent_d1_hmac_key_hex is not None
     assert settings.agent_d1_aes_key_hex is not None
     assert allowed_refs(settings) == ("http://127.0.0.1:5120", True)
+    assert d1_rules(settings) == ("b2-hp-v2", 1, ("POL-01", "POL-02", "POL-11"))
     assert settings.agent_ap2_required and settings.agent_auth_mode == "jwt"
     assert settings.agent_auth_issuer == settings.agent_ui_origin == "http://127.0.0.1:5174"
     assert settings.agent_database_path == tmp_path / "run" / "agent.db"
@@ -122,6 +131,7 @@ def test_pol02_deny_keeps_b2_but_its_allowlist_excludes_the_demo_merchant(
     assert (settings.agent_governance_mode, settings.agent_hp_flow) == ("enforce", "governed")
     assert settings.merchant_base_url == "http://127.0.0.1:5120"
     assert allowed_refs(settings) == (OTHER_MERCHANT, False)
+    assert d1_rules(settings) == ("b2-hp-v2", 1, ("POL-01", "POL-02", "POL-11"))
     build_enforce_gate(settings, None)
 
 
@@ -333,6 +343,7 @@ def test_a_full_launch_prints_urls_and_mode_but_never_a_secret(tmp_path: Path) -
     assert_no_secret(output, plan)
     assert "governance_mode=enforce · hp_flow=governed" in output
     assert "Comercios permitidos por POL-02: http://127.0.0.1:5120" in output
+    assert "Política D1: b2-hp-v2 · revisión 1" in output
     assert "UI:    http://127.0.0.1:5174" in output and "Auth:  http://127.0.0.1:5215" in output
     assert "[redactado]" in (plan.run_dir / "setup.log").read_text("utf-8")
     assert list(launcher.spawned) == ["payment", "merchant", "auth", "agent", "ui"]

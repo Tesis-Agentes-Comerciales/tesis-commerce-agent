@@ -126,10 +126,21 @@ CONDITIONS = {
     "B2": PilotCondition("B2", "enforce", "governed", merchant_variant="B2"),
     "B0": B0_PRIME,
 }
-# Stable D1 identifiers of the pilot (evaluation/README.md); only the keys change per run.
-D1_POLICY_SET_ID = "b2-pilot-v1"
-D1_POLICY_REVISION = "1"
-D1_KEY_ID = "b2-pilot-v1-run"
+
+
+@dataclass(frozen=True)
+class D1Policy:
+    """Stable D1 identifiers of a policy set; only the keys change per run."""
+
+    set_id: str
+    revision: str
+    key_id: str
+
+
+# B2-PILOT-v1 was published with this policy (evaluation/README.md): the runner stays pinned to
+# it so the pilot reproduces. demo-stack uses b2-hp-v2 (docs/design/hp-p1-budget-d1.md).
+PILOT_V1_POLICY = D1Policy("b2-pilot-v1", "1", "b2-pilot-v1-run")
+HP_V2_POLICY = D1Policy("b2-hp-v2", "1", "b2-hp-v2-run")
 # Secrets the agent starts with; its log tail never shows them.
 AGENT_SECRETS = (
     "MERCHANT_BEARER_TOKEN",
@@ -408,7 +419,10 @@ def mechanism_evidence(
 
 
 def agent_environment(
-    condition: PilotCondition, merchant_origin: str, keys: D1RunKeys | None
+    condition: PilotCondition,
+    merchant_origin: str,
+    keys: D1RunKeys | None,
+    policy: D1Policy = PILOT_V1_POLICY,
 ) -> dict[str, str]:
     """Agent variables that define the condition.
 
@@ -424,9 +438,9 @@ def agent_environment(
         raise PilotError(f"Condition {condition.name} requires D1 run keys")
     return environment | {
         "AGENT_D1_ALLOWED_MERCHANT_ORIGINS": merchant_origin,
-        "AGENT_D1_POLICY_SET_ID": D1_POLICY_SET_ID,
-        "AGENT_D1_POLICY_REVISION": D1_POLICY_REVISION,
-        "AGENT_D1_KEY_ID": D1_KEY_ID,
+        "AGENT_D1_POLICY_SET_ID": policy.set_id,
+        "AGENT_D1_POLICY_REVISION": policy.revision,
+        "AGENT_D1_KEY_ID": policy.key_id,
         "AGENT_D1_HMAC_KEY_HEX": keys.hmac_hex,
         "AGENT_D1_AES_KEY_HEX": keys.aes_hex,
     }

@@ -30,6 +30,10 @@ Hay cuatro grupos sobre el mismo PostgreSQL:
   de comercios de POL-02: con otro comercio (modo `pol02-deny`) termina en `d1_denied`, POL-02
   queda en `fail` con `ACTION_OR_MERCHANT_NOT_ALLOWED` y el Merchant no recibe ningún POST de
   creación; con el comercio del carril llega a `awaiting_confirmation` con un solo POST.
+  `test_live_b2_pol11_budget.py` arma el Agent igual, con la política `b2-hp-v2` del modo `b2`
+  de la demo, y pide el teléfono con un presupuesto total menor que su precio de catálogo:
+  termina en `d1_denied`, POL-11 queda en `fail` con `BUDGET_NOT_SATISFIABLE` y los dos montos,
+  y el Merchant no recibe ningún POST de creación.
 - Navegador (`test_live_browser.py`): sobre el carril `b0`, Chromium se registra en `auth/`,
   pide la compra en la UI servida por Vite, la aprueba en la tarjeta y ve la orden confirmada;
   el Agent atiende en este mismo proceso con el router guionado y guarda ambos recibos AP2.
@@ -78,8 +82,8 @@ uv run pytest tests/integration -rs
 ```
 
 Un módulo o un escenario: pase su archivo, o filtre por el identificador que llevan los nombres
-(`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`, `-k b0`, `-k b2`, `-k pol02`, `-k acp`,
-`-k browser`). Con `--basetemp=<dir>` la evidencia queda en un lugar conocido.
+(`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`, `-k b0`, `-k b2`, `-k pol02`, `-k pol11`,
+`-k acp`, `-k browser`). Con `--basetemp=<dir>` la evidencia queda en un lugar conocido.
 
 La suite completa (66 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B
 (marker `slow`): cada escenario hace una selección nueva sobre el catálogo completo del Merchant
