@@ -21,6 +21,7 @@ from jwt.algorithms import ECAlgorithm
 from pydantic import SecretStr
 
 from commerce_agent.api import create_app
+from commerce_agent.assistant_transport import error_message
 from commerce_agent.buyer_auth import LocalBuyerAuthenticator
 from commerce_agent.config import Settings
 from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
@@ -53,6 +54,7 @@ class Ap2Merchant:
         self.offer: dict[str, Any] = deepcopy(LIVE_OFFER)
         self.sessions: dict[str, dict[str, Any]] = {}
         self.requests: list[tuple[str, str]] = []
+        self.offer_expired = False
         self._key = ec.generate_private_key(ec.SECP256R1())
         public = json.loads(ECAlgorithm.to_jwk(self._key.public_key()))
         self._jwk = {**public, "kid": MERCHANT_KEY_ID, "use": "sig", "alg": "ES256"}
@@ -76,6 +78,9 @@ class Ap2Merchant:
             return httpx.Response(200, json=DISCOVERY)
         if path == "/.well-known/ap2/jwks.json":
             return httpx.Response(200, json={"keys": [self._jwk]})
+        if (method, path) == OFFER_READ and self.offer_expired:
+            expired = {"code": "OFFER_EXPIRED", "message": "Refresh the offer."}
+            return httpx.Response(200, json={"ok": False, "error": expired})
         if (method, path) == OFFER_READ:
             return httpx.Response(200, json={"ok": True, "data": self.offer})
         if (method, path) == CREATE:
@@ -258,6 +263,36 @@ def test_s04_changed_terms_stay_visible_cancelable_and_a_new_checkout_follows(
         "allow",
         "allow",
     ]
+
+
+def test_an_expired_offer_stops_approval_and_reads_as_changed_terms(tmp_path: Path) -> None:
+    settings = ap2(tmp_path / "agent.db")
+    merchant = Ap2Merchant(settings.merchant_base_url)
+    with app_client(settings, merchant) as client:
+        run_id, terms = presented(client, "turn-expired")
+        merchant.offer_expired = True
+        approval = client.post(
+            f"/purchases/{run_id}/approval",
+            json={
+                "expected_fingerprint": terms["fingerprint"],
+                "checkout_jwt": terms["checkout_jwt"],
+            },
+        )
+        # A 409 the buyer can act on: these terms are gone, ask again for a new checkout.
+        assert approval.status_code == 409, approval.text
+        assert approval.json() == {
+            "code": "offer_expired",
+            "message": error_message("offer_expired"),
+        }
+        assert pending(client) == {
+            "purchase": awaiting(run_id),
+            "approval_terms": None,
+            "terms_status": "changed",
+        }
+        canceled = client.post(f"/purchases/{run_id}/cancel")
+        assert canceled.status_code == 200, canceled.text
+        assert pending(client) is None
+    assert merchant.effects() == [("POST", "/checkout_sessions/cs_api_1/cancel")]
 
 
 def test_an_unreadable_offer_keeps_the_purchase_visible_and_cancelable(tmp_path: Path) -> None:

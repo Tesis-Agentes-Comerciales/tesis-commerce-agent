@@ -1,6 +1,6 @@
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -19,11 +19,9 @@ from commerce_agent.acp.models import (
     Identifier,
     SandboxPaymentData,
 )
+from commerce_agent.acp.offer_snapshot import DeliveryContext, MerchantOffer, OfferResponse
 from commerce_agent.acp.schema import ACPContractError, validate_acp
 from commerce_agent.config import validate_service_base_url
-
-if TYPE_CHECKING:
-    from commerce_agent.acp.offer_snapshot import DeliveryContext, MerchantOffer
 
 
 class ACPClientError(RuntimeError):
@@ -111,11 +109,8 @@ class ACPClient:
         )
         return self._parse_checkout(payload)
 
-    def get_offer(self, offer_id: str, delivery_context: "DeliveryContext") -> "MerchantOffer":
+    def get_offer(self, offer_id: str, delivery_context: DeliveryContext) -> MerchantOffer:
         """Lab extension, not ACP. One attempt: a failed read must surface, never be retried."""
-        # Deferred: offer_snapshot reaches governance, which imports this package.
-        from commerce_agent.acp.offer_snapshot import OfferResponse
-
         payload = self._request(
             "POST",
             "/lab/offers/get",
@@ -124,6 +119,10 @@ class ACPClient:
                 "delivery_context": delivery_context.model_dump(mode="json"),
             },
         )
+        failure = payload.get("error") if payload.get("ok") is False else None
+        if isinstance(failure, Mapping) and failure.get("code") == "OFFER_EXPIRED":
+            # A typed answer, not a malformed one: the merchant no longer sells at these terms.
+            raise ACPClientError("Merchant offer has expired", code="offer_expired")
         try:
             return OfferResponse.model_validate(payload).data
         except ValidationError as error:

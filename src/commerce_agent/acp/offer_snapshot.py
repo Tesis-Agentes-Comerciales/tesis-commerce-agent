@@ -11,7 +11,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from commerce_agent.governance.remote_creation import canonical_original_response
+from commerce_agent.canonical_json import canonical_original_response
 
 SAFE = 9_007_199_254_740_991
 Identifier = Annotated[

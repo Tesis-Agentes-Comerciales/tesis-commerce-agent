@@ -33,6 +33,20 @@ def test_records_chain_per_run_and_verify(tmp_path: Path) -> None:
     assert evidence.verify_chain("run-a") and evidence.verify_chain("run-b")
 
 
+def test_append_once_reuses_an_identical_record_of_the_run(tmp_path: Path) -> None:
+    evidence = store(tmp_path)
+
+    first = evidence.append_once("run-a", "governed_recovery", check("fresh"))
+    again = evidence.append_once("run-a", "governed_recovery", check("fresh"))
+    other_run = evidence.append_once("run-b", "governed_recovery", check("fresh"))
+    other_body = evidence.append_once("run-a", "governed_recovery", check("changed"))
+
+    assert again == first
+    assert (other_run.run_id, other_run.sequence) == ("run-b", 1)
+    assert (other_body.sequence, other_body.previous_digest) == (2, first.digest)
+    assert len(evidence.for_run("run-a")) == 2 and evidence.verify_chain("run-a")
+
+
 @pytest.mark.parametrize(
     "statement",
     [

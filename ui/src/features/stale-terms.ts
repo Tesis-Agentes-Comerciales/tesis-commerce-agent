@@ -4,12 +4,14 @@ import { messagePurchaseRunId, runIdOf } from "@/features/purchase-trace"
 import type { AgentToolCallPart } from "@/lib/agent-contract"
 import type { PendingTermsStatus } from "@/lib/commerce-api"
 
-// Términos que ya no valen (b2-governed-pilot, S04): la oferta cambió o no se pudo leer. La compra
-// sigue pendiente y no se puede aprobar; el comprador la cancela y la pide de nuevo.
+// Términos que ya no valen (b2-governed-pilot, S04): la oferta cambió, venció o no se pudo leer. La
+// compra sigue pendiente y no se puede aprobar; el comprador la cancela y la pide de nuevo.
 
 /** Códigos con los que el backend rechaza los términos: 409 y 503 en REST, o el paso en el stream. */
 const STALE_TERMS = new Map<string, PendingTermsStatus>([
   ["checkout_terms_changed", "changed"],
+  // Una oferta vencida tampoco vuelve a valer: para el comprador, las condiciones cambiaron.
+  ["offer_expired", "changed"],
   ["offer_freshness_unavailable", "unavailable"],
 ])
 

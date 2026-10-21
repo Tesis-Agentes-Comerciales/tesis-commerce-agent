@@ -110,6 +110,9 @@ ERROR_MESSAGES = {
         "Las condiciones del comercio cambiaron (por ejemplo, el precio, el envío o la "
         "disponibilidad), así que no seguí con la compra. No se hizo ningún cobro."
     ),
+    "offer_expired": (
+        "La oferta del comercio venció, así que no seguí con la compra. No se hizo ningún cobro."
+    ),
     "offer_freshness_unavailable": (
         "No pude confirmar con el comercio que el precio y la disponibilidad sigan vigentes, "
         "así que detuve la compra por precaución. No se hizo ningún cobro."

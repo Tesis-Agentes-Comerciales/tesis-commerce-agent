@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from commerce_agent.acp.feed import ProductCandidate, ProductFeed
 from commerce_agent.config import Settings
-from commerce_agent.domain import HardConstraints, PurchaseIntent, RankedCandidate
+from commerce_agent.domain import HardConstraints, PurchaseIntent, RankedCandidate, rank_candidates
 from commerce_agent.domain.selection import rejection_reason
 from commerce_agent.llm import CandidateDecision
 from commerce_agent.llm.prices import format_minor_amount
@@ -52,6 +52,10 @@ CAUSE_TEXT: dict[RecoveryCause, str] = {
     "no_match": "No encontré en el catálogo un producto que cumpla todo lo que pediste{wanted}.",
 }
 NO_MATCH_CLOSEST = "No encontré un producto que cumpla todo lo que pediste. La opción más cercana:"
+BUDGET_WITHOUT_CURRENCY = (
+    "Tu presupuesto no indica la moneda y el catálogo tiene precios en varias monedas, así que "
+    "no pude compararlo con ningún producto."
+)
 NO_CHECKOUT = "No preparé ningún checkout ni se hizo ningún cobro."
 CHECKOUT_CANCELED = (
     "Preparé un checkout con el comercio para confirmar el total de {product}, pero ese total "
@@ -108,13 +112,19 @@ class RecoveryEvidenceUnavailable(RuntimeError):
 
 
 class HpRecoveryEvidence:
-    """Appends each recovery to the hp_evidence chain of its run."""
+    """Appends each recovery to the hp_evidence chain of its run, once.
+
+    A retried turn reuses its run: the same recovery adds no row. A different explanation is
+    recorded, because the buyer saw it.
+    """
 
     def __init__(self, store: SqliteHpEvidenceStore) -> None:
         self._store = store
 
     def record(self, recovery: GovernedRecoveryRecord) -> None:
-        self._store.append(recovery.run_id, "governed_recovery", recovery.model_dump(mode="json"))
+        self._store.append_once(
+            recovery.run_id, "governed_recovery", recovery.model_dump(mode="json")
+        )
 
 
 @dataclass(frozen=True)
@@ -225,6 +235,8 @@ def _rejected(candidate: ProductCandidate, intent: PurchaseIntent) -> _Explanati
 
 def _no_candidate(intent: PurchaseIntent, feed: ProductFeed) -> _Explanation:
     """Name the closest product a single hard constraint excluded; otherwise list them all."""
+    if _budget_currency_unknown(intent, feed):
+        return _Explanation("currency", BUDGET_WITHOUT_CURRENCY)
     without_price = PurchaseIntent(
         hard=intent.hard.model_copy(update={"max_unit_amount_minor": None}),
         preferences=intent.preferences,
@@ -259,6 +271,16 @@ def _no_candidate(intent: PurchaseIntent, feed: ProductFeed) -> _Explanation:
     )
     text = CAUSE_TEXT["no_match"].format(wanted=f" ({wanted})" if wanted else "")
     return _Explanation("no_match", text)
+
+
+def _budget_currency_unknown(intent: PurchaseIntent, feed: ProductFeed) -> bool:
+    """The shortlist cut every product because a budget without currency met several currencies.
+
+    Without a requested currency no single product is rejected for its currency, so a currency
+    rejection can only be that cut; naming a product over budget would blame the wrong rule.
+    """
+    selection = rank_candidates(feed, intent)
+    return intent.hard.currency is None and "currency" in selection.rejection_counts
 
 
 def _exceeded_budget(candidate: ProductCandidate, hard: HardConstraints) -> int | None:

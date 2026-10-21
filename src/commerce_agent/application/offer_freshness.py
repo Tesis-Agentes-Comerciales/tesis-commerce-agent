@@ -85,6 +85,9 @@ class OfferFreshnessGuard:
             raise ApprovalError(
                 "Live offer no longer matches the checkout terms", code="checkout_terms_changed"
             )
+        if block and result.reason == "offer_expired":
+            # Unread, but not transient: retrying cannot help, so it is a 409, not a 503.
+            raise ApprovalError("Live offer has expired", code="offer_expired")
         if block or (self.mode == "enforce" and not recorded):
             raise ApprovalError(
                 "Live offer freshness could not be established",

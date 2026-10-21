@@ -315,6 +315,8 @@ class PurchaseService:
 
     def approval_terms(self, run_id: str) -> ApprovalTerms:
         checkout = self._current_checkout(run_id)
+        # Only terms the agent would present read the live offer and leave freshness evidence.
+        self._approvals.require_approvable(checkout)
         self._check_offer(run_id, checkout, "present")
         signed = self._checkout.signed_checkout(checkout) if self._approvals.requires_ap2 else None
         return self._approvals.present(checkout, checkout_jwt=signed)
@@ -373,10 +375,12 @@ class PurchaseService:
             yield
         except BaseException as error:
             if flow is not None:
+                if isinstance(error, PurchaseServiceError) and error.code == "budget_exceeded":
+                    # Raised only after `cancel_budget` ended the journal `canceled`: nothing to
+                    # mark uncertain, and the journal refuses any phase after it.
+                    raise
                 flow.fail()
-                if isinstance(error, Exception) and not (
-                    isinstance(error, PurchaseServiceError) and error.code == "budget_exceeded"
-                ):
+                if isinstance(error, Exception):
                     raise PurchaseServiceError(
                         "Post-create operation requires local inspection",
                         code="d1_post_create_uncertain",

@@ -73,7 +73,7 @@ class ApprovalService:
     def present(
         self, checkout: CheckoutSession, *, checkout_jwt: str | None = None
     ) -> ApprovalTerms:
-        self._require_approvable(checkout)
+        self.require_approvable(checkout)
         lines = tuple(_approval_line(line) for line in checkout.line_items)
         selected = _checkout_list(checkout, "selected_fulfillment_options")
         checkout_data = checkout.model_dump(mode="json")
@@ -145,7 +145,7 @@ class ApprovalService:
         return record
 
     def authorize(self, *, run_id: str, checkout: CheckoutSession) -> ApprovalRecord:
-        self._require_approvable(checkout)
+        self.require_approvable(checkout)
         record = self.approved_record(run_id=run_id, checkout_id=checkout.id)
         fingerprint = self._fingerprint(checkout)
         if not hmac.compare_digest(record.checkout_fingerprint, fingerprint):
@@ -180,7 +180,7 @@ class ApprovalService:
             raise ApprovalError("AP2 mandates are missing", code="ap2_mandate_missing")
         return record
 
-    def _require_approvable(self, checkout: CheckoutSession) -> None:
+    def require_approvable(self, checkout: CheckoutSession) -> None:
         if checkout.status != "ready_for_payment":
             raise ApprovalError("Checkout is not ready for payment", code="checkout_not_ready")
         if _parse_timestamp(checkout.expires_at) <= self._clock():

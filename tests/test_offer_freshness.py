@@ -344,9 +344,61 @@ def test_mismatched_fingerprint_is_rejected_without_reading_the_offer(tmp_path: 
     lab.assert_not_approved()
 
 
+OFFER_EXPIRED = httpx.Response(
+    200, json={"ok": False, "error": {"code": "OFFER_EXPIRED", "message": "Refresh the offer."}}
+)
+
+
+def test_an_expired_offer_blocks_approval_with_its_own_409(tmp_path: Path) -> None:
+    lab = Harness(tmp_path, "enforce")
+    terms = lab.service.approval_terms(RUN_ID)
+    lab.merchant.offer_failure = OFFER_EXPIRED
+
+    with pytest.raises(ApprovalError) as captured:
+        lab.approve(terms.fingerprint)
+
+    # Not a 503: retrying cannot bring the offer back, and the merchant's answer was well formed.
+    assert rejection(captured.value) == ("offer_expired", 409)
+    assert lab.merchant.offer_reads == 2
+    lab.assert_not_approved()
+    last = lab.checks()[-1]
+    assert (last["stage"], last["outcome"], last["reason"], last["decision"]) == (
+        "approve",
+        "unavailable",
+        "offer_expired",
+        "block",
+    )
+
+
+@pytest.mark.parametrize(
+    ("checkout", "code"),
+    [
+        ({"status": "canceled"}, "checkout_not_ready"),
+        ({"expires_at": "2026-09-20T11:59:00Z"}, "checkout_expired"),
+    ],
+)
+def test_an_unapprovable_checkout_is_refused_before_reading_the_offer(
+    tmp_path: Path, checkout: dict[str, Any], code: str
+) -> None:
+    lab = Harness(tmp_path, "enforce")
+    lab.merchant.checkout = {**lab.merchant.checkout, **checkout}
+
+    with pytest.raises(ApprovalError) as captured:
+        lab.service.approval_terms(RUN_ID)
+
+    # Same answer as B0, without a live read or a freshness record for terms never shown.
+    assert captured.value.code == code
+    assert lab.merchant.offer_reads == 0
+    assert lab.checks() == []
+
+
 @pytest.mark.parametrize(
     ("failure", "outcome"),
-    [(None, "changed"), (httpx.Response(503, json={"detail": "unavailable"}), "unavailable")],
+    [
+        (None, "changed"),
+        (httpx.Response(503, json={"detail": "unavailable"}), "unavailable"),
+        (OFFER_EXPIRED, "unavailable"),
+    ],
 )
 def test_shadow_records_without_blocking(
     tmp_path: Path, failure: httpx.Response | None, outcome: str

@@ -189,9 +189,10 @@ Detalles que el contrato no fijaba y que el backend implementa así (`src/commer
 - En ese saneo, cada `request_approval` con `result` vuelve a leerse: la etapa sale de SQLite y los
   términos, de la instantánea que guardó el paso (tabla `approval_terms`). Un `run_id` que no existe
   deja el paso con `isError` y "No encontré esa compra.".
-- Un `request_approval` con `isError` y el código `checkout_terms_changed` u
+- Un `request_approval` con `isError` y el código `checkout_terms_changed`, `offer_expired` u
   `offer_freshness_unavailable` (y `args.run_id`) es una compra pendiente cuyos términos ya no valen
-  (S04): la UI muestra la tarjeta que solo permite cancelar. Llega así cuando presentar los términos
+  (S04): la UI muestra la tarjeta que solo permite cancelar. `offer_expired` (la oferta venció) se
+  muestra como `changed`. Llega así cuando presentar los términos
   falla en el stream, y la UI arma la misma parte al restaurar una compra de `GET /me/pending-purchase`
   con `terms_status`. Si aprobar responde 409 o 503 con esos códigos, la tarjeta pasa al mismo estado.
 - El texto final de un turno de compra es la explicación del modelo (más la nota de precio si

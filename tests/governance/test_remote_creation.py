@@ -15,6 +15,7 @@ from pydantic import SecretStr, ValidationError
 
 from commerce_agent.acp.creation_lookup import BackendLookupSession, CreationLookupClient
 from commerce_agent.acp.schema import validate_acp
+from commerce_agent.canonical_json import canonical_original_response
 from commerce_agent.governance.canonical import canonical_bytes, parse_model
 from commerce_agent.governance.evidence import EvidenceError
 from commerce_agent.governance.remote_creation import (
@@ -23,7 +24,6 @@ from commerce_agent.governance.remote_creation import (
     SessionScope,
     Verification,
     VerificationRequest,
-    canonical_original_response,
     original_response_sha256,
 )
 from commerce_agent.persistence.remote_creation_sqlite import (
