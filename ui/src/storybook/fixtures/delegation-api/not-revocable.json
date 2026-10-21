@@ -1,0 +1,108 @@
+[
+  {
+    "method": "GET",
+    "path": "/me/delegations",
+    "request": null,
+    "status": 200,
+    "body": {
+      "delegations": [
+        {
+          "grant_id": "dg_fae0f66102c54aa5b899fad0da0e88ca",
+          "state": "active",
+          "revoked_reason": null,
+          "scope": {
+            "merchant_name": "Synthetic Commerce Merchant",
+            "variants": [
+              {
+                "variant_id": "BOS-QCU-BLK",
+                "title": "Bose QuietComfort Ultra negro"
+              },
+              {
+                "variant_id": "SON-XM6-BLK",
+                "title": "Sony WH-1000XM6 negro"
+              }
+            ],
+            "total_max": {
+              "minor": 200000000,
+              "currency": "COP"
+            },
+            "expires_at": "2026-10-21T16:00:00.000Z",
+            "destination_label": "Bogota, DC",
+            "instrument_label": "Tarjeta de prueba del sandbox",
+            "uses": 1,
+            "preference_text": "Si los dos están disponibles, prefiero los Sony."
+          },
+          "consented_at": "2026-10-21T15:00:00.000Z",
+          "expires_at": "2026-10-21T16:00:00.000Z",
+          "task": {
+            "task_id": "ht_a35f4b54506a4c03a785a1bb6194674c",
+            "state": "scheduled",
+            "outcome_code": null,
+            "run_id": null,
+            "order_id": null,
+            "message": "Tu delegación está activa y lista para que el agente compre.",
+            "updated_at": "2026-10-21T15:00:00.000Z"
+          },
+          "escalation": null,
+          "last_activity_at": "2026-10-21T15:00:00.000Z"
+        }
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/delegations/dg_fae0f66102c54aa5b899fad0da0e88ca/revoke",
+    "request": null,
+    "status": 409,
+    "body": {
+      "code": "delegation_not_revocable",
+      "message": "Esta delegación ya terminó, así que no hay nada que revocar."
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/delegations/dg_fae0f66102c54aa5b899fad0da0e88ca",
+    "request": null,
+    "status": 200,
+    "body": {
+      "grant_id": "dg_fae0f66102c54aa5b899fad0da0e88ca",
+      "state": "expired",
+      "revoked_reason": null,
+      "scope": {
+        "merchant_name": "Synthetic Commerce Merchant",
+        "variants": [
+          {
+            "variant_id": "BOS-QCU-BLK",
+            "title": "Bose QuietComfort Ultra negro"
+          },
+          {
+            "variant_id": "SON-XM6-BLK",
+            "title": "Sony WH-1000XM6 negro"
+          }
+        ],
+        "total_max": {
+          "minor": 200000000,
+          "currency": "COP"
+        },
+        "expires_at": "2026-10-21T16:00:00.000Z",
+        "destination_label": "Bogota, DC",
+        "instrument_label": "Tarjeta de prueba del sandbox",
+        "uses": 1,
+        "preference_text": "Si los dos están disponibles, prefiero los Sony."
+      },
+      "consented_at": "2026-10-21T15:00:00.000Z",
+      "expires_at": "2026-10-21T16:00:00.000Z",
+      "task": {
+        "task_id": "ht_a35f4b54506a4c03a785a1bb6194674c",
+        "state": "scheduled",
+        "outcome_code": null,
+        "run_id": null,
+        "order_id": null,
+        "message": "Tu delegación venció antes de que el agente comprara. No se hizo ningún cobro.",
+        "updated_at": "2026-10-21T15:00:00.000Z"
+      },
+      "escalation": null,
+      "last_activity_at": "2026-10-21T15:00:00.000Z"
+    }
+  }
+]

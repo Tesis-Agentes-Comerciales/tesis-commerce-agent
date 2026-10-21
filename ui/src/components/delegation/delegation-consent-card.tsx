@@ -4,7 +4,13 @@ import { useId } from "react"
 
 import { formatDateTime, formatMoneyParts } from "@/components/agent/agent-format"
 import { chip, pillButton } from "@/components/agent/agent-styles"
-import { CONSENT_COPY, expiresOn, SCOPE_LABEL } from "@/components/delegation/delegation-copy"
+import { useCardFocus } from "@/components/agent/use-card-focus"
+import {
+  authorizeBy,
+  CONSENT_COPY,
+  expiresOn,
+  SCOPE_LABEL,
+} from "@/components/delegation/delegation-copy"
 import {
   CARD_SURFACE,
   CardHeader,
@@ -14,10 +20,13 @@ import {
   ScopeRows,
   VariantList,
 } from "@/components/delegation/delegation-parts"
-import type { DelegationProposal } from "@/lib/delegation-contract"
+import {
+  proposalDeadline,
+  type DelegationConsent,
+  type DelegationProposal,
+} from "@/lib/delegation-contract"
 
-/** Lo que `POST /delegations` necesita: la propuesta y el digest del alcance que se mostró. */
-export type DelegationConsent = Pick<DelegationProposal, "proposal_id" | "scope_digest">
+export type { DelegationConsent }
 
 export type DelegationConsentCardProps = {
   /** Respuesta de `POST /delegations/proposals`; todo lo que la tarjeta muestra sale de aquí. */
@@ -26,15 +35,19 @@ export type DelegationConsentCardProps = {
   authorizing?: boolean
   /** Mensaje saneado de la API si autorizar falló (propuesta vencida, alcance distinto…). */
   error?: string | null
+  /** Sin él, «Autorizar» queda deshabilitado (una propuesta vencida no se reintenta). */
   onAuthorize?: (consent: DelegationConsent) => void
   onCancel?: () => void
+  /** Ocupa el lugar del formulario que se envió: el foco pasa a su título. */
+  autoFocus?: boolean
   className?: string
 }
 
 /**
  * Consentimiento previo de una compra sin el comprador (Trusted Surface, §3.2): alcance, tope,
  * vigencia y comercio exactos de la propuesta, sin texto del modelo. «Autorizar» devuelve el
- * `scope_digest` de lo que se mostró, para que el servidor rechace cualquier otro alcance.
+ * `scope_digest` de lo que se mostró, para que el servidor rechace cualquier otro alcance. Es un
+ * `article` y no una región: dos propuestas en la misma página repetirían el nombre de la región.
  */
 export function DelegationConsentCard({
   proposal,
@@ -42,16 +55,21 @@ export function DelegationConsentCard({
   error,
   onAuthorize,
   onCancel,
+  autoFocus = false,
   className,
 }: DelegationConsentCardProps) {
   const titleId = useId()
+  const { cardRef, titleRef } = useCardFocus<HTMLElement>("consent", false, autoFocus)
   const { scope } = proposal
   const total = formatMoneyParts(scope.total_max.minor, scope.total_max.currency)
   const expires = formatDateTime(scope.expires_at) ?? scope.expires_at
+  const deadline = proposalDeadline(proposal)
   const consent = { proposal_id: proposal.proposal_id, scope_digest: proposal.scope_digest }
+  const authorizeBlocked = authorizing || !onAuthorize
 
   return (
-    <section
+    <article
+      ref={cardRef}
       aria-labelledby={titleId}
       aria-busy={authorizing || undefined}
       data-testid="delegation-consent-card"
@@ -62,6 +80,7 @@ export function DelegationConsentCard({
         tone="ink"
         title={CONSENT_COPY.title}
         titleId={titleId}
+        titleRef={titleRef}
         subtitle={scope.merchant_name}
       />
 
@@ -84,17 +103,26 @@ export function DelegationConsentCard({
           <ScopeRow label={SCOPE_LABEL.instrument}>{scope.instrument_label}</ScopeRow>
         </ScopeRows>
 
-        <p className="flex flex-wrap gap-2">
-          <span className={chip({ tone: "neutral", size: "sm" })}>{CONSENT_COPY.singleUse}</span>
-          <span className={chip({ tone: "outline", size: "sm" })}>
-            <time dateTime={scope.expires_at}>{expiresOn(expires)}</time>
-          </span>
-        </p>
+        <div className="space-y-2">
+          <p className="flex flex-wrap gap-2">
+            <span className={chip({ tone: "neutral", size: "sm" })}>{CONSENT_COPY.singleUse}</span>
+            <span className={chip({ tone: "outline", size: "sm" })}>
+              <time dateTime={scope.expires_at}>{expiresOn(expires)}</time>
+            </span>
+          </p>
+          {/* La propuesta vence con su TTL o con la delegación, lo que llegue primero (§5.1). */}
+          <p className="text-xs leading-5 text-[#6b6b6b]">
+            <time dateTime={deadline}>{authorizeBy(formatDateTime(deadline) ?? deadline)}</time>
+          </p>
+        </div>
 
         {error && <ErrorNotice>{error}</ErrorNotice>}
 
-        {/* `aria-disabled` y no `disabled`: el botón pulsado conserva el foco. */}
-        <div className="grid grid-cols-[auto_1fr] gap-2">
+        {/*
+          `aria-disabled` y no `disabled`: el botón pulsado conserva el foco. Bajo 20rem (un
+          teléfono de 320 px) los botones se apilan: lado a lado se salen del padding.
+        */}
+        <div className="grid grid-cols-1 gap-2 @xs:grid-cols-[auto_1fr]">
           <button
             type="button"
             onClick={authorizing ? undefined : onCancel}
@@ -106,8 +134,8 @@ export function DelegationConsentCard({
           </button>
           <button
             type="button"
-            onClick={authorizing ? undefined : () => onAuthorize?.(consent)}
-            aria-disabled={authorizing || undefined}
+            onClick={authorizeBlocked ? undefined : () => onAuthorize(consent)}
+            aria-disabled={authorizeBlocked || undefined}
             className={cn(pillButton({ tone: "ink", size: "lg" }), "w-full")}
           >
             {authorizing ? (
@@ -121,6 +149,6 @@ export function DelegationConsentCard({
 
         <p className="text-center text-xs leading-5 text-[#6b6b6b]">{CONSENT_COPY.revocable}</p>
       </div>
-    </section>
+    </article>
   )
 }

@@ -931,6 +931,14 @@ por confirmar» (un escalamiento usa `escalation.title`); filas «Total máximo�
 «Pago», «Última actividad» y «Tu indicación»; botones «Revocar» (§2.1) y «Comprar desde el chat»
 (§8.2). Manda el resultado de la tarea y, mientras no termina, el estado del grant.
 
+Textos fijos del chat (HNP-10, mismo archivo): la tarjeta de consentimiento suma «Puedes autorizarla
+hasta el <fecha y hora>», el menor entre `expires_at` de la propuesta y del alcance (el mismo límite
+que aplica `POST /delegations`). Diálogo «Delegaciones» con «Nueva delegación», «Mis delegaciones»,
+«Todavía no tienes delegaciones.» y «Revocar todo». Formulario «Delegar una compra»: «Opciones que
+puede comprar» (las que el chat ya mostró), «Total máximo con envío (pesos)», «Vigencia» (1, 6 o 24
+horas), «Entrega» con «Dirección», «Ciudad» y «Departamento», «Por ahora el comercio solo entrega en
+Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autorización».
+
 ### 8.4 Revocación y kill switch
 
 - **Dueño:** el UoW de revocación es idempotente. Sin reserva: `no_effect`. Reserva `reserved` sin

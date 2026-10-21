@@ -6,8 +6,8 @@ import { defineConfig, mergeConfig } from "vitest/config"
 
 import viteConfig from "./vite.config.ts"
 
-// Cada historia es un test de Vitest en Chromium headless: render, `play` y a11y (addon-a11y).
-// Este archivo solo define el proyecto `storybook`.
+// Dos proyectos. `storybook`: cada historia es un test de Vitest en Chromium headless (render,
+// `play` y a11y con addon-a11y). `unit`: la lógica sin interfaz (`src/**/*.test.ts`) en Node.
 export default mergeConfig(
   viteConfig,
   defineConfig({
@@ -31,6 +31,10 @@ export default mergeConfig(
               instances: [{ browser: "chromium" }],
             },
           },
+        },
+        {
+          extends: true,
+          test: { name: "unit", environment: "node", include: ["src/**/*.test.ts"] },
         },
       ],
     },

@@ -2,7 +2,7 @@ import type { Meta, StoryContext, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fn, waitFor } from "storybook/test"
 
-import { formatMoney } from "@/components/agent/agent-format"
+import { formatDateTime, formatMoney } from "@/components/agent/agent-format"
 import { DelegationConsentCard } from "@/components/delegation/delegation-consent-card"
 import {
   DelegationStatusCard,
@@ -163,7 +163,8 @@ export const FailedWithEscalationCode: Story = {
 
 /**
  * Revocada con el pago ya comprometido (§8.4): manda el grant mientras la tarea sigue, y el recibo
- * `in_flight` dice que esa compra continúa.
+ * `in_flight` dice que esa compra continúa. La revocación es la última actividad, como en la vista
+ * que relee el backend; la tarea conserva su hora.
  */
 export const RevokedWhileInFlight: Story = {
   args: {
@@ -171,6 +172,7 @@ export const RevokedWhileInFlight: Story = {
       ...DELEGATIONS.running,
       state: "revoked",
       revoked_reason: "owner",
+      last_activity_at: IN_FLIGHT.revoked_at,
     }),
     revokeReceipt: { ...IN_FLIGHT, grant_id: DELEGATIONS.running.grant_id },
   },
@@ -179,6 +181,9 @@ export const RevokedWhileInFlight: Story = {
     const receipt = context.canvas.getByTestId("delegation-revoke-receipt")
     await expect(receipt).toHaveAttribute("data-effect", "in_flight")
     await expect(receipt).toHaveTextContent(IN_FLIGHT.message)
+    // La revocación es la última actividad: la fila y el recibo dicen la misma hora.
+    const revokedAt = plain(formatDateTime(IN_FLIGHT.revoked_at) ?? "")
+    await expect(context.canvas.getAllByText(revokedAt)).toHaveLength(2)
   },
 }
 

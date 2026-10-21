@@ -1,0 +1,78 @@
+[
+  {
+    "method": "POST",
+    "path": "/delegations/proposals",
+    "request": {
+      "variant_ids": [
+        "BOS-QCU-BLK",
+        "SON-XM6-BLK"
+      ],
+      "total_max_minor": 200000000,
+      "currency": "COP",
+      "valid_for_seconds": 60,
+      "details": {
+        "buyer": {
+          "email": "ana@example.test",
+          "first_name": "Ana",
+          "last_name": "Demo"
+        },
+        "fulfillment": {
+          "name": "Ana Demo",
+          "email": "ana@example.test",
+          "phone_number": "+573000000000",
+          "address": {
+            "name": "Ana Demo",
+            "line_one": "Calle 100 # 10-20",
+            "city": "Bogota",
+            "state": "DC",
+            "country": "CO",
+            "postal_code": "110111"
+          }
+        }
+      },
+      "preference_text": "Si los dos están disponibles, prefiero los Sony."
+    },
+    "status": 201,
+    "body": {
+      "proposal_id": "dpr_9490fc9662864085b6e0e2f98bd3804a",
+      "scope": {
+        "merchant_name": "Synthetic Commerce Merchant",
+        "variants": [
+          {
+            "variant_id": "BOS-QCU-BLK",
+            "title": "Bose QuietComfort Ultra negro"
+          },
+          {
+            "variant_id": "SON-XM6-BLK",
+            "title": "Sony WH-1000XM6 negro"
+          }
+        ],
+        "total_max": {
+          "minor": 200000000,
+          "currency": "COP"
+        },
+        "expires_at": "2026-10-21T15:01:00.000Z",
+        "destination_label": "Bogota, DC",
+        "instrument_label": "Tarjeta de prueba del sandbox",
+        "uses": 1,
+        "preference_text": "Si los dos están disponibles, prefiero los Sony."
+      },
+      "scope_digest": "sha256:af6a36ee93fcff532f84df7e2f4b864a2a750aae97a974c6e95d21420a32442a",
+      "presented_at": "2026-10-21T15:00:00.000Z",
+      "expires_at": "2026-10-21T15:10:00.000Z"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/delegations",
+    "request": {
+      "proposal_id": "dpr_9490fc9662864085b6e0e2f98bd3804a",
+      "scope_digest": "sha256:af6a36ee93fcff532f84df7e2f4b864a2a750aae97a974c6e95d21420a32442a"
+    },
+    "status": 409,
+    "body": {
+      "code": "delegation_proposal_expired",
+      "message": "La propuesta venció antes de que la autorizaras. Crea una nueva."
+    }
+  }
+]

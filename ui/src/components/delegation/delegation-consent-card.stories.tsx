@@ -11,6 +11,7 @@ import {
 } from "@/components/delegation/story-helpers"
 import { parseDelegationProposal } from "@/lib/delegation-contract"
 import { DELEGATION_PROPOSAL } from "@/storybook/fixtures/delegation-fixtures"
+import { DELEGATION_REPLAYS, replayed } from "@/storybook/fixtures/delegation-replays"
 import { mouseClick } from "@/storybook/interactions"
 
 const { scope } = DELEGATION_PROPOSAL
@@ -56,6 +57,9 @@ export const Proposed: Story = {
     await expect(canvas.getByText("Un solo uso")).toBeVisible()
     const expires = plain(`Vence el ${formatDateTime(scope.expires_at)}`)
     await expect(canvas.getByText(expires)).toBeVisible()
+    // La propuesta vence antes que la delegación: se autoriza hasta el vencimiento de la propuesta.
+    const deadline = `Puedes autorizarla hasta el ${formatDateTime(DELEGATION_PROPOSAL.expires_at)}`
+    await expect(canvas.getByText(plain(deadline))).toBeVisible()
     await expect(
       canvas.getByText("Puedes revocarla antes de que el agente comprometa el pago"),
     ).toBeVisible()
@@ -93,6 +97,62 @@ export const SingleVariantWithoutPreference: Story = {
     await expect(canvas.getByRole("listitem")).toHaveTextContent(scope.variants[1].title)
     await expect(canvas.queryByText(scope.variants[0].title)).toBeNull()
     await expect(canvas.queryByText("Tu indicación")).toBeNull()
+  },
+}
+
+/**
+ * Respuesta real con `valid_for_seconds = 60`: la propuesta vale 10 min (TTL), pero la delegación
+ * vence al minuto, y el servidor rechaza autorizar después. Se autoriza hasta lo que llegue primero.
+ */
+export const DelegationLapsesBeforeProposal: Story = {
+  args: {
+    proposal: parseDelegationProposal(
+      replayed(DELEGATION_REPLAYS.proposalExpired, "POST /delegations/proposals").body,
+    ),
+  },
+  play: async ({ args, canvas }) => {
+    const { expires_at: proposalExpiry, scope: lapsing } = args.proposal
+    await expect(Date.parse(lapsing.expires_at)).toBeLessThan(Date.parse(proposalExpiry))
+    const deadline = `Puedes autorizarla hasta el ${formatDateTime(lapsing.expires_at)}`
+    await expect(canvas.getByText(plain(deadline))).toBeVisible()
+    await expect(canvas.getByText(plain(deadline)).closest("time")).toHaveAttribute(
+      "dateTime",
+      lapsing.expires_at,
+    )
+  },
+}
+
+/**
+ * Sin `onAuthorize` (la propuesta venció o el alcance no coincide): «Autorizar» se ve, pero
+ * deshabilitado y sin efecto; «Cancelar» vuelve al formulario para pedir otra.
+ */
+export const WithoutAuthorize: Story = {
+  args: {
+    onAuthorize: undefined,
+    error: "La propuesta venció antes de que la autorizaras. Crea una nueva.",
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    const authorize = canvas.getByRole("button", { name: "Autorizar" })
+    await expect(authorize).toHaveAttribute("aria-disabled", "true")
+    authorize.focus()
+    await userEvent.keyboard("{Enter}")
+    await expect(canvas.getByRole("alert")).toHaveTextContent("Crea una nueva")
+    await userEvent.click(canvas.getByRole("button", { name: "Cancelar" }))
+    await expect(args.onCancel).toHaveBeenCalledOnce()
+  },
+}
+
+/** Dos propuestas en la misma página: son `article`, así que axe no ve regiones repetidas. */
+export const TwoProposals: Story = {
+  render: (args) => (
+    <div className="space-y-3">
+      <DelegationConsentCard {...args} />
+      <DelegationConsentCard {...args} />
+    </div>
+  ),
+  play: async ({ canvas }) => {
+    await expect(canvas.getAllByRole("article")).toHaveLength(2)
+    await expect(canvas.queryAllByRole("region")).toHaveLength(0)
   },
 }
 

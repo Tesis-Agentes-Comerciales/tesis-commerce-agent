@@ -7,6 +7,7 @@ export {
   type DelegationConsent,
   type DelegationConsentCardProps,
 } from "@/components/delegation/delegation-consent-card"
+export { delegationStatus, type DelegationStatus } from "@/components/delegation/delegation-copy"
 export {
   DelegationEscalationCard,
   type DelegationEscalationCardProps,

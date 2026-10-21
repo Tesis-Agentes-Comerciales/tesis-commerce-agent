@@ -10,15 +10,33 @@ export const plain = (text: string) => text.replace(/\s+/g, " ")
 /** Un teléfono de 320 px deja 288 px al hilo del chat. */
 export const PHONE_COLUMN = "w-[288px]"
 
-/** Nada de la columna se sale por la derecha: ni scroll horizontal ni texto cortado. */
+/** Un nodo legible en el mensaje de un fallo: etiqueta, test id y el inicio de su texto. */
+const describe = (element: HTMLElement) =>
+  `<${element.tagName.toLowerCase()}${element.dataset.testid ? ` ${element.dataset.testid}` : ""}> ${element.textContent?.slice(0, 40) ?? ""}`
+
+/**
+ * Nada de la columna se sale por la derecha: ni scroll horizontal, ni texto cortado, ni contenido
+ * que se mete en el padding de su contenedor. Un `overflow-hidden` (la superficie de las tarjetas,
+ * `truncate`) esconde lo que se sale sin mover ningún borde, así que también se mira por dentro.
+ */
 export async function expectFitsPhoneColumn(canvasElement: HTMLElement) {
   const column = canvasElement.querySelector<HTMLElement>("[data-testid='phone-column']")
   await expect(column).not.toBeNull()
   const right = column?.getBoundingClientRect().right ?? 0
   await expect(column?.scrollWidth).toBeLessThanOrEqual(column?.clientWidth ?? 0)
   for (const element of column?.querySelectorAll<HTMLElement>("*") ?? []) {
-    if (element.classList.contains("sr-only")) continue
-    await expect(element.getBoundingClientRect().right).toBeLessThanOrEqual(right + 1)
+    if (element.closest(".sr-only")) continue
+    const box = element.getBoundingClientRect()
+    await expect(box.right, describe(element)).toBeLessThanOrEqual(right + 1)
+    const style = getComputedStyle(element)
+    if (style.overflowX !== "visible") {
+      await expect(element.scrollWidth, describe(element)).toBeLessThanOrEqual(element.clientWidth)
+    }
+    const parent = element.parentElement
+    if (!parent || style.position === "absolute" || style.position === "fixed") continue
+    const parentBox = parent.getBoundingClientRect()
+    const contentRight = parentBox.right - parseFloat(getComputedStyle(parent).paddingRight)
+    await expect(box.right, describe(element)).toBeLessThanOrEqual(contentRight + 1)
   }
 }
 
