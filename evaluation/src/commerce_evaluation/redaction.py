@@ -50,22 +50,37 @@ def redact(text: str, values: Iterable[str] = (), *, marker: str = REDACTED) -> 
     return BEARER.sub(lambda match: match.group(1) + marker, text)
 
 
-def _redacted(value: Any, values: list[str]) -> Any:
+def relabel(text: str, paths: Mapping[str, str]) -> str:
+    """The text with each local path replaced by its label, longest path first, so a directory
+    inside another one keeps its own label."""
+    for path in sorted(paths, key=len, reverse=True):
+        text = text.replace(path, paths[path])
+    return text
+
+
+def _redacted(value: Any, values: list[str], paths: Mapping[str, str]) -> Any:
     if isinstance(value, str):
-        return redact(value, values)
+        return relabel(redact(value, values), paths)
     if isinstance(value, Mapping):
-        return {key: _redacted(item, values) for key, item in value.items()}
+        return {key: _redacted(item, values, paths) for key, item in value.items()}
     if isinstance(value, list):
-        return [_redacted(item, values) for item in value]
+        return [_redacted(item, values, paths) for item in value]
     return value
 
 
 def sweep_fields(
-    row: Mapping[str, Any], names: Iterable[str], values: Iterable[str]
+    row: Mapping[str, Any],
+    names: Iterable[str],
+    values: Iterable[str],
+    *,
+    paths: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    """The row with every string inside the named fields redacted; other fields stay as they are."""
-    secrets = list(values)
-    return dict(row) | {name: _redacted(row[name], secrets) for name in names if name in row}
+    """The row with every string inside the named fields redacted and its local `paths` relabeled;
+    other fields stay as they are."""
+    secrets, labels = list(values), dict(paths or {})
+    return dict(row) | {
+        name: _redacted(row[name], secrets, labels) for name in names if name in row
+    }
 
 
 def secret_values(environment: Mapping[str, str], names: Iterable[str]) -> tuple[str, ...]:
