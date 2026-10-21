@@ -598,6 +598,26 @@ Revocar un grant que ya está `revoked(operator|escalated|failed)` no escribe na
 configurado o en otra moneda: `delegation_variant_unavailable`. Un total menor que todos los precios no
 se rechaza: D1 lo escalará con POL-11.
 
+**Cómo lo arma HNP-08** (`delegation_api.py`, `delegation/service.py`, `delegation/views.py`; la
+revocación, las rutas internas y `/health` van en un segundo PR apilado):
+
+- Los cuerpos se leen como JSON estricto (`parse_model`), así que un cuerpo inválido responde
+  `{code, message}` con `delegation_request_invalid` y no el 422 propio de FastAPI, que las rutas HP
+  conservan. Un `valid_for_seconds` menor que 60 es `delegation_request_invalid`; uno mayor que el
+  máximo, `delegation_validity_exceeded`.
+- En el alcance, `merchant_refs` es `merchant_pseudonym` de `MERCHANT_BASE_URL` y
+  `destination_binding` sale de `governance/destination.py`, la misma función que usa D2 sobre los
+  `fulfillment_details` del checkout (K8), con `binding_id = "destination:<proposal_id>"`. En la
+  tarjeta, `merchant_name` es el vendedor del feed (o `Tesis Commerce Merchant`),
+  `destination_label` es `"<city>, <state>"` de la dirección y `instrument_label` es «Tarjeta de
+  prueba del sandbox».
+- Al consentir, la propuesta también se da por vencida si ya pasó el `expires_at` del grant (fijado
+  al proponer): no se firma un abierto ya vencido. Antes de guardar, los abiertos se verifican con
+  `verify_open_proof`; si algo falla, 503 `delegation_signer_unavailable` sin escribir nada.
+- La vista de una tarea comprada toma el título de `purchases.selected_variant_id`, el total de la
+  reserva y la orden del outbox. El prellenado de un escalamiento usa la variante elegida o, si la
+  ejecución no llegó a elegir, la primera del alcance, con el total máximo consentido.
+
 ### 5.2 Rutas internas (`/internal/hnp/*`)
 
 Requieren `Authorization: Bearer <token>`, se comparan en tiempo constante y nunca aceptan el JWT del
@@ -665,6 +685,11 @@ Con `AGENT_HNP_ENABLED=true` el arranque exige además `AGENT_AUTH_MODE=jwt`,
 `AGENT_AP2_REQUIRED=true`, `AGENT_AP2_PRIVATE_KEY_PEM`, las tres variables HNP secretas,
 `AGENT_D1_KEY_ID` y `AGENT_D1_HMAC_KEY_HEX` (§4.2), y `AGENT_GOVERNANCE_MODE` en `off` o `enforce`;
 con `enforce`, `AGENT_HP_FLOW=governed`. Cualquier otra combinación falla al arrancar.
+**Ajuste de HNP-08:** también exige `AGENT_D1_AES_KEY_HEX`, porque los seudónimos salen de
+`ProvenanceKeys` (`pseudonym`), que valida las dos claves de la bóveda juntas. Las comprobaciones
+viven en `delegation/bootstrap.py`, corren antes de crear el store y fallan con `RuntimeError` sin
+repetir ningún valor; el arranque construye el emisor, que compara las públicas de la Agent Key y
+del proveedor.
 
 **Decisión de spec, constantes y no settings:** cierres de 300 s, lease de 120 s, tolerancia de reloj
 de los verificadores de 60 s, 5 variantes por alcance y 280 caracteres de indicación. Son parte del

@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     agent_ap2_private_key_pem: SecretStr | None = Field(default=None, repr=False)
     # AP2 Human Not Present: the Agent Key that closes open mandates (docs/ap2-profile.md).
     agent_hnp_agent_key_pem: SecretStr | None = Field(default=None, repr=False)
+    # Human Not Present (docs/design/hnp-governed.md §6). Off: no HNP route or table exists.
+    # The rest of the startup rule lives in delegation/bootstrap.py, which never echoes secrets.
+    agent_hnp_enabled: bool = False
+    agent_hnp_service_token: SecretStr | None = Field(default=None, repr=False)
+    agent_hnp_operator_token: SecretStr | None = Field(default=None, repr=False)
+    agent_hnp_max_validity_seconds: int = Field(default=86_400, ge=60, le=86_400)
+    agent_hnp_proposal_ttl_seconds: int = Field(default=600, ge=60, le=1_800)
     payment_provider_url: str = "http://127.0.0.1:4130"
     payment_agent_bearer_token: SecretStr | None = Field(default=None, repr=False)
     agent_database_path: Path = Path(".local/agent.db")
