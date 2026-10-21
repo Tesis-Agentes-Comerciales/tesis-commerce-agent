@@ -366,8 +366,8 @@ B2_CONTROLS: dict[str, tuple[tuple[int, int, int, str, str, str], ...]] = {
             0,
             2,
             1,
-            "Consentimiento e identidad",
-            f"D2-HP al aprobar; {nowrap('POL-03..06')} sin evaluador",
+            "Consentimiento e identidad (D2-HP)",
+            f"Al aprobar; {nowrap('POL-03..06')} sin evaluador",
             PLANNED,
         ),
     ),
@@ -1012,7 +1012,11 @@ def delta_view() -> Sheet:
     p.text("Pendiente", 40, 846, 130, 40, size=20, bold=True, align="left")
     pending = (
         ("Recuperación D17", "Lookup de un despacho uncertain", PLANNED),
-        ("D2-HP", "Autorización al aprobar: challenge e identidad", PLANNED),
+        (
+            "Consentimiento e identidad (D2-HP)",
+            f"Al aprobar; {nowrap('POL-03..06')} sin evaluador",
+            PLANNED,
+        ),
         ("POL-01 como autoridad", "La selección inválida llega a D1", FUTURE),
         ("Presupuesto total", "En D1 o en la lista corta (S02)", FUTURE),
         ("Salida de estados atascados", "Destrabar uncertain sin reiniciar", FUTURE),
@@ -1802,6 +1806,45 @@ def load_pilot_runs(summary: dict[str, Any]) -> dict[tuple[str, str], dict[int, 
     return runs
 
 
+PilotRuns = dict[tuple[str, str], dict[int, dict[str, Any]]]
+
+
+def _governed(runs: PilotRuns, condition: str, codes: tuple[str, ...], key: str) -> list[Any]:
+    """Every item the JSONL recorded under governed_evidence[key] for these scenarios."""
+    return [
+        item
+        for (cell_condition, code), records in runs.items()
+        if cell_condition == condition and code in codes
+        for record in records.values()
+        for item in (record.get("governed_evidence") or {}).get(key) or []
+    ]
+
+
+def d1_allows(runs: PilotRuns, codes: tuple[str, ...]) -> tuple[int, int]:
+    """(allow, evaluated) over the D1 decision records of B2 in these scenarios."""
+    decisions = _governed(runs, "B2", codes, "d1_decisions")
+    return sum(decision["outcome"] == "allow" for decision in decisions), len(decisions)
+
+
+def recovery_kinds(runs: PilotRuns, code: str) -> dict[str, int]:
+    """How many governed_recovery records of each kind B2 left in one scenario."""
+    kinds: dict[str, int] = {}
+    for item in _governed(runs, "B2", (code,), "hp_evidence"):
+        if item["record_kind"] == "governed_recovery":
+            kinds[item["kind"]] = kinds.get(item["kind"], 0) + 1
+    return kinds
+
+
+def b0_errors(runs: PilotRuns, code: str) -> dict[str, int]:
+    """B0' error codes by HTTP status in one scenario, e.g. {'502 intent_model_error': 4}."""
+    errors: dict[str, int] = {}
+    for record in runs[("B0prime", code)].values():
+        if record["http_status"] >= 400:
+            label = f"{record['http_status']} {(record['error_response'] or {}).get('code')}"
+            errors[label] = errors.get(label, 0) + 1
+    return errors
+
+
 def _ready(cell: dict[str, Any]) -> int:
     return cell["merchant_checkouts"]["by_status"].get("ready_for_payment", 0)
 
@@ -1977,9 +2020,7 @@ def pilot_results() -> Sheet:
     evidence = b2_all["mechanism_evidence"]
     recovery = evidence["governed_recovery"]
     with_5xx = [code for code in summary["scenarios"] if cells["B0prime"][code]["http_5xx"]]
-    # In enforce a merchant checkout exists only after a D1 allow, so as many checkouts as
-    # decisions means every evaluated purchase was allowed.
-    all_allowed = b2_all["merchant_checkouts"]["total"] == latency["n"]
+    allowed, evaluated = d1_allows(pilot_runs, tuple(summary["scenarios"]))
 
     def where(mechanism: str) -> str:
         return ", ".join(
@@ -2031,7 +2072,11 @@ def pilot_results() -> Sheet:
         f"en {recovery['recorded']} de {recovery['recorded'] + recovery['missing']} "
         f"({where('governed_recovery')}); la continuación no tiene registro propio. S04 y S02 "
         "los resuelven controles de aplicación, no el PDP"
-        + (f": D1 permitió las {latency['n']} compras que evaluó" if all_allowed else "")
+        + (
+            f": D1 permitió las {allowed} compras que evaluó"
+            if allowed == evaluated
+            else f": D1 permitió {allowed} de las {evaluated} compras que evaluó"
+        )
         + ". S02 queda parcial y no es una regresión de B2: la lista corta solo compara el máximo "
         "por unidad, la política v1 no tiene regla de presupuesto total y el total se valida "
         "después de crear el checkout, con código que comparten las dos condiciones.",
@@ -2231,6 +2276,9 @@ APPLICATION_CONTROLS = (
 
 def policy_map() -> Sheet:
     summary = load_pilot_summary()
+    pilot_runs = load_pilot_runs(summary)
+    a04, e04 = d1_allows(pilot_runs, ("S04",))
+    a02, e02 = d1_allows(pilot_runs, ("S02",))
     cells = summary["by_condition_scenario"]
     b0_s02, b2_s02 = cells["B0prime"]["S02"], cells["B2"]["S02"]
     b0_s04, b2_s04 = cells["B0prime"]["S04"], cells["B2"]["S04"]
@@ -2336,9 +2384,7 @@ def policy_map() -> Sheet:
     _rich(
         p,
         "<b>Controles de aplicación</b> · no son el PDP: actúan en el agente, fuera de D1. "
-        "D1 permitió cada compra que llegó al checkout "
-        f"({b2_s04['merchant_checkouts']['total']}/{b2_s04['policy_latency_ms']['n']} en S04 y "
-        f"{b2_s02['merchant_checkouts']['total']}/{b2_s02['policy_latency_ms']['n']} en S02)",
+        f"D1 permitió cada compra que evaluó ({a04}/{e04} en S04 y {a02}/{e02} en S02)",
         50,
         controls_y,
         1800,
@@ -2400,7 +2446,8 @@ SLIDE_STEPS = (
     (
         "Agente · gate D1",
         "3 · D1",
-        "Evalúa POL-01 y POL-02 y guarda la decisión antes de cualquier POST",
+        "Evalúa POL-01 y POL-02 y guarda la decisión. "
+        f'<span style="color:{FAILURE_RED}">Deny: se detiene sin POST</span>',
         tag(DONE),
         AGENT_BLUE,
     ),
@@ -2433,6 +2480,7 @@ SLIDE_STEPS = (
 
 def purchase_slide() -> Sheet:
     summary = load_pilot_summary()
+    pilot_runs = load_pilot_runs(summary)
     cells = summary["by_condition_scenario"]
     b0_s02, b2_s02 = cells["B0prime"]["S02"], cells["B2"]["S02"]
     b0_s04, b2_s04 = cells["B0prime"]["S04"], cells["B2"]["S04"]
@@ -2472,41 +2520,15 @@ def purchase_slide() -> Sheet:
                 width=2.4,
             )
 
-    branch_y, branch_h, branch_w = 540, 214, 392
-    branches = (
-        # (step index, left x, name, type text, description, pilot line)
-        (
-            2,
-            248,
-            "Deny de D1",
-            tag(DONE),
-            "d1_denied: ningún POST al comercio. Por ejemplo, un comercio fuera de la lista "
-            f"({nowrap('POL-02')})",
-            "Prueba live (#48) y modo pol02-deny de la demo; el piloto no lo ejercitó",
-        ),
-        (
-            4,
-            664,
-            "S02 · el total supera el presupuesto",
-            "B0 + B2 · hecho",
-            "El agente cancela el checkout (presupuesto, B0) y explica la causa (recuperación, "
-            "B2): 200, sin 5xx",
-            f"Piloto: 5xx {b0_s02['http_5xx']}/{b0_s02['runs']} → "
-            f"{b2_s02['http_5xx']}/{b2_s02['runs']}; "
-            f"{b2_s02['merchant_checkouts']['runs_with_checkouts']}/{b2_s02['runs']} checkouts "
-            "creados y cancelados",
-        ),
-        (
-            5,
-            1080,
-            "S04 · la oferta cambió",
-            tag(DONE),
-            "409 checkout_terms_changed: sin firma, pago ni orden (frescura de la oferta)",
-            f"Piloto: aprobaciones obsoletas {b0_s04['stale_terms_accepted']}/{b0_s04['runs']} → "
-            f"{b2_s04['stale_terms_accepted']}/{b2_s04['runs']}",
-        ),
-    )
-    for step, left, name, kind, description, pilot in branches:
+    branch_y, branch_h = 540, 232
+    a04, e04 = d1_allows(pilot_runs, ("S04",))
+    a02, e02 = d1_allows(pilot_runs, ("S02",))
+    kinds = recovery_kinds(pilot_runs, "S02")
+    errors = " y ".join(f"{label} en {n}" for label, n in b0_errors(pilot_runs, "S02").items())
+
+    # S02: one card, two recovery paths, each under the step where it starts.
+    s02_left, s02_w = 248, 808
+    for step in (1, 4):
         p.link(
             (centers[step], step_y + step_h + 2),
             (centers[step], branch_y - 2),
@@ -2514,20 +2536,85 @@ def purchase_slide() -> Sheet:
             dashed=False,
             width=2.4,
         )
-        p.card(
-            left,
-            branch_y,
-            branch_w,
-            branch_h,
-            name,
-            description + _muted(pilot, top=8),
-            kind=kind,
-            border=FAILURE_RED,
-            name_size=21,
-            description_size=18,
-            kind_size=15,
+    p.card(
+        s02_left,
+        branch_y,
+        s02_w,
+        branch_h,
+        "S02 · presupuesto incompatible",
+        kind="B0 + B2 · hecho",
+        border=FAILURE_RED,
+        name_size=21,
+        kind_size=15,
+        valign="top",
+    )
+    half = (s02_w - 48) // 2
+    paths = (
+        (
+            "Paso 2 · elección fuera de la lista corta",
+            "La recuperación la explica sin crear checkout; en B0' daba 502.",
+        ),
+        (
+            "Paso 5 · total sobre el presupuesto",
+            "El presupuesto autoritativo (B0) cancela el checkout y la recuperación (B2) lo "
+            "explica.",
+        ),
+    )
+    for index, (title, text) in enumerate(paths):
+        _rich(
+            p,
+            f"<b>{title}</b><br>{text}",
+            s02_left + 16 + index * (half + 16),
+            branch_y + 66,
+            half,
+            92,
+            size=18,
+            align="center",
             valign="top",
         )
+    _rich(
+        p,
+        f"Piloto · recuperación: 5xx {b0_s02['http_5xx']}/{b0_s02['runs']} → "
+        f"{b2_s02['http_5xx']}/{b2_s02['runs']} (B0': {errors}). En B2, "
+        f"{kinds.get('selection_outside_shortlist', 0)} elección fuera de la lista y, por "
+        f"presupuesto, {kinds.get('budget_exceeded_after_checkout', 0)}/{b2_s02['runs']} "
+        "checkouts creados y cancelados.",
+        s02_left + 16,
+        branch_y + 164,
+        s02_w - 32,
+        56,
+        size=17,
+        color=MUTED,
+        align="center",
+        valign="top",
+    )
+
+    p.link(
+        (centers[5], step_y + step_h + 2),
+        (centers[5], branch_y - 2),
+        color=FAILURE_RED,
+        dashed=False,
+        width=2.4,
+    )
+    p.card(
+        1080,
+        branch_y,
+        392,
+        branch_h,
+        "S04 · la oferta cambió",
+        "409 checkout_terms_changed: sin firma, pago ni orden (frescura de la oferta)"
+        + _muted(
+            f"Piloto: aprobaciones obsoletas {b0_s04['stale_terms_accepted']}/{b0_s04['runs']} "
+            f"→ {b2_s04['stale_terms_accepted']}/{b2_s04['runs']}",
+            top=8,
+        ),
+        kind=tag(DONE),
+        border=FAILURE_RED,
+        name_size=21,
+        description_size=18,
+        kind_size=15,
+        valign="top",
+    )
     p.card(
         1496,
         branch_y,
@@ -2545,14 +2632,11 @@ def purchase_slide() -> Sheet:
     )
     _rich(
         p,
-        "<b>S04 y S02 no son denegaciones del PDP.</b> D1 permitió cada compra que llegó al "
-        f"checkout ({b2_s04['merchant_checkouts']['total']}/"
-        f"{b2_s04['policy_latency_ms']['n']} en S04 y "
-        f"{b2_s02['merchant_checkouts']['total']}/{b2_s02['policy_latency_ms']['n']} en S02); "
-        "las detienen controles de aplicación: la frescura de la oferta, el presupuesto "
-        "autoritativo y la recuperación gobernada.",
+        "<b>S04 y S02 no son denegaciones del PDP.</b> D1 permitió cada compra que evaluó "
+        f"({a04}/{e04} en S04 y {a02}/{e02} en S02); las detienen controles de aplicación: la "
+        "frescura de la oferta, el presupuesto autoritativo y la recuperación gobernada.",
         50,
-        branch_y + branch_h + 50,
+        branch_y + branch_h + 40,
         1820,
         64,
         size=20,
@@ -2560,11 +2644,13 @@ def purchase_slide() -> Sheet:
     _rich(
         p,
         "Evidencia: cada decisión de D1 queda en governance_evidence; la frescura y la "
-        "recuperación, en hp_evidence. La traza de la compra en el chat muestra las tres.",
+        "recuperación, en hp_evidence; la traza de la compra en el chat muestra las tres. Un deny "
+        f"de D1 detiene la compra antes de cualquier POST, como el de {nowrap('POL-02')} en la "
+        "prueba live de #48 y en el modo pol02-deny de la demo.",
         50,
-        branch_y + branch_h + 128,
+        branch_y + branch_h + 114,
         1820,
-        34,
+        60,
         size=19,
         color=DESCRIPTION,
     )

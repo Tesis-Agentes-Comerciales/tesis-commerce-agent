@@ -79,7 +79,8 @@ Los diagramas de una sola diapositiva (`b0-vs-b2-delta`, `purchase-sequence-slid
 `pilot-results`) se exportan a 1920 × 1080 exactos: el generador agrega un fondo blanco del tamaño
 de la página, comprueba que nada quede fuera y exporta sin borde. La secuencia en una diapositiva
 muestra los pasos como tarjetas con el color de quien actúa y las ramas que detienen la compra en
-rojo.
+rojo. Cada cifra del piloto va con el mecanismo que la produjo: si una rama tiene dos caminos (S02),
+cada número queda junto a su camino.
 
 En `policy-map` las políticas del PDP y los controles de aplicación van en bloques separados. Un
 control de aplicación (frescura, recuperación, presupuesto autoritativo, continuación) nunca se
