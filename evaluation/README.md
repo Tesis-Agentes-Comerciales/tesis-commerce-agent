@@ -44,6 +44,8 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | `src/commerce_evaluation/hnp_pilot_live.py` | corrida en vivo de `hnp-pilot`: servicios, agente por episodio, tope de costo y resumen |
 | `src/commerce_evaluation/hnp_pilot_scoring.py` | oráculo, métricas y costo de cada fila del piloto HNP |
 | `src/commerce_evaluation/hnp_pilot_agent.py` | agente de HN11 con el selector guionado inyectado por código |
+| `src/commerce_evaluation/run_artifacts.py` | artefacto local de cada corrida de `governance-pilot` y `hnp-pilot` ([spec](../docs/design/run-traceability.md), T1) |
+| `src/commerce_evaluation/redaction.py` | redacción común de logs, errores y campos de fila (secretos conocidos y formas de secreto) |
 | `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto lo ejecuta con el entorno del Merchant |
 | `scripts/build_b0_analysis_notebook.py` | genera el notebook B0; `nbformat` no está en el lock |
 
@@ -63,6 +65,50 @@ uv run --with nbformat python evaluation/scripts/build_b0_analysis_notebook.py
 
 Los comandos se ejecutan desde la raíz del repositorio. Las salidas HNP deben quedar bajo
 `.local/`; el piloto escribe por defecto en `results/`.
+
+## Artefacto de cada corrida (`governance-pilot` y `hnp-pilot`)
+
+Cada corrida en vivo guarda, además de su fila, el artefacto completo de cada repetición o
+episodio ([spec](../docs/design/run-traceability.md), §4.2, §4.3 y T1). El runner lo copia cuando
+el agente de la fila ya se detuvo, también si la fila es un error del arnés, y antes de que se borre
+su directorio temporal:
+
+```text
+.local/runs/<invocación>/<fila>/        # --artifacts-dir cambia .local/runs
+  agent.db, agent.graph.db              # copias con sqlite3 backup: consistentes, WAL incluido
+  feed/                                 # el feed que usó la corrida, mutado si el escenario lo muta
+  agent.log                             # redactado
+  MANIFEST.json                         # fila, commits, sha256 y tamaño de cada archivo
+```
+
+- `<invocación>` es `governance-pilot-<hex>` o el `invocation_id` de `hnp-pilot`; `<fila>` es el
+  directorio de la corrida (`b2-s05-8`, `001-b2-hnp-hn10`).
+- `MANIFEST.json` (`run-artifact/1`) trae `row` (HP: escenario, condición, repetición,
+  `purchase_run_id` y `merchant_run_id`; HNP: además capa, `plan_index`, `grant_id`, `task_id` y el
+  `run_id` de la tarea), `commits` (agente, comercio y PSP), `files` (`sha256` y `bytes` de cada
+  archivo), `unavailable` (lo que la corrida no dejó, por ejemplo todo si falló antes de arrancar
+  el agente; un archivo que falta se registra ahí y no hace fallar la copia) y `redacted`.
+- Cada fila suma `run_artifact`: `dir` (relativo al directorio de artefactos), `manifest_sha256`
+  y `sha256` de cada archivo. Así la fila y su artefacto se unen después.
+- Si guardar el artefacto falla, la fila se escribe igual: `run_artifact` queda en `null` y la causa
+  va a `measurement_errors.run_artifact`, que el resumen cuenta. La corrida ya pagó el modelo y su
+  observación no depende de la copia local.
+- **Nunca va a Git.** El artefacto contiene JWT, mandatos y llaves de idempotencia del sandbox.
+  `.local/` está en `.gitignore` y el runner rechaza un `--artifacts-dir` dentro del checkout que Git
+  no ignore. Nunca guarda `auth.db` ni `payments.db`, que comparten todas las filas y llevan
+  secretos, ni las llaves D1: solo las recibe el agente, y en el log quedan redactadas. El reporte
+  de un piloto publica, si hace falta, el sha256 de un tar del directorio, no el directorio.
+- **Redacción** (`redaction.py`). Se aplica al log copiado, a la cola del log que se imprime ante un
+  error, al stderr del CLI del comercio que lleva `PilotError` y a la última línea de error de los
+  dos runners, y a `harness_error`, `error_response` y `measurement_errors` de cada fila. Quita los
+  secretos de la invocación por valor (tal cual, escapados en JSON y línea por línea en las llaves
+  PEM): los del agente y los servicios, `BETTER_AUTH_SECRET`, `OPENAI_API_KEY` si está en el
+  entorno, las llaves D1, la sesión del comercio de cada fila y, en HNP, los tokens de servicio y de
+  operador, la llave AP2 del agente y la firma del JWT de consentimiento. Además quita por forma lo
+  que el runner no conoce: JWT (`eyJ….….`), `Bearer` seguido de un token de 16 caracteres o más,
+  bloques PEM, claves `sk-…` y URL de PostgreSQL. Solo reemplaza la subcadena por `[redacted]`, así
+  que el mensaje conserva qué falló.
+- `--dry-run` no cambia ni crea artefactos.
 
 ## Piloto B2 gobernado: B0' y B2
 
@@ -399,7 +445,7 @@ HNP_PILOT_MAX_COST_USD=2 uv run hnp-pilot      # en vivo: lo corre el líder, co
 - **Salida.** `results/hnp-pilot-<fecha>.jsonl` con una fila por episodio (condición, `/health`,
   modelo, variables agregadas al arranque con sus valores no secretos, efectos, gobernanza, costo y
   acumulado, oráculo y métricas) y `<archivo>.summary.json` por condición y
-  por condición × escenario.
+  por condición × escenario. El artefacto de cada episodio queda en `.local/runs/` (arriba).
 
 ## Archivos
 
@@ -445,4 +491,6 @@ Cada ejecución debe registrar como mínimo:
 - pedido, mandates, recibos o error terminal;
 - latencia, uso del modelo y métricas derivadas.
 
-Los secretos, bearer tokens y tokens de pago no forman parte de los artefactos experimentales.
+Los secretos, bearer tokens y tokens de pago no forman parte de los artefactos experimentales
+versionados. El artefacto local de cada corrida (`.local/runs/`) sí los contiene y por eso nunca se
+versiona.
