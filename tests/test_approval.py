@@ -163,6 +163,21 @@ def test_checkout_must_be_ready_and_unexpired(tmp_path: Path) -> None:
     assert expiration.value.code == "checkout_expired"
 
 
+@pytest.mark.parametrize("action", ["present", "authorize"])
+def test_a_checkout_the_merchant_marked_expired_reads_as_expired(
+    tmp_path: Path, action: str
+) -> None:
+    """The merchant marks a checkout `expired` once it reads it after `expires_at`."""
+    _, approval = service(tmp_path)
+    expired = checkout(status="expired")
+    with pytest.raises(ApprovalError) as captured:
+        if action == "present":
+            approval.present(expired)
+        else:
+            approval.authorize(run_id="run-1", checkout=expired)
+    assert captured.value.code == "checkout_expired"
+
+
 def test_ap2_approval_signs_both_mandates_and_detects_tampering(tmp_path: Path) -> None:
     cryptographic_now = datetime.now(UTC)
     key = ec.generate_private_key(ec.SECP256R1())

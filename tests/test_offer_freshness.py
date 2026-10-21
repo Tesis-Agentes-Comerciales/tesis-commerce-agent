@@ -375,6 +375,7 @@ def test_an_expired_offer_blocks_approval_with_its_own_409(tmp_path: Path) -> No
     [
         ({"status": "canceled"}, "checkout_not_ready"),
         ({"expires_at": "2026-09-20T11:59:00Z"}, "checkout_expired"),
+        ({"status": "expired"}, "checkout_expired"),
     ],
 )
 def test_an_unapprovable_checkout_is_refused_before_reading_the_offer(

@@ -90,13 +90,16 @@ class SqliteD1DispatchStore:
         self,
         operation_id: str,
         *,
-        state: Literal["confirmed", "uncertain"],
+        state: Literal["confirmed", "uncertain", "definitive_failure"],
         checkout_id: str | None,
-        code: Literal["CHECKOUT_VERIFIED", "DISPATCH_UNCERTAIN", "CHECKOUT_INVALID"],
+        code: Literal[
+            "CHECKOUT_VERIFIED", "DISPATCH_UNCERTAIN", "CHECKOUT_INVALID", "VERIFIED_NOT_CREATED"
+        ],
     ) -> None:
+        """`definitive_failure` only for the Merchant's refusal of the one POST, which it
+        answers before creating anything for the key (enforce.CheckoutCreationRefused)."""
         if not self.connection.in_transaction:
             raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE")
-        # No definitive_failure API: no remote proof of absence is available yet.
         row = self.connection.execute(
             "SELECT state FROM d1_checkout_operations WHERE operation_id=?",
             (operation_id,),

@@ -35,6 +35,7 @@ from pydantic import SecretStr
 
 from commerce_agent.api import create_app
 from commerce_agent.application.purchase import CheckoutDetails
+from commerce_agent.assistant_transport import error_message
 from commerce_agent.buyer_auth import BuyerPrincipal
 from commerce_agent.config import Settings
 from commerce_agent.governance.evaluator import GovernanceError
@@ -836,6 +837,29 @@ def governed_trace(client: TestClient, run_id: str) -> dict[str, Any]:
     body = response.json()
     assert PurchaseTrace.model_validate_json(response.text).model_dump(mode="json") == body
     return body
+
+
+def test_a_creation_the_merchant_refused_fails_after_the_allow(tmp_path: Path) -> None:
+    """D1 allowed and the merchant refused the one POST before creating anything (409)."""
+    settings = governed_settings(tmp_path / "agent.db")
+    merchant = StoreMerchant("out_of_stock")
+    with governed_client(settings, merchant) as client:
+        turn = ask(client, "turn-refused")
+        assert turn.status_code == 409, turn.text
+        assert turn.json() == {"code": "out_of_stock", "message": error_message("out_of_stock")}
+        assert client.get("/me/pending-purchase").json() is None
+        row = client.get("/me/purchases").json()["purchases"][0]
+        trace = governed_trace(client, row["run_id"])
+
+    assert merchant.creations() == 1
+    assert row["status"] == trace["status"] == "failed"
+    assert kinds(trace) == ["request", "selection", "policy_decision", "failed"]
+    assert step(trace, "policy_decision")["decision"]["outcome"] == "allow"
+    assert {key: step(trace, "failed")[key] for key in ("state", "code")} == {
+        "state": "error",
+        "code": "out_of_stock",
+    }
+    assert_chronological(trace)
 
 
 # The demo's S04 rewrites the offer: a new price and a new validity window counted from that moment

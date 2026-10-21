@@ -18,12 +18,18 @@ from pydantic import SecretBytes, SecretStr
 from commerce_agent.acp.feed import ProductFeed, load_product_feed
 from commerce_agent.acp.models import CheckoutSession
 from commerce_agent.application import PurchaseService, PurchaseServiceError
+from commerce_agent.application.conversation import PENDING_STAGES
 from commerce_agent.application.purchase import CheckoutGateway
 from commerce_agent.approval import ApprovalService
 from commerce_agent.config import Settings
 from commerce_agent.domain import HardConstraints, PurchaseIntent, rank_candidates
 from commerce_agent.governance.canonical import canonical_bytes
-from commerce_agent.governance.enforce import InitialCheckoutDispatch, SqliteD1EnforceGate
+from commerce_agent.governance.enforce import (
+    CheckoutCreationRefused,
+    InitialCheckoutDispatch,
+    RefusalCode,
+    SqliteD1EnforceGate,
+)
 from commerce_agent.governance.evaluator import ReferencePolicyEvaluator
 from commerce_agent.governance.evidence import DecisionRecord, EvidenceError
 from commerce_agent.governance.models import EvaluationMetadata, PolicyBinding
@@ -85,6 +91,8 @@ class SpyGateway(FakeCheckoutGateway):
         result = super().get_checkout(checkout_id)
         if self.fault == "identity":
             return result.model_copy(update={"id": "foreign-checkout"}, deep=True)
+        if self.fault == "refused-read":
+            raise CheckoutCreationRefused("out_of_stock")
         return result
 
     def update_checkout(self, checkout_id, update, *, idempotency_key):
@@ -111,6 +119,18 @@ class SingleAttemptSpy:
     def perform_once(self, effect, call):
         """Explicit offline post-create test port; no commercial authorization."""
         return call()
+
+
+class RefusingDispatch(SingleAttemptSpy):
+    """A port whose one POST the merchant refused before creating anything."""
+
+    def __init__(self, code: RefusalCode = "out_of_stock"):
+        self.code: RefusalCode = code
+        self.calls = 0
+
+    def create_once(self, gateway, *, variant_id, currency, idempotency_key):
+        self.calls += 1
+        raise CheckoutCreationRefused(self.code)
 
 
 @dataclass
@@ -479,6 +499,72 @@ def test_uncertain_dispatch_preserves_identity_and_blocks_retry(tmp_path: Path, 
         record
     )
     assert before[1][0][2].encode() not in canonical_bytes(record)
+
+
+def failure_code(case: Case) -> str | None:
+    with closing(connect(case.path)) as connection:
+        return connection.execute(
+            "SELECT failure_code FROM purchases WHERE run_id='run-a'"
+        ).fetchone()[0]
+
+
+@pytest.mark.parametrize("code", ["out_of_stock", "offer_expired", "invalid_item"])
+def test_definitive_refusal_records_absence_and_fails_the_purchase(
+    tmp_path: Path, code: RefusalCode
+):
+    dispatch = RefusingDispatch(code)
+    case = make_case(tmp_path / "agent.db", dispatch=dispatch)
+    with pytest.raises(PurchaseServiceError) as exc:
+        start(case)
+    assert exc.value.code == code
+    before = snapshot(case)
+    operation = before[1][0][0]
+    assert before[0] == ("failed", 3, None)
+    assert before[2] == ((operation, "definitive_failure", None, "VERIFIED_NOT_CREATED"),)
+    assert failure_code(case) == code
+    assert case.gate.recovery_status("run-a") == ("definitive_failure", None, operation)
+    # Not pending, and the refused operation is never sent again.
+    assert case.store.pending_purchase(PENDING_STAGES, OWNER) is None
+    with pytest.raises(PurchaseServiceError) as again:
+        start(case)
+    assert again.value.code == "d1_recovery_required"
+    assert dispatch.calls == 1 and snapshot(case) == before
+    record = records(case)[0]
+    assert isinstance(record, DecisionRecord) and record.decision.outcome == "allow"
+
+
+def test_a_refusal_after_the_response_is_no_proof_of_absence(tmp_path: Path):
+    """Only the POST itself can prove that nothing was created; a later step cannot."""
+    case = make_case(tmp_path / "agent.db", fault="refused-read")
+    with pytest.raises(PurchaseServiceError) as exc:
+        start(case)
+    assert exc.value.code == "d1_dispatch_uncertain"
+    assert snapshot(case)[0] == ("uncertain", 3, None)
+    status = case.gate.recovery_status("run-a")
+    assert status is not None and status[0:2] == ("uncertain", None)
+    assert sum(name == "create" for name, _ in case.gateway.calls) == 1
+
+
+def test_an_unrecorded_refusal_answers_what_the_disk_says(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    case = make_case(tmp_path / "agent.db", dispatch=RefusingDispatch())
+    observe = SqliteD1DispatchStore.observe
+
+    def unavailable(store, operation_id, *, state, checkout_id, code):
+        if state == "definitive_failure":
+            raise sqlite3.OperationalError("disk I/O error")
+        return observe(store, operation_id, state=state, checkout_id=checkout_id, code=code)
+
+    monkeypatch.setattr(SqliteD1DispatchStore, "observe", unavailable)
+    with pytest.raises(PurchaseServiceError) as exc:
+        start(case)
+    # Without the record, the claim has no result: the purchase is uncertain, not failed.
+    assert exc.value.code == "d1_dispatch_uncertain"
+    assert snapshot(case)[0] == ("selected", 2, None)
+    status = case.gate.recovery_status("run-a")
+    assert status is not None and status[0:2] == ("uncertain", None)
+    assert case.gate.lost_diagnostics == 1
 
 
 def test_no_default_dispatch_or_public_enforce_path(tmp_path: Path):

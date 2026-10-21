@@ -10,10 +10,9 @@ export type StaleTermsCardStatus = "stale" | "canceling" | "canceled"
 
 /**
  * Por qué ya no se puede aprobar: la oferta cambió, no se pudo leer o venció (la oferta o el
- * checkout). `expired` solo se conoce en la sesión que recibió el error: al recargar, el backend
- * informa una oferta vencida como `changed`.
+ * checkout). Es el mismo `terms_status` con el que el backend restaura la compra al recargar.
  */
-export type StaleTermsReason = PendingTermsStatus | "expired"
+export type StaleTermsReason = PendingTermsStatus
 
 export type StaleTermsCardProps = {
   terms: StaleTermsReason

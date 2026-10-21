@@ -27,7 +27,14 @@ from commerce_agent.governance.reconciliation import (
 from commerce_agent.persistence.d1_reconciliation_sqlite import SqliteD1Reconciler
 from commerce_agent.persistence.d1_uow_sqlite import SqliteD1UnitOfWork
 from tests.governance.test_dispatch_envelope import binding, recover
-from tests.governance.test_enforce_integration import OWNER, connect, make_case, records, start
+from tests.governance.test_enforce_integration import (
+    OWNER,
+    RefusingDispatch,
+    connect,
+    make_case,
+    records,
+    start,
+)
 
 NOW = datetime(2026, 10, 15, 12, tzinfo=UTC)
 
@@ -93,6 +100,7 @@ def episode(path, state="reserved", expected_binding=False):
         path,
         blocked=state in ("reserved", "claimed"),
         fault="timeout" if state == "uncertain" else None,
+        dispatch=RefusingDispatch() if state == "definitive_failure" else None,
     )
     if expected_binding:
         case.gate = SqliteD1EnforceGate(
@@ -177,7 +185,9 @@ def observation(case, status: CheckoutStatus = "canceled", **changes):
     )
 
 
-@pytest.mark.parametrize("state", ["reserved", "claimed", "uncertain", "confirmed"])
+@pytest.mark.parametrize(
+    "state", ["reserved", "claimed", "uncertain", "definitive_failure", "confirmed"]
+)
 def test_local_states_never_grant_replay_or_continuation(tmp_path, state):
     case = episode(tmp_path / f"{state}.db", state)
     before = protected(case)
@@ -192,6 +202,7 @@ def test_local_states_never_grant_replay_or_continuation(tmp_path, state):
     assert "REMOTE_PROOF_UNAVAILABLE" in event.reasons
     assert "HISTORICAL_AUTHORIZATION_NOT_REPLAY_AUTHORITY" in event.reasons
     assert "RETENTION_UNPROVEN" in event.reasons
+    assert "LOCAL_HISTORY_UNVERIFIABLE" not in event.reasons
     if state == "claimed":
         assert "CLAIM_NOT_DELIVERY_PROOF" in event.reasons
     assert event.outcome == ("historical_confirmation_only" if state == "confirmed" else "blocked")

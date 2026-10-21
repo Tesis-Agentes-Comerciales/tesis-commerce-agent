@@ -181,6 +181,10 @@ class ApprovalService:
         return record
 
     def require_approvable(self, checkout: CheckoutSession) -> None:
+        # The merchant marks a checkout `expired` once it reads it after `expires_at`: that is
+        # an expiry too, not a checkout that is merely not ready.
+        if checkout.status == "expired":
+            raise ApprovalError("Checkout has expired", code="checkout_expired")
         if checkout.status != "ready_for_payment":
             raise ApprovalError("Checkout is not ready for payment", code="checkout_not_ready")
         if _parse_timestamp(checkout.expires_at) <= self._clock():

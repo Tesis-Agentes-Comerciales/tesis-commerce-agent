@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter_ns
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import SecretStr
 
@@ -77,13 +77,29 @@ from .provenance_artifacts import measure_d1_sources
 from .shadow_artifacts import verify_loaded_selection
 from .uow import D1Application
 
+RefusalCode = Literal["out_of_stock", "offer_expired", "invalid_item"]
+
+
+class CheckoutCreationRefused(Exception):
+    """A dispatch port's proof that its one POST created nothing: the Merchant refused it.
+
+    A port raises it only for a refusal the Merchant answers after finding no checkout for
+    the key and before creating one (runtime_dispatch.DEFINITIVE_CREATION_REFUSALS). The
+    gate then records `definitive_failure`; every other failure stays `uncertain`.
+    """
+
+    def __init__(self, code: RefusalCode) -> None:
+        super().__init__(code)
+        self.code: RefusalCode = code
+
 
 class InitialCheckoutDispatch(Protocol):
     """Trusted backend transport boundary, admitted only after a committed claim.
 
     The governed runtime injects SingleAttemptCheckoutDispatch; tests may inject a
     spy. This interface itself is not evidence that a Merchant offers
-    replay/reconciliation.
+    replay/reconciliation. It may raise CheckoutCreationRefused, and nothing else
+    proves that the POST created nothing.
     """
 
     def create_once(
@@ -734,11 +750,54 @@ class SqliteD1EnforceGate:
             raise PurchaseServiceError(
                 "Checkout dispatch requires reconciliation", code="d1_dispatch_uncertain"
             ) from None
+        except CheckoutCreationRefused as refusal:
+            # Only the POST itself can prove that nothing was created: once its response
+            # arrived (`invalid`), a refusal from a later step proves nothing.
+            if invalid:
+                self._uncertain(run_id, owner_id, operation_id, invalid)
+            elif self._refused(run_id, owner_id, operation_id, refusal.code):
+                raise PurchaseServiceError(
+                    "Merchant refused to create the checkout", code=refusal.code
+                ) from None
+            raise PurchaseServiceError(
+                "Checkout dispatch requires reconciliation", code="d1_dispatch_uncertain"
+            ) from None
         except Exception:
             self._uncertain(run_id, owner_id, operation_id, invalid)
             raise PurchaseServiceError(
                 "Checkout dispatch requires reconciliation", code="d1_dispatch_uncertain"
             ) from None
+
+    def _refused(self, run_id, owner_id, operation_id, code: RefusalCode) -> bool:
+        """Record that the one POST created nothing; the purchase fails as in B0.
+
+        False if it could not be recorded: the claim then has no result, which reads as
+        uncertain, and the purchase stays pending.
+        """
+        try:
+            with closing(self._connect()) as connection, connection:
+                connection.execute("BEGIN IMMEDIATE")
+                SqliteD1DispatchStore(connection).observe(
+                    operation_id,
+                    state="definitive_failure",
+                    checkout_id=None,
+                    code="VERIFIED_NOT_CREATED",
+                )
+                # `updated_at` is when the purchase failed: the trace's `failed` step.
+                failed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+                failed = connection.execute(
+                    "UPDATE purchases SET stage='failed',failure_code=?,updated_at=?,"
+                    "state_version=state_version+1 "
+                    "WHERE run_id=? AND owner_id=? AND stage='selected'",
+                    (code, failed_at, run_id, owner_id),
+                ).rowcount
+                if failed != 1:
+                    raise GovernanceError("GOV_STATE_CONFLICT")
+            return True
+        except Exception:
+            self.lost_diagnostics += 1
+            logging.getLogger(__name__).warning("D1 dispatch observation unavailable")
+            return False
 
     def _uncertain(self, run_id, owner_id, operation_id, invalid):
         try:

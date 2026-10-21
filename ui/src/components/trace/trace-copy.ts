@@ -163,10 +163,15 @@ const ORDER_EVENTS: Record<string, string> = {
   order_update: "El comercio actualizó la orden",
 }
 
-/** Por qué no se completó; la tarjeta de aprobación añade qué hacer después. */
+/**
+ * Por qué no se completó; la tarjeta de aprobación añade qué hacer después. `offer_expired` e
+ * `invalid_item` solo llegan cuando el comercio rechazó crear el checkout: no se creó nada.
+ */
 export const FAILURE_COPY = {
   payment_declined: "El pago sandbox fue rechazado.",
   out_of_stock: "El producto se agotó antes de completar la compra.",
+  offer_expired: "La oferta del comercio venció.",
+  invalid_item: "El producto ya no está disponible en el comercio.",
 } satisfies Record<string, string>
 
 const SCOPES = { checkout: "la compra", payment: "el pago" } as const

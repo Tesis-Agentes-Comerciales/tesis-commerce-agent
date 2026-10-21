@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 import jwt
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi.testclient import TestClient
@@ -265,7 +266,7 @@ def test_s04_changed_terms_stay_visible_cancelable_and_a_new_checkout_follows(
     ]
 
 
-def test_an_expired_offer_stops_approval_and_reads_as_changed_terms(tmp_path: Path) -> None:
+def test_an_expired_offer_stops_approval_and_reads_as_expired_terms(tmp_path: Path) -> None:
     settings = ap2(tmp_path / "agent.db")
     merchant = Ap2Merchant(settings.merchant_base_url)
     with app_client(settings, merchant) as client:
@@ -284,13 +285,49 @@ def test_an_expired_offer_stops_approval_and_reads_as_changed_terms(tmp_path: Pa
             "code": "offer_expired",
             "message": error_message("offer_expired"),
         }
+        # After a reload the card says what the session that got the 409 said: they expired.
         assert pending(client) == {
             "purchase": awaiting(run_id),
             "approval_terms": None,
-            "terms_status": "changed",
+            "terms_status": "expired",
         }
         canceled = client.post(f"/purchases/{run_id}/cancel")
         assert canceled.status_code == 200, canceled.text
+        assert pending(client) is None
+    assert merchant.effects() == [("POST", "/checkout_sessions/cs_api_1/cancel")]
+
+
+# How a presented checkout stops being approvable on the merchant's side, and what the pending
+# purchase reports. The merchant marks a checkout `expired` once it reads it after `expires_at`.
+STALE_CHECKOUTS = {
+    "status_expired": ({"status": "expired"}, "expired"),
+    "past_expires_at": ({"expires_at": "2000-01-01T00:00:00Z"}, "expired"),
+    "not_ready": ({"status": "not_ready_for_payment"}, "changed"),
+}
+
+
+@pytest.mark.parametrize("change", STALE_CHECKOUTS)
+def test_a_stale_checkout_keeps_the_purchase_visible_and_cancelable(
+    tmp_path: Path, change: str
+) -> None:
+    update, terms_status = STALE_CHECKOUTS[change]
+    settings = ap2(tmp_path / "agent.db")
+    merchant = Ap2Merchant(settings.merchant_base_url)
+    with app_client(settings, merchant) as client:
+        run_id, _ = presented(client, "turn-stale-checkout")
+        merchant.sessions["cs_api_1"].update(update)
+        offer_reads = merchant.requests.count(OFFER_READ)
+        # 200 with the reason, not a 409 that the app reads as «No pude recuperar tus compras».
+        assert pending(client) == {
+            "purchase": awaiting(run_id),
+            "approval_terms": None,
+            "terms_status": terms_status,
+        }
+        # A checkout that cannot be approved is refused before reading the live offer.
+        assert merchant.requests.count(OFFER_READ) == offer_reads
+        canceled = client.post(f"/purchases/{run_id}/cancel")
+        assert canceled.status_code == 200, canceled.text
+        assert canceled.json()["stage"] == "canceled"
         assert pending(client) is None
     assert merchant.effects() == [("POST", "/checkout_sessions/cs_api_1/cancel")]
 

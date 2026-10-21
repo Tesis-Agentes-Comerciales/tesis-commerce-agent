@@ -11,10 +11,12 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+import pytest
 from pydantic import SecretStr
 
 from commerce_agent.acp import ACPClient, load_product_feed
-from commerce_agent.application import PurchaseService
+from commerce_agent.application import PurchaseService, PurchaseServiceError
+from commerce_agent.application.conversation import PENDING_STAGES
 from commerce_agent.approval import ApprovalService
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent
@@ -22,7 +24,7 @@ from commerce_agent.governance.bootstrap import build_enforce_gate
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.runtime import build_runtime
 from tests.integration.live_purchase import PurchaseLane, buyer_details
-from tests.integration.test_live_purchase import APPROVED_AT, PHONE
+from tests.integration.test_live_purchase import APPROVED_AT, OTHER_PHONE, PHONE
 
 
 def governed_settings(lane: PurchaseLane, database: Path, **changes: Any) -> Settings:
@@ -73,6 +75,54 @@ def test_b2_governed_purchase_creates_once_and_awaits_approval(b0, tmp_path: Pat
     assert status is not None and status[0:2] == ("confirmed", prepared.checkout.id)
     assert b0.proxy.count("POST", "/checkout_sessions") == 1
     b0.stack.record("b2:governed_creation", creations=1)
+
+
+def test_b2_merchant_refusal_fails_the_purchase_and_frees_the_buyer(b0, tmp_path: Path):
+    """The real Merchant has no stock left: its 409 to the one POST created nothing.
+
+    The agent's feed still lists the phone, so D1 allows and dispatches. The purchase fails
+    with `out_of_stock` instead of staying uncertain, and the buyer's next purchase goes on.
+    """
+    episode = b0.episode("b2-refused")
+    b0.rpc("alter_offer_fixture", run_id=episode.run_id, variant=PHONE)
+    settings = governed_settings(b0, tmp_path / "agent.sqlite")
+    gate = build_enforce_gate(settings, None)
+    store = SqliteAgentStore(settings.agent_database_path)
+    store.initialize()
+    approvals = ApprovalService(store, b0.approval_secret, merchant_origin=b0.origin)
+    before = b0.rpc("effects")
+    refused_run, next_run = f"b2-refused-{episode.run_id}", f"b2-next-{episode.run_id}"
+    with ACPClient(b0.origin, episode.bearer, timeout_seconds=10) as gateway:
+        purchases = PurchaseService(
+            feed=load_product_feed(episode.feed),
+            checkout=gateway,
+            store=store,
+            approvals=approvals,
+            d1_gate=gate,
+        )
+
+        def buy(run_id: str, variant: str):
+            return purchases.start(
+                run_id=run_id,
+                request="Quiero comprar este teléfono",
+                intent=PurchaseIntent(),
+                selected_variant_id=variant,
+                details=buyer_details("b2-refused"),
+                owner_id=episode.actor_id,
+            )
+
+        with pytest.raises(PurchaseServiceError) as refused:
+            buy(refused_run, PHONE)
+        assert refused.value.code == "out_of_stock"
+        status = gate.recovery_status(refused_run)
+        assert status is not None and status[0:2] == ("definitive_failure", None)
+        assert b0.rpc("effects")["checkout_sessions"] == before["checkout_sessions"]
+        assert store.pending_purchase(PENDING_STAGES, episode.actor_id) is None
+        prepared = buy(next_run, OTHER_PHONE)
+    assert prepared.stage == "awaiting_confirmation"
+    assert (store.purchase(refused_run) or {}).get("stage") == "failed"
+    assert b0.proxy.count("POST", "/checkout_sessions") == 2
+    b0.stack.record("b2:governed_refusal", creations=1, refused="out_of_stock")
 
 
 def test_b2_governed_purchase_completes_once_with_signed_receipts(b0, tmp_path: Path):

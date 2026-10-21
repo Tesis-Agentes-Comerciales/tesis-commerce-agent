@@ -195,8 +195,11 @@ Detalles que el contrato no fijaba y que el backend implementa así (`src/commer
   presentar los términos falla en el stream, y la UI arma la misma parte al restaurar una compra de
   `GET /me/pending-purchase` con `terms_status`. Si aprobar responde 409 o 503 con esos códigos, la
   tarjeta pasa al mismo estado. `offer_expired` y `checkout_expired` (venció la oferta o el checkout;
-  el comercio cancela también un checkout vencido) muestran «Las condiciones que revisaste vencieron»
-  en la sesión que recibió el error; al recargar, el backend informa una oferta vencida como `changed`.
+  el comercio cancela también un checkout vencido) muestran «Las condiciones que revisaste vencieron»,
+  también al recargar: `terms_status` vale `changed`, `expired` o `unavailable`. Al presentar los
+  términos de la compra pendiente, `checkout_expired` (por `expires_at` o porque el comercio ya
+  marcó el checkout `expired`) se informa como `expired` y `checkout_not_ready` como `changed`, en
+  vez de un 409 (`docs/design/hp-p5a-definitive-failures.md`).
 - `checkout_not_ready`, y `checkout_expired` después de registrar la aprobación, llegan a la tarjeta
   con su texto en español, sin el `message` interno.
 - El texto final de un turno de compra es la explicación del modelo (más la nota de precio si

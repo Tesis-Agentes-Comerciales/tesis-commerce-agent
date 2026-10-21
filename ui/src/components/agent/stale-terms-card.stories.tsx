@@ -87,7 +87,10 @@ export const TermsUnavailable: Story = {
   },
 }
 
-/** Aprobar respondió 409 `offer_expired` o `checkout_expired`: las condiciones vencieron. */
+/**
+ * Aprobar respondió 409 `offer_expired` o `checkout_expired`, o la compra pendiente llegó con
+ * `terms_status: "expired"`: las condiciones vencieron.
+ */
 export const TermsExpired: Story = {
   args: { terms: "expired" },
   play: async ({ canvas }) => {

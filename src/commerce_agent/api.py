@@ -77,14 +77,18 @@ class ApprovalReceipt(BaseModel):
     stage: str = "approved"
 
 
-TermsStatus = Literal["changed", "unavailable"]
+TermsStatus = Literal["changed", "expired", "unavailable"]
 
-# Freshness refusals that leave a pending purchase visible: the live offer changed or could not
-# be read. The purchase is not refreshed; the buyer cancels it and asks again (b2-governed-pilot).
+# Refusals to present the terms that leave a pending purchase visible: the live offer changed,
+# expired or could not be read, or the checkout expired or stopped being ready for payment. The
+# purchase is not refreshed; the buyer cancels it and asks again (b2-governed-pilot,
+# hp-p5a-definitive-failures).
 _STALE_TERMS: dict[str, TermsStatus] = {
     "checkout_terms_changed": "changed",
-    # The merchant no longer offers these terms: for the buyer, the conditions changed.
-    "offer_expired": "changed",
+    "offer_expired": "expired",
+    "checkout_expired": "expired",
+    # The checkout is no longer payable (e.g. the merchant canceled it): the terms changed.
+    "checkout_not_ready": "changed",
     "offer_freshness_unavailable": "unavailable",
 }
 
@@ -123,6 +127,11 @@ _ACP_ERROR_RESPONSES: dict[str, tuple[int, str]] = {
 }
 
 
+# Merchant answers the governed flow reports itself: the offer expired (freshness or creation),
+# or the creation was refused before anything existed (governance/runtime_dispatch.py).
+_GOVERNED_MERCHANT_CODES = frozenset({"offer_expired", "out_of_stock", "invalid_item"})
+
+
 def error_response(error: Exception) -> JSONResponse:
     if isinstance(error, ProductFeedError):
         return JSONResponse(
@@ -157,7 +166,8 @@ def error_response(error: Exception) -> JSONResponse:
     else:
         status = 409 if code not in {"purchase_not_found", "checkout_missing"} else 404
     # Governance stops reach REST clients with the chat's Spanish copy, never internal names.
-    governed = code.startswith("d1_") or code == "offer_expired"
+    # So does a refusal of D1's creation POST, which arrives as a service error, not ACP's.
+    governed = code.startswith("d1_") or code in _GOVERNED_MERCHANT_CODES
     message = error_message(code) if governed else str(error)
     return JSONResponse({"code": code, "message": message}, status_code=status)
 

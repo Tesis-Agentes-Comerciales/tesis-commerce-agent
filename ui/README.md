@@ -35,10 +35,12 @@ La aplicación queda en `http://127.0.0.1:5173` y espera la API del agente en
   `purchase-updated`. Ningún comando del transporte lleva evidencia de aprobación: eso sigue solo por
   REST, con el fingerprint que devolvió el backend.
 - Términos que ya no valen (S04, `src/features/stale-terms.ts`): si aprobar responde 409
-  `checkout_terms_changed` o 503 `offer_freshness_unavailable`, si `request_approval` falla con esos
-  códigos o si `GET /me/pending-purchase` trae `terms_status`, la tarjeta de aprobación cede su lugar
-  a `StaleTermsCard`: dice que no se hizo ningún cobro y deja solo «Cancelar compra». Después de
-  cancelar, el comprador pide la compra de nuevo en el chat y obtiene otro checkout.
+  `checkout_terms_changed`, `offer_expired` o `checkout_expired`, o 503
+  `offer_freshness_unavailable`, si `request_approval` falla con esos códigos o si
+  `GET /me/pending-purchase` trae `terms_status` (`changed`, `expired` o `unavailable`), la tarjeta
+  de aprobación cede su lugar a `StaleTermsCard`: dice que no se hizo ningún cobro y deja solo
+  «Cancelar compra». Después de cancelar, el comprador pide la compra de nuevo en el chat y obtiene
+  otro checkout.
 - `src/features/purchase-trace.ts` relee `GET /purchases/{run_id}/trace` para la compra de cada
   mensaje: al aparecer el `run_id`, al terminar cada paso, al cerrar el mensaje y después de aprobar,
   completar o cancelar. Con la traza, el mensaje muestra la fila de actividad (`PurchaseActivity`),

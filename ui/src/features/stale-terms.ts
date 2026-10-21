@@ -17,9 +17,20 @@ const STALE_TERMS = new Map<string, StaleTermsReason>([
   ["offer_freshness_unavailable", "unavailable"],
 ])
 
-const STALE_CODE: Record<PendingTermsStatus, string> = {
-  changed: "checkout_terms_changed",
-  unavailable: "offer_freshness_unavailable",
+/** Error del paso restaurado: un código que `staleTermsOf` lee como el mismo motivo, y su texto. */
+const RESTORED_ERROR: Record<PendingTermsStatus, { code: string; message: string }> = {
+  changed: {
+    code: "checkout_terms_changed",
+    message: "Las condiciones del comercio cambiaron. No se hizo ningún cobro.",
+  },
+  expired: {
+    code: "checkout_expired",
+    message: "Las condiciones que revisaste vencieron. No se hizo ningún cobro.",
+  },
+  unavailable: {
+    code: "offer_freshness_unavailable",
+    message: "No pude confirmar las condiciones con el comercio. No se hizo ningún cobro.",
+  },
 }
 
 /** Por qué los términos ya no valen según un código de error, o `null` si es otro error. */
@@ -77,15 +88,7 @@ export function staleApprovalPart(runId: string, terms: PendingTermsStatus) {
     toolName: "request_approval",
     args,
     argsText: JSON.stringify(args),
-    result: {
-      error: {
-        code: STALE_CODE[terms],
-        message:
-          terms === "changed"
-            ? "Las condiciones del comercio cambiaron. No se hizo ningún cobro."
-            : "No pude confirmar las condiciones con el comercio. No se hizo ningún cobro.",
-      },
-    },
+    result: { error: RESTORED_ERROR[terms] },
     isError: true,
   } satisfies AgentToolCallPart<"request_approval">
 }
