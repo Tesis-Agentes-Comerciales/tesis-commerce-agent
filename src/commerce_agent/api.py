@@ -23,6 +23,7 @@ from commerce_agent.approval import ApprovalError, ApprovalTerms
 from commerce_agent.assistant_transport import (
     IdFactory,
     default_id_factory,
+    error_message,
     register_assistant_transport,
 )
 from commerce_agent.buyer_auth import (
@@ -153,7 +154,9 @@ def error_response(error: Exception) -> JSONResponse:
         status = 422
     else:
         status = 409 if code not in {"purchase_not_found", "checkout_missing"} else 404
-    return JSONResponse({"code": code, "message": str(error)}, status_code=status)
+    # Governance stops reach REST clients with the chat's Spanish copy, never internal names.
+    message = error_message(code) if code.startswith("d1_") else str(error)
+    return JSONResponse({"code": code, "message": message}, status_code=status)
 
 
 def create_app(

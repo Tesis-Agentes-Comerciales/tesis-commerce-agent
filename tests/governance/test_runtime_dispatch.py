@@ -78,8 +78,12 @@ class Merchant:
     def _created(self, request: httpx.Request) -> httpx.Response:
         if self.fault == "timeout":
             raise httpx.ReadTimeout("Merchant answered too late", request=request)
+        if self.fault == "connect_error":
+            raise httpx.ConnectError("Merchant connection refused", request=request)
         if self.fault == "server_error":
             return httpx.Response(500, json={"detail": {"code": "internal"}})
+        if self.fault == "client_error":
+            return httpx.Response(409, json={"detail": {"code": "idempotency_conflict"}})
         if self.fault == "malformed":
             return httpx.Response(201, json={"id": "cs_api_1"})
         return httpx.Response(201, json=self.current)
@@ -133,7 +137,17 @@ def test_governed_allow_creates_the_checkout_once_and_awaits_confirmation(tmp_pa
     ]
 
 
-@pytest.mark.parametrize("fault", ["timeout", "server_error", "malformed"])
+def dispatch_result(path: Path) -> tuple[str, str | None, str]:
+    with closing(sqlite3.connect(path)) as connection:
+        (row,) = connection.execute("SELECT state, checkout_id, code FROM d1_checkout_results")
+    return row
+
+
+# A refused connection or a 4xx is no proof that nothing was created: never inferred, never
+# retried. The ACP client rejects a malformed body before the gate reads it.
+@pytest.mark.parametrize(
+    "fault", ["timeout", "connect_error", "server_error", "client_error", "malformed"]
+)
 def test_governed_uncertain_creation_is_never_retried(tmp_path: Path, fault: str) -> None:
     settings = governed(tmp_path / "agent.db")
     merchant = Merchant(fault)
@@ -145,6 +159,13 @@ def test_governed_uncertain_creation_is_never_retried(tmp_path: Path, fault: str
         assert built.d1_gate is not None
         status = built.d1_gate.recovery_status("run-real")
         assert status is not None and status[0:2] == ("uncertain", None)
+        assert dispatch_result(settings.agent_database_path) == (
+            "uncertain",
+            None,
+            "DISPATCH_UNCERTAIN",
+        )
+        purchase = built.store.purchase("run-real")
+        assert purchase is not None and purchase["stage"] == "uncertain"
         with pytest.raises(PurchaseServiceError) as again:
             start(built.purchases)
         assert again.value.code == "d1_recovery_required"

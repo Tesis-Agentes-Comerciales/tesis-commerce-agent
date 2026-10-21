@@ -1,5 +1,6 @@
 """Governance stops reach the chat as clear Spanish copy, never as «Ocurrió un error inesperado»."""
 
+import json
 import re
 from pathlib import Path
 
@@ -7,7 +8,10 @@ import pytest
 from assistant_support import PURCHASE_REQUEST, add_message, assistant_body, post_assistant
 from test_purchase_trace_api import ALLIED_STORE, as_buyer, shop
 
+from commerce_agent.api import error_response
+from commerce_agent.application import PurchaseServiceError
 from commerce_agent.assistant_transport import DEFAULT_ERROR, error_message
+from commerce_agent.completion import CompletionError
 
 SOURCE = Path(__file__).parents[1] / "src" / "commerce_agent"
 RAISED_CODE = re.compile(r"""code=["'](d1_[a-z_]+)["']""")
@@ -35,6 +39,14 @@ def test_governance_code_has_clear_copy_without_internals(code: str) -> None:
     assert message != DEFAULT_ERROR
     assert not INTERNAL_TERMS.search(message), message
     assert message.endswith(".")
+
+
+@pytest.mark.parametrize("error_type", [PurchaseServiceError, CompletionError])
+@pytest.mark.parametrize("code", sorted(d1_codes()))
+def test_a_rest_governance_stop_carries_the_chat_copy(code: str, error_type: type) -> None:
+    # REST clients (approval card, /complete) show `message` as is; never the internal text.
+    response = error_response(error_type("D1 internal detail", code=code))
+    assert json.loads(bytes(response.body)) == {"code": code, "message": error_message(code)}
 
 
 def test_policy_block_in_the_chat_says_what_did_not_happen(tmp_path: Path) -> None:

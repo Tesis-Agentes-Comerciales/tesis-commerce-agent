@@ -65,8 +65,13 @@ ERROR_MESSAGES = {
         "No se creó ningún checkout ni se hizo ningún cobro."
     ),
     "d1_unavailable": (
-        "No pude revisar la política de compra, así que detuve la compra por precaución. "
-        "No se creó ningún checkout ni se hizo ningún cobro."
+        "No pude completar la revisión de la política de compra, así que detuve la compra por "
+        "precaución. No se creó ningún checkout ni se hizo ningún cobro."
+    ),
+    "d1_allow_unapplied": (
+        "La política de compra permitió esta compra, pero no pude dejarla lista para crear el "
+        "checkout, así que la detuve por precaución. No se creó ningún checkout ni se hizo "
+        "ningún cobro."
     ),
     "d1_capture_failed": (
         "No pude preparar la revisión de la política de compra, así que detuve la compra por "
@@ -96,9 +101,10 @@ ERROR_MESSAGES = {
         "Esta compra quedó a medias y necesita una revisión antes de continuar. "
         "No se hizo ningún cobro."
     ),
+    # Also refuses completion, maybe after an uncertain attempt: it cannot promise no charge.
     "d1_continuation_blocked": (
-        "Esta compra pasó por la política de compra y no se puede continuar desde aquí. "
-        "No se hizo ningún cobro."
+        "Esta compra pasó por la política de compra y no puedo continuarla desde aquí, así que "
+        "no seguí con ella."
     ),
     "checkout_terms_changed": (
         "Las condiciones del comercio cambiaron (por ejemplo, el precio, el envío o la "

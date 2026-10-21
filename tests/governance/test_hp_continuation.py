@@ -4,11 +4,14 @@ A purchase D1 allowed and dispatched continues to approval, cancel and completio
 while its own facts hold; every other purchase keeps `d1_continuation_blocked`.
 """
 
+import logging
 import sqlite3
+import statistics
 from contextlib import closing
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter_ns
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -18,14 +21,15 @@ from fastapi.testclient import TestClient
 
 from commerce_agent.api import create_app
 from commerce_agent.application.conversation import turn_run_id
+from commerce_agent.assistant_transport import error_message
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent
 from commerce_agent.governance.hp_continuation import GovernedContinuation, governed_continuation
 from commerce_agent.llm import CandidateDecision, CommerceDecision
 from commerce_agent.persistence import SqliteAgentStore
 from tests.governance.test_enforce_runtime import decisions
-from tests.governance.test_runtime_dispatch import UNLISTED, Merchant, governed
-from tests.governance.test_shadow_integration import configuration
+from tests.governance.test_runtime_dispatch import UNLISTED, Merchant, governed, runtime
+from tests.governance.test_shadow_integration import configuration, start
 from tests.test_api import StubConversationRouter, checkout_details
 
 DISCOVERY = {
@@ -143,33 +147,6 @@ def test_s01_governed_purchase_reaches_an_order(tmp_path: Path) -> None:
     assert merchant.effects() == [("POST", "/checkout_sessions/cs_api_1/complete")]
 
 
-def test_s04_governed_approval_rejects_a_changed_live_offer(tmp_path: Path) -> None:
-    settings = governed(tmp_path / "agent.db")
-    merchant = StoreMerchant()
-    with app_client(settings, merchant) as client:
-        turn = ask(client, "turn-s04")
-        assert turn.status_code == 200, turn.text
-        run_id = turn.json()["purchase"]["run_id"]
-        fingerprint = turn.json()["approval_terms"]["fingerprint"]
-        # The merchant reprices the offer after the terms were presented (S04 stimulus).
-        merchant.offer = {
-            **merchant.offer,
-            "revision": 2,
-            "pricing": {
-                **merchant.offer["pricing"],
-                "items_total_minor": 80_000,
-                "total_minor": 82_000,
-            },
-        }
-        approval = client.post(
-            f"/purchases/{run_id}/approval", json={"expected_fingerprint": fingerprint}
-        )
-        assert approval.status_code == 409, approval.text
-        assert approval.json()["code"] == "checkout_terms_changed"
-        assert client.post(f"/purchases/{run_id}/complete").status_code >= 400
-    assert merchant.effects() == []
-
-
 def test_governed_purchase_can_be_canceled_and_frees_the_buyer(tmp_path: Path) -> None:
     merchant = StoreMerchant()
     with app_client(governed(tmp_path / "agent.db"), merchant) as client:
@@ -191,6 +168,11 @@ def blocked_codes(client: TestClient, run_id: str) -> list[tuple[int, str]]:
 
 
 BLOCKED = [(409, "d1_continuation_blocked")] * 3
+# What a REST client shows: the chat's Spanish copy, which cannot promise that no charge happened.
+BLOCKED_BODY = {
+    "code": "d1_continuation_blocked",
+    "message": error_message("d1_continuation_blocked"),
+}
 
 
 @pytest.mark.parametrize(
@@ -231,7 +213,7 @@ def test_another_checkout_id_breaks_the_continuation(tmp_path: Path) -> None:
         assert blocked_codes(client, run_id) == BLOCKED
         completed = client.post(f"/purchases/{run_id}/complete")
         assert completed.status_code == 409
-        assert completed.json()["code"] == "d1_continuation_blocked"
+        assert completed.json() == BLOCKED_BODY
     assert merchant.effects() == []
 
 
@@ -246,8 +228,57 @@ def test_blocked_flow_keeps_blocking_a_governed_purchase(tmp_path: Path) -> None
         assert blocked_codes(client, run_id) == BLOCKED
         completed = client.post(f"/purchases/{run_id}/complete")
         assert completed.status_code == 409
-        assert completed.json()["code"] == "d1_continuation_blocked"
+        assert completed.json() == BLOCKED_BODY
     assert merchant.effects() == []
+
+
+def test_each_step_evaluates_the_continuation_rule_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evaluated: list[str] = []
+    admits = GovernedContinuation.admits
+
+    def counted(rule: GovernedContinuation, run_id: str) -> bool:
+        evaluated.append(run_id)
+        return admits(rule, run_id)
+
+    monkeypatch.setattr(GovernedContinuation, "admits", counted)
+    merchant = StoreMerchant()
+    with app_client(governed(tmp_path / "agent.db"), merchant) as client:
+        run_id = ask(client, "turn-once").json()["purchase"]["run_id"]
+        steps = {
+            "present": lambda: client.get(f"/purchases/{run_id}/approval"),
+            "approve": lambda: approve(client, run_id),
+            "complete": lambda: client.post(f"/purchases/{run_id}/complete"),
+        }
+        counts = {}
+        for step, call in steps.items():
+            evaluated.clear()
+            assert call().status_code == 200
+            counts[step] = len(evaluated)
+    # Approving presents the terms first (GET), then approves: one evaluation each.
+    assert counts == {"present": 1, "approve": 2, "complete": 1}
+
+
+def test_the_continuation_rule_costs_milliseconds(tmp_path: Path) -> None:
+    """Order of magnitude of one evaluation over real SQLite: about 4 ms on a dev laptop.
+
+    It reads the purchase and verifies the D1 ledger, the dispatch result and the post-create
+    journal (about half of it). A bound one order above keeps the test stable on CI.
+    """
+    built = runtime(governed(tmp_path / "agent.db"), Merchant())
+    try:
+        start(built.purchases)
+        assert built.d1_gate is not None
+        rule = GovernedContinuation(built.d1_gate, built.store)
+        samples = []
+        for _ in range(30):
+            began = perf_counter_ns()
+            assert rule.admits("run-real")
+            samples.append((perf_counter_ns() - began) / 1e6)
+    finally:
+        built.close()
+    assert statistics.median(samples) < 50
 
 
 def test_a_deny_leaves_nothing_pending_for_the_next_purchase(tmp_path: Path) -> None:
@@ -326,6 +357,23 @@ def test_each_governed_fact_is_required(tmp_path: Path, facts: GateFacts, admitt
     rule = GovernedContinuation(cast(Any, facts), store)
     assert rule.admits("run-1") is admitted
     assert rule.admits("missing-run") is False
+
+
+def test_an_unreadable_fact_refuses_and_warns_without_private_data(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = SqliteAgentStore(tmp_path / "agent.db")
+    store.initialize()
+    store.create_purchase("run-private", "request", "owner@example.test")
+    store.update_purchase("run-private", stage="awaiting_confirmation", checkout_id="cs_1")
+    rule = GovernedContinuation(cast(Any, GateFacts(unreadable=True)), store)
+    with caplog.at_level(logging.WARNING):
+        assert rule.admits("run-private") is False
+    (warning,) = caplog.records
+    assert warning.levelname == "WARNING"
+    assert warning.getMessage() == "governed_continuation_unreadable error=DatabaseError"
+    # The type is enough to tell a corrupt journal apart; no run, owner or stored fact leaks.
+    assert "run-private" not in warning.getMessage() and "malformed" not in warning.getMessage()
 
 
 def test_a_purchase_without_checkout_is_never_admitted(tmp_path: Path) -> None:

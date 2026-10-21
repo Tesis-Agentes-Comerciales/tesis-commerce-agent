@@ -23,6 +23,7 @@ from pydantic import SecretStr
 from commerce_agent.api import create_app
 from commerce_agent.buyer_auth import LocalBuyerAuthenticator
 from commerce_agent.config import Settings
+from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
 from tests.governance.test_enforce_runtime import decisions
 from tests.governance.test_hp_continuation import DISCOVERY, PAYMENT_TOKEN, ask, router
 from tests.governance.test_runtime_dispatch import CREATE, LIVE_OFFER, OFFER_READ, acp_checkout
@@ -178,6 +179,39 @@ def awaiting(run_id: str, checkout_id: str = "cs_api_1") -> dict[str, Any]:
         "checkout_id": checkout_id,
         "order_id": None,
     }
+
+
+def test_s04_governed_approval_rejects_a_changed_live_offer(tmp_path: Path) -> None:
+    settings = ap2(tmp_path / "agent.db")
+    merchant = Ap2Merchant(settings.merchant_base_url)
+    with app_client(settings, merchant) as client:
+        run_id, terms = presented(client, "turn-s04")
+        # The merchant reprices the offer after the terms were presented (S04 stimulus).
+        merchant.reprice(80_000)
+        approval = client.post(
+            f"/purchases/{run_id}/approval",
+            json={
+                "expected_fingerprint": terms["fingerprint"],
+                "checkout_jwt": terms["checkout_jwt"],
+            },
+        )
+        assert approval.status_code == 409, approval.text
+        assert approval.json()["code"] == "checkout_terms_changed"
+        assert client.post(f"/purchases/{run_id}/complete").is_client_error
+    # The fingerprint check answers with the same code, so S04 is attributed to freshness only
+    # through hp_evidence: the merchant's checkout snapshot kept the fingerprint unchanged.
+    store = SqliteHpEvidenceStore(settings.agent_database_path)
+    checks = [record.body for record in store.for_run(run_id)]
+    assert [(check["stage"], check["decision"]) for check in checks] == [
+        ("present", "allow"),
+        ("approve", "block"),
+    ]
+    stopped = checks[-1]
+    assert (stopped["outcome"], stopped["governance_mode"]) == ("changed", "enforce")
+    assert stopped["changed_fields"] == ["subtotal_minor", "total_minor"]
+    assert stopped["observed_revision"] == LIVE_OFFER["revision"] + 1
+    assert store.verify_chain(run_id)
+    assert merchant.effects() == []
 
 
 def test_s04_changed_terms_stay_visible_cancelable_and_a_new_checkout_follows(

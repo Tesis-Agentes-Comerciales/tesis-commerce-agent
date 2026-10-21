@@ -176,7 +176,8 @@ def test_missing_or_contradictory_session_blocks_before_claim(tmp_path, session)
     try:
         with pytest.raises(PurchaseServiceError) as error:
             start(case)
-        assert error.value.code == "d1_unavailable"
+        # D1 allowed and reserved; the missing session stops it before the claim and the POST.
+        assert error.value.code == "d1_allow_unapplied"
         assert not calls
         status = case.gate.recovery_status("run-a")
         assert status is not None and status[0] == "reserved"
