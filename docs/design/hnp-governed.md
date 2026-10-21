@@ -556,12 +556,21 @@ La compra HNP vive en las mismas tablas que HP, para que la traza, `/me/purchase
 | UoW-2 | `checkout_prepared` → `completing` | 09a, con el hook de HNP-05 |
 | UoW-3 | `completing` → `completed` | 09b |
 | Tarea `uncertain` | `completing` → `uncertain` | 09b |
-| Deny de D1, fallo del checkout o guarda de presupuesto dentro de `start` | `failed` o `canceled`, como los deja `start` en HP | HNP-05 |
+| Deny de D1 o D1 no disponible dentro de `start` | Queda `received`: no hay checkout. El terminal de la tarea la pasa a `failed` con `failure_code` = `outcome_code`, o a `canceled` si escala (POL-11) | `start` (HNP-05); el terminal, 09a con el hook de HNP-05 |
+| Checkout sin confirmar dentro de `start` (`d1_dispatch_uncertain`, `d1_post_create_uncertain`) | `uncertain`, y así queda aunque la tarea termine `failed`: el checkout pudo crearse | `start` (HNP-05) |
+| Rechazo del comercio al crear o guarda de presupuesto dentro de `start` | `failed` con el código del rechazo, o `canceled`; el terminal de la tarea no la cambia | `start` (HNP-05) |
 | Tarea `failed` después de `start` | → `failed`, con `failure_code` = `outcome_code` | 09a/09b, con el hook de HNP-05 |
 | Tarea `escalated` o `canceled` después de `start` | → `canceled` | 09a/09b, con el hook de HNP-05 |
 
 HNP no pasa por `awaiting_confirmation` ni `approved`, y no escribe `approvals`. Una tarea que
 termina antes de llamar a `start` (claim, lista corta vacía) no tiene fila en `purchases`.
+
+`transition_hnp_purchase` lleva `received` a `failed` o `canceled`, y `checkout_prepared` o
+`completing` a su terminal. Si `start` ya dejó la compra `uncertain`, `failed` o `canceled`, un
+terminal (`failed`, `canceled` o `uncertain`) solo verifica la versión y la conserva: describe lo que
+pasó en el comercio, y un checkout incierto nunca se marca `failed`. Una compra que `start` dejó en
+`selected` (allow de D1 sin resultado del despacho anotado) no tiene transición: necesita la
+recuperación de D1.
 
 **UoW-3 (dueño: HNP-09b).** En una sola transacción y por CAS de `purchases.state_version`:
 `completion_results` (snapshot y los dos JWT de recibo), la proyección `orders` (`_project_order`),

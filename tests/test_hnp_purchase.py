@@ -47,7 +47,8 @@ def row(path: Path, run_id: str) -> tuple[str, str | None, str, int]:
 
 def hnp_at(store: SqliteAgentStore, run_id: str, stage: str) -> int:
     store.create_purchase(run_id, "delegated", OWNER, grant_id="dg_" + run_id)
-    store.update_purchase(run_id, stage=stage, checkout_id="cs_" + run_id)
+    if stage != "received":
+        store.update_purchase(run_id, stage=stage, checkout_id="cs_" + run_id)
     version = store.purchase_state_version(run_id)
     assert version is not None
     return version
@@ -164,6 +165,12 @@ def test_the_executor_moves_an_hnp_purchase_by_cas(store: SqliteAgentStore) -> N
         ("completing", "failed", "verifier_invalid_mandate"),
         ("checkout_prepared", "canceled", None),
         ("completing", "canceled", None),
+        # D1 stopped `start` before any checkout existed (§8.1): POL-01/02 or no review fail,
+        # POL-11 escalates and the purchase is canceled.
+        ("received", "failed", "selection_not_eligible"),
+        ("received", "failed", "merchant_not_allowed"),
+        ("received", "failed", "governance_unavailable"),
+        ("received", "canceled", None),
     ],
 )
 def test_a_terminal_task_closes_its_purchase(
@@ -187,6 +194,10 @@ def test_a_terminal_task_closes_its_purchase(
         pytest.param("awaiting_confirmation", "completing", None, 0, id="hp-stage"),
         pytest.param("completing", "completing", None, 0, id="already-completing"),
         pytest.param("completing", "completed", None, 0, id="completion-is-09b"),
+        pytest.param("received", "uncertain", None, 0, id="uncertain-without-checkout"),
+        pytest.param("received", "completing", None, 0, id="completing-without-checkout"),
+        pytest.param("uncertain", "completing", None, 0, id="completing-an-uncertain-one"),
+        pytest.param("uncertain", "failed", "checkout_failed", 1, id="kept-but-stale"),
     ],
 )
 def test_a_lost_or_foreign_transition_raises_and_changes_nothing(
@@ -206,6 +217,26 @@ def test_a_lost_or_foreign_transition_raises_and_changes_nothing(
     assert row(store._path, "run-hnp")[2:] == (source, version)
 
 
+@pytest.mark.parametrize("source", ["uncertain", "failed", "canceled"])
+@pytest.mark.parametrize(
+    ("stage", "code"),
+    [("failed", "checkout_failed"), ("canceled", None), ("uncertain", None)],
+)
+def test_a_terminal_keeps_what_start_left(
+    store: SqliteAgentStore, source: str, stage: str, code: str | None
+) -> None:
+    """An uncertain checkout may exist: the task's terminal never marks it failed (K14)."""
+    version = hnp_at(store, "run-hnp", source)
+
+    kept = transition(
+        store._path, "run-hnp", expected_state_version=version, stage=stage, failure_code=code
+    )
+
+    assert kept == version
+    assert row(store._path, "run-hnp")[2:] == (source, version)
+    assert failure_code(store._path.parent, "run-hnp") is None
+
+
 @pytest.mark.parametrize(("stage", "code"), [("failed", None), ("canceled", "kill_switch")])
 def test_only_a_failed_purchase_carries_a_failure_code(
     store: SqliteAgentStore, stage: str, code: str | None
@@ -218,14 +249,30 @@ def test_only_a_failed_purchase_carries_a_failure_code(
         )
 
 
-def test_an_hp_purchase_never_moves_through_the_hnp_transition(store: SqliteAgentStore) -> None:
+@pytest.mark.parametrize(
+    ("source", "stage", "code"),
+    [
+        ("checkout_prepared", "completing", None),
+        ("received", "failed", "selection_not_eligible"),
+        ("received", "canceled", None),
+        ("uncertain", "failed", "checkout_failed"),
+        ("failed", "canceled", None),
+    ],
+)
+def test_an_hp_purchase_never_moves_through_the_hnp_transition(
+    store: SqliteAgentStore, source: str, stage: str, code: str | None
+) -> None:
     store.create_purchase("run-hp", "buy", OWNER)
-    store.update_purchase("run-hp", stage="checkout_prepared", checkout_id="cs_1")
+    if source != "received":
+        store.update_purchase("run-hp", stage=source, checkout_id="cs_1")
+    version = store.purchase_state_version("run-hp")
 
     with pytest.raises(RuntimeError):
-        transition(store._path, "run-hp", expected_state_version=2, stage="completing")
+        transition(
+            store._path, "run-hp", expected_state_version=version, stage=stage, failure_code=code
+        )
 
-    assert row(store._path, "run-hp")[2:] == ("checkout_prepared", 2)
+    assert row(store._path, "run-hp")[2:] == (source, version)
 
 
 def test_the_transition_needs_the_callers_transaction(store: SqliteAgentStore) -> None:
