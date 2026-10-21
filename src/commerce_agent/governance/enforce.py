@@ -162,17 +162,23 @@ class SqliteD1EnforceGate:
         connection_factory: Callable[[], sqlite3.Connection] | None = None,
         expected_remote_binding: ExpectedRemoteBinding | None = None,
         purchase_mode: PurchaseMode = "HP",
+        merchant_refs: tuple[str, ...] | None = None,
     ):
         started = perf_counter_ns()
         self._mode: PurchaseMode = purchase_mode
         if purchase_mode == "HNP":
-            # Never AGENT_D1_POLICY_*: those configure the HP policy set (§7).
+            # Never AGENT_D1_POLICY_*: those configure the HP policy set (§7). The operator's
+            # merchant list arrives as `merchant_refs` (hnp_policy.operator_merchant_refs, K11).
             if policy_bytes is not None or policy_binding is not None:
                 raise GovernanceError("GOV_ARTIFACT_MISMATCH")
             configuration = hnp_d1_configuration(configuration)
             policy_bytes, policy_binding = build_hnp_policy(
                 merchant_ref=merchant_pseudonym(keys, configuration.merchant_base_url)
+                if merchant_refs is None
+                else merchant_refs
             )
+        elif merchant_refs is not None:
+            raise GovernanceError("GOV_ARTIFACT_MISMATCH")
         self._path = path
         self._configuration = D1EnforceConfiguration.model_validate(configuration)
         self._keys = ProvenanceKeys.model_validate(keys)

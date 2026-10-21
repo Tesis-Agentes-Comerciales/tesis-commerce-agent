@@ -158,7 +158,9 @@ max_total_amount_minor=scope.total_max_minor))`, guardada en el grant. En D1,
 `rank_candidates+grant_scope/v1`. Así POL-01 cubre una selección fuera del grant.
 
 **Cómo lo arma HNP-05.** D1-HNP es `SqliteD1EnforceGate(..., purchase_mode="HNP")`: arma
-`b2-hnp-v1` con `build_hnp_policy` y no acepta bytes de política por configuración. Su
+`b2-hnp-v1` con `build_hnp_policy` y no acepta bytes de política por configuración; la lista de
+comercios le llega como `merchant_refs=operator_merchant_refs(settings, configured)`, que toma las
+refs que `configured_d1` ya derivó de `AGENT_D1_ALLOWED_MERCHANT_ORIGINS`. Su
 `create_checkout` recibe `grant=HnpGrant(grant_id, variant_ids)`, que el executor lee del ledger, y
 solo decide una compra cuyo `purchases.(purchase_mode, grant_id)` coincide; si no, `d1_unavailable`
 sin evidencia. La fuente pública de elegibilidad que guarda la bóveda es la del algoritmo medido más
@@ -697,7 +699,9 @@ Policy set nuevo, revisión 1, con las filas HNP de `APPLICABLE_RULES` (Adenda 1
   `(policy_set_id == "b2-hnp-v1") != (purchase_mode == "HNP")`. HNP-05 además restringe
   `rules_apply` para que `D1_PILOT_RULES` valga solo con `purchase_mode="HP"`.
 - **Artefacto:** el mismo `D1PolicyArtifact` de P1/P3, con `policy_set_id="b2-hnp-v1"`, `version=1`,
-  `allowed_merchant_refs` (el comercio configurado), `currency="COP"`, `quantity=1` y:
+  `allowed_merchant_refs` (la lista del operador que evalúa POL-02 de HP,
+  `AGENT_D1_ALLOWED_MERCHANT_ORIGINS`; sin ella, el comercio configurado), `currency="COP"`,
+  `quantity=1` y:
   - `policy_ids = APPLICABLE_RULES[("D1", "HNP")]` y `allowed_actions = ("prepare_checkout",)`;
   - `authorization` en su variante HNP, `HnpAuthorizationRules{policy_ids =
     APPLICABLE_RULES[("D2", "HNP")], allowed_actions = ("complete_purchase",), authentication_bases =

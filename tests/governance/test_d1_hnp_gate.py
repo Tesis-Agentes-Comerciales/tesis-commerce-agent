@@ -22,8 +22,13 @@ from commerce_agent.config import Settings
 from commerce_agent.domain import HardConstraints, PurchaseIntent, rank_candidates
 from commerce_agent.governance.bootstrap import configured_d1
 from commerce_agent.governance.enforce import SqliteD1EnforceGate
+from commerce_agent.governance.evaluator import GovernanceError, verify_artifact
 from commerce_agent.governance.evidence import DecisionRecord
-from commerce_agent.governance.hnp_policy import GRANT_SCOPE_ELIGIBILITY, HnpGrant
+from commerce_agent.governance.hnp_policy import (
+    GRANT_SCOPE_ELIGIBILITY,
+    HnpGrant,
+    operator_merchant_refs,
+)
 from commerce_agent.governance.models import HNP_POLICY_SET_ID
 from commerce_agent.governance.provenance import HP_POLICY_SET_ID, D1EnforceConfiguration
 from commerce_agent.governance.runtime_dispatch import (
@@ -39,12 +44,14 @@ from tests.governance.test_shadow_integration import FIXTURE, OWNER
 from tests.test_purchase_service import details
 
 RUN = "run-real"
+# HN08 of the HNP pilot: an operator list that leaves the configured merchant out.
+AUTHORIZED_ONLY = "https://comercio-autorizado.example"
 GRANT = HnpGrant(grant_id="dg_0123456789abcdef", variant_ids=("SON-01",))
 
 
-def settings_for(tmp_path: Path) -> Settings:
+def settings_for(tmp_path: Path, **changes) -> Settings:
     # The HP policy set is b2-hp-v2, as in the demo: D1-HNP must not read it.
-    return governed(tmp_path / "agent.db", agent_d1_policy_set_id=HP_POLICY_SET_ID)
+    return governed(tmp_path / "agent.db", agent_d1_policy_set_id=HP_POLICY_SET_ID, **changes)
 
 
 def hnp_gate(settings: Settings) -> SqliteD1EnforceGate:
@@ -58,6 +65,7 @@ def hnp_gate(settings: Settings) -> SqliteD1EnforceGate:
         dispatch=SingleAttemptCheckoutDispatch(),
         post_create_dispatch=SingleAttemptPostCreateDispatch(),
         purchase_mode="HNP",
+        merchant_refs=operator_merchant_refs(settings, configured),
     )
 
 
@@ -194,6 +202,61 @@ def test_a_price_over_the_authorized_total_is_denied_by_pol11(tmp_path: Path) ->
     (record,) = decision_records(settings.agent_database_path)
     assert record.decision.reason_codes == ("BUDGET_NOT_SATISFIABLE",)
     assert record.decision.policy_binding.policy_set_id == HNP_POLICY_SET_ID
+
+
+def test_the_operator_merchant_list_that_leaves_the_merchant_out_denies_by_pol02(
+    tmp_path: Path,
+) -> None:
+    """K11: POL-02 of b2-hnp-v1 allows AGENT_D1_ALLOWED_MERCHANT_ORIGINS, like POL-02 of HP."""
+    settings = settings_for(tmp_path, agent_d1_allowed_merchant_origins=AUTHORIZED_ONLY)
+    merchant = StoreMerchant()
+    built = runtime(settings, merchant)
+    try:
+        with pytest.raises(PurchaseServiceError) as denied:
+            start(hnp_service(settings, built))
+    finally:
+        built.close()
+
+    assert denied.value.code == "d1_denied"
+    assert CREATE not in merchant.requests
+    (record,) = decision_records(settings.agent_database_path)
+    assert record.decision.policy_binding.policy_set_id == HNP_POLICY_SET_ID
+    assert rules(record) == [("POL-01", "pass"), ("POL-02", "fail"), ("POL-11", "pass")]
+    assert record.decision.reason_codes == ("ACTION_OR_MERCHANT_NOT_ALLOWED",)
+    configured = configured_d1(settings, None)
+    assert configured.policy_bytes is not None and configured.policy_binding is not None
+    hp = verify_artifact(configured.policy_bytes, configured.policy_binding)
+    assert operator_merchant_refs(settings, configured) == hp.allowed_merchant_refs
+
+
+def test_an_operator_list_with_the_merchant_allows_it(tmp_path: Path) -> None:
+    origins = f"{AUTHORIZED_ONLY},{governed(tmp_path / 'probe.db').merchant_base_url}"
+    settings = settings_for(tmp_path, agent_d1_allowed_merchant_origins=origins)
+    merchant = StoreMerchant()
+    built = runtime(settings, merchant)
+    try:
+        prepared = start(hnp_service(settings, built))
+    finally:
+        built.close()
+
+    assert prepared.stage == "checkout_prepared"
+    (record,) = decision_records(settings.agent_database_path)
+    assert rules(record) == [("POL-01", "pass"), ("POL-02", "pass"), ("POL-11", "pass")]
+
+
+def test_the_merchant_list_is_an_hnp_gate_option(tmp_path: Path) -> None:
+    settings = settings_for(tmp_path)
+    configured = configured_d1(settings, None)
+    assert isinstance(configured.configuration, D1EnforceConfiguration)
+    assert operator_merchant_refs(settings, configured) is None
+    with pytest.raises(GovernanceError, match=r"^GOV_ARTIFACT_MISMATCH$"):
+        SqliteD1EnforceGate(
+            settings.agent_database_path,
+            configured.configuration,
+            configured.keys,
+            configured.clocks,
+            merchant_refs=("merchant:other",),
+        )
 
 
 def test_enforce_without_the_hnp_gate_refuses_an_hnp_purchase(tmp_path: Path) -> None:

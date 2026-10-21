@@ -7,7 +7,7 @@ revision.
 
 import json
 from collections.abc import Iterable
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
@@ -23,6 +23,11 @@ from .models import (
     PolicyBinding,
 )
 from .provenance import D1EnforceConfiguration
+
+if TYPE_CHECKING:
+    from commerce_agent.config import Settings
+
+    from .bootstrap import ConfiguredD1
 
 HNP_POLICY_REVISION = 1
 # D1-HNP eligibility (§3.3): rank_candidates over the feed, restricted to the grant's variants.
@@ -41,15 +46,15 @@ class HnpGrant(BaseModel):
     variant_ids: Annotated[Ids, Field(min_length=1), AfterValidator(lambda ids: tuple(sorted(ids)))]
 
 
-def build_hnp_policy(*, merchant_ref: str) -> tuple[bytes, PolicyBinding]:
-    """The `b2-hnp-v1` artifact for the configured merchant, as `build_d1_policy` does for HP."""
+def build_hnp_policy(*, merchant_ref: str | tuple[str, ...]) -> tuple[bytes, PolicyBinding]:
+    """The `b2-hnp-v1` artifact for the allowed merchants, as `build_d1_policy` does for HP."""
     artifact = D1PolicyArtifact(
         schema_version=SCHEMA,
         policy_set_id=HNP_POLICY_SET_ID,
         version=HNP_POLICY_REVISION,
         policy_ids=APPLICABLE_RULES[("D1", "HNP")],
         allowed_actions=("prepare_checkout",),
-        allowed_merchant_refs=(merchant_ref,),
+        allowed_merchant_refs=(merchant_ref,) if isinstance(merchant_ref, str) else merchant_ref,
         currency="COP",
         quantity=1,
     )
@@ -62,6 +67,19 @@ def build_hnp_policy(*, merchant_ref: str) -> tuple[bytes, PolicyBinding]:
     )
     verify_artifact(payload, binding)
     return payload, binding
+
+
+def operator_merchant_refs(
+    settings: "Settings", configured: "ConfiguredD1"
+) -> tuple[str, ...] | None:
+    """The merchants POL-02 of `b2-hnp-v1` allows (K11): the operator's list that POL-02 of HP
+    evaluates, `AGENT_D1_ALLOWED_MERCHANT_ORIGINS` as `configured_d1` already turned it into
+    merchant refs. Without that list, `None`: the D1-HNP gate allows the configured merchant."""
+    if settings.agent_d1_allowed_merchant_origins is None:
+        return None
+    if configured.policy_bytes is None or configured.policy_binding is None:
+        raise GovernanceError("GOV_ARTIFACT_MISMATCH")
+    return verify_artifact(configured.policy_bytes, configured.policy_binding).allowed_merchant_refs
 
 
 def hnp_d1_configuration(configuration: D1EnforceConfiguration) -> D1EnforceConfiguration:
