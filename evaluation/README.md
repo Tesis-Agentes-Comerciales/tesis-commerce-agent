@@ -40,6 +40,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | `src/commerce_evaluation/hnp_review_demo.py`, `hnp_matrix.py` | runners de HNP-01 y HNP-02 |
 | `src/commerce_evaluation/hnp_pilot.py` | `hnp-pilot`: plan, guardas y `--dry-run` del piloto HNP v1 ([spec](../docs/design/hnp-pilot.md)) |
 | `src/commerce_evaluation/hnp_pilot_episode.py` | un episodio HNP sobre el stack del piloto de gobernanza y lo que se lee después |
+| `src/commerce_evaluation/hnp_pilot_live.py` | corrida en vivo de `hnp-pilot`: servicios, agente por episodio, tope de costo y resumen |
 | `src/commerce_evaluation/hnp_pilot_scoring.py` | oráculo, métricas y costo de cada fila del piloto HNP |
 | `src/commerce_evaluation/hnp_pilot_agent.py` | agente de HN11 con el selector guionado inyectado por código |
 | `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto lo ejecuta con el entorno del Merchant |
@@ -326,6 +327,7 @@ La spec es [`hnp-pilot.md`](../docs/design/hnp-pilot.md) y el pre-registro,
 ```sh
 uv run hnp-pilot --dry-run                     # valida manifiesto y matriz, plan de 133 episodios y preparación
 uv run hnp-pilot --dry-run --scenario HN11     # un escenario: es un smoke
+HNP_PILOT_MAX_COST_USD=2 uv run hnp-pilot      # en vivo: lo corre el líder, con permiso de Yair
 ```
 
 - **`--dry-run`** no arranca servicios ni llama al modelo. Imprime el plan en el orden registrado
@@ -347,6 +349,21 @@ uv run hnp-pilot --dry-run --scenario HN11     # un escenario: es un smoke
   (`load_hnp_trust`) y `AGENT_D1_POLICY_SET_ID`/`AGENT_D1_POLICY_REVISION` (`b2-hp-v2`, `1`, la
   compuerta D1 de HP) en B2-HNP; la compra HNP se evalúa con `b2-hnp-v1`, armada en código. La capa
   B fija `OPENAI_MODEL` del manifiesto y `OPENAI_TIMEOUT_SECONDS=90`.
+- **Episodio.** Sembrar y exportar el feed; arrancar el agente con su propio `agent.db` (HN11 con
+  `commerce_evaluation.hnp_pilot_agent:app_factory`); `/health` con el modo, `hnp_enabled=true`,
+  `hnp_kill_switch=false` y los contadores `hnp_*` (otro valor aborta la invocación); consentir con
+  una sesión nueva del comprador y quedarse solo con la firma de su JWT como sonda; estímulos;
+  `POST /internal/hnp/tasks/{id}/run` con el token de servicio y sondeo hasta un estado terminal
+  (300 s; después es error del arnés); webhooks del comercio si hay orden; la vista del comprador
+  con otra sesión; detener el agente, leer `agent.db` en solo lectura y verificar la cadena
+  de la tarea con `verify_database(..., grant_id=...)` (perfil HNP de HNP-V1).
+- **Costo.** Suma todas las filas `model.*` de `stage_timings`. Una fila sin tokens (las de error:
+  NULL es desconocido, no 0) se cobra con un margen de max(USD 0,01, la llamada más cara de la
+  invocación); toda la entrada al precio de entrada. La invocación se detiene cuando el acumulado
+  llega al tope y el resumen dice qué episodios no corrieron.
+- **Salida.** `results/hnp-pilot-<fecha>.jsonl` con una fila por episodio (condición, `/health`,
+  modelo, efectos, gobernanza, costo, oráculo y métricas) y `<archivo>.summary.json` por condición y
+  por condición × escenario.
 
 ## Archivos
 

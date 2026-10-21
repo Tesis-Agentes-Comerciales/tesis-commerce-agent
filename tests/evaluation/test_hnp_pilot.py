@@ -4,6 +4,7 @@ Nothing here starts a service or calls a model: the live run is refused before i
 """
 
 import copy
+import io
 import json
 import subprocess
 import sys
@@ -27,6 +28,7 @@ from commerce_evaluation.hnp_pilot import (
     episode_counts,
     live_guards,
     load_pilot,
+    run_plan,
     stack_variables,
     startup_check,
     validate_pilot,
@@ -422,6 +424,42 @@ def test_the_dry_run_of_one_scenario_is_a_smoke(capsys: pytest.CaptureFixture[st
 def test_an_unknown_scenario_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
     assert hnp_pilot.main(["--dry-run", "--scenario", "HN99"]) == 1
     assert "Unknown scenarios: HN99" in capsys.readouterr().err
+
+
+# Live loop and cost cap --------------------------------------------------------------------------
+
+
+def test_the_cost_cap_stops_the_invocation_after_the_episode_that_reaches_it(
+    pilot: tuple[dict, dict],
+) -> None:
+    manifest, matrix = pilot
+    plan = build_plan(manifest, matrix, p_available=False, scenario_ids=["HN09", "HN10"])
+    executed: list[PlannedEpisode] = []
+
+    def execute(episode: PlannedEpisode, index: int) -> dict[str, Any]:
+        executed.append(episode)
+        return episode.key() | {"cost": {"charged_usd": 0.6}}
+
+    file = io.StringIO()
+    rows, stop = run_plan(plan, execute, cap_usd=2.0, result_file=file)
+    assert len(rows) == len(executed) == 4
+    assert [json.loads(line) for line in file.getvalue().splitlines()] == rows
+    assert stop["stopped_by"] == "cost_cap" and stop["accumulated_cost_usd"] == 2.4
+    assert stop["after_episode"] == executed[-1].key()
+    assert len(stop["not_run"]) == len(plan) - 4
+
+
+def test_the_plan_runs_to_the_end_under_the_cap_and_skips_p(pilot: tuple[dict, dict]) -> None:
+    manifest, matrix = pilot
+    plan = build_plan(manifest, matrix, p_available=False, scenario_ids=["HN05"])
+    rows, stop = run_plan(
+        plan,
+        lambda episode, index: episode.key() | {"cost": {"charged_usd": 0.0}},
+        cap_usd=2.0,
+        result_file=io.StringIO(),
+    )
+    assert len(rows) == 6 and {row["condition"] for row in rows} == set(LEDGER_CONDITIONS)
+    assert stop["stopped_by"] is None
 
 
 # HN11's scripted selector ------------------------------------------------------------------------

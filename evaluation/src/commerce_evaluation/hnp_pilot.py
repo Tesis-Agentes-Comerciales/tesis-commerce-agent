@@ -4,7 +4,8 @@
 environment of each condition (names only), the integration readiness and whether a live run would
 start; it never starts a service or calls a model. A live run refuses without the oracles'
 approval, without `HNP_PILOT_MAX_COST_USD` (or above the manifest's cap), off the registered agent
-commit or with a missing integration; past its guards, this checkout has no episode runner yet.
+commit or with a missing integration, and stops cleanly once the accumulated model cost reaches
+the cap.
 """
 
 from __future__ import annotations
@@ -18,10 +19,13 @@ import os
 import re
 import secrets
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+import tempfile
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
+from uuid import uuid4
 
 from pydantic import ValidationError
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
@@ -42,7 +46,7 @@ from commerce_evaluation.governance_pilot import (
     base_readiness,
     repository_provenance,
 )
-from commerce_evaluation.paths import DATA, ROOT
+from commerce_evaluation.paths import DATA, RESULTS, ROOT
 from commerce_evaluation.pilot_policy import ALLOWLIST, HP_V2_POLICY, scenario_environment
 
 MANIFEST = DATA / "hnp-pilot-v1.json"
@@ -776,6 +780,44 @@ def dry_run_document(preparation: Preparation) -> dict[str, Any]:
     }
 
 
+# Live run ----------------------------------------------------------------------------------------
+
+
+Execute = Callable[[PlannedEpisode, int], dict[str, Any]]
+
+
+def run_plan(
+    plan: Sequence[PlannedEpisode],
+    execute: Execute,
+    *,
+    cap_usd: float,
+    result_file: TextIO,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Run the plan in order and write each row as it ends. After every episode the accumulated
+    model cost is compared with the cap; reaching it stops the invocation with the rows so far
+    (the cap can be passed by at most one episode's cost)."""
+    rows: list[dict[str, Any]] = []
+    accumulated = 0.0
+    stop: dict[str, Any] = {"stopped_by": None, "accumulated_cost_usd": 0.0, "cap_usd": cap_usd}
+    for index, episode in enumerate(plan):
+        if not episode.runs:
+            continue
+        row = execute(episode, index)
+        rows.append(row)
+        result_file.write(json.dumps(row, ensure_ascii=False) + "\n")
+        result_file.flush()
+        accumulated += float((row.get("cost") or {}).get("charged_usd") or 0.0)
+        stop["accumulated_cost_usd"] = round(accumulated, 6)
+        if accumulated >= cap_usd:
+            stop |= {
+                "stopped_by": "cost_cap",
+                "after_episode": episode.key(),
+                "not_run": [later.key() for later in plan[index + 1 :] if later.runs],
+            }
+            break
+    return rows, stop
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=MANIFEST)
@@ -793,8 +835,18 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--smoke", action="store_true", help="one repetition per cell; validates the harness"
     )
+    parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--merchant-repo", type=Path, default=ROOT.parent / "tesis-commerce-merchant"
+    )
+    parser.add_argument(
+        "--payment-repo", type=Path, default=ROOT.parent / "tesis-payment-provider-sandbox"
+    )
     parser.add_argument("--merchant-port", type=int, default=4120)
+    parser.add_argument("--payment-port", type=int, default=4130)
+    parser.add_argument("--agent-port", type=int, default=43125)
     parser.add_argument("--auth-port", type=int, default=4215)
+    parser.add_argument("--skip-postgres-start", action="store_true")
     parser.add_argument(
         "--allow-dirty",
         action="store_true",
@@ -819,7 +871,25 @@ def _run(arguments: argparse.Namespace) -> int:
         print(json.dumps(dry_run_document(preparation), ensure_ascii=False))
         return 0
     require_guards(preparation.guards)
-    raise PilotError("This checkout has no live HNP episode runner yet")
+    assert preparation.cost.cap_usd is not None
+    from commerce_evaluation.hnp_pilot_live import run_live
+
+    output = arguments.output
+    if output is None:
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        output = RESULTS / f"hnp-pilot-{stamp}.jsonl"
+    output = output.resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="hnp-pilot-") as temporary:
+        summary = run_live(
+            preparation,
+            arguments=arguments,
+            output=output,
+            temp=Path(temporary),
+            invocation_id=f"hnp-pilot-{uuid4().hex[:12]}",
+        )
+    print(json.dumps(summary, ensure_ascii=False))
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
