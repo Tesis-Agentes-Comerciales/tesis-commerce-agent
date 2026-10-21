@@ -42,6 +42,14 @@ def test_governance_code_has_clear_copy_without_internals(code: str) -> None:
     assert message.endswith(".")
 
 
+@pytest.mark.parametrize("code", ["checkout_expired", "checkout_not_ready"])
+def test_an_unapprovable_checkout_has_spanish_copy(code: str) -> None:
+    # Completion also raises these, maybe after an uncertain attempt: no promise about charges.
+    message = error_message(code)
+    assert message != DEFAULT_ERROR and "no seguí con la compra" in message
+    assert "cobro" not in message
+
+
 @pytest.mark.parametrize("error_type", [PurchaseServiceError, CompletionError])
 @pytest.mark.parametrize("code", sorted(d1_codes()))
 def test_a_rest_governance_stop_carries_the_chat_copy(code: str, error_type: type) -> None:

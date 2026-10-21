@@ -2,16 +2,18 @@ import { asApprovalResult, isRecord } from "@/features/agent-results"
 import { usePurchaseSession } from "@/features/purchase-session"
 import { messagePurchaseRunId, runIdOf } from "@/features/purchase-trace"
 import type { AgentToolCallPart } from "@/lib/agent-contract"
+import type { StaleTermsReason } from "@/components/agent"
 import type { PendingTermsStatus } from "@/lib/commerce-api"
 
-// Términos que ya no valen (b2-governed-pilot, S04): la oferta cambió, venció o no se pudo leer. La
-// compra sigue pendiente y no se puede aprobar; el comprador la cancela y la pide de nuevo.
+// Términos que ya no valen (b2-governed-pilot, S04): la oferta cambió, venció o no se pudo leer, o
+// el checkout venció. La compra sigue pendiente y no se puede aprobar; el comprador la cancela (el
+// comercio cancela también un checkout vencido) y la pide de nuevo.
 
 /** Códigos con los que el backend rechaza los términos: 409 y 503 en REST, o el paso en el stream. */
-const STALE_TERMS = new Map<string, PendingTermsStatus>([
+const STALE_TERMS = new Map<string, StaleTermsReason>([
   ["checkout_terms_changed", "changed"],
-  // Una oferta vencida tampoco vuelve a valer: para el comprador, las condiciones cambiaron.
-  ["offer_expired", "changed"],
+  ["offer_expired", "expired"],
+  ["checkout_expired", "expired"],
   ["offer_freshness_unavailable", "unavailable"],
 ])
 
@@ -20,8 +22,8 @@ const STALE_CODE: Record<PendingTermsStatus, string> = {
   unavailable: "offer_freshness_unavailable",
 }
 
-/** `terms_status` que corresponde a un código de error, o `null` si es otro error. */
-export function staleTermsOf(code: unknown): PendingTermsStatus | null {
+/** Por qué los términos ya no valen según un código de error, o `null` si es otro error. */
+export function staleTermsOf(code: unknown): StaleTermsReason | null {
   return typeof code === "string" ? (STALE_TERMS.get(code) ?? null) : null
 }
 

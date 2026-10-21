@@ -59,6 +59,12 @@ ERROR_MESSAGES = {
     "catalog_unavailable": "El catálogo del comercio no está disponible en este momento.",
     "turn_conflict": "Este envío ya se procesó con otro contenido. Escribe el mensaje de nuevo.",
     "purchase_not_found": "No encontré esa compra.",
+    # A checkout that can no longer be approved; completion may follow an uncertain attempt, so
+    # neither promises that nothing was charged.
+    "checkout_expired": "El checkout del comercio venció, así que no seguí con la compra.",
+    "checkout_not_ready": (
+        "El checkout del comercio ya no está listo para pagar, así que no seguí con la compra."
+    ),
     # Governance stops: say what the policy did and what did not happen, without internal names.
     "d1_denied": (
         "La política de compra no permite esta compra. "

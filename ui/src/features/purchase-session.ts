@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react"
 
-import type { PendingTermsStatus } from "@/lib/commerce-api"
+import type { StaleTermsReason } from "@/components/agent"
 import type { CompletedCheckout } from "@/lib/commerce-types"
 import type { PurchaseTrace } from "@/lib/trace-contract"
 
@@ -24,7 +24,7 @@ export type LocalPurchase = {
   error?: string
   errorCode?: string
   /** Aprobar falló porque los términos ya no valen: solo queda cancelar. Cancelar no lo borra. */
-  termsStatus?: PendingTermsStatus
+  termsStatus?: StaleTermsReason
 }
 
 type PurchaseSession = {

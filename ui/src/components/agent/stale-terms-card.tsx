@@ -8,9 +8,15 @@ import type { PendingTermsStatus } from "@/lib/commerce-api"
 
 export type StaleTermsCardStatus = "stale" | "canceling" | "canceled"
 
+/**
+ * Por qué ya no se puede aprobar: la oferta cambió, no se pudo leer o venció (la oferta o el
+ * checkout). `expired` solo se conoce en la sesión que recibió el error: al recargar, el backend
+ * informa una oferta vencida como `changed`.
+ */
+export type StaleTermsReason = PendingTermsStatus | "expired"
+
 export type StaleTermsCardProps = {
-  /** Por qué ya no se puede aprobar: la oferta cambió o no se pudo leer. */
-  terms: PendingTermsStatus
+  terms: StaleTermsReason
   status: StaleTermsCardStatus
   /** Producto de la compra, si se conoce; una compra restaurada no lo trae. */
   productTitle?: string | null
@@ -31,14 +37,19 @@ const COPY = {
   changed: {
     title: "Las condiciones del comercio cambiaron",
     explanation:
-      "El precio, el envío o la disponibilidad ya no son los que revisaste. Cancela esta compra y pídela de nuevo: prepararé otra con las condiciones vigentes.",
+      "El precio, el envío, la vigencia o la disponibilidad ya no son los que revisaste. Cancela esta compra y pídela de nuevo: prepararé otra con las condiciones vigentes.",
+  },
+  expired: {
+    title: "Las condiciones que revisaste vencieron",
+    explanation:
+      "La oferta o el checkout del comercio ya no está vigente. Cancela esta compra y pídela de nuevo: prepararé otra con las condiciones vigentes.",
   },
   unavailable: {
     title: "No pude confirmar las condiciones con el comercio",
     explanation:
       "No sé si el precio y la disponibilidad siguen vigentes. Cancela esta compra y pídela de nuevo para revisarlas.",
   },
-} satisfies Record<PendingTermsStatus, { title: string; explanation: string }>
+} satisfies Record<StaleTermsReason, { title: string; explanation: string }>
 
 /**
  * Reemplaza a la tarjeta de aprobación cuando los términos ya no valen: aprobar no es posible y la

@@ -87,6 +87,18 @@ export const TermsUnavailable: Story = {
   },
 }
 
+/** Aprobar respondió 409 `offer_expired` o `checkout_expired`: las condiciones vencieron. */
+export const TermsExpired: Story = {
+  args: { terms: "expired" },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("heading", { name: "Las condiciones que revisaste vencieron" }),
+    ).toBeVisible()
+    await expect(canvas.getByText(NO_CHARGE)).toBeVisible()
+    await expect(canvas.getByRole("button", { name: "Cancelar compra" })).toBeEnabled()
+  },
+}
+
 /** Compra restaurada tras recargar: `GET /me/pending-purchase` no trae el producto. */
 export const RestoredWithoutProduct: Story = {
   args: { productTitle: null },
