@@ -27,6 +27,7 @@ from commerce_agent.persistence.ap2_evidence_sqlite import SqliteAp2EvidenceStor
 from commerce_agent.runtime import build_runtime
 from commerce_agent.trace import PurchaseTraces
 from commerce_agent.trace.models import OrderEventStep
+from commerce_evaluation.verify_evidence import LINKS, verify_database
 from tests.integration.live_purchase import PurchaseLane, buyer_details
 from tests.integration.test_live_purchase import APPROVED_AT, OTHER_PHONE, PHONE
 
@@ -213,4 +214,12 @@ def test_b2_governed_purchase_completes_once_with_receipts_and_its_order_webhook
     trace = PurchaseTraces(settings).trace(run_id)
     order_events = [step for step in trace.steps if isinstance(step, OrderEventStep)]
     assert [step.event_type for step in order_events] == ["order_create"]
+    # And the whole chain verifies, the payment included, as `verify-evidence` reports it.
+    [verified] = verify_database(
+        settings.agent_database_path, run_id=run_id, psp_database=b0.root / "payments.sqlite"
+    )
+    assert verified["complete"] is True, verified["links"]
+    assert {name: link["status"] for name, link in verified["links"].items()} == dict.fromkeys(
+        LINKS, "ok"
+    ) | {"d2_decision": "not_applicable"}
     b0.stack.record("b2:governed_purchase", orders_created=1, order_events=len(order_events))

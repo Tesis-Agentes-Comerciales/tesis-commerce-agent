@@ -6,6 +6,8 @@ way the real services do: `reference` is the `sd_hash` of the mandate each one r
 agent's own receipt checks run unchanged. Keys are generated per double.
 """
 
+import hashlib
+import hmac
 import json
 import time
 from collections.abc import Iterator
@@ -25,7 +27,9 @@ from jwt.algorithms import ECAlgorithm
 from commerce_agent.api import create_app
 from commerce_agent.buyer_auth import LocalBuyerAuthenticator
 from commerce_agent.config import Settings
+from commerce_agent.webhooks import WEBHOOK_PATH
 from tests.governance.test_hp_continuation import router
+from tests.governance.test_runtime_dispatch import CREATE
 from tests.governance.test_stale_terms_pending import MERCHANT_KEY_ID, Ap2Merchant, ap2, presented
 
 BUYER = "buyer-1"
@@ -46,7 +50,14 @@ def sd_hash(mandate: str) -> str:
 class CompletingMerchant(Ap2Merchant):
     """Completes `POST /checkout_sessions/{id}/ap2/complete` with an order and a receipt."""
 
+    refuse_creation = False
+
     def __call__(self, request: httpx.Request) -> httpx.Response:
+        if self.refuse_creation and (request.method, request.url.path) == CREATE:
+            # The merchant's refusal before it creates anything for the key (P5a).
+            self.requests.append(CREATE)
+            detail = {"code": "out_of_stock", "message": "Not available."}
+            return httpx.Response(409, json={"detail": detail})
         session_id, _, action = request.url.path.removeprefix("/checkout_sessions/").partition("/")
         if (request.method, action) != ("POST", "ap2/complete"):
             return super().__call__(request)
@@ -136,6 +147,31 @@ class Ap2Shop:
         completed = self.client.post(f"/purchases/{run_id}/complete")
         assert completed.status_code == 200, completed.text
         return run_id
+
+    def deliver_order_create(self, run_id: str) -> None:
+        """The merchant's signed `order_create`, as its dispatcher posts it, for the run's order."""
+        purchase = self.client.get(f"/purchases/{run_id}")
+        order_id, checkout_id = purchase.json()["order_id"], purchase.json()["checkout_id"]
+        order = self.merchant.sessions[checkout_id]["order"]
+        event = {"type": "order_create", "data": {**order, "id": order_id}}
+        body = json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        raw = body.encode()
+        secret = self.settings.merchant_webhook_secret
+        assert secret is not None
+        timestamp = str(int(time.time()))
+        digest = hmac.new(
+            secret.get_secret_value().encode(), timestamp.encode() + b"." + raw, hashlib.sha256
+        ).hexdigest()
+        response = self.client.post(
+            WEBHOOK_PATH,
+            content=raw,
+            headers={
+                "Content-Type": "application/json",
+                "Request-Id": f"whd_{order_id}",
+                "Merchant-Signature": f"t={timestamp},v1={digest}",
+            },
+        )
+        assert response.status_code == 200, response.text
 
 
 @contextmanager

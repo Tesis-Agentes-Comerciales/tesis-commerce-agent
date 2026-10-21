@@ -80,10 +80,15 @@ verificador lo verá como `missing`.
 
 ## PR C: verificador
 
-`uv run verify-evidence --agent-db agent.db [--agent-db …] [--run RUN_ID] [--psp-db payments.db]`
-lee cada base en solo lectura y escribe JSON. Cada run de `purchases` produce nueve eslabones, en
-el orden del contrato; cada uno es `ok`, `missing`, `mismatch` o `not_applicable`, con un `detail`
-corto y las referencias (ids y digests, nunca tokens):
+`uv run verify-evidence --agent-db agent.db [--agent-db …] [--run RUN_ID] [--psp-db payments.db]
+[--output archivo.json]` lee cada base en solo lectura y escribe JSON
+(`schema_version: evidence-chain-verification/1`, `runs`, `h2`). Cada run de `purchases` produce
+`database`, `run_id`, `stage`, `order_id`, `links` y `complete`; `links` trae los nueve eslabones
+en el orden del contrato, cada uno con `status` (`ok`, `missing`, `mismatch` o
+`not_applicable`), un `detail` corto y `refs` (ids y digests, nunca tokens). Sale con 0 si todas
+las cadenas están completas, 1 si alguna no y 2 si los argumentos o las bases no sirven. El
+runner lo llama desde Python: `verify_database(path, run_id=…, psp_database=…)` y
+`h2_summary(runs)`.
 
 | Eslabón | Qué recalcula y qué referencia revisa |
 | --- | --- |
@@ -91,17 +96,24 @@ corto y las referencias (ids y digests, nunca tokens):
 | `d1_decision` | El ledger D1 (`governance_evidence`): digest del cuerpo, del input y del artefacto de política. Su `intent_ref` es el eslabón anterior. La reejecución es diagnóstica: solo un resultado distinto es `mismatch` |
 | `checkout_created` | La operación D1 apunta al `evidence_id`, al digest del cuerpo y al del input de la decisión; su resultado es `confirmed` con el `checkout_id` de la compra; digest del sobre |
 | `freshness` | Cadena de `hp_evidence` recalculada; `present` y, si hubo aprobación o intento, `approve` del mismo checkout. Una aprobación guardada exige `approve` en `allow` |
-| `d2_decision` | `not_applicable` con la política `b2-pilot-v1` o sin registro D2 |
-| `approval` | `consent` coincide con `approvals` y su `freshness_digest` es el `approve` |
+| `d2_decision` | `not_applicable` sin registro D2; un registro con fase distinta de D1 sale `missing` hasta que el verificador lo revise |
+| `approval` | `consent` coincide con `approvals`, verifica en la cadena hasta él y su `freshness_digest` es el `approve` |
 | `mandates` | Hash del `checkout_jwt`, digests de las divulgaciones SD-JWT, `checkout_hash` y `transaction_id` de ambos mandatos, monto del pago = total firmado, `sd_hash` = `consent` |
 | `receipts` | Digest de cada recibo = `effect`; `reference` = `sd_hash` del mandato; `order_id` del recibo del comercio = orden; `effect` sigue a `consent` en la cadena. Con `--psp-db`, el PSP tiene ese pago para ese mandato |
 | `order_webhook` | Un `order_create` de esa orden y ese checkout, con el `sha256` del cuerpo recalculado |
 
 **Aplicabilidad.** Un eslabón aplica si la compra llegó a ese paso según su propio estado
-(`purchases.stage`, `approvals`, `completion_results`, la cancelación del comprador). Lo que no
+(`purchases.stage`, `approvals`, `completion_results`, el resultado D1 de la creación). Lo que no
 pasó es `not_applicable`: un S04 bloqueado al aprobar termina en `freshness` (con `approve` en
-`block`) y su cadena puede estar completa. `complete` es verdadero cuando ningún eslabón es
-`missing` ni `mismatch`.
+`block`) y su cadena puede estar completa; un D1 `deny` termina en `d1_decision`; un rechazo
+definitivo del comercio al crear (`definitive_failure`, `VERIFIED_NOT_CREATED`, P5a) deja
+`checkout_created` y todo lo posterior en `not_applicable`, después de verificar que la operación
+referencia la decisión. Una creación `uncertain` es `missing`. `complete` es verdadero cuando
+ningún eslabón es `missing` ni `mismatch`. Una compra cancelada sin registros de frescura no
+muestra si llegó a ver los términos, así que su `freshness` sale `not_applicable`.
+
+**Webhook.** El verificador no espera eventos: lee la base una vez. Quien lo llama despacha antes
+el outbox del comercio con el agente arriba (PR A) y verifica después de que el agente salió.
 
 **H2.** `h2` resume los runs verificados: `effects` (compras con orden: `n`, `complete`, `rate`)
 es la métrica de H2; `all_runs` usa la misma regla sobre todas las compras, y `by_link` cuenta
@@ -127,6 +139,11 @@ registros enlazados, así que sus eslabones salen `missing`: es la diferencia qu
 - **Firmas.** El agente ya verifica la firma del `checkout_jwt` y de ambos recibos al recibirlos.
   El verificador recalcula hashes y referencias; no vuelve a verificar firmas porque las claves
   públicas no se guardan. Queda como límite declarado.
+- **Cadenas por prefijo.** `consent` y `effect` se verifican con la cadena hasta cada uno: un
+  `effect` alterado no contamina el eslabón `approval`.
+- **El ledger D1 del agente.** El verificador usa `SqliteGovernanceEvidenceStore` en solo lectura
+  (digest del cuerpo, alcance y artefactos de política); la reejecución de la política es
+  diagnóstica y solo un resultado distinto (`GOV_OUTPUT_INVALID`) es `mismatch`.
 
 ## Riesgos
 
