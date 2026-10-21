@@ -88,6 +88,40 @@ export const ProductOutsideRequest: Story = {
   args: { rules: decisionOf(TRACES.blockedProduct).rules },
 }
 
+// Como `formatMoney`: el separador entre el símbolo y el monto es un espacio duro.
+const CATALOG_PRICE = /^\$\s?1\.540\.000(,00)? COP$/
+const TOTAL_BUDGET = /^\$\s?1\.000\.000(,00)? COP$/
+
+/**
+ * S02 con `b2-hp-v2`: el precio del catálogo ya supera el presupuesto total. Los dos valores son
+ * montos y se escriben como el resto de los montos de la traza, no como un valor técnico.
+ */
+export const BudgetFails: Story = {
+  args: { rules: decisionOf(TRACES.blockedBudget).rules },
+  play: async ({ canvas }) => {
+    const failed = canvas.getByText("Precio dentro de tu presupuesto").closest("li")
+    await expect(failed).toHaveAttribute("data-result", "fail")
+    await expect(canvas.getAllByText("Cumple")).toHaveLength(2)
+    await expect(canvas.getByText("Precio en el catálogo")).toBeVisible()
+    await expect(canvas.getByText("Tu presupuesto total")).toBeVisible()
+    const price = canvas.getByText(CATALOG_PRICE)
+    await expect(price).toBeVisible()
+    await expect(price).not.toHaveClass("font-mono")
+    await expect(canvas.getByText(TOTAL_BUDGET)).toBeVisible()
+    await expect(canvas.queryByText(/POL-11|BUDGET_NOT_SATISFIABLE/)).toBeNull()
+  },
+}
+
+/** En la línea de tiempo del chat, solo la regla de presupuesto muestra sus montos. */
+export const BudgetFailedValuesOnly: Story = {
+  args: { rules: decisionOf(TRACES.blockedBudget).rules, values: "failed" },
+  play: async ({ canvas }) => {
+    await expect(canvas.queryByText("Comercios permitidos")).toBeNull()
+    await expect(canvas.getByText(CATALOG_PRICE)).toBeVisible()
+    await expect(canvas.getByText(TOTAL_BUDGET)).toBeVisible()
+  },
+}
+
 /** La política no respondió: ninguna regla se evaluó y no hay valores que mostrar. */
 export const NotEvaluated: Story = {
   args: { rules: decisionOf(TRACES.policyUnavailable).rules },

@@ -68,6 +68,25 @@ export const BlockedProduct: Story = {
   args: { trace: TRACES.blockedProduct },
 }
 
+/**
+ * S02 con `b2-hp-v2`: las tres reglas de D1 en la tabla y la de presupuesto con sus montos. La
+ * compra se detiene antes del checkout, así que no hay compra cancelada ni recuperación.
+ */
+export const BlockedByBudget: Story = {
+  args: { trace: TRACES.blockedBudget },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("La política detuvo la compra")).toBeVisible()
+    const rules = canvas.getByRole("list", { name: "Reglas de la política de compra" })
+    await expect(rules.querySelectorAll(":scope > li")).toHaveLength(3)
+    await expect(canvas.getByText("Precio dentro de tu presupuesto")).toBeVisible()
+    await expect(canvas.getByText(/^\$\s?1\.540\.000(,00)? COP$/)).toBeVisible()
+    await expect(canvas.getByText(/^\$\s?1\.000\.000(,00)? COP$/)).toBeVisible()
+    await expect(canvas.queryByText("Compra cancelada: superaba tu presupuesto")).toBeNull()
+    const checkout = canvas.getByText("Crear el checkout").closest("li")
+    await expect(checkout).toHaveAttribute("data-state", "skipped")
+  },
+}
+
 export const PolicyUnavailable: Story = {
   args: { trace: TRACES.policyUnavailable },
 }

@@ -228,6 +228,22 @@ export const PolicyBlocked: Story = {
   },
 }
 
+/**
+ * El mismo `d1_denied` del stream, ahora por la regla de presupuesto de `b2-hp-v2` (S02): el chat no
+ * cambia su texto y la tarjeta dice qué regla no se cumplió.
+ */
+export const PolicyBlockedByBudget: Story = {
+  args: { state: fixtureState("purchaseBlocked") },
+  parameters: traceApi(TRACES.blockedBudget),
+  play: async ({ canvas }) => {
+    const card = await canvas.findByTestId("policy-blocked-card")
+    await expect(card).toHaveTextContent("Precio dentro de tu presupuesto")
+    await expect(card).toHaveTextContent(NOTHING_CHARGED)
+    await expect(canvas.getByRole("button", { name: /Bloqueada por la política/ })).toBeVisible()
+    await expect(canvas.queryByRole("alert")).toBeNull()
+  },
+}
+
 /** Sin traza (503) el chat sigue: queda el aviso que redacta el backend, sin fila ni tarjeta. */
 export const PolicyBlockedTraceUnavailable: Story = {
   args: { state: fixtureState("purchaseBlocked") },

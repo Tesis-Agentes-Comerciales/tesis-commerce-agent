@@ -121,19 +121,25 @@ export interface GovernedRecovery {
   evidence_digest: string
 }
 
+/** Monto en unidades menores (centavos). */
+export interface Money {
+  minor: number
+  currency: string
+}
+
 export interface PolicyDecision {
   mode: "shadow" | "enforce"
   outcome: "allow" | "deny"
   effect: "observed" | "blocked" | "continued"
   policy: { set_id: string; revision: number }
   rules: {
-    /** "POL-01", "POL-02". */
+    /** "POL-01", "POL-02", "POL-11". */
     id: string
     result: "pass" | "fail" | "not_evaluated"
-    /** Por ejemplo, el origen del comercio. */
-    observed: string | null
-    /** Por ejemplo, la lista de comercios permitidos. */
-    expected: string | null
+    /** Un texto, como el origen del comercio, o un monto, como el precio del catálogo (POL-11). */
+    observed: string | Money | null
+    /** Un texto, como la lista de comercios permitidos, o un monto, como tu presupuesto total. */
+    expected: string | Money | null
   }[]
   reason_codes: string[]
   latency_ms: number | null
@@ -212,7 +218,9 @@ function shape(fields: Record<string, Check>): Check {
   }
 }
 
-const money = shape({ minor: count, currency } satisfies Fields<{ minor: number; currency: string }>)
+const money = shape({ minor: count, currency } satisfies Fields<Money>)
+/** Valor de una regla: texto o monto, nunca un número suelto. */
+const ruleValue: Check = (value, path) => (isRecord(value) ? money(value, path) : text(value, path))
 const receiptKind = oneOf("checkout", "payment")
 
 const POLICY_DECISION: Fields<PolicyDecision> = {
@@ -224,8 +232,8 @@ const POLICY_DECISION: Fields<PolicyDecision> = {
     shape({
       id: text,
       result: oneOf<PolicyRule["result"]>("pass", "fail", "not_evaluated"),
-      observed: nullable(text),
-      expected: nullable(text),
+      observed: nullable(ruleValue),
+      expected: nullable(ruleValue),
     } satisfies Fields<PolicyRule>),
   ),
   reason_codes: listOf(text),

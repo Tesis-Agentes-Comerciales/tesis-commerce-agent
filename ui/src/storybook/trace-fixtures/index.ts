@@ -6,6 +6,7 @@ import {
 } from "@/lib/trace-contract"
 
 import awaitingApproval from "./awaiting-approval.json"
+import blockedBudget from "./blocked-budget.json"
 import blockedMerchant from "./blocked-merchant.json"
 import blockedProduct from "./blocked-product.json"
 import canceled from "./canceled.json"
@@ -30,6 +31,11 @@ export const TRACES = {
   completedEnforce: parsePurchaseTrace(completedEnforce),
   blockedMerchant: parsePurchaseTrace(blockedMerchant),
   blockedProduct: parsePurchaseTrace(blockedProduct),
+  /**
+   * S02 con `b2-hp-v2`: el precio del catálogo (1.540.000) ya supera el presupuesto total
+   * (1.000.000), así que POL-11 detiene la compra antes de crear el checkout.
+   */
+  blockedBudget: parsePurchaseTrace(blockedBudget),
   policyOff: parsePurchaseTrace(policyOff),
   inProgress: parsePurchaseTrace(inProgress),
   awaitingApproval: parsePurchaseTrace(awaitingApproval),

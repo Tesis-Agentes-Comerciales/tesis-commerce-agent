@@ -69,6 +69,12 @@ const RULES: Record<string, RuleCopy> = {
     observed: "Comercio",
     expected: "Comercios permitidos",
   },
+  // Compara el precio del catálogo con el presupuesto total: el total del comercio nunca es menor.
+  "POL-11": {
+    name: "Precio dentro de tu presupuesto",
+    observed: "Precio en el catálogo",
+    expected: "Tu presupuesto total",
+  },
 }
 
 const OTHER_RULE: RuleCopy = {

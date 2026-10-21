@@ -376,6 +376,35 @@ test.describe("actividad de la compra", () => {
     expect(calls.some((call) => call.path === `/purchases/${BLOCKED_RUN}/trace`)).toBe(true)
   })
 
+  test("modo activo: el bloqueo por presupuesto muestra el precio del catálogo y el presupuesto", async ({
+    page,
+  }) => {
+    await routeSession(page)
+    const calls = await routeAgent(page, {
+      turns: [PURCHASE_BLOCKED],
+      trace: () => ({ body: trace("blocked-budget", BLOCKED_RUN) }),
+    })
+    await page.goto("/")
+    const composer = page.getByLabel("Mensaje de compra")
+    await composer.fill(PURCHASE_REQUEST)
+    await composer.press("Enter")
+
+    const card = page.getByTestId("policy-blocked-card")
+    await expect(card).toBeVisible()
+    await expect(card.getByRole("heading", { name: "La política de compra detuvo esta compra" })).toBeVisible()
+    await expect(card.getByText("Precio dentro de tu presupuesto")).toBeVisible()
+    await expect(card.getByText("Precio en el catálogo")).toBeVisible()
+    await expect(card.getByText(/^\$\s?1\.540\.000(,00)? COP$/)).toBeVisible()
+    await expect(card.getByText("Tu presupuesto total")).toBeVisible()
+    await expect(card.getByText(/^\$\s?1\.000\.000(,00)? COP$/)).toBeVisible()
+    await expect(card.getByText(NOTHING_CHARGED)).toBeVisible()
+    // Solo la regla que falló; las que cumplen quedan en la traza.
+    await expect(card.getByText("Comercio permitido")).toHaveCount(0)
+    await expect(page.getByRole("alert")).toHaveCount(0)
+    await expect(page.getByTestId("purchase-approval-card")).toHaveCount(0)
+    expect(calls.some((call) => call.path === `/purchases/${BLOCKED_RUN}/trace`)).toBe(true)
+  })
+
   test("política desactivada: la compra se completa y el control figura como desactivado", async ({
     page,
   }) => {

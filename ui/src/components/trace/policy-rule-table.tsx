@@ -1,9 +1,10 @@
 import { cn } from "cn"
 import { CheckIcon, MinusIcon, XIcon } from "lucide-react"
 
+import { formatMoney } from "@/components/agent/agent-format"
 import { chip } from "@/components/agent/agent-styles"
 import { type MerchantLabel, RULE_RESULT_LABEL, ruleCopy } from "@/components/trace/trace-copy"
-import type { PolicyRule } from "@/lib/trace-contract"
+import type { Money, PolicyRule } from "@/lib/trace-contract"
 
 const RESULT_VIEW = {
   pass: { tone: "neutral", Icon: CheckIcon },
@@ -76,10 +77,23 @@ function RuleRow({ rule, showValues, merchant }: RuleRowProps) {
   )
 }
 
-type RuleValueProps = { label: string; value: string; name?: string | null }
+type RuleValueProps = { label: string; value: string | Money; name?: string | null }
 
-/** Con nombre, el valor técnico pasa a segundo plano bajo él. */
+/**
+ * Con nombre, el valor técnico pasa a segundo plano bajo él. Un monto (el precio y el presupuesto de
+ * la regla de presupuesto) se escribe como los demás montos de la traza, no como un valor técnico.
+ */
 function RuleValue({ label, value, name = null }: RuleValueProps) {
+  if (typeof value !== "string") {
+    return (
+      <div>
+        <dt className="text-[#6b6b6b]">{label}</dt>
+        <dd className="mt-0.5 text-[#0d0d0d] tabular-nums">
+          {formatMoney(value.minor, value.currency)}
+        </dd>
+      </div>
+    )
+  }
   return (
     <div>
       <dt className="text-[#6b6b6b]">{label}</dt>

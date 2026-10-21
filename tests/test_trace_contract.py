@@ -180,6 +180,47 @@ def test_application_control_fixtures_cover_s04_and_s02() -> None:
     )
 
 
+def budget_rule(trace: dict[str, Any]) -> dict[str, Any]:
+    return kind(trace, "policy_decision")["decision"]["rules"][2]
+
+
+def test_the_budget_rule_carries_amounts_and_the_others_texts() -> None:
+    trace = PurchaseTrace.model_validate_json(json.dumps(fixture("blocked-budget")))
+    [step] = [item for item in trace.steps if item.kind == "policy_decision"]
+    rules = {rule.id: rule for rule in step.decision.rules}
+
+    assert step.decision.policy.set_id == "b2-hp-v2"
+    assert rules["POL-11"].result == "fail"
+    assert rules["POL-11"].observed is not None and rules["POL-11"].expected is not None
+    assert isinstance(rules["POL-02"].observed, str)
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(
+            lambda trace: budget_rule(trace)["observed"].update(minor=-1), id="negative-amount"
+        ),
+        pytest.param(
+            lambda trace: budget_rule(trace)["observed"].update(minor="154000000"),
+            id="amount-as-text",
+        ),
+        pytest.param(
+            lambda trace: budget_rule(trace)["expected"].update(currency="pesos"),
+            id="bad-currency",
+        ),
+        pytest.param(
+            lambda trace: budget_rule(trace)["expected"].update(display="$ 1.000.000"),
+            id="extra-amount-field",
+        ),
+        pytest.param(lambda trace: budget_rule(trace).update(observed=154000000), id="bare-number"),
+    ],
+)
+def test_rule_amounts_are_as_strict_as_the_ui_validator(edit) -> None:
+    with pytest.raises(ValidationError):
+        PurchaseTrace.model_validate_json(json.dumps(mutated(edit, "blocked-budget")))
+
+
 def test_purchase_summary_matches_the_ui_contract() -> None:
     row = {
         "run_id": "run_1",

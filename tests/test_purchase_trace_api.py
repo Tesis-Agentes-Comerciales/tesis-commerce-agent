@@ -50,6 +50,7 @@ from tests.governance.test_hp_continuation import StoreMerchant, ask
 from tests.governance.test_hp_continuation import app_client as governed_client
 from tests.governance.test_runtime_dispatch import governed as governed_settings
 from tests.test_governed_recovery import (
+    PHONES_PATH,
     PIXEL_8,
     S02_REQUEST,
     S02_RUN_ID,
@@ -1083,6 +1084,97 @@ def test_s02_budget_recovery_appears_after_the_cancellation(tmp_path: Path) -> N
     recorded = recorded_recoveries(tmp_path)[0]
     leaked = {recorded["intent_sha256"], recorded["explanation_sha256"], response.assistant_message}
     assert not leaked & set(strings(trace))
+
+
+@contextmanager
+def hp_v2_shop(tmp_path: Path, merchant: PhoneMerchant) -> Iterator[TestClient]:
+    """S02 as the demo runs it: enforce, governed flow and the b2-hp-v2 policy set."""
+    configuration = governed_settings(
+        tmp_path / "agent.db",
+        agent_d1_policy_set_id="b2-hp-v2",
+        agent_feed_path=PHONES_PATH,
+    )
+    app = create_app(
+        settings=configuration,
+        transport=httpx.MockTransport(merchant),
+        payment_transport=httpx.MockTransport(merchant),
+        conversation_router=S02Router(s02_intent(max_total=100_000_000), pick_pixel_8()),
+        buyer_authenticator=TwoBuyers(),
+    )
+    with TestClient(app) as client:
+        yield client
+
+
+def s02_turn(client: TestClient):
+    return client.post(
+        "/conversation/turn",
+        json={
+            "turn_id": "turn-s02",
+            "conversation_id": "conversation-s02",
+            "messages": [{"role": "user", "content": S02_REQUEST}],
+            "details": checkout_details(),
+        },
+        headers=as_buyer(),
+    )
+
+
+def test_s02_with_b2_hp_v2_is_denied_by_the_budget_rule_before_any_checkout(
+    tmp_path: Path,
+) -> None:
+    merchant = PhoneMerchant()
+    with hp_v2_shop(tmp_path, merchant) as client:
+        denied = s02_turn(client)
+        assert denied.status_code == 409 and denied.json()["code"] == "d1_denied"
+        row = client.get("/me/purchases", headers=as_buyer()).json()["purchases"][0]
+        trace = client.get(f"/purchases/{row['run_id']}/trace", headers=as_buyer()).json()
+
+    # The guard never had a checkout to cancel: D1 stopped the Pixel 8 before the POST.
+    assert merchant.checkout_posts == 0
+    assert PurchaseTrace.model_validate_json(json.dumps(trace)).model_dump(mode="json") == trace
+    assert kinds(trace) == ["request", "selection", "policy_decision"]
+    assert trace["status"] == "blocked"
+    decision = step(trace, "policy_decision")["decision"]
+    assert decision["policy"] == {"set_id": "b2-hp-v2", "revision": 1}
+    assert [(rule["id"], rule["result"]) for rule in decision["rules"]] == [
+        ("POL-01", "pass"),
+        ("POL-02", "pass"),
+        ("POL-11", "fail"),
+    ]
+    # Catalog price against the total budget, as amounts the UI writes in its own format.
+    assert decision["rules"][2] == {
+        "id": "POL-11",
+        "result": "fail",
+        "observed": {"minor": 154_000_000, "currency": "COP"},
+        "expected": {"minor": 100_000_000, "currency": "COP"},
+    }
+    assert decision["reason_codes"] == ["BUDGET_NOT_SATISFIABLE"]
+    assert row["policy"] == {"outcome": "deny", "failed_rules": ["POL-11"]}
+    # No governed recovery: nothing was created, so there is nothing to explain as canceled.
+    assert recorded_recoveries(tmp_path) == []
+
+
+def test_a_policy_that_did_not_answer_lists_every_rule_of_b2_hp_v2_unevaluated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unavailable(*_: object) -> None:
+        raise RuntimeError("engine down")
+
+    monkeypatch.setattr(
+        "commerce_agent.governance.evaluator.ReferencePolicyEvaluator.evaluate", unavailable
+    )
+    merchant = PhoneMerchant()
+    with hp_v2_shop(tmp_path, merchant) as client:
+        assert s02_turn(client).status_code == 409
+        row = client.get("/me/purchases", headers=as_buyer()).json()["purchases"][0]
+        trace = client.get(f"/purchases/{row['run_id']}/trace", headers=as_buyer()).json()
+
+    decision = step(trace, "policy_decision")["decision"]
+    assert decision["reason_codes"] == ["GOV_ENGINE_UNAVAILABLE"]
+    assert decision["rules"] == [
+        {"id": rule, "result": "not_evaluated", "observed": None, "expected": None}
+        for rule in ("POL-01", "POL-02", "POL-11")
+    ]
+    assert merchant.checkout_posts == 0
 
 
 def tamper_hp_evidence(database: Path, run_id: str) -> None:
