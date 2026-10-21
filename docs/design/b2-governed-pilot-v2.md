@@ -30,7 +30,9 @@ corrida en vivo se niega a arrancar en otro commit.
 Se mantiene todo lo del v1: mismo día, modelo `gpt-5-mini`, prompt, catálogo, comercio, PSP y
 comprador; intercalado por repetición con la primera condición alternada; `/health` verificado
 antes de cada repetición (y después de cada reinicio declarado); procedencia por fila (commits del
-agente, comercio y PSP, árbol sucio, modelo, `manifest_id`) y tiempos por etapa.
+agente, comercio y PSP, árbol sucio, modelo, `manifest_id`) y tiempos por etapa. El cliente de
+OpenAI del agente espera 90 s por petición en las dos condiciones (`OPENAI_TIMEOUT_SECONDS`,
+enmienda E4), y cada fila lo registra.
 
 ### Comparabilidad con el v1: ni B0' ni B2 son los del v1
 
@@ -225,6 +227,20 @@ No se permite cambiar pedidos, catálogo, modelo, repeticiones, oráculos ni cri
   reejecución no está disponible, así que cada fila guarda el `replay` de `d1_decision` y
   `d2_decision` y el resumen cuenta cuántas se reprodujeron. H2 no cambia: los nueve eslabones y
   la definición de cadena completa siguen, y las compras de B0' siguen incompletas.
+- **E4 (21-oct-2026), timeout del cliente del modelo.** `execution.openai_timeout_seconds = 90`:
+  el runner fija `OPENAI_TIMEOUT_SECONDS=90` al agente en las dos condiciones, por encima de su
+  `.env`, y lo registra en cada fila y en el resumen; espera cada turno hasta 600 s (tres
+  peticiones al modelo, dos intentos cada una, más 60 s). Motivo: en el smoke del 21-oct (una
+  repetición por celda sobre `pilot-v2-base`, 64017c4), S02 en B0' y en B2 y S07 en B2 dieron
+  502 `intent_model_error` («The candidate model request failed»): `choose_candidate` falló a los
+  60,5 s cada vez, dos intentos de 30 s del cliente (timeout por defecto de 30 s, `max_retries=1`)
+  que vencieron, y el `choose_candidate` exitoso más lento tardó 25,1 s. Esas celdas fallaban el
+  oráculo por el cliente en las dos condiciones y no dejaban medir si D1 y POL-11 deciden. E4 no
+  estaba entre E1–E3 porque no se previó un timeout del arnés; se acepta porque va antes de la
+  primera repetición en vivo (el smoke no es un resultado y existe para validar el arnés), es
+  igual para B0' y B2 y no cambia el código del agente, el modelo, el prompt, el esfuerzo de
+  razonamiento, los reintentos, los pedidos, el catálogo, las repeticiones, los oráculos ni los
+  criterios.
 
 ## Dependencias
 

@@ -181,13 +181,20 @@ def test_v2_manifest_points_to_its_matrix_policy_and_controls() -> None:
     # The nine links of P2's verifier; with an order, only ok counts (no not_applicable).
     assert manifest["evidence_chain"]["links"] == EVIDENCE_LINKS
     assert "not_applicable is not accepted" in manifest["evidence_chain"]["complete"]
-    # Only E1 (P2's final verifier contract), dated and before any live repetition.
-    (amendment,) = manifest["amendments_recorded"]
-    assert (amendment["id"], amendment["date"]) == ("E1", "2026-10-20")
-    assert amendment["allowed_by"] in manifest["allowed_amendments"]
-    assert amendment["reason"]
-    assert "d2_decision as not_applicable in B0'" in amendment["change"]
-    assert amendment["h2"].startswith("unchanged")
+    # E1 (P2's final verifier contract) and E4 (the model client timeout), dated and before any
+    # live repetition.
+    e1, e4 = manifest["amendments_recorded"]
+    assert (e1["id"], e1["date"]) == ("E1", "2026-10-20")
+    assert e1["allowed_by"] in manifest["allowed_amendments"]
+    assert e1["reason"]
+    assert "d2_decision as not_applicable in B0'" in e1["change"]
+    assert e1["h2"].startswith("unchanged")
+    # E4 was not foreseen among E1-E3 and says why it is accepted.
+    assert (e4["id"], e4["date"]) == ("E4", "2026-10-21")
+    assert e4["allowed_by"].startswith("not among E1-E3")
+    assert e4["reason"] and e4["why_accepted"]
+    assert "OPENAI_TIMEOUT_SECONDS=90" in e4["change"]
+    assert 0 < manifest["execution"]["openai_timeout_seconds"] == 90 <= 120
 
 
 def test_v2_declares_that_neither_condition_is_the_v1_one() -> None:

@@ -94,13 +94,15 @@
     "agent_ref": "pilot-v2-base",
     "agent_ref_rationale": "the last HP commit before HNP, engine reference-d1-d2:2; HNP-05/06 change the engine digest. A live run refuses another commit",
     "model": "gpt-5-mini",
+    "openai_timeout_seconds": 90,
+    "openai_timeout_rationale": "amendment E4: the runner sets OPENAI_TIMEOUT_SECONDS=90 for the agent in both conditions, over its .env (the agent's default is 30; the maximum it accepts is 120), and waits for each turn 6 x 90 + 60 = 600 s, the most the agent can take with three model requests tried twice. Model, prompt, reasoning effort and the router's max_retries=1 stay",
     "repetitions_per_condition": 10,
     "repetitions_rationale": "10/10 bounds the failure rate at about 0.26 (one-sided 95 %, exact), against 0.45 with the v1's 5/5; 20 would take about three hours of the shared stack for a 0.14 bound",
     "pairing_keys": ["scenario_id", "repetition"],
     "order": "interleaved_by_repetition_alternating_first_condition",
     "same_day": true,
     "mode_check": "GET /health must report the condition's governance_mode and hp_flow before each repetition and after every declared agent restart; abort otherwise",
-    "provenance": "agent, merchant and PSP commits and dirty flags, model, manifest_id per row",
+    "provenance": "agent, merchant and PSP commits and dirty flags, model, openai_timeout_seconds, manifest_id per row",
     "smoke_before_batch": "one repetition per cell on the same commit to validate the harness; not part of the metrics"
   },
   "integration_dependencies": {
@@ -201,6 +203,15 @@
       "change": "P2's final verifier reports d2_decision as not_applicable in B0', not missing: B0' does not run b2-hp-v2, so the verifier does not require D2; intent, d1_decision and freshness still come out missing. The verifier also keeps a D1 or D2 link ok when replaying its policy is unavailable (only a different decision is a mismatch), so each row keeps the replay of d1_decision and d2_decision and the summary counts how many were reproduced",
       "reason": "the pre-registration said B0' leaves D1, freshness and D2 missing; P2's final contract (main 76af6a6) reports D2 as not_applicable there and makes the replay diagnostic",
       "h2": "unchanged: the nine links and the definition of a complete chain stay, and B0' purchases with an order stay incomplete, so its H2 is still 0 by construction"
+    },
+    {
+      "id": "E4",
+      "date": "2026-10-21",
+      "allowed_by": "not among E1-E3; accepted under the general rule (before the first live repetition; the smoke does not count as a result)",
+      "change": "execution.openai_timeout_seconds = 90: the runner sets OPENAI_TIMEOUT_SECONDS=90 for the agent in both conditions, records it in every row and in the summary, and waits for a turn up to 600 s",
+      "reason": "the smoke of 2026-10-21 (one repetition per cell on pilot-v2-base, 64017c4) ended S02 in B0' and B2 and S07 in B2 with 502 intent_model_error, 'The candidate model request failed': choose_candidate failed after 60.5 s each time, two 30 s attempts of the OpenAI client (default timeout 30, max_retries=1) ending in a timeout, while the slowest successful choose_candidate took 25.1 s. Those cells failed the oracle through client noise in both conditions, so whether D1 and POL-11 are decisive could not be measured",
+      "why_accepted": "E1-E3 did not foresee a harness timeout. This one is equal for B0' and B2, does not touch the agent's code, model, prompt, reasoning effort or retries, and changes no request, catalog item, repetition, oracle or criterion; the smoke exists to validate the harness before the batch and none of its rows is a result",
+      "h2": "unchanged"
     }
   ],
   "cost_estimate": {

@@ -260,14 +260,63 @@ def condition_environments(
     conditions: tuple[PilotCondition, ...],
     merchant_origin: str,
     policy: D1Policy = PILOT_V1_POLICY,
+    *,
+    openai_timeout_seconds: float | None = None,
 ) -> dict[str, dict[str, str]]:
-    """Agent variables per condition. D1 keys exist once per invocation and only if B2 runs."""
+    """Agent variables per condition. D1 keys exist once per invocation and only if B2 runs.
+
+    A registered OpenAI client timeout goes to every condition alike, over the agent's .env.
+    """
     governed = any(condition.governance_mode != "off" for condition in conditions)
     keys = D1RunKeys.generate() if governed else None
+    shared = (
+        {}
+        if openai_timeout_seconds is None
+        else {"OPENAI_TIMEOUT_SECONDS": f"{openai_timeout_seconds:g}"}
+    )
     return {
-        condition.name: agent_environment(condition, merchant_origin, keys, policy)
+        condition.name: agent_environment(condition, merchant_origin, keys, policy) | shared
         for condition in conditions
     }
+
+
+# The agent's Settings accepts an OpenAI client timeout in (0, 120] seconds.
+MAX_OPENAI_TIMEOUT_SECONDS = 120.0
+
+
+def openai_timeout_seconds(manifest: Mapping[str, Any]) -> float | None:
+    """The OpenAI client timeout the manifest fixes for the agent (`execution`; v2, E4).
+
+    None when the manifest registers none (v1): the agent keeps its own setting.
+    """
+    value = manifest.get("execution", {}).get("openai_timeout_seconds")
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not 0 < value <= MAX_OPENAI_TIMEOUT_SECONDS
+    ):
+        raise PilotError(
+            "execution.openai_timeout_seconds must be a number of seconds in (0, 120], "
+            f"got {value!r}"
+        )
+    return float(value)
+
+
+# Without a registered model timeout the runner waits for a turn as long as in v1.
+DEFAULT_TURN_TIMEOUT_SECONDS = 150.0
+# At most three model requests per turn (route, its catalog-tool follow-up, and the candidate
+# choice or the recovery), each tried twice: the router's OpenAI client has max_retries=1.
+MODEL_ATTEMPTS_PER_TURN = 6
+
+
+def turn_timeout_seconds(openai_timeout: float | None) -> float:
+    """How long the runner waits for a turn: no less than the agent may take to answer it, so a
+    slow model ends in the agent's own response (a 502 at worst), not in a harness error."""
+    if openai_timeout is None:
+        return DEFAULT_TURN_TIMEOUT_SECONDS
+    return max(DEFAULT_TURN_TIMEOUT_SECONDS, MODEL_ATTEMPTS_PER_TURN * openai_timeout + 60)
 
 
 def repository_provenance(repository: Path) -> RepositoryProvenance:
@@ -1074,6 +1123,7 @@ def _execute_turn(
     condition: str,
     agent_origin: str,
     token: str,
+    timeout_seconds: float = DEFAULT_TURN_TIMEOUT_SECONDS,
 ) -> HttpResult:
     turn_prefix = f"pilot-{condition.lower()}-{scenario['id'].lower()}-{repetition}"
     turn_id = f"{turn_prefix}-{uuid4().hex}"
@@ -1085,6 +1135,7 @@ def _execute_turn(
             "details": DETAILS,
         },
         bearer=token,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -1197,6 +1248,7 @@ def _execute_repetition(
     matrix_ids: tuple[str, str] = V1_MATRIX_IDS,
     chain: EvidenceChainCheck | None = None,
     digests: PolicyDigests | None = None,
+    turn_timeout: float = DEFAULT_TURN_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """One repetition. `digests` spans the invocation, so one list keeps one artifact digest."""
     scenario, repetition, condition = run.scenario, run.repetition, run.condition
@@ -1332,6 +1384,7 @@ def _execute_repetition(
                     condition=condition.name,
                     agent_origin=agent_origin,
                     token=token,
+                    timeout_seconds=turn_timeout,
                 )
                 turn_finished_at = _utc_now()
                 response = turn.body
@@ -1886,6 +1939,7 @@ RUN_METADATA_KEYS = (
     "smoke",
     "agent_commit",
     "agent_worktree_dirty",
+    "openai_timeout_seconds",
     "model",
     "merchant_commit",
     "merchant_worktree_dirty",
@@ -2029,6 +2083,7 @@ def _run_pilot() -> int:
         "smoke": is_smoke(manifest, matrix, repetitions, scenarios),
         "agent_commit": provenance.commit,
         "agent_worktree_dirty": provenance.worktree_dirty,
+        "openai_timeout_seconds": openai_timeout_seconds(manifest),
     }
     described = [
         {
@@ -2116,7 +2171,12 @@ def _run_pilot() -> int:
     payment_origin = f"http://127.0.0.1:{arguments.payment_port}"
     auth_origin = f"http://127.0.0.1:{arguments.auth_port}"
     # Only the agent receives them, so the D1 keys never reach the other services or their logs.
-    environments = condition_environments(conditions, merchant_origin, policy)
+    environments = condition_environments(
+        conditions,
+        merchant_origin,
+        policy,
+        openai_timeout_seconds=run_metadata["openai_timeout_seconds"],
+    )
     chain = evidence_chain_check(manifest)
     digests = PolicyDigests()
     environment.update(
@@ -2244,6 +2304,7 @@ def _run_pilot() -> int:
                     matrix_ids=(str(matrix["matrix_id"]), str(matrix["baseline_id"])),
                     chain=chain,
                     digests=digests,
+                    turn_timeout=turn_timeout_seconds(run_metadata["openai_timeout_seconds"]),
                 )
 
             with output.open("w", encoding="utf-8") as result_file:
