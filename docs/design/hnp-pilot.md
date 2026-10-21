@@ -45,7 +45,7 @@ Las tres de la spec (§11):
 
 - **B0-HNP y B2-HNP** corren sobre el mismo commit, con `AGENT_HNP_ENABLED=true` y lo que exige el
   arranque (spec §6). B0-HNP con `AGENT_GOVERNANCE_MODE=off`; B2-HNP con `enforce` y
-  `AGENT_HP_FLOW=governed`, y la política `b2-hnp-v1`, revisión 1 (D1: POL-01, 02, 11; D2:
+  `AGENT_HP_FLOW=governed`, y la política `b2-hnp-v1`, revisión 2 (D1: POL-01, 02, 11; D2:
   POL-03..09; D3: POL-09, 10). La lista de comercios de `b2-hnp-v1` sale de
   `AGENT_D1_ALLOWED_MERCHANT_ORIGINS` y, si no está, es el comercio configurado (K11, HNP-05).
   Las claves y los tokens HNP se generan por invocación y nunca se registran. B0-HNP es la única

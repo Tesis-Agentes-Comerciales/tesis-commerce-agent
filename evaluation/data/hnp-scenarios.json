@@ -20,7 +20,7 @@
     "trigger": "POST /internal/hnp/tasks/{task_id}/run with the service token; the runner polls GET /internal/hnp/tasks/{task_id} until a terminal state",
     "quantity": 1,
     "currency": "COP",
-    "policy": "B2-HNP only: b2-hnp-v1, revision 1"
+    "policy": "B2-HNP only: b2-hnp-v1, revision 2"
   },
   "catalog": {
     "source": "tesis-commerce-merchant src/commerce_lab/fixtures/p0.py at cb11c2f",
