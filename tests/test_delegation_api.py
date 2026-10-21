@@ -227,6 +227,7 @@ ROUTES = (
     ("POST", "/delegations/dg_1/revoke"),
     ("POST", "/me/delegations/revoke-all"),
     ("GET", "/internal/hnp/tasks/ht_1"),
+    ("POST", "/internal/hnp/tasks/ht_1/run"),
     ("POST", "/internal/hnp/kill-switch"),
 )
 
@@ -827,12 +828,6 @@ def test_a_task_is_read_with_the_service_token(client: TestClient) -> None:
     error(missing, 404, "hnp_task_not_found")
     origin = bearer(SERVICE_TOKEN) | {"Origin": "https://evil.example"}
     error(client.get(path, headers=origin), 403, "hnp_origin_forbidden")
-
-
-def test_there_is_no_run_route_yet(client: TestClient) -> None:
-    view = delegated(client)
-    path = f"/internal/hnp/tasks/{view['task']['task_id']}/run"
-    assert client.post(path, headers=bearer(SERVICE_TOKEN)).status_code == 404
 
 
 # /health (§5.4)

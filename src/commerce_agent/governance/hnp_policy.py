@@ -7,9 +7,11 @@ provenance vault refuses new bytes under a known revision, so the sections came 
 
 import json
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+
+from commerce_agent.delegation.models import EXECUTOR_REF
 
 from .canonical import canonical_bytes, sha256_digest
 from .evaluator import GovernanceError, verify_artifact
@@ -37,6 +39,8 @@ HNP_POLICY_REVISION = 2
 HNP_AUTHORIZATION_PROFILE_ID = "profile:ap2-hnp-v1"
 # D1-HNP eligibility (§3.3): rank_candidates over the feed, restricted to the grant's variants.
 GRANT_SCOPE_ELIGIBILITY = "rank_candidates+grant_scope/v1"
+# The grant authorizes the whole purchase (§7, «Hechos del executor»).
+GRANT_ACTIONS = ("prepare_checkout", "complete_purchase", "commit_dispatch")
 
 
 class HnpGrant(BaseModel):
@@ -49,6 +53,20 @@ class HnpGrant(BaseModel):
 
     grant_id: Id
     variant_ids: Annotated[Ids, Field(min_length=1), AfterValidator(lambda ids: tuple(sorted(ids)))]
+
+
+def executor_principal(*, owns_run: bool) -> dict[str, Any]:
+    """`PrincipalFacts` of the executor, the service acting under the grant (§7). D2-HNP evaluates
+    them (POL-03) and D3-HNP carries them; D1-HNP records them only for attribution (§9.1).
+    `owns_run`: the grant's owner is the run's owner."""
+    return {
+        "schema_version": SCHEMA,
+        "principal_ref": EXECUTOR_REF,
+        "authentication_basis": "service_and_grant",
+        "authentication_verified": True,
+        "owns_run": owns_run,
+        "permitted_actions": list(GRANT_ACTIONS),
+    }
 
 
 def build_hnp_policy(*, merchant_ref: str | tuple[str, ...]) -> tuple[bytes, PolicyBinding]:

@@ -14,6 +14,11 @@ from pydantic import SecretBytes, SecretStr
 
 from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.ap2_hnp import AgentKeyCloser, OpenMandateIssuer
+from commerce_agent.application.hnp_dispatch import (
+    HnpDispatcher,
+    MerchantCompletion,
+    PaymentProvider,
+)
 from commerce_agent.application.hnp_execution import (
     FreshnessCheck,
     HnpExecutionService,
@@ -129,9 +134,11 @@ def build_hnp_executor(
     selector: HnpSelector,
     feed: Callable[[], ProductFeed],
     clock: Callable[[], datetime] | None,
+    payments: PaymentProvider,
+    merchant: MerchantCompletion,
 ) -> HnpExecutionService:
-    """The executor of a task, steps 1 to 10 of hnp-governed.md §3.3: the one place that
-    assembles it, and where the dispatch (steps 11 to 13, HNP-09b) plugs in.
+    """The executor of a task, steps 1 to 12 of hnp-governed.md §3.3: the one place that
+    assembles it with its dispatch (`HnpDispatcher` over the PSP client and the ACP client).
 
     `off` is B0-HNP: `NullHnpPolicyGate`, no freshness and no D1. `enforce` is B2-HNP and never
     starts without D2-HNP/D3-HNP and the `close` freshness guard. Only this service holds the
@@ -151,9 +158,11 @@ def build_hnp_executor(
     if closer.kid != trust.agent_key_kid:
         raise RuntimeError("AGENT_HNP_AGENT_KEY_PEM is not the Agent Key startup verified")
     authority = clock or _utc_now
+    mode = "enforce" if enforce else "off"
+    ledger = SqliteDelegationLedger(settings.agent_database_path, clock=authority)
     return HnpExecutionService(
-        mode="enforce" if enforce else "off",
-        ledger=SqliteDelegationLedger(settings.agent_database_path, clock=authority),
+        mode=mode,
+        ledger=ledger,
         store=store,
         purchases=purchases,
         checkout=checkout,
@@ -165,6 +174,9 @@ def build_hnp_executor(
         id_factory=_new_id,
         freshness=freshness if enforce else None,
         d1_denials=sqlite_d1_denials(settings.agent_database_path) if enforce else None,
+        dispatcher=HnpDispatcher(
+            mode=mode, ledger=ledger, store=store, payments=payments, merchant=merchant
+        ),
     )
 
 

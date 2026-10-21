@@ -338,9 +338,10 @@ dejan sus eventos. Con orden, la cadena es `complete` solo si `ledger_chain` y l
 son `ok`; sin orden, si `ledger_chain` es `ok` y ningún eslabón es `missing` ni `mismatch`. Con
 ejecuciones HNP el documento suma `h2_hnp` (`orders`, `blocked` —tareas `escalated`, `failed` o
 `canceled`, HN04 incluido, así que no es el `h2_hnp_block` del piloto—, `all_runs`, `by_link`); `h2`
-sigue contando solo las compras HP. `receipts` lee los JWT de los recibos con el perfil AP2. Hasta
-HNP-09b es `missing` para una orden (los JWT los guarda su UoW-3 en `completion_results`) y para un
-rechazo del PSP (el ledger aún guarda el estado `error` fuera del perfil AP2). Desde Python:
+sigue contando solo las compras HP. `receipts` lee los JWT de los recibos con el perfil AP2 y el
+estado de su evento en cualquiera de las dos formas del perfil (`Success`/`Error` del SDK o
+`success`/`error`, la que guarda el ledger); otro valor es `mismatch`. Hasta HNP-09b es `missing`
+para una orden (los JWT los guarda su UoW-3 en `completion_results`). Desde Python:
 `verify_database(path, grant_id=…)`.
 
 ## Piloto HNP v1: B0-HNP, B2-HNP y P
