@@ -6,12 +6,14 @@ import { PolicyRuleTable } from "@/components/trace/policy-rule-table"
 import { StepStatusIcon } from "@/components/trace/step-status-icon"
 import {
   STEP_STATE_LABEL,
+  isSkipped,
   skippedDetail,
   skippedTitle,
   stepDetail,
   stepTitle,
   type MerchantLabel,
   type SkippedControl,
+  type StepContext,
 } from "@/components/trace/trace-copy"
 import type { TraceStep } from "@/lib/trace-contract"
 
@@ -22,11 +24,13 @@ export type ControlStepProps = {
   step: TraceStep | SkippedControl
   /** Comercio de la compra, con nombre: lo dicen el checkout y la regla de comercios. */
   merchant?: MerchantLabel
+  /** La compra de la fila: si es delegada (HNP) cambian algunos textos. */
+  context?: StepContext
   className?: string
 }
 
-function describe(step: TraceStep | SkippedControl, merchant?: MerchantLabel) {
-  if ("reason" in step) {
+function describe(step: TraceStep | SkippedControl, merchant?: MerchantLabel, context?: StepContext) {
+  if (isSkipped(step)) {
     return {
       state: "skipped" as const,
       title: skippedTitle(step),
@@ -36,15 +40,15 @@ function describe(step: TraceStep | SkippedControl, merchant?: MerchantLabel) {
   }
   return {
     state: step.state,
-    title: stepTitle(step),
-    detail: stepDetail(step, merchant?.name),
+    title: stepTitle(step, context),
+    detail: stepDetail(step, merchant?.name, context),
     duration: step.duration_ms === null ? null : formatDuration(step.duration_ms),
   }
 }
 
 /** Fila de la línea de tiempo de controles; `ControlTimeline` aporta el `<ol>`. */
-export function ControlStep({ step, merchant, className }: ControlStepProps) {
-  const { state, title, detail, duration } = describe(step, merchant)
+export function ControlStep({ step, merchant, context, className }: ControlStepProps) {
+  const { state, title, detail, duration } = describe(step, merchant, context)
   const skipped = state === "skipped"
 
   return (
