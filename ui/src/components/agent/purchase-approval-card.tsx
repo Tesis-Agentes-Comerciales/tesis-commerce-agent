@@ -20,7 +20,7 @@ import {
   formatMoneyParts,
   safeLinkUrl,
 } from "@/components/agent/agent-format"
-import { chip, focusRing, pillButton } from "@/components/agent/agent-styles"
+import { chip, focusRing, pillButton, totalAmount } from "@/components/agent/agent-styles"
 import { ProductImage } from "@/components/agent/product-card"
 import { useCardFocus } from "@/components/agent/use-card-focus"
 import { approvalReceiptText } from "@/components/trace/trace-copy"
@@ -365,7 +365,7 @@ export function PurchaseApprovalCard({
             <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
               <span
                 className={cn(
-                  "text-[2rem] leading-10 font-semibold tracking-[-0.04em] tabular-nums",
+                  totalAmount,
                   status === "canceled" && "text-[#6b6b6b] line-through decoration-2",
                 )}
               >

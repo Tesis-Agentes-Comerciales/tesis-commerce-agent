@@ -3,7 +3,7 @@ import { LoaderCircleIcon, ShieldCheckIcon, XIcon } from "lucide-react"
 import { useId } from "react"
 
 import { formatDateTime, formatMoneyParts } from "@/components/agent/agent-format"
-import { chip, pillButton } from "@/components/agent/agent-styles"
+import { chip, pillButton, totalAmount } from "@/components/agent/agent-styles"
 import { useCardFocus } from "@/components/agent/use-card-focus"
 import {
   authorizeBy,
@@ -88,9 +88,7 @@ export function DelegationConsentCard({
         <div>
           <p className="text-xs font-medium text-[#6b6b6b]">{CONSENT_COPY.totalIncludesShipping}</p>
           <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
-            <span className="text-[2rem] leading-10 font-semibold tracking-[-0.04em] tabular-nums">
-              {total.amount}
-            </span>
+            <span className={totalAmount}>{total.amount}</span>
             <span className="text-sm font-medium text-[#6b6b6b]">{total.code}</span>
           </p>
         </div>
