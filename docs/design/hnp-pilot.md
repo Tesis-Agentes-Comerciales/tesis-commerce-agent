@@ -361,6 +361,32 @@ corridas.
 | HNP-E2 | Runner `hnp-pilot`, `--dry-run`, la guarda de costo y el arranque con el selector guionado de HN11 | `--dry-run` imprime el plan de este manifiesto y si el selector guionado se puede inyectar |
 | HNP-E3 (opcional) | Brazo P | Sin él, P no corre (E4) |
 
+## Runner (HNP-E2)
+
+`uv run hnp-pilot --dry-run` valida manifiesto y matriz, imprime el plan, el entorno de cada
+condición (solo nombres y de dónde sale cada valor), si el agente arrancaría con él, la preparación
+de cada dependencia y cada guarda que impediría correr en vivo; no arranca servicios ni llama al
+modelo. Lo que el manifiesto no fija y el runner decide:
+
+- **Variables de arranque.** El arranque HNP del agente exige dos cosas que el manifiesto omite y
+  que no cambian una decisión HNP: `AGENT_D1_AES_KEY_HEX` en B0-HNP (la clave del vault de
+  seudónimos, `load_hnp_trust`; se genera por invocación) y `AGENT_D1_POLICY_SET_ID` y
+  `AGENT_D1_POLICY_REVISION` en B2-HNP (`b2-hp-v2`, `1`: la compuerta D1 de HP en `enforce`; la
+  compra HNP se evalúa con `b2-hnp-v1`, armada en código).
+- **HN11.** El selector guionado entra por la costura `build_hnp_selector` del agente
+  (`commerce_evaluation.hnp_pilot_agent:app_factory`), nunca por una variable.
+- **Verificador (HNP-V1).** Está listo cuando `commerce_evaluation.verify_evidence_hnp.HNP_LINKS`
+  son los 17 eslabones del manifiesto y `verify_evidence.verify_database` acepta `grant_id`. La
+  cadena de un episodio es el documento HNP de su tarea; el vector se compara solo en los eslabones
+  registrados (`approval` y `mandates`, de HP, quedan fuera).
+- **Costo.** Suma todas las filas `model.*` de `stage_timings`. Una fila sin tokens (NULL es
+  desconocido, no 0) se cobra con un margen de max(USD 0,01, la llamada más cara de la invocación) y
+  se cuenta aparte.
+- **Efectos.** `chains_presented` cuenta los eventos `receipt_recorded` del grant, y
+  `agent_key_closures`, los `mandates_closed`.
+- **Atribución.** Se cuenta por fila: eventos de delegación por su actor y evidencia de gobernanza
+  por `owner_ref` y `principal_ref`. El conteo se reporta aparte del oráculo.
+
 ## Enmiendas
 
 Solo antes de la primera repetición en vivo (el smoke no cuenta como resultado), en
