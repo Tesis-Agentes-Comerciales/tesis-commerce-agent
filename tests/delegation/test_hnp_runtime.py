@@ -6,6 +6,7 @@ double; the `llm` selector is only assembled here, never called.
 """
 
 import json
+import shutil
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -29,6 +30,7 @@ from tests.governance.test_shadow_integration import configuration
 from tests.governance.test_stale_terms_pending import Ap2Merchant
 from tests.test_delegation_api import (
     AGENT_PEM,
+    FEED,
     MERCHANT,
     OPERATOR_TOKEN,
     PROVIDER_PEM,
@@ -183,3 +185,76 @@ def test_the_llm_selector_needs_the_model_settings(tmp_path: Path) -> None:
         assert isinstance(built.owned_hnp_chooser, OpenAIDelegatedChooser)
     finally:
         built.close()
+
+
+# K12 by condition (§3.3): the grant's shortlist in B0-HNP, D1-HNP's POL-01 in B2-HNP
+
+
+def feed_with_another_candidate(tmp_path: Path) -> Path:
+    """The fixture feed plus SON-02, a second candidate that the grant (SON-01 only) leaves out."""
+    feed = tmp_path / "feed"
+    shutil.copytree(FEED, feed)
+    line = (FEED / "products.jsonl").read_text().splitlines()[0]
+    with (feed / "products.jsonl").open("a") as products:
+        products.write(line.replace("SON-01", "SON-02").replace("son-01", "son-02") + "\n")
+    return feed
+
+
+class OutsideTheGrant:
+    """A selector that answers the candidate the grant left out of its shortlist."""
+
+    def choose(self, shortlist, intent, preference_text) -> str:
+        assert [item.candidate.variant_id for item in shortlist] == ["SON-01"]
+        return "SON-02"
+
+
+def d1_records(path: Path, run_id: str) -> list[DecisionRecord]:
+    with closing(sqlite3.connect(path)) as connection:
+        table = "SELECT 1 FROM sqlite_master WHERE name = 'governance_evidence'"
+        if connection.execute(table).fetchone() is None:
+            return []  # B0-HNP never creates the governance evidence store
+        connection.execute("PRAGMA foreign_keys=ON")
+        return [
+            item
+            for item in SqliteGovernanceEvidenceStore(connection).for_run(run_id)
+            if isinstance(item, DecisionRecord)
+        ]
+
+
+def purchase_of(path: Path, run_id: str) -> tuple[str, str | None] | None:
+    with closing(sqlite3.connect(path)) as connection:
+        return connection.execute(
+            "SELECT stage, failure_code FROM purchases WHERE run_id = ?", (run_id,)
+        ).fetchone()
+
+
+@pytest.mark.parametrize("mode", ["off", "enforce"])
+def test_a_choice_outside_the_grant_is_never_bought(tmp_path: Path, mode: str) -> None:
+    base = governed_hnp(tmp_path) if mode == "enforce" else hnp_settings(tmp_path)
+    settings = base.model_copy(update={"agent_feed_path": feed_with_another_candidate(tmp_path)})
+    merchant = Ap2Merchant(MERCHANT)
+    built = runtime(settings, merchant)
+    try:
+        executor = built.hnp_executor
+        assert executor is not None
+        executor._selector = OutsideTheGrant()
+        step = executor.run(consented(built))
+    finally:
+        built.close()
+
+    assert step.status == "closed" and step.execution is not None
+    task, path = step.execution.task, settings.agent_database_path
+    assert (task.state, task.outcome_code) == ("failed", "selection_not_eligible")
+    assert task.run_id is not None
+    assert merchant.creations() == 0
+    if mode == "off":
+        # B0-HNP: the executor's guard, before `start`: no purchase and no decision.
+        assert purchase_of(path, task.run_id) is None
+        assert d1_records(path, task.run_id) == []
+        return
+    # B2-HNP: D1-HNP denies the choice with POL-01 and keeps its evidence, before any POST.
+    [record] = d1_records(path, task.run_id)
+    assert (record.decision.phase, record.decision.outcome) == ("D1", "deny")
+    assert record.decision.reason_codes == ("SELECTION_NOT_ELIGIBLE",)
+    assert record.policy_input().eligible_variant_ids == ("SON-01",)
+    assert purchase_of(path, task.run_id) == ("failed", "selection_not_eligible")

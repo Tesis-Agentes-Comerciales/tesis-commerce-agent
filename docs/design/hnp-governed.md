@@ -180,10 +180,17 @@ UoW-1 y no la que relee UoW-C, que no compara el kill switch ni el grant (K10). 
 `start` dejó `selected` termina `failed(governance_unavailable)` (K15). `payment_request_digest`
 fija la petición al PSP del despacho (clave `<operation_id>:payment`, `allowance` y los digests del
 checkout JWT y de los dos cerrados); 09b la reconstruye igual. Lo que §8.1 no nombra: un feed ilegible, un rechazo del comercio, una firma del
-checkout o un cierre que falla terminan `checkout_failed`; un selector que falla o elige fuera de la
-lista corta, `selection_not_eligible`; un grant ilegible y un re-claim con avance que no se puede
+checkout o un cierre que falla terminan `checkout_failed`; un selector que falla o, en B0-HNP, elige
+fuera de la lista corta, `selection_not_eligible`; un grant ilegible y un re-claim con avance que no se puede
 reanudar (abajo), `state_conflict`. El `outcome_code` de un deny de D1 sale de los
 `reason_codes` de su evidencia (`sqlite_d1_denials`): POL-01, luego POL-02, luego POL-11.
+
+**K12 por condición (HNP-09b).** En B0-HNP la guarda de la lista corta del executor termina
+`failed(selection_not_eligible)` antes de `start`. En B2-HNP no hay guarda previa: la elección va a
+`start` y D1-HNP la niega con POL-01, con su evidencia y antes de cualquier POST; el terminal es el
+mismo por el mapeo de `reason_codes`. Así, en B2 los eslabones `intent` y `d1_decision` quedan
+completos (HN11 de `docs/design/hnp-pilot.md`). Una variante que ni siquiera es candidata del feed
+la rechaza `start` antes de D1 (`invalid_candidate`), con el mismo código.
 
 **Cómo lo arma HNP-09b, reanudación.** Un re-claim sigue desde el estado durable (§4.5). Con fila
 en el outbox pasa directo al despacho. Sin ella, solo sigue una reserva `reserved` con la compra en

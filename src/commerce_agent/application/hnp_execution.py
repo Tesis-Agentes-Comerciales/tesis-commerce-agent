@@ -529,8 +529,11 @@ class HnpExecutionService:
         except Exception:
             _log.warning("HNP selector made no choice")
             chosen = None
-        if chosen is None or chosen not in {item.candidate.variant_id for item in shortlist}:
-            # K12: a choice outside the shortlist is never bought, in B0-HNP too.
+        listed = chosen in {item.candidate.variant_id for item in shortlist}
+        if chosen is None or (not listed and self._mode == "off"):
+            # K12: B0-HNP has no D1, so its own guard stops a choice outside the shortlist. B2-HNP
+            # has no guard here: D1-HNP denies that choice with POL-01, with its evidence, before
+            # any POST, and the terminal is the same `selection_not_eligible` (§3.3).
             self._end(run, "selection_not_eligible")
         return chosen
 
