@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     agent_approval_secret: SecretStr | None = Field(default=None, repr=False)
     agent_ap2_required: bool = False
     agent_ap2_private_key_pem: SecretStr | None = Field(default=None, repr=False)
+    # AP2 Human Not Present: the Agent Key that closes open mandates (docs/ap2-profile.md).
+    agent_hnp_agent_key_pem: SecretStr | None = Field(default=None, repr=False)
     payment_provider_url: str = "http://127.0.0.1:4130"
     payment_agent_bearer_token: SecretStr | None = Field(default=None, repr=False)
     agent_database_path: Path = Path(".local/agent.db")
