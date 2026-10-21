@@ -256,6 +256,33 @@ no implementamos UCP ni afirmamos conformidad AP2 de HNP.
   que cambian todas las firmas: copie el directorio completo.
 - Ninguna herramienta del modelo importa este módulo (`tests/test_ap2_hnp_boundary.py`).
 
+### Clientes del despacho (HNP-09b)
+
+El despacho del agente (spec HNP, §3.3) usa los clientes de HP con la cadena en lugar del mandato:
+
+- `DelegatedPaymentClient.hnp_payment_data(checkout_jwt=…, payment_mandate=<cadena de pago>,
+  checkout_mandate=<cadena de checkout>)` manda el cuerpo de HP más `ap2_checkout_mandate`; si
+  falta alguno de los tres, no manda nada (`invalid_ap2_mandates`). `payment_data` de HP no cambia.
+- Un rechazo del PSP sigue siendo `DelegationError` con los códigos de HP (`provider_unavailable`
+  sin respuesta o con 5xx, `delegation_rejected` con otro status) y ahora trae `status_code` y el
+  `payment_receipt_jwt` del cuerpo, sin verificar. `verify_error_receipt(recibo,
+  mandate=<cadena de pago>)` devuelve sus claims solo si valida como `PaymentReceiptError`, su firma
+  verifica con la JWKS del PSP, `error` es uno de los cuatro códigos de [Errores](#errores) y
+  `reference` es la del cerrado de pago; si no, `invalid_error_receipt`.
+- `payment_receipt(token=…, mandate=<cadena de pago>)` verifica el recibo de éxito igual que HP. Un
+  fallo sigue siendo `invalid_payment_receipt`, con `status_code` = la respuesta del PSP (None si no
+  hubo), que el despacho usa para separar un timeout de un recibo que no coincide.
+- `ACPClient.complete_checkout_ap2` recibe la cadena de checkout como `checkout_mandate`. Un rechazo
+  trae `ACPClientError.receipt` (el `checkout_receipt_jwt` del 422, sin verificar), y
+  `verify_checkout_error_receipt(recibo, mandate=<cadena de checkout>)` lo valida como
+  `CheckoutReceiptError` contra la JWKS del comercio (por `kid`), con las mismas reglas.
+- `chain_reference(mandate)` (`delegated_payment.py`) es la `reference` de [Recibos](#recibos): el
+  `sd_hash` del último segmento, que con un mandato HP sin `~~` da el valor de siempre. Los
+  verificadores de éxito y de error la comparan con ella. `closed_checkout_jwt` y `closed_issued_at`
+  (`ap2_hnp.py`) leen el Checkout JWT y el `iat` del cerrado de una cadena.
+- Pruebas: `tests/test_hnp_receipts.py`, con cadenas reales del producto y recibos firmados con
+  claves de prueba (`tests/support/ap2_receipts.py`).
+
 ### Lo que HNP no afirma
 
 No es una implementación conforme ni certificada de AP2 Human Not Present: el `nonce` no lo emite el

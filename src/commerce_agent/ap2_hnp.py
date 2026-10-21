@@ -7,6 +7,7 @@ check, so the policy decisions (D2-HNP, D3-HNP) only see a status. Only determin
 build these signers; no model-facing tool reaches them (tests/test_ap2_hnp_boundary.py).
 """
 
+import base64
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -347,6 +348,30 @@ class AgentKeyCloser:
         )
         last = common.parse_token(token.split("~~")[1])
         return SignedMandate(token, common.compute_sd_hash(last), self.public_jwk)
+
+
+def closed_checkout_jwt(closed_checkout: str) -> str:
+    """The Checkout JWT the closed checkout mandate of an `open~~closed` chain discloses, or ""
+    (its proof then fails)."""
+    try:
+        for disclosure in common.parse_token(closed_checkout.split("~~")[1]).disclosures:
+            claim = json.loads(base64.urlsafe_b64decode(disclosure + "=" * (-len(disclosure) % 4)))
+            if len(claim) == 3 and claim[1] == "checkout_jwt" and isinstance(claim[2], str):
+                return claim[2]
+    except Exception:
+        pass
+    return ""
+
+
+def closed_issued_at(chain: str) -> int:
+    """The `iat` of the closed hop of an `open~~closed` chain; it is valid `CLOSED_TTL_SECONDS`.
+
+    Raises `ValueError` if the chain carries no integer `iat`."""
+    segments = chain.split("~~")
+    iat = common.parse_token(segments[1]).payload.get("iat") if len(segments) == 2 else None
+    if not isinstance(iat, int) or isinstance(iat, bool):
+        raise ValueError("Closed mandate carries no iat")
+    return iat
 
 
 def verify_open_proof(

@@ -7,6 +7,7 @@
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import SecretStr
@@ -18,6 +19,7 @@ from commerce_agent.approval import ApprovalService
 from commerce_agent.domain import HardConstraints, PurchaseIntent
 from commerce_agent.governance.hnp_policy import HnpGrant
 from commerce_agent.persistence import SqliteAgentStore
+from tests.test_completion_client import completed_checkout
 from tests.test_purchase_service import (
     FIXTURE,
     FakeCheckoutGateway,
@@ -299,6 +301,110 @@ def test_the_transition_rolls_back_with_the_callers_unit_of_work(store: SqliteAg
         raise LookupError("a later write of the same unit of work failed")
 
     assert row(store._path, "run-hnp")[2:] == ("checkout_prepared", version)
+
+
+# UoW-3 (§4.6): the purchase completes inside the ledger's unit of work, with its receipts
+
+
+def completion(run_id: str, *, order_id: str = "ord_1") -> dict[str, Any]:
+    snapshot = completed_checkout()
+    snapshot["id"] = "cs_" + run_id
+    snapshot["order"] = {**snapshot["order"], "id": order_id, "checkout_session_id": "cs_" + run_id}
+    return snapshot
+
+
+def complete(path: Path, run_id: str, snapshot: dict[str, Any], **changes: Any) -> int:
+    receipts = {"checkout_receipt_jwt": "eyJ.checkout.sig", "payment_receipt_jwt": "eyJ.pay.sig"}
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        return SqliteAgentStore.record_hnp_completion(
+            connection, run_id, snapshot, **{**receipts, **changes}
+        )
+
+
+def test_uow3_completes_the_purchase_with_its_order_and_both_receipts(
+    store: SqliteAgentStore,
+) -> None:
+    version = hnp_at(store, "run-hnp", "completing")
+
+    completed = complete(
+        store._path, "run-hnp", completion("run-hnp"), expected_state_version=version
+    )
+
+    assert completed == version + 1
+    assert row(store._path, "run-hnp")[2:] == ("completed", completed)
+    purchase = store.purchase("run-hnp")
+    assert purchase is not None and purchase["order_id"] == "ord_1"
+    assert store.completion_result("run-hnp") == completion("run-hnp")
+    with closing(sqlite3.connect(store._path)) as connection:
+        assert connection.execute(
+            "SELECT order_id, checkout_receipt_jwt, payment_receipt_jwt FROM completion_results "
+            "WHERE run_id = 'run-hnp'"
+        ).fetchone() == ("ord_1", "eyJ.checkout.sig", "eyJ.pay.sig")
+        assert connection.execute(
+            "SELECT checkout_id, status FROM orders WHERE order_id = 'ord_1'"
+        ).fetchone() == ("cs_run-hnp", "confirmed")
+
+
+@pytest.mark.parametrize(
+    ("source", "offset", "changes"),
+    [
+        pytest.param("completing", 1, {}, id="stale-version"),
+        pytest.param("checkout_prepared", 0, {}, id="before-the-commitment"),
+        pytest.param("uncertain", 0, {}, id="uncertain"),
+        pytest.param("completing", 0, {"payment_receipt_jwt": ""}, id="one-receipt"),
+        pytest.param("completing", 0, {"snapshot": "cs_other"}, id="another-checkout"),
+    ],
+)
+def test_a_completion_that_does_not_match_raises_and_writes_nothing(
+    store: SqliteAgentStore, source: str, offset: int, changes: dict[str, Any]
+) -> None:
+    version = hnp_at(store, "run-hnp", source)
+    snapshot = completion("run-hnp")
+    if changes.pop("snapshot", None):
+        snapshot = {**snapshot, "id": "cs_other"}
+        snapshot["order"] = {**snapshot["order"], "checkout_session_id": "cs_other"}
+
+    with pytest.raises((RuntimeError, ValueError)):
+        complete(
+            store._path, "run-hnp", snapshot, expected_state_version=version + offset, **changes
+        )
+
+    assert row(store._path, "run-hnp")[2:] == (source, version)
+    assert store.completion_result("run-hnp") is None
+    assert store.order("ord_1") is None
+
+
+def test_an_order_of_another_checkout_rolls_the_completion_back(store: SqliteAgentStore) -> None:
+    first = hnp_at(store, "run-a", "completing")
+    second = hnp_at(store, "run-b", "completing")
+    complete(store._path, "run-a", completion("run-a"), expected_state_version=first)
+
+    with pytest.raises(RuntimeError, match="different checkout"):
+        complete(store._path, "run-b", completion("run-b"), expected_state_version=second)
+
+    assert row(store._path, "run-b")[2:] == ("completing", second)
+
+
+def test_an_hp_purchase_never_completes_through_uow3(store: SqliteAgentStore) -> None:
+    store.create_purchase("run-hp", "buy", OWNER)
+    store.update_purchase("run-hp", stage="completing", checkout_id="cs_run-hp")
+    version = store.purchase_state_version("run-hp")
+    assert version is not None
+
+    with pytest.raises(RuntimeError):
+        complete(store._path, "run-hp", completion("run-hp"), expected_state_version=version)
+    with closing(sqlite3.connect(store._path)) as connection, pytest.raises(RuntimeError):
+        store.record_hnp_completion(
+            connection,
+            "run-hp",
+            completion("run-hp"),
+            expected_state_version=version,
+            checkout_receipt_jwt="eyJ.c.s",
+            payment_receipt_jwt="eyJ.p.s",
+        )
+
+    assert row(store._path, "run-hp")[2:] == ("completing", version)
 
 
 def start(service: PurchaseService, *, total: int | None = None, grant: HnpGrant | None = GRANT):
