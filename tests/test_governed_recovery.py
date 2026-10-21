@@ -380,6 +380,34 @@ def test_governed_s02_explains_a_choice_outside_the_shortlist_without_checkout(
     assert SqliteHpEvidenceStore(tmp_path / "agent.db").verify_chain(S02_RUN_ID)
 
 
+def test_governed_s02_records_only_the_digest_of_a_variant_the_catalog_does_not_know(
+    tmp_path: Path,
+) -> None:
+    # The live rehearsal: one shortlisted Pixel 8, and the model named something else.
+    invented = "pixel-8-128gb-negro-oferta"
+    router = S02Router(s02_intent(max_total=100_000_000), UnknownVariantSelection(invented))
+    with api(tmp_path, router, mode="enforce", flow="governed") as (client, merchant):
+        response = client.post("/conversation/turn", json=s02_body())
+
+    assert response.status_code == 200, response.text
+    message = response.json()["assistant_message"]
+    assert message == (
+        "El modelo propuso una opción que no está entre las verificadas para tu pedido. "
+        "No preparé ningún checkout ni se hizo ningún cobro. "
+        "Si quieres, ajusta tu pedido o tu presupuesto y lo busco de nuevo."
+    )
+    assert merchant.requests == []
+    (recorded,) = recorded_recoveries(tmp_path)
+    assert (recorded["kind"], recorded["cause"], recorded["variant_id"]) == (
+        "selection_outside_shortlist",
+        "not_in_catalog",
+        None,
+    )
+    assert recorded["selected_variant_sha256"] == sha256(invented)
+    assert invented not in json.dumps(recorded)
+    assert SqliteHpEvidenceStore(tmp_path / "agent.db").verify_chain(S02_RUN_ID)
+
+
 @pytest.mark.parametrize(
     ("selection", "b0"),
     [
@@ -666,6 +694,9 @@ def test_each_governed_recovery_is_recorded_as_an_application_control(
     assert record["observed_unit_amount_minor"] == OBSERVED_PRICES[variant_id]
     assert record["intent_sha256"] == sha256(intent.model_dump_json())
     assert record["explanation_sha256"] == sha256(response.assistant_message)
+    assert record["selected_variant_sha256"] == (
+        sha256(PIXEL_8) if kind == "selection_outside_shortlist" else None
+    )
     assert SqliteHpEvidenceStore(tmp_path / "agent.db").verify_chain(S02_RUN_ID)
     # Digests stand in for the buyer's words; checkout details never reach the evidence.
     recorded = json.dumps(record)
@@ -684,7 +715,7 @@ def test_each_governed_recovery_is_recorded_as_an_application_control(
         (
             s02_intent(max_unit=100_000_000),
             "NOT-IN-THE-FEED",
-            ("no está disponible en el catálogo",),
+            ("El modelo propuso una opción que no está entre las verificadas para tu pedido.",),
         ),
         (
             s02_intent(max_unit=100_000_000),
@@ -714,8 +745,14 @@ def test_a_rejected_choice_is_explained_with_the_domain_rules(
     )
 
     assert_explains(message, *causes, "No preparé ningún checkout")
+    (record,) = recorded_recoveries(tmp_path)
+    # The ID as it arrived is kept only as a digest, whatever the catalog knows about it.
+    assert record["selected_variant_sha256"] == sha256(variant_id)
     if variant_id == "NOT-IN-THE-FEED":
-        assert recorded_recoveries(tmp_path)[0]["variant_id"] is None
+        assert record["variant_id"] is None
+        assert "NOT-IN-THE-FEED" not in json.dumps(record)
+        # The UI shows the shortlist from the catalog: the text must not deny it.
+        assert "catálogo" not in message
 
 
 @pytest.mark.parametrize(

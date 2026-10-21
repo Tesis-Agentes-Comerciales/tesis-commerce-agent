@@ -4,7 +4,8 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from pydantic import SecretStr, ValidationError
+from openai.lib._parsing._responses import type_to_text_format_param
+from pydantic import BaseModel, SecretStr, ValidationError
 
 from commerce_agent.acp import load_product_feed
 from commerce_agent.acp.feed import ProductFeed
@@ -53,6 +54,13 @@ class FakeOpenAI:
 
     def close(self) -> None:
         self.closed = True
+
+
+def wire_variant_schema(text_format: type[BaseModel]) -> dict[str, Any]:
+    """`selected_variant_id` as `responses.parse` sends it: the SDK's strict JSON schema."""
+    wire = cast(dict[str, Any], type_to_text_format_param(text_format))
+    assert wire["strict"] is True
+    return wire["schema"]["properties"]["selected_variant_id"]
 
 
 def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> None:
@@ -399,7 +407,7 @@ def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) ->
 
     assert result == decision
     call = fake.responses.calls[0]
-    assert call["text_format"] is module.CandidateChoice
+    assert issubclass(call["text_format"], module.CandidateChoice)
     assert "SON-01" in call["input"]
     assert '"preference_score": 0' in call["input"]
     assert "authoritative total is unknown" in call["instructions"]
@@ -428,6 +436,103 @@ def test_router_names_the_variant_chosen_outside_the_shortlist(monkeypatch) -> N
     # Same code and text as before, so B0 still answers 502 intent_model_error.
     assert raised.value.code == "intent_model_error"
     assert str(raised.value) == "The candidate model selected an unknown variant"
+
+
+def test_a_single_candidate_choice_can_only_name_the_shortlisted_variant(monkeypatch) -> None:
+    # S02: one candidate, so the action is forced to purchase. Without the enum the model
+    # escaped by naming a variant that was not in the shortlist.
+    decision = CandidateDecision(
+        action="purchase", assistant_message="Elegí Sonora.", selected_variant_id="SON-01"
+    )
+    fake = FakeOpenAI(decision)
+    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"), model="test-model", feed=FEED
+    )
+    intent = PurchaseIntent(
+        hard=HardConstraints(categories=("headphones",), required_terms=("sonora",))
+    )
+    candidates = rank_candidates(FEED, intent).ranked
+    assert len(candidates) == 1
+
+    router.choose_candidate(
+        (ConversationMessage(role="user", content="Quiero audífonos Sonora"),), intent, candidates
+    )
+
+    text_format = fake.responses.calls[0]["text_format"]
+    assert text_format.__name__ == "CandidateChoice"
+    assert wire_variant_schema(text_format) == {
+        "type": "string",
+        "enum": ["SON-01"],
+        "title": "Selected Variant Id",
+    }
+    # The enum shapes only what the model can decode; validation still reaches the router's
+    # own check, so an outside id keeps raising UnknownVariantSelection.
+    outside = {"action": "purchase", "assistant_message": "x", "selected_variant_id": "SON-07"}
+    assert text_format.model_validate(outside).selected_variant_id == "SON-07"
+
+
+def test_a_decision_that_may_clarify_names_a_shortlisted_variant_or_none(monkeypatch) -> None:
+    decision = CandidateDecision(action="clarify", assistant_message="¿Te sirve otra opción?")
+    fake = FakeOpenAI(decision)
+    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"), model="test-model", feed=FEED
+    )
+    # A budget is a selection signal, and the unmatched preference allows a clarification.
+    intent = PurchaseIntent.model_validate(
+        {
+            "hard": {"max_unit_amount_minor": 10_000_000},
+            "preferences": {"terms": ["noise-cancelling"]},
+        }
+    )
+    (first,) = rank_candidates(FEED, intent).ranked
+    alternative = first.model_copy(
+        update={"candidate": first.candidate.model_copy(update={"variant_id": "ALT-01"})}
+    )
+    candidates = (first, alternative, first)  # A repeated ID is offered once.
+    shortlist = ["SON-01", "ALT-01"]
+
+    router.choose_candidate(
+        (ConversationMessage(role="user", content="Quiero cancelación de ruido"),),
+        intent,
+        candidates,
+    )
+
+    text_format = fake.responses.calls[0]["text_format"]
+    assert text_format.__name__ == "CandidateDecision"
+    assert wire_variant_schema(text_format)["anyOf"] == [
+        {"type": "string", "enum": shortlist},
+        {"type": "null"},
+    ]
+    with pytest.raises(ValidationError):
+        text_format.model_validate({"action": "purchase", "assistant_message": "x"})
+
+
+def test_each_selection_restricts_the_schema_to_its_own_shortlist(monkeypatch) -> None:
+    decision = CandidateDecision(
+        action="purchase", assistant_message="Elegí.", selected_variant_id="SON-01"
+    )
+    fake = FakeOpenAI(decision)
+    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
+    router = OpenAIConversationRouter(
+        api_key=SecretStr("openai-test-key"), model="test-model", feed=FEED
+    )
+    intent = PurchaseIntent(
+        hard=HardConstraints(categories=("headphones",)),
+        preferences=SoftPreferences(selection_strategy="lowest_observed_price"),
+    )
+    candidates = rank_candidates(FEED, intent).ranked
+    messages = (ConversationMessage(role="user", content="Dame los más baratos"),)
+
+    router.choose_candidate(messages, intent, candidates)
+    router.choose_candidate(messages, intent, candidates[:1])
+
+    first, second = (call["text_format"] for call in fake.responses.calls)
+    assert wire_variant_schema(first)["enum"] == [item.candidate.variant_id for item in candidates]
+    assert wire_variant_schema(second)["enum"] == [candidates[0].candidate.variant_id]
+    # The shared models stay unrestricted.
+    assert "enum" not in wire_variant_schema(module.CandidateChoice)
 
 
 def test_broad_category_requires_candidate_clarification(monkeypatch) -> None:
@@ -500,7 +605,7 @@ def test_lowest_price_strategy_allows_candidate_choice(monkeypatch) -> None:
     )
 
     assert result == decision
-    assert fake.responses.calls[0]["text_format"] is module.CandidateChoice
+    assert issubclass(fake.responses.calls[0]["text_format"], module.CandidateChoice)
 
 
 def test_unmatched_preferences_allow_candidate_clarification(monkeypatch) -> None:
@@ -522,7 +627,7 @@ def test_unmatched_preferences_allow_candidate_clarification(monkeypatch) -> Non
     result = router.choose_candidate(messages, intent, candidates)
 
     assert result == decision
-    assert fake.responses.calls[0]["text_format"] is CandidateDecision
+    assert issubclass(fake.responses.calls[0]["text_format"], CandidateDecision)
 
 
 def test_router_explains_real_alternatives_when_no_candidate_matches(monkeypatch) -> None:

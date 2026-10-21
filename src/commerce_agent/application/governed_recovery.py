@@ -48,7 +48,10 @@ CAUSE_TEXT: dict[RecoveryCause, str] = {
     "option": "{title} no tiene las características que pediste ({wanted}).",
     "term": "{title} no coincide con lo que buscas ({wanted}).",
     "not_shortlisted": "{title} no estaba entre las opciones que verifiqué para tu pedido.",
-    "not_in_catalog": "La opción seleccionada no está disponible en el catálogo del comercio.",
+    # The shortlist the buyer sees comes from the catalog: blame the model's choice, not it.
+    "not_in_catalog": (
+        "El modelo propuso una opción que no está entre las verificadas para tu pedido."
+    ),
     "no_match": "No encontré en el catálogo un producto que cumpla todo lo que pediste{wanted}.",
 }
 NO_MATCH_CLOSEST = "No encontré un producto que cumpla todo lo que pediste. La opción más cercana:"
@@ -101,6 +104,9 @@ class GovernedRecoveryRecord(BaseModel):
     rejection_counts: dict[str, int] = Field(default_factory=dict)
     intent_sha256: str
     explanation_sha256: str
+    # The variant ID a selection named outside the shortlist, as it arrived. Model output is
+    # untrusted text, so only its digest is kept; null for the other kinds.
+    selected_variant_sha256: str | None = None
 
 
 class RecoveryEvidenceSink(Protocol):
@@ -157,7 +163,12 @@ class GovernedRecovery:
             if candidate is not None
             else _Explanation("not_in_catalog", CAUSE_TEXT["not_in_catalog"])
         )
-        return self._explain("selection_outside_shortlist", context, explanation)
+        return self._explain(
+            "selection_outside_shortlist",
+            context,
+            explanation,
+            selected_variant_sha256=_sha256(variant_id),
+        )
 
     def budget_exceeded(
         self, context: RecoveryContext, variant_id: str, checkout_id: str | None
@@ -183,6 +194,7 @@ class GovernedRecovery:
         explanation: _Explanation,
         *,
         checkout_id: str | None = None,
+        selected_variant_sha256: str | None = None,
     ) -> str:
         # The budget recovery runs after the checkout was canceled, even without a stored id.
         canceled = kind == "budget_exceeded_after_checkout"
@@ -201,6 +213,7 @@ class GovernedRecovery:
             rejection_counts=dict(context.rejection_counts),
             intent_sha256=_sha256(context.intent.model_dump_json()),
             explanation_sha256=_sha256(message),
+            selected_variant_sha256=selected_variant_sha256,
         )
         try:
             self._evidence.record(record)

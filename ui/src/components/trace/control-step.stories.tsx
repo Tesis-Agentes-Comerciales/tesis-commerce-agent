@@ -284,6 +284,26 @@ export const GovernedRecoveryOutsideShortlist: Story = {
   },
 }
 
+/** S02 sin checkout: el modelo nombró una variante que el catálogo no conoce. */
+export const GovernedRecoveryNotInCatalog: Story = {
+  args: {
+    step: {
+      ...RECOVERY,
+      recovery: "selection_outside_shortlist",
+      cause: "not_in_catalog",
+      budget_minor: null,
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByText(
+        "El modelo propuso una opción que no estaba entre las verificadas para tu pedido. No se creó ningún checkout.",
+      ),
+    ).toBeVisible()
+    await expect(canvas.queryByText(/catálogo del comercio/)).toBeNull()
+  },
+}
+
 // Una historia por `state`.
 
 export const StateDone: Story = {

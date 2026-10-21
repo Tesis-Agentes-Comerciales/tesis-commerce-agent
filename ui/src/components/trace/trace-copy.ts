@@ -352,7 +352,8 @@ const RECOVERY_CAUSE: Record<RecoveryCause, string> = {
   option: "El producto no tiene las características que pediste",
   term: "El producto no coincide con lo que buscas",
   not_shortlisted: "La opción elegida no estaba entre las verificadas para tu pedido",
-  not_in_catalog: "La opción elegida no está en el catálogo del comercio",
+  // La lista corta sale del catálogo: la causa es la elección del modelo, no el catálogo.
+  not_in_catalog: "El modelo propuso una opción que no estaba entre las verificadas para tu pedido",
   no_match: "Ningún producto del catálogo cumple todo lo que pediste",
 }
 

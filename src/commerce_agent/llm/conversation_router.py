@@ -1,10 +1,19 @@
 import json
-from typing import Any, Literal, Protocol, cast
+from typing import Annotated, Any, Literal, Protocol, cast
 
 from openai import OpenAI, OpenAIError
 from openai.types.responses import ParsedResponse, ResponseInputParam, ToolParam
 from openai.types.shared_params import Reasoning
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    WithJsonSchema,
+    create_model,
+    model_validator,
+)
 
 from commerce_agent.acp.feed import ProductCandidate, ProductFeed
 from commerce_agent.domain import HardConstraints, PurchaseIntent, RankedCandidate, SoftPreferences
@@ -321,6 +330,26 @@ class CandidateChoice(BaseModel):
     selected_variant_id: str = Field(min_length=1, max_length=256)
 
 
+def _restricted_to_shortlist[ChoiceT: CandidateChoice | CandidateDecision](
+    response_model: type[ChoiceT], variant_ids: tuple[str, ...]
+) -> type[ChoiceT]:
+    """The same response model, whose JSON schema only admits the shortlisted variant IDs.
+
+    Structured Outputs decodes against this enum, so the model cannot name another variant.
+    Validation keeps a plain string on purpose: an ID that still arrives from outside the
+    shortlist reaches UnknownVariantSelection, and the governed recovery records its digest.
+    """
+    shortlisted = {"type": "string", "enum": list(dict.fromkeys(variant_ids))}
+    length = Field(min_length=1, max_length=256)
+    if response_model is CandidateChoice:
+        field = (Annotated[str, length, WithJsonSchema(shortlisted)], ...)
+    else:
+        # A clarification selects no variant.
+        nullable = WithJsonSchema({"anyOf": [shortlisted, {"type": "null"}]})
+        field = (Annotated[str | None, length, nullable], None)
+    return create_model(response_model.__name__, __base__=response_model, selected_variant_id=field)
+
+
 class CandidateClarification(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -429,12 +458,16 @@ class OpenAIConversationRouter:
             *(f"option:{option.name}={option.value}" for option in intent.preferences.options),
         }
         matched_preferences = {value for item in candidates for value in item.matched_preferences}
+        shortlist = tuple(item.candidate.variant_id for item in candidates)
+        response_model: type[CandidateClarification | CandidateDecision | CandidateChoice]
         if len(candidates) > 1 and not _has_selection_signal(intent, candidates):
             response_model = CandidateClarification
         elif preference_labels - matched_preferences:
-            response_model = CandidateDecision
+            response_model = _restricted_to_shortlist(CandidateDecision, shortlist)
         else:
-            response_model = CandidateChoice
+            # Purchase stays forced: hard constraints such as the total budget belong to the
+            # deterministic controls (D1 and the authoritative total), never to the model.
+            response_model = _restricted_to_shortlist(CandidateChoice, shortlist)
         payload = {
             "conversation": [message.model_dump(mode="json") for message in messages],
             "intent": intent.model_dump(mode="json"),
@@ -461,8 +494,10 @@ class OpenAIConversationRouter:
             raise IntentInterpretationError(
                 "The candidate model returned an invalid decision"
             ) from error
-        allowed = {item.candidate.variant_id for item in candidates}
-        if decision.selected_variant_id is not None and decision.selected_variant_id not in allowed:
+        if (
+            decision.selected_variant_id is not None
+            and decision.selected_variant_id not in shortlist
+        ):
             raise UnknownVariantSelection(decision.selected_variant_id)
         return decision
 
