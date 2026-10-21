@@ -177,13 +177,24 @@ el selector (`HnpSelector`; `DeterministicHnpSelector` toma la primera de la lis
 ledger el grant, la intención y los datos de entrega; el selector solo ve la lista corta, la
 intención y `preference_text`. UoW-1 espera la `Authority` del claim; D3 y UoW-2, la que validó
 UoW-1 y no la que relee UoW-C, que no compara el kill switch ni el grant (K10). Una compra que
-`start` dejó `selected` termina `failed(governance_unavailable)` (K15). `payment_request_digest` fija la petición al PSP del despacho (clave
-`<operation_id>:payment`, `allowance` y los digests del checkout JWT y de los dos cerrados); 09b la
-reconstruye igual. Lo que §8.1 no nombra: un feed ilegible, un rechazo del comercio, una firma del
+`start` dejó `selected` termina `failed(governance_unavailable)` (K15). `payment_request_digest`
+fija la petición al PSP del despacho (clave `<operation_id>:payment`, `allowance` y los digests del
+checkout JWT y de los dos cerrados); 09b la reconstruye igual. Lo que §8.1 no nombra: un feed ilegible, un rechazo del comercio, una firma del
 checkout o un cierre que falla terminan `checkout_failed`; un selector que falla o elige fuera de la
 lista corta, `selection_not_eligible`; un grant ilegible y un re-claim con avance sin outbox,
 `state_conflict` (reanudarlo es de 09b). El `outcome_code` de un deny de D1 sale de los
 `reason_codes` de su evidencia (`sqlite_d1_denials`): POL-01, luego POL-02, luego POL-11.
+
+**Arranque (HNP-09a).** Con `AGENT_HNP_ENABLED`, `build_runtime` arma el executor en un solo lugar,
+`delegation/bootstrap.build_hnp_executor`, que es donde 09b enchufa el despacho. En `enforce`, la
+`PurchaseService` del runtime recibe D1-HNP (`governance/bootstrap.build_hnp_d1_gate`, con
+`merchant_refs=operator_merchant_refs(...)`, K11) y el executor recibe
+`build_hnp_policy_gate(settings, clock, trust=hnp_trust.mandates)` y el guard de frescura del
+runtime; sin ellos no arranca. Solo el executor tiene la Agent Key. `AGENT_HNP_SELECTOR=llm`
+(`build_hnp_selector`) usa `CandidateChoice` de P5b restringido a la lista corta y exige
+`OPENAI_API_KEY` y `OPENAI_MODEL` al arrancar. La llamada se mide como `model.hnp_select`, con sus
+tokens en `stage_timings.input_tokens`/`output_tokens`; esas columnas solo existen con HNP
+encendido, así que la tabla de HP no cambia.
 
 ### 3.4 Dónde corren D1, D2-HNP y D3-HNP
 

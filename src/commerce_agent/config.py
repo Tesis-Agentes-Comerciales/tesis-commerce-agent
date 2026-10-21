@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     agent_hnp_operator_token: SecretStr | None = Field(default=None, repr=False)
     agent_hnp_max_validity_seconds: int = Field(default=86_400, ge=60, le=86_400)
     agent_hnp_proposal_ttl_seconds: int = Field(default=600, ge=60, le=1_800)
+    # Who picks the variant of the grant's shortlist (hnp-governed.md §3.3, step 2).
+    agent_hnp_selector: Literal["deterministic", "llm"] = "deterministic"
     payment_provider_url: str = "http://127.0.0.1:4130"
     payment_agent_bearer_token: SecretStr | None = Field(default=None, repr=False)
     agent_database_path: Path = Path(".local/agent.db")

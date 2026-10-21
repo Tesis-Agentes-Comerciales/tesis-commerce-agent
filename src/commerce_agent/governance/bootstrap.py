@@ -195,6 +195,33 @@ def build_authorization_gate(
         raise RuntimeError("AGENT_GOVERNANCE_MODE=enforce requires valid D2 settings") from None
 
 
+def build_hnp_d1_gate(
+    settings: Settings, commercial_clock: Callable[[], datetime] | None
+) -> "SqliteD1EnforceGate":
+    """D1-HNP for `PurchaseService.start(grant=...)` in enforce (hnp-governed.md §3.3, §3.4):
+    `b2-hnp-v1`, never the HP policy bytes, with the operator's merchant list (K11)."""
+    from .enforce import SqliteD1EnforceGate
+    from .hnp_policy import operator_merchant_refs
+    from .runtime_dispatch import SingleAttemptCheckoutDispatch, SingleAttemptPostCreateDispatch
+
+    try:
+        configured = configured_d1(settings, commercial_clock)
+        if not isinstance(configured.configuration, D1EnforceConfiguration):
+            raise ValueError("D1 enforce configuration required")
+        return SqliteD1EnforceGate(
+            settings.agent_database_path,
+            configured.configuration,
+            configured.keys,
+            configured.clocks,
+            dispatch=SingleAttemptCheckoutDispatch(),
+            post_create_dispatch=SingleAttemptPostCreateDispatch(),
+            purchase_mode="HNP",
+            merchant_refs=operator_merchant_refs(settings, configured),
+        )
+    except Exception:
+        raise RuntimeError("AGENT_HNP_ENABLED in enforce requires valid D1-HNP settings") from None
+
+
 def build_hnp_policy_gate(
     settings: Settings, commercial_clock: Callable[[], datetime] | None, *, trust: "MandateTrust"
 ) -> "SqliteHnpPolicyGate":

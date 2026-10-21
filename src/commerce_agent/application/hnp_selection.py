@@ -1,15 +1,23 @@
 """How the HNP executor picks one variant of the grant's shortlist (spec §3.3, step 2).
 
 The shortlist is `rank_candidates(feed, intent)` restricted to the grant's variants, in rank order.
-`AGENT_HNP_SELECTOR=deterministic` takes its first. A selector only sees catalog observations, the
-intent and the buyer's preference text, and answers a variant id: never a mandate, key or amount.
-Whatever comes back, the executor checks it against the shortlist again (K12), so no selector
-widens the grant.
+`AGENT_HNP_SELECTOR=deterministic` takes its first; `llm` asks the model to choose among exactly
+those ids and records the call's time and tokens in `stage_timings`. A selector only sees catalog
+observations, the intent and the buyer's preference text, and answers a variant id: never a
+mandate, key or amount. Whatever comes back, the executor checks it against the shortlist again
+(K12), so no selector widens the grant.
 """
 
-from typing import Protocol
+from contextlib import AbstractContextManager
+from typing import TYPE_CHECKING, Protocol
 
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
+from commerce_agent.persistence.stage_timings_sqlite import ModelUsage
+
+if TYPE_CHECKING:
+    from commerce_agent.llm.delegated_choice import DelegatedChoice
+
+MODEL_STAGE = "model.hnp_select"
 
 
 class HnpSelector(Protocol):
@@ -19,6 +27,21 @@ class HnpSelector(Protocol):
         intent: PurchaseIntent,
         preference_text: str | None,
     ) -> str: ...
+
+
+class DelegatedChooser(Protocol):
+    def choose(
+        self,
+        intent: PurchaseIntent,
+        candidates: tuple[RankedCandidate, ...],
+        preference_text: str | None,
+    ) -> "DelegatedChoice": ...
+
+
+class ModelTimer(Protocol):
+    def measure(
+        self, stage: str, usage: ModelUsage | None = None
+    ) -> AbstractContextManager[None]: ...
 
 
 class DeterministicHnpSelector:
@@ -31,3 +54,22 @@ class DeterministicHnpSelector:
         preference_text: str | None,
     ) -> str:
         return shortlist[0].candidate.variant_id
+
+
+class ModelHnpSelector:
+    """`llm`: the bounded model choice, timed with its tokens."""
+
+    def __init__(self, chooser: DelegatedChooser, timer: ModelTimer) -> None:
+        self._chooser, self._timer = chooser, timer
+
+    def choose(
+        self,
+        shortlist: tuple[RankedCandidate, ...],
+        intent: PurchaseIntent,
+        preference_text: str | None,
+    ) -> str:
+        usage = ModelUsage()
+        with self._timer.measure(MODEL_STAGE, usage):
+            choice = self._chooser.choose(intent, shortlist, preference_text)
+            usage.input_tokens, usage.output_tokens = choice.input_tokens, choice.output_tokens
+        return choice.variant_id
