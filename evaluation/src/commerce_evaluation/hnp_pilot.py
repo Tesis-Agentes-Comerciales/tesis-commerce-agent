@@ -1,15 +1,23 @@
-"""The HNP pilot's plan (EC-HNP-03) on the governance pilot's stack: docs/design/hnp-pilot.md.
+"""Run the HNP pilot (EC-HNP-03) on the governance pilot's stack: docs/design/hnp-pilot.md.
 
-Loads the manifest and its scenario matrix, checks that they agree, builds the registered plan of
-episodes and the agent environment of each condition, and checks that the agent's HNP startup
-accepts that environment. Nothing here starts a service or calls a model.
+`hnp-pilot --dry-run` validates the manifest and its matrix, prints the registered plan, the
+environment of each condition (names only), the integration readiness and whether a live run would
+start; it never starts a service or calls a model. A live run refuses without the oracles'
+approval, without `HNP_PILOT_MAX_COST_USD` (or above the manifest's cap), off the registered agent
+commit or with a missing integration; past its guards, this checkout has no episode runner yet.
 """
 
 from __future__ import annotations
 
+import argparse
+import importlib
+import importlib.util
+import inspect
 import json
+import os
 import re
 import secrets
+import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,15 +26,21 @@ from typing import Any
 from pydantic import ValidationError
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
+from commerce_agent import api, delegation_api
 from commerce_agent.acp.destination import merchant_fulfillment
 from commerce_agent.application.purchase import CheckoutDetails
 from commerce_agent.config import Settings
 from commerce_agent.delegation.bootstrap import load_hnp_trust
 from commerce_agent.governance.bootstrap import configured_d1
+from commerce_agent.governance.hnp_policy import build_hnp_policy
+from commerce_agent.persistence.stage_timings_sqlite import ModelUsage, SqliteStageTimings
+from commerce_evaluation import hnp_pilot_agent
 from commerce_evaluation.governance_pilot import (
     DETAILS,
     PilotError,
     _ap2_private_key,
+    base_readiness,
+    repository_provenance,
 )
 from commerce_evaluation.paths import DATA, ROOT
 from commerce_evaluation.pilot_policy import ALLOWLIST, HP_V2_POLICY, scenario_environment
@@ -34,13 +48,31 @@ from commerce_evaluation.pilot_policy import ALLOWLIST, HP_V2_POLICY, scenario_e
 MANIFEST = DATA / "hnp-pilot-v1.json"
 CONDITIONS = ("B0-HNP", "B2-HNP", "P")
 LEDGER_CONDITIONS = ("B0-HNP", "B2-HNP")
+GOVERNANCE_MODES = {"B0-HNP": "off", "B2-HNP": "enforce"}
 LAYERS = ("A", "B")
 BUYER_DETAILS = "synthetic_bogota_buyer"
 GENERATED = "generated_per_invocation_never_logged"
+COST_VARIABLE_DEFAULT = "HNP_PILOT_MAX_COST_USD"
 STIMULI = frozenset(
     {"merchant_update_offer", "wait_until_grant_expired", "owner_revoke", "operator_kill_switch"}
 )
 TRIGGER_MODES = frozenset({"once", "twice_concurrently"})
+RUN_ROUTE = "/internal/hnp/tasks/{task_id}/run"
+P_MODULE = "commerce_evaluation.hnp.protocol_only"
+# HNP-V1's profile of verify-evidence: its link list, and verify_database by grant (#105, #106).
+VERIFIER_MODULE = "commerce_evaluation.verify_evidence_hnp"
+VERIFIER_LINKS = "HNP_LINKS"
+# Live runs need these; HNP-M1/P1 are commits recorded per row and HNP-E3 is optional (E4).
+REQUIRED_READINESS = (
+    "HNP-05",
+    "HNP-06",
+    "HNP-08",
+    "HNP-09a",
+    "HNP-09b",
+    "HNP-V1",
+    "HNP-E2",
+    "agent_base",
+)
 
 # Agent variables the manifest generates per invocation, and the secret each one takes.
 SECRET_VARIABLES = {
@@ -50,6 +82,8 @@ SECRET_VARIABLES = {
     "AGENT_D1_HMAC_KEY_HEX": "d1_hmac_hex",
     "AGENT_D1_AES_KEY_HEX": "d1_aes_hex",
 }
+# Manifest values the runner resolves per layer, from the stack or per scenario.
+DERIVED_VARIABLES = frozenset({"AGENT_HNP_SELECTOR", "AGENT_AP2_PRIVATE_KEY_PEM", ALLOWLIST})
 # Variables the agent's startup requires that the manifest leaves out; neither changes an HNP
 # decision. B0-HNP: the vault key of the owner and destination pseudonyms (`load_hnp_trust`).
 # B2-HNP: the Human Present policy set of the enforce D1 gate; the HNP purchase is evaluated with
@@ -343,6 +377,34 @@ def condition_environment(
     return scenario_environment(environment, scenario, merchant_origin)
 
 
+def described_environment(manifest: Mapping[str, Any], condition: str) -> list[dict[str, str]]:
+    """Names and where each value comes from; never a value."""
+    declared: Mapping[str, str] = manifest["conditions"][condition]["agent_environment"]
+    rows = [
+        {
+            "name": name,
+            "source": (
+                "generated_per_invocation"
+                if value == GENERATED
+                else "derived"
+                if name in DERIVED_VARIABLES
+                else "manifest"
+            ),
+        }
+        for name, value in declared.items()
+    ]
+    rows += [
+        {
+            "name": name,
+            "source": "startup_addition_generated" if value == GENERATED else "startup_addition",
+        }
+        for name, value in STARTUP_ADDITIONS[condition].items()
+    ]
+    rows.append({"name": "OPENAI_TIMEOUT_SECONDS", "source": "manifest_execution"})
+    rows.append({"name": "OPENAI_MODEL", "source": "manifest_layer_B (layer B only)"})
+    return rows
+
+
 class _DeclaredSettings(Settings):
     """Settings from the given values only: no process environment and no .env file."""
 
@@ -396,3 +458,377 @@ def startup_check(environment: Mapping[str, str], stack: Mapping[str, str]) -> d
         # The startup's own errors never echo a setting (delegation/bootstrap.py).
         return {"ok": False, "error": f"{type(error).__name__}: {error}"}
     return {"ok": True}
+
+
+# Readiness and guards ----------------------------------------------------------------------------
+
+
+def _artifact() -> dict[str, Any]:
+    artifact, _ = build_hnp_policy(merchant_ref="merchant:readiness-probe")
+    return json.loads(artifact)
+
+
+def _route_source() -> str:
+    return inspect.getsource(api) + inspect.getsource(delegation_api)
+
+
+def integration_readiness(
+    manifest: Mapping[str, Any], *, agent_base: Mapping[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """The manifest's `integration_dependencies`, checked on this checkout."""
+    policy = manifest["policy"]
+    rules = policy["rules"]
+    readiness: dict[str, dict[str, Any]] = {}
+    try:
+        artifact = _artifact()
+        binding = {
+            "policy_set_id": artifact.get("policy_set_id"),
+            "version": str(artifact.get("version")),
+        }
+        expected = {"policy_set_id": policy["policy_set_id"], "version": str(policy["revision"])}
+        d2 = (artifact.get("authorization") or {}).get("policy_ids")
+        d3 = (artifact.get("dispatch") or {}).get("policy_ids")
+        readiness["HNP-05"] = {
+            "ready": binding == expected and artifact.get("policy_ids") == rules["D1"],
+            "policy": binding,
+            "d1_rules": artifact.get("policy_ids"),
+        }
+        readiness["HNP-06"] = {
+            "ready": d2 == rules["D2"] and d3 == rules["D3"],
+            "d2_rules": d2,
+            "d3_rules": d3,
+        }
+    except Exception as error:
+        detail = {"ready": False, "error": f"{type(error).__name__}: {error}"}
+        readiness["HNP-05"] = readiness["HNP-06"] = detail
+    readiness["HNP-08"] = {
+        "ready": {"hnp_enabled", "hnp_kill_switch"} <= set(api.Health.model_fields),
+        "check": "/health reports hnp_enabled and hnp_kill_switch",
+    }
+    readiness["HNP-09a"] = {
+        "ready": "agent_hnp_selector" in Settings.model_fields
+        and {"input_tokens", "output_tokens"} <= set(ModelUsage.__dataclass_fields__)
+        and hasattr(SqliteStageTimings, "initialize_model_tokens"),
+        "check": "AGENT_HNP_SELECTOR and the token columns of stage_timings",
+    }
+    readiness["HNP-09b"] = {
+        "ready": "/tasks/{task_id}/run" in _route_source(),
+        "route": f"POST {RUN_ROUTE}",
+    }
+    readiness["HNP-V1"] = verifier_readiness(manifest["evidence_chain"]["links"])
+    readiness["HNP-M1"] = {"ready": None, "check": "merchant commit recorded per row"}
+    readiness["HNP-P1"] = {"ready": None, "check": "PSP commit recorded per row"}
+    readiness["HNP-E2"] = hnp_pilot_agent.injection_readiness()
+    readiness["HNP-E3"] = {
+        "ready": importlib.util.find_spec(P_MODULE) is not None,
+        "optional": True,
+        "module": P_MODULE,
+    }
+    readiness["agent_base"] = dict(agent_base)
+    return readiness
+
+
+def verifier_readiness(links: Sequence[str]) -> dict[str, Any]:
+    """HNP-V1 verifies the 17 HNP links, also for tasks without a purchase row, by grant."""
+    from commerce_evaluation import verify_evidence
+
+    expects = (
+        f"{VERIFIER_MODULE}.{VERIFIER_LINKS} and "
+        "verify_evidence.verify_database(database, *, psp_database, grant_id)"
+    )
+    try:
+        module = importlib.import_module(VERIFIER_MODULE)
+    except ImportError as error:
+        return {"ready": False, "expects": expects, "error": f"{type(error).__name__}: {error}"}
+    declared = getattr(module, VERIFIER_LINKS, None)
+    by_grant = "grant_id" in inspect.signature(verify_evidence.verify_database).parameters
+    return {
+        "ready": declared is not None and list(declared) == list(links) and by_grant,
+        "expects": expects,
+    }
+
+
+@dataclass(frozen=True)
+class CostCap:
+    variable: str
+    cap_usd: float | None
+    registered_usd: float
+    error: str | None
+
+    @classmethod
+    def read(cls, manifest: Mapping[str, Any], environ: Mapping[str, str]) -> CostCap:
+        cost = manifest["cost"]
+        variable = str(cost.get("cap_variable", COST_VARIABLE_DEFAULT))
+        registered = float(cost["cap_usd"])
+        raw = environ.get(variable)
+        if raw is None:
+            return cls(variable, None, registered, f"{variable} is not set")
+        try:
+            value = float(raw)
+        except ValueError:
+            return cls(variable, None, registered, f"{variable} is not a number")
+        if not 0 < value <= registered:
+            return cls(variable, None, registered, f"{variable} must be in (0, {registered:g}]")
+        return cls(variable, value, registered, None)
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "variable": self.variable,
+            "registered_cap_usd": self.registered_usd,
+            "cap_usd": self.cap_usd,
+            "ok": self.error is None,
+            "error": self.error,
+        }
+
+
+def live_guards(
+    manifest: Mapping[str, Any],
+    *,
+    problems: Sequence[str],
+    readiness: Mapping[str, Mapping[str, Any]],
+    cost: CostCap,
+    startup: Mapping[str, Mapping[str, Any]],
+    worktree_dirty: bool,
+    allow_dirty: bool,
+) -> dict[str, dict[str, Any]]:
+    """Each reason a live run would refuse to start; all `ok` means it may start."""
+    approval = manifest["approval"]
+    missing = [name for name in REQUIRED_READINESS if readiness[name]["ready"] is not True]
+    failed_startups = [name for name, check in startup.items() if not check["ok"]]
+    return {
+        "approval": {
+            "ok": approval.get("status") == "approved",
+            "status": approval.get("status"),
+            "required_from": approval.get("required_from"),
+        },
+        "cost_cap": {"ok": cost.error is None, "error": cost.error},
+        "manifest_and_matrix": {"ok": not problems, "problems": list(problems)},
+        "integrations": {"ok": not missing, "missing": missing},
+        "agent_startup": {"ok": not failed_startups, "failed": failed_startups},
+        "agent_worktree": {
+            "ok": not worktree_dirty or allow_dirty,
+            "dirty": worktree_dirty,
+            "allow_dirty": allow_dirty,
+        },
+    }
+
+
+def require_guards(guards: Mapping[str, Mapping[str, Any]]) -> None:
+    refused = {name: guard for name, guard in guards.items() if not guard["ok"]}
+    if refused:
+        raise PilotError(
+            "A live HNP pilot run refuses to start: " + json.dumps(refused, ensure_ascii=False)
+        )
+
+
+# Dry run -----------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Preparation:
+    manifest: dict[str, Any]
+    matrix: dict[str, Any]
+    problems: list[str]
+    plan: list[PlannedEpisode]
+    readiness: dict[str, dict[str, Any]]
+    startup: dict[str, dict[str, Any]]
+    cost: CostCap
+    guards: dict[str, dict[str, Any]]
+    provenance: dict[str, Any]
+    smoke: bool
+
+
+def prepare(
+    manifest_path: Path,
+    *,
+    scenario_ids: Sequence[str] | None,
+    smoke: bool,
+    stack: Mapping[str, str],
+    allow_dirty: bool,
+    environ: Mapping[str, str],
+) -> Preparation:
+    """Everything a dry run reports and a live run checks, without starting anything."""
+    merchant_origin = stack["MERCHANT_BASE_URL"]
+    manifest, matrix = load_pilot(manifest_path)
+    problems = validate_pilot(manifest, matrix, manifest_path)
+    known = {str(scenario["id"]) for scenario in matrix["scenarios"]}
+    unknown = sorted(set(scenario_ids or ()) - known)
+    if unknown:
+        raise PilotError(f"Unknown scenarios: {', '.join(unknown)}")
+    provenance = repository_provenance(ROOT)
+    readiness = integration_readiness(manifest, agent_base=_agent_base(manifest, provenance))
+    plan = build_plan(
+        manifest,
+        matrix,
+        p_available=False,
+        scenario_ids=scenario_ids,
+        smoke=smoke,
+    )
+    invocation = InvocationSecrets.generate()
+    provider_key = _ap2_private_key()
+    probe = next(iter(matrix["scenarios"]))
+    startup = {
+        f"{condition}/{layer}": startup_check(
+            condition_environment(
+                manifest,
+                condition,
+                layer=layer,
+                scenario=probe,
+                invocation=invocation,
+                provider_key=provider_key,
+                merchant_origin=merchant_origin,
+            ),
+            stack,
+        )
+        for condition in LEDGER_CONDITIONS
+        for layer in LAYERS
+    }
+    cost = CostCap.read(manifest, environ)
+    guards = live_guards(
+        manifest,
+        problems=problems,
+        readiness=readiness,
+        cost=cost,
+        startup=startup,
+        worktree_dirty=provenance.worktree_dirty,
+        allow_dirty=allow_dirty,
+    )
+    return Preparation(
+        manifest=manifest,
+        matrix=matrix,
+        problems=problems,
+        plan=plan,
+        readiness=readiness,
+        startup=startup,
+        cost=cost,
+        guards=guards,
+        provenance={
+            "agent_commit": provenance.commit,
+            "agent_worktree_dirty": provenance.worktree_dirty,
+        },
+        smoke=smoke or scenario_ids is not None,
+    )
+
+
+def _agent_base(manifest: Mapping[str, Any], provenance: Any) -> dict[str, Any]:
+    return base_readiness(manifest, provenance).get("agent_base", {"ready": False})
+
+
+def p_not_run_reason(readiness: Mapping[str, Mapping[str, Any]]) -> str:
+    if readiness["HNP-E3"]["ready"]:
+        return "HNP-E3 is present but hnp-pilot does not wire it yet; P stays a prediction"
+    return "HNP-E3 is not merged: P does not run and its cells stay predictions (amendment E4)"
+
+
+def dry_run_document(preparation: Preparation) -> dict[str, Any]:
+    manifest, plan = preparation.manifest, preparation.plan
+    execution = manifest["execution"]
+    runnable = [episode for episode in plan if episode.runs]
+    layer_b = manifest["layers"]["B"]
+    return {
+        "manifest_id": manifest["manifest_id"],
+        "matrix_id": preparation.matrix["matrix_id"],
+        "experiment": manifest["experiment"],
+        "approval": manifest["approval"]["status"],
+        **preparation.provenance,
+        "smoke": preparation.smoke,
+        "manifest_and_matrix_valid": not preparation.problems,
+        "problems": preparation.problems,
+        "destination_accepted": destination_accepted(),
+        "policy": {key: manifest["policy"][key] for key in ("policy_set_id", "revision", "key_id")}
+        | {"rules": manifest["policy"]["rules"]},
+        "conditions": {
+            condition: {
+                "governance_mode": GOVERNANCE_MODES.get(condition),
+                "runs": condition != "P",
+                "environment": described_environment(manifest, condition),
+            }
+            for condition in LEDGER_CONDITIONS
+        }
+        | {"P": {"runs": False, "reason": p_not_run_reason(preparation.readiness)}},
+        "startup_additions": {
+            condition: sorted(additions) for condition, additions in STARTUP_ADDITIONS.items()
+        },
+        "agent_startup": preparation.startup,
+        "layers": {
+            "A": {"selector": "deterministic; HN11 scripted_adversarial injected by code"},
+            "B": {"selector": "llm", "model": layer_b["model"]},
+        },
+        "scripted_selector": {
+            **hnp_pilot_agent.injection_readiness(),
+            "variant_id": hnp_pilot_agent.scripted_variant(preparation.matrix),
+        },
+        "execution": {
+            "order": execution["order"],
+            "task_poll_timeout_seconds": execution["task_poll_timeout_seconds"],
+            "openai_timeout_seconds": execution["openai_timeout_seconds"],
+            "trigger_route": f"POST {RUN_ROUTE}",
+        },
+        "episodes_registered": manifest["episodes"],
+        "episodes_planned": episode_counts(plan),
+        "episodes_runnable": episode_counts(runnable),
+        "cost": preparation.cost.describe()
+        | {"price_usd_per_mtok": manifest["cost"]["price_usd_per_mtok"]},
+        "integration_readiness": preparation.readiness,
+        "live_guards": preparation.guards,
+        "live_run_would_start": all(guard["ok"] for guard in preparation.guards.values()),
+        "plan": [episode.key() | {"runs": episode.runs} for episode in plan],
+    }
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, default=MANIFEST)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate and print the plan and the readiness; starts nothing and calls no model",
+    )
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        dest="scenarios",
+        help="only these scenarios (a smoke: its rows are not the pilot)",
+    )
+    parser.add_argument(
+        "--smoke", action="store_true", help="one repetition per cell; validates the harness"
+    )
+    parser.add_argument("--merchant-port", type=int, default=4120)
+    parser.add_argument("--auth-port", type=int, default=4215)
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="run although tracked files of the agent, merchant or PSP differ from their commit",
+    )
+    return parser
+
+
+def _run(arguments: argparse.Namespace) -> int:
+    preparation = prepare(
+        arguments.manifest.resolve(),
+        scenario_ids=arguments.scenarios,
+        smoke=arguments.smoke,
+        stack=stack_variables(
+            merchant_origin=f"http://127.0.0.1:{arguments.merchant_port}",
+            auth_origin=f"http://127.0.0.1:{arguments.auth_port}",
+        ),
+        allow_dirty=arguments.allow_dirty,
+        environ=os.environ,
+    )
+    if arguments.dry_run:
+        print(json.dumps(dry_run_document(preparation), ensure_ascii=False))
+        return 0
+    require_guards(preparation.guards)
+    raise PilotError("This checkout has no live HNP episode runner yet")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        return _run(_parser().parse_args(argv))
+    except PilotError as error:
+        print(f"hnp pilot failed: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

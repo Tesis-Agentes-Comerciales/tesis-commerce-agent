@@ -38,6 +38,8 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | `src/commerce_evaluation/verify_evidence.py` | `verify-evidence`: verificador de la cadena decisión–consentimiento–efecto y métrica H2 ([spec](../docs/design/hp-p2-evidence-chain.md)) |
 | `src/commerce_evaluation/hnp/` | arnés HNP-01 y validador LLM de HNP-02 ([`llm/`](src/commerce_evaluation/hnp/llm/README.md)) |
 | `src/commerce_evaluation/hnp_review_demo.py`, `hnp_matrix.py` | runners de HNP-01 y HNP-02 |
+| `src/commerce_evaluation/hnp_pilot.py` | `hnp-pilot`: plan, guardas y `--dry-run` del piloto HNP v1 ([spec](../docs/design/hnp-pilot.md)) |
+| `src/commerce_evaluation/hnp_pilot_agent.py` | agente de HN11 con el selector guionado inyectado por código |
 | `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto lo ejecuta con el entorno del Merchant |
 | `scripts/build_b0_analysis_notebook.py` | genera el notebook B0; `nbformat` no está en el lock |
 
@@ -50,6 +52,7 @@ uv run demo-stack --dry-run                          # plan y requisitos de la d
 uv run verify-evidence --agent-db agent.db --psp-db payments.db  # cadena de evidencia y H2
 uv run hnp-review-demo                               # HNP-01 offline, escribe en .local/hnp01/demo
 uv run hnp-matrix --dry-run --env-file .env.example  # HNP-02 con FakeTransport, escribe en .local/hnp02
+uv run hnp-pilot --dry-run                           # piloto HNP v1: plan, entorno (solo nombres) y preparación
 uv run --with nbformat python evaluation/scripts/build_b0_analysis_notebook.py
 ```
 
@@ -313,6 +316,36 @@ eslabón verifica el registro D2 con el ledger, su enlace con D1 (`evidence_dige
 apunte a la autorización aplicada; una aprobación u orden sin una autorización D2 aplicada es
 `mismatch` (un `deny` seguido de un reintento con un `allow` aplicado es legítimo).
 
+## Piloto HNP v1: B0-HNP, B2-HNP y P
+
+La spec es [`hnp-pilot.md`](../docs/design/hnp-pilot.md) y el pre-registro,
+[`data/hnp-pilot-v1.json`](data/hnp-pilot-v1.json) con [`data/hnp-scenarios.json`](data/hnp-scenarios.json).
+
+```sh
+uv run hnp-pilot --dry-run                     # valida manifiesto y matriz, plan de 133 episodios y preparación
+uv run hnp-pilot --dry-run --scenario HN11     # un escenario: es un smoke
+```
+
+- **`--dry-run`** no arranca servicios ni llama al modelo. Imprime el plan en el orden registrado
+  (capa A y luego B; por escenario y repetición; la primera condición rota con P y alterna sin
+  P), los episodios por condición y capa, el entorno de cada condición (solo nombres y de dónde sale
+  cada valor), si el agente arrancaría con él, la preparación de cada integración
+  (`integration_dependencies`), si el selector guionado de HN11 se puede inyectar y cada guarda que
+  impediría correr en vivo.
+- **Guardas en vivo.** Se niega sin la aprobación de los oráculos (`approval.status` distinto de
+  `approved`), sin `HNP_PILOT_MAX_COST_USD` o con más que `cost.cap_usd`, fuera del commit de
+  `execution.agent_ref`, con el worktree sucio (salvo `--allow-dirty`), con una integración
+  requerida ausente (HNP-05, 06, 08, 09a, 09b, V1 y E2) o si el agente no arrancaría. HNP-V1
+  está listo cuando `verify_evidence_hnp.HNP_LINKS` son los 17 eslabones del manifiesto y
+  `verify_database` acepta `grant_id`.
+- **Sin HNP-E3**, P conserva su lugar en el plan pero no corre (enmienda E4).
+- **Entorno.** Los secretos (`AGENT_HNP_AGENT_KEY_PEM`, los tokens de servicio y de operador y las
+  claves D1) se generan por invocación y solo los recibe el agente. El runner agrega dos variables
+  que el manifiesto omite y el arranque exige: `AGENT_D1_AES_KEY_HEX` en B0-HNP
+  (`load_hnp_trust`) y `AGENT_D1_POLICY_SET_ID`/`AGENT_D1_POLICY_REVISION` (`b2-hp-v2`, `1`, la
+  compuerta D1 de HP) en B2-HNP; la compra HNP se evalúa con `b2-hnp-v1`, armada en código. La capa
+  B fija `OPENAI_MODEL` del manifiesto y `OPENAI_TIMEOUT_SECONDS=90`.
+
 ## Archivos
 
 - `data/b0-baseline.json`: commits, etiquetas, toolchain, modelo, fixtures y evidencia disponible.
@@ -323,7 +356,7 @@ apunte a la autorización aplicada; una aprobación u orden sin una autorizació
 - `data/b2-pilot-v2.json`, `data/pilot-scenarios-v2.json`: pre-registro del piloto v2 con la
   política `b2-hp-v2` y los escenarios S01–S08 ([spec](../docs/design/b2-governed-pilot-v2.md)).
 - `data/hnp-pilot-v1.json`, `data/hnp-scenarios.json`: pre-registro del piloto HNP v1 (EC-HNP-03)
-  con las condiciones B0-HNP, B2-HNP y P y los escenarios HN01–HN11; sin runner todavía (HNP-E2)
+  con las condiciones B0-HNP, B2-HNP y P y los escenarios HN01–HN11; runner `hnp-pilot`
   ([spec](../docs/design/hnp-pilot.md)).
 - `data/hnp/cases.json`, `data/hnp/oracle.json`: corpus HNP de 27 casos y su oráculo separado.
 - `results/b0-pilot-v1.jsonl`: las 25 ejecuciones del piloto B0.

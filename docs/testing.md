@@ -34,7 +34,7 @@ clasificada por dónde se crea, sin `pytestmark` ni `skipif` propios:
 | 3. UI | Lint, build, historias de Storybook con interacción y axe en Chromium, y pruebas unitarias de Vitest en Node (`src/**/*.test.ts`, dentro de `test-storybook`) | `ui/` | Cada PR (`ui`) | `cd ui && npm ci && npm run lint && npm test && npm run build && npm run test-storybook` |
 | 4. Sistema | Agent ↔ Merchant ↔ proveedor de pagos con PostgreSQL desechable; gobernanza con fallos inyectados, compras B0 y ACP, compra B0 desde el navegador | `tests/integration/` | Cada noche y a pedido (`nightly.yml`) | [`tests/integration/README.md`](../tests/integration/README.md) |
 | 3. UI E2E | Recorridos de chat y de delegaciones en el navegador con Playwright, sobre el build y con backends simulados (las delegaciones reproducen secuencias reales de la API) | `ui/e2e/` | Cada PR (`ui`) | `cd ui && npm run e2e` |
-| 5. Evaluación | Experimento HNP y piloto de gobernanza sin red ni modelo (dry-run): forma de resultados, costos, trazas, guardas de gasto | `tests/evaluation/` y entrypoints | Cada PR, dentro de `python-tests` | `uv run pytest -m evaluation`, `uv run hnp-matrix --dry-run --env-file .env.example`, `uv run governance-pilot --dry-run` |
+| 5. Evaluación | Experimento HNP y piloto de gobernanza sin red ni modelo (dry-run): forma de resultados, costos, trazas, guardas de gasto | `tests/evaluation/` y entrypoints | Cada PR, dentro de `python-tests` | `uv run pytest -m evaluation`, `uv run hnp-matrix --dry-run --env-file .env.example`, `uv run governance-pilot --dry-run`, `uv run hnp-pilot --dry-run` |
 
 Las corridas reales de evaluación (`HNP_LIVE=1`, modelo pagado) nunca corren en CI: se lanzan a
 mano con los entrypoints de `commerce_evaluation` y sus guardas de costo.

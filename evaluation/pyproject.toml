@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 hnp-matrix = "commerce_evaluation.hnp_matrix:main"
 hnp-review-demo = "commerce_evaluation.hnp_review_demo:main"
+hnp-pilot = "commerce_evaluation.hnp_pilot:main"
 governance-pilot = "commerce_evaluation.governance_pilot:main"
 evaluate-conversation = "commerce_evaluation.conversation:main"
 demo-stack = "commerce_evaluation.demo_stack:main"
