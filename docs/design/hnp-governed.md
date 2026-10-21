@@ -588,7 +588,7 @@ genérico de FastAPI. Las rutas HP no cambian.
 
 | Método y ruta | Cuerpo | Éxito | Errores |
 | --- | --- | --- | --- |
-| `POST /delegations/proposals` | `DelegationProposalRequest` | 201 `DelegationProposal` | 401; 422 `delegation_request_invalid`, `delegation_variant_unavailable`, `delegation_validity_exceeded` |
+| `POST /delegations/proposals` | `DelegationProposalRequest` | 201 `DelegationProposal` | 401; 422 `delegation_request_invalid`, `delegation_variant_unavailable`, `delegation_validity_exceeded`, `delegation_destination_unsupported` |
 | `POST /delegations` | `{proposal_id, scope_digest}` | 201 `DelegationView`; 200 con el mismo grant si la propuesta ya se consintió con ese digest | 401; 404 `delegation_proposal_not_found`; 409 `delegation_scope_mismatch`, `delegation_proposal_expired`; 503 `delegation_signer_unavailable` |
 | `GET /me/delegations` | — | 200 `DelegationList` (más recientes primero) | 401 |
 | `GET /delegations/{grant_id}` | — | 200 `DelegationView` | 401; 404 `delegation_not_found` |
@@ -604,7 +604,8 @@ Revocar un grant que ya está `revoked(operator|escalated|failed)` no escribe na
 `DelegationProposalRequest`: `variant_ids` (1 a 5, únicos), `total_max_minor` (entero > 0),
 `currency` (`"COP"`), `valid_for_seconds` (60 ≤ v ≤ `AGENT_HNP_MAX_VALIDITY_SECONDS`), `details`
 (`CheckoutDetails` de HP) y `preference_text` (opcional). Variante fuera del feed actual del comercio
-configurado o en otra moneda: `delegation_variant_unavailable`. Un total menor que todos los precios no
+configurado o en otra moneda: `delegation_variant_unavailable`. Una dirección que el comercio no
+acepta: `delegation_destination_unsupported`. Un total menor que todos los precios no
 se rechaza: D1 lo escalará con POL-11.
 
 **Cómo lo arma HNP-08** (`delegation_api.py`, `delegation/service.py`, `delegation/views.py`):
@@ -619,6 +620,19 @@ se rechaza: D1 lo escalará con POL-11.
   tarjeta, `merchant_name` es el vendedor del feed (o `Tesis Commerce Merchant`),
   `destination_label` es `"<city>, <state>"` de la dirección y `instrument_label` es «Tarjeta de
   prueba del sandbox».
+- **El destino se normaliza como el comercio.** D2 calcula el binding sobre el eco del comercio,
+  y el comercio no devuelve la dirección tal como la recibe: `AddressInfo` en
+  `src/commerce_lab/contracts/commerce.py` del comercio (`abf30df`) acepta un solo destino, y
+  `normalize_supported_city` reescribe la ciudad. Al proponer, antes del digest,
+  `acp/destination.py` (`merchant_fulfillment`) aplica la misma regla: la ciudad sin espacios
+  alrededor y en minúsculas (`casefold`) que sea `bogota` o `bogotá` pasa a `Bogota`, y el
+  departamento `DC`, el país `CO` y el código postal `110111` deben llegar exactos. Los demás
+  campos no cambian. Esa dirección normalizada es la que entra en `destination_binding` y en
+  `destination_label`, y la que se guarda en `checkout_details_json` para que el ejecutor la
+  envíe. Lo que el comercio rechazaría responde 422 `delegation_destination_unsupported`, sin
+  escribir nada, para no consentir un destino que POL-08 siempre escalaría.
+  `tests/fixtures/merchant_destination/cases.json` fija la equivalencia caso por caso, con el
+  commit del comercio del que sale.
 - Al consentir, la propuesta también se da por vencida si ya pasó el `expires_at` del grant (fijado
   al proponer): no se firma un abierto ya vencido. Antes de guardar, los abiertos se verifican con
   `verify_open_proof`; si algo falla, 503 `delegation_signer_unavailable` sin escribir nada.
@@ -1073,3 +1087,5 @@ archivo caliente, no global. La coordinación del día está en el contrato de c
 24. `purchase_mode` en traza e historial es opcional y se omite en HP.
 25. `uncertain` no se concilia con código en v1.
 26. Revocar un grant ya cerrado por otra causa responde 200 `no_effect`.
+27. El destino se normaliza al proponer como lo hace el comercio; uno que el comercio rechazaría es
+    422 `delegation_destination_unsupported`.
