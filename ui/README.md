@@ -83,6 +83,13 @@ carga: `sb.mock` cambia `src/lib/auth-client.ts` por `src/lib/__mocks__/auth-cli
   `src/storybook/trace-fixtures/`, una por escenario. `Trace/Contract` valida cada JSON de esa carpeta
   con `parsePurchaseTrace` (`src/lib/trace-contract.ts`); el modelo Pydantic del backend validará los
   mismos archivos ([`docs/design/trace-panel.md`](../docs/design/trace-panel.md)).
+- `Delegation/*` cubre las tarjetas de Human Not Present (`src/components/delegation/`, sin
+  cablear): el consentimiento de la propuesta, el estado de cada delegación y su tarea, el
+  escalamiento «Necesito tu decisión» y el recibo de revocación, con las fixtures de
+  `src/storybook/fixtures/delegation-*.json`. Los mensajes llegan escritos del backend y se muestran
+  tal cual ([`docs/design/hnp-governed.md`](../docs/design/hnp-governed.md) §8.3).
+  `Delegation/Contract` valida esas fixtures con los `parseDelegation*` de
+  `src/lib/delegation-contract.ts`.
 - `Auth/SessionGate` cubre la puerta de sesión: pendiente, sin sesión (el doble rechaza las
   credenciales), registro, servicio caído y con sesión.
 
