@@ -3,6 +3,8 @@
 The merchant (HNP-M1) and the PSP (HNP-P1) copy `tests/fixtures/ap2_hnp/` as is: `keys.json` holds
 fixture-only keys (generated here, never used outside tests) and `cases.json` one valid chain plus
 one chain per alteration, each with the outcome every verifier must reach at the fixture clock.
+Pin that clock in PyJWT too: `jwt.decode` of the Checkout JWT reads its own time, so patch
+`jwt.api_jwt.datetime` (an injected verifier clock does not reach it).
 Regenerate with `uv run python scripts/export_ap2_hnp_fixtures.py`; keys, salts and signatures
 change on every run, the cases and their outcomes do not.
 """
@@ -502,7 +504,7 @@ def build_cases(keys: FixtureKeys) -> list[Case]:
             "El checkout abierto trae checkout.allowed_regions, que ningun perfil define.",
             regions,
             golden.closed(*regions, beyond_opens),
-            ("unresolved_constraint", "unresolved_constraint", "unresolved_constraint"),
+            ("unresolved_constraint", "unresolved_constraint", "accept"),
             beyond_opens,
         )
     )

@@ -1,6 +1,6 @@
 # AP2 v0.2: perfil sintético (Human Present y Human Not Present)
 
-Referencia fijada: [especificación AP2 v0.2, commit `e1ea56d`](https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/specification.md). AP2 autoriza el pago; ACP sigue definiendo el checkout comercial. Este perfil no mueve dinero real. La sección [Human Not Present](#human-not-present-perfil-ap2-hnpv1) es el contrato de HNP-04 (agente), HNP-M1 (comercio) y HNP-P1 (PSP). El lado del agente está en `src/commerce_agent/ap2_hnp.py`, todavía sin un flujo que lo use; hasta que HNP-M1 y HNP-P1 se fusionen, el comercio y el PSP solo verifican Human Present.
+Referencia fijada: [especificación AP2 v0.2, commit `e1ea56d`](https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/specification.md). AP2 autoriza el pago; ACP sigue definiendo el checkout comercial. Este perfil no mueve dinero real. La sección [Human Not Present](#human-not-present-perfil-ap2-hnpv1) es el contrato de HNP-04 (agente), HNP-M1 (comercio) y HNP-P1 (PSP). El lado del agente está en `src/commerce_agent/ap2_hnp.py`, todavía sin un flujo que lo use; el comercio (HNP-M1) y el PSP (HNP-P1) ya verifican las cadenas HNP.
 
 ## Fronteras de confianza
 
@@ -250,6 +250,8 @@ no implementamos UCP ni afirmamos conformidad AP2 de HNP.
   (perfil y su digest, `now`, issuer del comercio, grant y diez casos con el resultado esperado del
   agente, el comercio y el PSP). `now` = 2026-10-21T15:00:00Z, consentimiento `now − 2 h`, Checkout
   JWT `now − 60`, cierre `now − 30`: se verifican con `current_time = now`, no con la hora real.
+  El reloj del verificador no llega a `jwt.decode` del Checkout JWT: PyJWT lee su propia hora, así
+  que también hay que fijarla (por ejemplo, parcheando `jwt.api_jwt.datetime`).
   Se regeneran con `uv run python scripts/export_ap2_hnp_fixtures.py`, que crea claves nuevas, así
   que cambian todas las firmas: copie el directorio completo.
 - Ninguna herramienta del modelo importa este módulo (`tests/test_ap2_hnp_boundary.py`).

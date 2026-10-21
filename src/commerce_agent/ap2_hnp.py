@@ -79,7 +79,7 @@ _NESTED: dict[type[BaseModel], tuple[str, type[BaseModel]]] = {
     AllowedPaymentInstruments: ("allowed", PaymentInstrument),
 }
 _PROFILE = {
-    "schema_version": "commerce-ap2-hnp-profile/1",
+    "schema_version": "commerce-ap2-hnp-profile/v1",
     "profile": PROFILE_ID,
     "version": PROFILE_VERSION,
     "vct": {"open": _OPEN_VCT, "closed": _CLOSED_VCT},

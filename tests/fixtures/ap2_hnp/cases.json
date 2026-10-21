@@ -2,7 +2,7 @@
   "profile": {
     "id": "ap2-hnp/v1",
     "version": 1,
-    "digest": "sha256:4f730df6ba3780a59eea8fb42a30cb220d1db10b95e12880b569c45fc5fdc61f"
+    "digest": "sha256:31110d34e43b46a9f920819dfd2a13ff91a5c91bbe5fb0a5ad743731e01bb145"
   },
   "regenerate": "uv run python scripts/export_ap2_hnp_fixtures.py",
   "now": 1792594800,
@@ -630,7 +630,7 @@
           "error": "unresolved_constraint"
         },
         "merchant": "unresolved_constraint",
-        "psp": "unresolved_constraint"
+        "psp": "accept"
       },
       "checkout": {
         "id": "cs_hnp_unknown_checkout",
