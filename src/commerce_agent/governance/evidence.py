@@ -1,4 +1,4 @@
-"""D1 and D2 evidence wire contract. Backend scope is separate from client input."""
+"""D1, D2 and D3 evidence wire contract. Backend scope is separate from client input."""
 
 import json
 from typing import Annotated, Literal, Self
@@ -6,7 +6,13 @@ from typing import Annotated, Literal, Self
 from pydantic import Field, model_validator
 
 from .canonical import canonical_bytes, input_digest, parse_model
-from .evaluator import parse_authorization_input, parse_input
+from .evaluator import (
+    parse_authorization_input,
+    parse_dispatch_input,
+    parse_hnp_authorization_input,
+    parse_input,
+)
+from .hnp_models import DispatchPolicyInput, HnpAuthorizationPolicyInput
 from .models import (
     AuthorizationPolicyInput,
     AuthorizationProfile,
@@ -14,6 +20,7 @@ from .models import (
     FreshnessFacts,
     GuardReason,
     HpAuthorizationFacts,
+    HpAuthorizationPolicyInput,
     Id,
     Ids,
     IntentFacts,
@@ -29,7 +36,12 @@ from .models import (
     Version,
 )
 
-PolicyInput = SelectionPolicyInput | AuthorizationPolicyInput
+PolicyInput = (
+    SelectionPolicyInput
+    | HpAuthorizationPolicyInput
+    | HnpAuthorizationPolicyInput
+    | DispatchPolicyInput
+)
 
 
 def required_refs(data: PolicyInput) -> tuple[ObjectRef, ...]:
@@ -41,14 +53,35 @@ def required_refs(data: PolicyInput) -> tuple[ObjectRef, ...]:
             data.eligibility_algorithm_ref,
             data.clock_profile_ref,
         )
-    return (
+    if isinstance(data, DispatchPolicyInput):
+        # D3: the terms and the close check again, the grant and the closed mandates.
+        return (
+            data.intent.intent_ref,
+            data.clock_profile_ref,
+            data.terms.snapshot_ref,
+            data.freshness.source_offer_ref,
+            data.grant.grant_ref,
+            data.closed_proof.checkout_chain_ref,
+            data.closed_proof.payment_chain_ref,
+        )
+    common = (
         data.intent.intent_ref,
         data.d1.feed_snapshot_ref,
         data.clock_profile_ref,
         data.terms.snapshot_ref,
         data.freshness.source_offer_ref,
-        data.hp.presented_snapshot_ref,
     )
+    if isinstance(data, HnpAuthorizationPolicyInput):
+        # D2-HNP: the consented grant and the open mandates in place of the presented terms.
+        proof = data.hnp.open_proof
+        return (
+            *common,
+            data.hnp.grant.grant_ref,
+            proof.consent_ref,
+            proof.open_checkout_ref,
+            proof.open_payment_ref,
+        )
+    return (*common, data.hp.presented_snapshot_ref)
 
 
 class EvidenceError(ValueError):
@@ -101,10 +134,25 @@ class DecisionRecord(EvidenceHeader):
         return parse_input(self.canonical_input_bytes.encode("utf-8"))
 
     def authorization_input(self) -> AuthorizationPolicyInput:
+        """The D2-HP input; a D2-HNP record has the HNP branch (GOV_INPUT_INVALID)."""
         return parse_authorization_input(self.canonical_input_bytes.encode("utf-8"))
 
+    def hnp_authorization_input(self) -> HnpAuthorizationPolicyInput:
+        return parse_hnp_authorization_input(self.canonical_input_bytes.encode("utf-8"))
+
+    def dispatch_input(self) -> DispatchPolicyInput:
+        return parse_dispatch_input(self.canonical_input_bytes.encode("utf-8"))
+
     def any_input(self) -> PolicyInput:
-        return self.authorization_input() if self.decision.phase == "D2" else self.policy_input()
+        """The input of the record's phase and purchase mode (the D2 branch, C02)."""
+        phase = self.decision.phase
+        if phase == "D3":
+            return self.dispatch_input()
+        if phase == "D2":
+            if self.decision.purchase_mode == "HNP":
+                return self.hnp_authorization_input()
+            return self.authorization_input()
+        return self.policy_input()
 
     @model_validator(mode="after")
     def consistent(self) -> Self:
@@ -220,7 +268,7 @@ class EvidenceScope(ContractModel):
     owner_ref: Id
     purchase_mode: PurchaseMode
     governance_mode: Literal["shadow", "enforce"]
-    phase: Literal["D1", "D2"]
+    phase: Literal["D1", "D2", "D3"]
     context_version: Version
     policy_binding: PolicyBinding
     source_refs: tuple[ObjectRef, ...]

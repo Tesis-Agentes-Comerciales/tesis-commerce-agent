@@ -1,8 +1,8 @@
 """Policy set `b2-hnp-v1` of Human Not Present purchases (docs/design/hnp-governed.md §7).
 
-Built in code, never from `AGENT_D1_POLICY_*`: every HNP decision evaluates it. This module
-holds the `(D1, HNP)` part; D2-HNP and D3-HNP add `authorization` and `dispatch` to the same
-revision.
+Built in code, never from `AGENT_D1_POLICY_*`: every HNP decision evaluates it. Revision 1 held
+only the `(D1, HNP)` row; revision 2 adds `authorization` (D2-HNP) and `dispatch` (D3-HNP). The
+provenance vault refuses new bytes under a known revision, so the sections came with a new one.
 """
 
 import json
@@ -18,6 +18,8 @@ from .models import (
     HNP_POLICY_SET_ID,
     SCHEMA,
     D1PolicyArtifact,
+    DispatchRules,
+    HnpAuthorizationRules,
     Id,
     Ids,
     PolicyBinding,
@@ -29,7 +31,10 @@ if TYPE_CHECKING:
 
     from .bootstrap import ConfiguredD1
 
-HNP_POLICY_REVISION = 1
+HNP_POLICY_REVISION = 2
+# K6: the `ObjectRef.id` of the AP2 HNP authorization profile (`ap2_hnp.PROFILE_ID`, which is not
+# an `Id`), the one `b2-hnp-v1` admits for the open and closed mandate proofs.
+HNP_AUTHORIZATION_PROFILE_ID = "profile:ap2-hnp-v1"
 # D1-HNP eligibility (§3.3): rank_candidates over the feed, restricted to the grant's variants.
 GRANT_SCOPE_ELIGIBILITY = "rank_candidates+grant_scope/v1"
 
@@ -57,6 +62,18 @@ def build_hnp_policy(*, merchant_ref: str | tuple[str, ...]) -> tuple[bytes, Pol
         allowed_merchant_refs=(merchant_ref,) if isinstance(merchant_ref, str) else merchant_ref,
         currency="COP",
         quantity=1,
+        authorization=HnpAuthorizationRules(
+            schema_version=SCHEMA,
+            policy_ids=APPLICABLE_RULES[("D2", "HNP")],
+            allowed_actions=("complete_purchase",),
+            authentication_bases=("service_and_grant",),
+            profiles=(HNP_AUTHORIZATION_PROFILE_ID,),
+        ),
+        dispatch=DispatchRules(
+            schema_version=SCHEMA,
+            policy_ids=APPLICABLE_RULES[("D3", "HNP")],
+            allowed_actions=("commit_dispatch",),
+        ),
     )
     payload = canonical_bytes(artifact)
     binding = PolicyBinding(

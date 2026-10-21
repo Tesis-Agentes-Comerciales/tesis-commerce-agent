@@ -32,6 +32,7 @@ from commerce_agent.persistence.provenance_sqlite import SqliteD1ProvenanceStore
 from commerce_agent.persistence.sqlite import write_approval
 
 from .canonical import canonical_bytes, parse_model, sha256_digest
+from .destination import destination_binding
 from .enforce import _committed_transition
 from .evaluator import (
     AuthorizationEvaluator,
@@ -112,6 +113,77 @@ def _now() -> str:
 
 def _unique(refs: tuple[ObjectRef, ...]) -> tuple[ObjectRef, ...]:
     return tuple(dict.fromkeys(refs))
+
+
+def resolved_d1(d1: DecisionRecord) -> dict[str, Any]:
+    """`ResolvedD1`: the committed D1 decision of the run, as the ledger holds it."""
+    d1_input = d1.policy_input()
+    return {
+        "schema_version": SCHEMA,
+        "decision_id": d1.decision.decision_id,
+        "evidence_id": d1.evidence_id,
+        "evidence_digest": sha256_digest(canonical_bytes(d1)),
+        "outcome": d1.decision.outcome,
+        "run_id": d1_input.run_id,
+        "owner_ref": d1_input.owner_ref,
+        "purchase_mode": d1_input.purchase_mode,
+        "governance_mode": d1_input.governance_mode,
+        "intent_ref": d1_input.intent.intent_ref.model_dump(mode="json"),
+        "feed_snapshot_ref": d1_input.feed_snapshot_ref.model_dump(mode="json"),
+        "selected_variant_id": d1_input.selected_variant_id,
+        "merchant_ref": d1_input.merchant_ref,
+        "policy_binding": d1.decision.policy_binding.model_dump(mode="json"),
+        "context_version": d1_input.context_version,
+        "input_digest": d1.decision.input_digest,
+    }
+
+
+def record_input_rejected(
+    connection: sqlite3.Connection,
+    run_id: str,
+    phase: Literal["D2", "D3"],
+    expected_state_version: int | None,
+) -> None:
+    """`input_rejected` for a decision whose facts could not be assembled, in the caller's
+    transaction and under the episode D1 opened; without that episode there is nothing to name."""
+    ledger = SqliteGovernanceEvidenceStore(connection)
+    ledger.initialize_decision_scopes()
+    row = connection.execute(
+        "SELECT scope FROM governance_episodes WHERE run_id=?", (run_id,)
+    ).fetchone()
+    if row is None or expected_state_version is None:
+        raise GovernanceError("GOV_FACTS_UNAVAILABLE")
+    base = parse_model(EvidenceScope, row[0].encode())
+    decision_id = "decision:" + secrets.token_hex(16)
+    ledger.register_decision_scope(
+        decision_id,
+        base.model_copy(
+            update={
+                "phase": phase,
+                "source_refs": (),
+                "policy_artifact_ref": None,
+                "engine_artifact_ref": None,
+            }
+        ),
+        policy_bytes=None,
+        engine_bytes=None,
+    )
+    ledger.record_decision(
+        InputRejected(
+            schema_version=SCHEMA,
+            record_kind="input_rejected",
+            evidence_id="evidence:" + secrets.token_hex(16),
+            sequence=len(ledger.for_run(run_id)) + 1,
+            recorded_at=utc_milliseconds(datetime.now(UTC)),
+            run_id=run_id,
+            trace_id=base.trace_id,
+            decision_id=decision_id,
+            reason_code="GOV_FACTS_UNAVAILABLE",
+            safe_field_paths=(),
+            replayability="not_evaluable",
+        ),
+        expected_state_version=expected_state_version,
+    )
 
 
 class SqliteD2AuthorizationGate:
@@ -250,13 +322,15 @@ class SqliteD2AuthorizationGate:
             if candidate is None:
                 raise GovernanceError("GOV_FACTS_UNAVAILABLE")
             matches = [
-                self._constraint_match(
+                self.constraint_match(
                     vault, run_id, owner_id, ref, candidate, d1_input.feed_snapshot_ref
                 )
                 for ref in d1_input.intent.hard_constraint_refs
             ]
-            terms = self._material_terms(vault, run_id, owner_id, checkout, ctx.merchant_ref)
-            freshness = self._freshness(connection, vault, run_id, owner_id, checkout, terms)
+            terms = self.material_terms(
+                self._keys, vault, run_id, owner_id, checkout, ctx.merchant_ref
+            )
+            freshness = self.offer_freshness(connection, vault, run_id, owner_id, checkout, terms)
             hp = self._hp_facts(
                 connection,
                 vault,
@@ -315,24 +389,7 @@ class SqliteD2AuthorizationGate:
                 "terms": terms,
                 "freshness": freshness,
                 "constraint_matches": matches,
-                "d1": {
-                    "schema_version": SCHEMA,
-                    "decision_id": d1.decision.decision_id,
-                    "evidence_id": d1.evidence_id,
-                    "evidence_digest": sha256_digest(canonical_bytes(d1)),
-                    "outcome": d1.decision.outcome,
-                    "run_id": d1_input.run_id,
-                    "owner_ref": d1_input.owner_ref,
-                    "purchase_mode": d1_input.purchase_mode,
-                    "governance_mode": d1_input.governance_mode,
-                    "intent_ref": d1_input.intent.intent_ref.model_dump(mode="json"),
-                    "feed_snapshot_ref": d1_input.feed_snapshot_ref.model_dump(mode="json"),
-                    "selected_variant_id": d1_input.selected_variant_id,
-                    "merchant_ref": d1_input.merchant_ref,
-                    "policy_binding": d1.decision.policy_binding.model_dump(mode="json"),
-                    "context_version": d1_input.context_version,
-                    "input_digest": d1.decision.input_digest,
-                },
+                "d1": resolved_d1(d1),
                 "authorization_id": "authorization:"
                 + pseudonym(
                     self._keys,
@@ -384,7 +441,7 @@ class SqliteD2AuthorizationGate:
         return data, scope, len(history) + 1, policy
 
     @staticmethod
-    def _constraint_match(
+    def constraint_match(
         vault: SqliteD1ProvenanceStore,
         run_id: str,
         owner_id: str,
@@ -413,15 +470,18 @@ class SqliteD2AuthorizationGate:
             "source_snapshot_ref": feed_ref.model_dump(mode="json"),
         }
 
-    def _material_terms(
-        self,
+    @staticmethod
+    def material_terms(
+        keys: ProvenanceKeys,
         vault: SqliteD1ProvenanceStore,
         run_id: str,
         owner_id: str,
         checkout: CheckoutSession,
         merchant_ref: str,
     ) -> dict[str, Any]:
-        """Typed projection of the authoritative checkout; buyer data stays in the vault."""
+        """Typed projection of the authoritative checkout; buyer data stays in the vault.
+
+        Shared with D2-HNP and D3-HNP (hnp_gate), so both modes project a checkout alike."""
         snapshot = checkout.model_dump(mode="json")
         [line] = checkout.line_items
         item = line["item"]
@@ -446,20 +506,16 @@ class SqliteD2AuthorizationGate:
             "currency": checkout.currency.upper(),
             "fulfillment_service_ref": "fulfillment:"
             + pseudonym(
-                self._keys,
+                keys,
                 "fulfillment-service",
                 canonical_bytes(snapshot.get("selected_fulfillment_options")),
             ),
-            "destination_binding": {
-                "schema_version": SCHEMA,
-                "binding_id": "destination:"
-                + pseudonym(self._keys, "destination-id", canonical_bytes([run_id, checkout.id])),
-                "scheme": "hmac-sha256/v1",
-                "key_id": self._keys.key_id,
-                "value": pseudonym(
-                    self._keys, "destination", canonical_bytes(snapshot.get("fulfillment_details"))
-                ),
-            },
+            "destination_binding": destination_binding(
+                keys,
+                "destination:"
+                + pseudonym(keys, "destination-id", canonical_bytes([run_id, checkout.id])),
+                snapshot.get("fulfillment_details"),
+            ),
             "commercial_expires_at": _utc(checkout.expires_at),
         }
         snapshot_ref = vault.register_authorization_source(
@@ -477,15 +533,17 @@ class SqliteD2AuthorizationGate:
         }
 
     @staticmethod
-    def _freshness(
+    def offer_freshness(
         connection: sqlite3.Connection,
         vault: SqliteD1ProvenanceStore,
         run_id: str,
         owner_id: str,
         checkout: CheckoutSession,
         terms: dict[str, Any],
+        contract: dict[str, str] = FRESHNESS_CONTRACT,
     ) -> dict[str, Any]:
-        """The last `approve` freshness check of this checkout, from the verified HP chain."""
+        """The last freshness check of this checkout at the contract's stage (`approve` here,
+        `close` in D2-HNP and D3-HNP), from the verified `hp_evidence` chain."""
         records = read_run(connection, run_id)
         if not chain_is_valid(run_id, records):
             raise GovernanceError("GOV_FACTS_UNAVAILABLE")
@@ -493,7 +551,7 @@ class SqliteD2AuthorizationGate:
             record
             for record in records
             if record.record_kind == "freshness_check"
-            and record.body.get("stage") == "approve"
+            and record.body.get("stage") == contract["stage"]
             and record.body.get("checkout_id") == checkout.id
         ]
         if not checks:
@@ -510,7 +568,7 @@ class SqliteD2AuthorizationGate:
         )
         offer_expiry = (body.get("compared") or {}).get("expires_at", {}).get("offer")
         contract_ref = vault.register_authorization_source(
-            run_id, owner_id, "freshness_contract", canonical_bytes(FRESHNESS_CONTRACT)
+            run_id, owner_id, "freshness_contract", canonical_bytes(contract)
         )
         return {
             "schema_version": SCHEMA,
@@ -596,46 +654,11 @@ class SqliteD2AuthorizationGate:
         try:
             with closing(self._connect()) as connection, connection:
                 connection.execute("BEGIN IMMEDIATE")
-                ledger = SqliteGovernanceEvidenceStore(connection)
-                ledger.initialize_decision_scopes()
-                row = connection.execute(
-                    "SELECT scope FROM governance_episodes WHERE run_id=?", (run_id,)
-                ).fetchone()
                 version = connection.execute(
                     "SELECT state_version FROM purchases WHERE run_id=?", (run_id,)
                 ).fetchone()
-                if row is None or version is None:
-                    raise GovernanceError("GOV_FACTS_UNAVAILABLE")
-                base = parse_model(EvidenceScope, row[0].encode())
-                decision_id = "decision:" + secrets.token_hex(16)
-                ledger.register_decision_scope(
-                    decision_id,
-                    base.model_copy(
-                        update={
-                            "phase": "D2",
-                            "source_refs": (),
-                            "policy_artifact_ref": None,
-                            "engine_artifact_ref": None,
-                        }
-                    ),
-                    policy_bytes=None,
-                    engine_bytes=None,
-                )
-                ledger.record_decision(
-                    InputRejected(
-                        schema_version=SCHEMA,
-                        record_kind="input_rejected",
-                        evidence_id="evidence:" + secrets.token_hex(16),
-                        sequence=len(ledger.for_run(run_id)) + 1,
-                        recorded_at=utc_milliseconds(datetime.now(UTC)),
-                        run_id=run_id,
-                        trace_id=base.trace_id,
-                        decision_id=decision_id,
-                        reason_code="GOV_FACTS_UNAVAILABLE",
-                        safe_field_paths=(),
-                        replayability="not_evaluable",
-                    ),
-                    expected_state_version=int(version[0]),
+                record_input_rejected(
+                    connection, run_id, "D2", None if version is None else int(version[0])
                 )
         except Exception:
             self._lost()

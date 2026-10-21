@@ -204,6 +204,15 @@ class KillSwitchState:
 
 
 @dataclass(frozen=True, slots=True)
+class LedgerCounts:
+    """What `/health` reports (spec §5.4): grants still usable now, tasks running or in doubt."""
+
+    active_grants: int
+    running_tasks: int
+    uncertain_tasks: int
+
+
+@dataclass(frozen=True, slots=True)
 class ReservationRecord:
     reservation_id: str
     grant_id: str

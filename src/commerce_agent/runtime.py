@@ -31,6 +31,7 @@ from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 
 if TYPE_CHECKING:
+    from commerce_agent.delegation.service import DelegationService
     from commerce_agent.governance.authorization import SqliteD2AuthorizationGate
     from commerce_agent.governance.enforce import SqliteD1EnforceGate
     from commerce_agent.governance.shadow import ShadowD1Observer, UnavailableShadowObserver
@@ -50,6 +51,8 @@ class AgentRuntime:
     d1_shadow: "ShadowD1Observer | UnavailableShadowObserver | None" = None
     d1_gate: "SqliteD1EnforceGate | None" = None
     d2_gate: "SqliteD2AuthorizationGate | None" = None
+    # Human Not Present delegations; None unless AGENT_HNP_ENABLED (hnp-governed.md §6).
+    delegations: "DelegationService | None" = None
     # Display name of each merchant origin, from the seller its feed declares at startup.
     merchant_names: dict[str, str] = field(default_factory=dict)
 
@@ -70,6 +73,7 @@ def build_runtime(
     payment_transport: httpx.BaseTransport | None = None,
     clock: Callable[[], datetime] | None = None,
     conversation_router: ConversationRouter | None = None,
+    authority_clock: Callable[[], datetime] | None = None,
 ) -> AgentRuntime:
     if configuration.merchant_bearer_token is None:
         raise RuntimeError("MERCHANT_BEARER_TOKEN is required")
@@ -79,6 +83,12 @@ def build_runtime(
         raise RuntimeError("AGENT_APPROVAL_SECRET is required")
     if configuration.payment_agent_bearer_token is None:
         raise RuntimeError("PAYMENT_AGENT_BEARER_TOKEN is required")
+    hnp_trust = None
+    if configuration.agent_hnp_enabled:
+        from commerce_agent.delegation.bootstrap import load_hnp_trust
+
+        # Before any store or client exists: an unsafe HNP condition stops startup.
+        hnp_trust = load_hnp_trust(configuration)
     d1_gate = None
     if configuration.agent_governance_mode == "enforce":
         from commerce_agent.governance.bootstrap import build_enforce_gate
@@ -222,6 +232,17 @@ def build_runtime(
         router_factory=router_factory,
         recovery=build_governed_recovery(configuration),
     )
+    delegations = None
+    if hnp_trust is not None:
+        from commerce_agent.delegation.bootstrap import build_delegation_service
+
+        delegations = build_delegation_service(
+            configuration,
+            hnp_trust,
+            store=store,
+            feed=published_feed.get if published_feed is not None else lambda: feed,
+            clock=authority_clock,
+        )
     return AgentRuntime(
         store=store,
         client=client,
@@ -235,6 +256,7 @@ def build_runtime(
         d1_shadow=d1_shadow,
         d1_gate=d1_gate,
         d2_gate=d2_gate,
+        delegations=delegations,
         merchant_names=(
             {configuration.merchant_base_url: feed.seller_name} if feed.seller_name else {}
         ),

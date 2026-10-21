@@ -18,7 +18,7 @@ Valores **por defecto; pendientes de confirmar con el asesor**:
 - **D-1, alcance frente al documento:** el documento afirma «HNP implementado y probado en vivo»
   (Nivel 1 de §2.3 más HNP-I1). EC-HNP-03 entra solo si la corrida termina antes de congelar el
   documento.
-- **D-8, contrato operativo:** policy-v1 sigue «propuesto»; `b2-hnp-v1` revisión 1 (§7) es el
+- **D-8, contrato operativo:** policy-v1 sigue «propuesto»; `b2-hnp-v1` revisión 2 (§7) es el
   artefacto operativo de la tesis.
 
 **Nombres que se parecen.** `HNP-00`…`HNP-11`, `HNP-M1`, `HNP-P1`, `HNP-E1`…`E3`, `HNP-V1` e
@@ -542,11 +542,17 @@ UoW-2, UoW-3 y para terminar la tarea reciben `hooks: Sequence[TransactionHook]`
 dentro de su `BEGIN IMMEDIATE`, después de sus propias escrituras y antes del `COMMIT`; si uno lanza,
 se revierte todo. Los usan:
 
-- HNP-06: escribe el registro D2 o D3 en `governance_evidence` y su fila en
-  `governance_decision_scopes`, y verifica la transición (como `_ApprovalTransition` de P3, contra
-  `delegation_grants.state_version` y la reserva). `d2_evidence_id` y `d3_evidence_id` se generan
-  antes de la transacción, como en P3, y el ledger los recibe como valores. Si el hook falla:
-  `GOV_EVIDENCE_UNAVAILABLE`.
+- HNP-06: escribe el registro D2 o D3 en `governance_evidence` y verifica la transición (como
+  `_ApprovalTransition` de P3, contra `delegation_grants.state_version` y la reserva o la fila del
+  outbox). `d2_evidence_id` y `d3_evidence_id` se generan antes de la transacción, como en P3, y el
+  ledger los recibe como valores. Si el hook falla: `GOV_EVIDENCE_UNAVAILABLE`. La fila de
+  `governance_decision_scopes` se registra al armar el input, como en P3. `SqliteHnpPolicyGate`
+  (`governance/hnp_gate.py`, armado por `build_hnp_policy_gate`) devuelve en `HnpGateDecision`:
+  `hooks` (el allow en UoW-1 o UoW-2, el deny en el terminal); `conflict_hooks`, que el executor pasa
+  al terminal cuando UoW-1 o UoW-2 vuelve `blocked` y que guardan el allow como `blocked` más
+  `GOV_STATE_CONFLICT` (el perdedor del CAS deja evidencia); y `transition_ref`, el `outbox_id` que
+  nombra el allow de D3 y con el que el executor escribe la fila del outbox. Las conexiones del ledger
+  de delegación activan `foreign_keys`, que la evidencia necesita.
 - HNP-05: `SqliteAgentStore.transition_hnp_purchase(connection, run_id, *, expected_state_version,
   stage, failure_code=None)`, el CAS de `purchases` que usan UoW-2 y los terminales.
 - HNP-09b: `SqliteAgentStore.record_hnp_completion(connection, run_id, snapshot, *,
@@ -604,7 +610,7 @@ genérico de FastAPI. Las rutas HP no cambian.
 
 | Método y ruta | Cuerpo | Éxito | Errores |
 | --- | --- | --- | --- |
-| `POST /delegations/proposals` | `DelegationProposalRequest` | 201 `DelegationProposal` | 401; 422 `delegation_request_invalid`, `delegation_variant_unavailable`, `delegation_validity_exceeded` |
+| `POST /delegations/proposals` | `DelegationProposalRequest` | 201 `DelegationProposal` | 401; 422 `delegation_request_invalid`, `delegation_variant_unavailable`, `delegation_validity_exceeded`, `delegation_destination_unsupported` |
 | `POST /delegations` | `{proposal_id, scope_digest}` | 201 `DelegationView`; 200 con el mismo grant si la propuesta ya se consintió con ese digest | 401; 404 `delegation_proposal_not_found`; 409 `delegation_scope_mismatch`, `delegation_proposal_expired`; 503 `delegation_signer_unavailable` |
 | `GET /me/delegations` | — | 200 `DelegationList` (más recientes primero) | 401 |
 | `GET /delegations/{grant_id}` | — | 200 `DelegationView` | 401; 404 `delegation_not_found` |
@@ -620,8 +626,41 @@ Revocar un grant que ya está `revoked(operator|escalated|failed)` no escribe na
 `DelegationProposalRequest`: `variant_ids` (1 a 5, únicos), `total_max_minor` (entero > 0),
 `currency` (`"COP"`), `valid_for_seconds` (60 ≤ v ≤ `AGENT_HNP_MAX_VALIDITY_SECONDS`), `details`
 (`CheckoutDetails` de HP) y `preference_text` (opcional). Variante fuera del feed actual del comercio
-configurado o en otra moneda: `delegation_variant_unavailable`. Un total menor que todos los precios no
+configurado o en otra moneda: `delegation_variant_unavailable`. Una dirección que el comercio no
+acepta: `delegation_destination_unsupported`. Un total menor que todos los precios no
 se rechaza: D1 lo escalará con POL-11.
+
+**Cómo lo arma HNP-08** (`delegation_api.py`, `delegation/service.py`, `delegation/views.py`):
+
+- Los cuerpos se leen como JSON estricto (`parse_model`), así que un cuerpo inválido responde
+  `{code, message}` con `delegation_request_invalid` (o `hnp_request_invalid` en las internas) y no
+  el 422 propio de FastAPI, que las rutas HP conservan. Un `valid_for_seconds` menor que 60 es `delegation_request_invalid`; uno mayor que el
+  máximo, `delegation_validity_exceeded`.
+- En el alcance, `merchant_refs` es `merchant_pseudonym` de `MERCHANT_BASE_URL` y
+  `destination_binding` sale de `governance/destination.py`, la misma función que usa D2 sobre los
+  `fulfillment_details` del checkout (K8), con `binding_id = "destination:<proposal_id>"`. En la
+  tarjeta, `merchant_name` es el vendedor del feed (o `Tesis Commerce Merchant`),
+  `destination_label` es `"<city>, <state>"` de la dirección y `instrument_label` es «Tarjeta de
+  prueba del sandbox».
+- **El destino se normaliza como el comercio.** D2 calcula el binding sobre el eco del comercio,
+  y el comercio no devuelve la dirección tal como la recibe: `AddressInfo` en
+  `src/commerce_lab/contracts/commerce.py` del comercio (`abf30df`) acepta un solo destino, y
+  `normalize_supported_city` reescribe la ciudad. Al proponer, antes del digest,
+  `acp/destination.py` (`merchant_fulfillment`) aplica la misma regla: la ciudad sin espacios
+  alrededor y en minúsculas (`casefold`) que sea `bogota` o `bogotá` pasa a `Bogota`, y el
+  departamento `DC`, el país `CO` y el código postal `110111` deben llegar exactos. Los demás
+  campos no cambian. Esa dirección normalizada es la que entra en `destination_binding` y en
+  `destination_label`, y la que se guarda en `checkout_details_json` para que el ejecutor la
+  envíe. Lo que el comercio rechazaría responde 422 `delegation_destination_unsupported`, sin
+  escribir nada, para no consentir un destino que POL-08 siempre escalaría.
+  `tests/fixtures/merchant_destination/cases.json` fija la equivalencia caso por caso, con el
+  commit del comercio del que sale.
+- Al consentir, la propuesta también se da por vencida si ya pasó el `expires_at` del grant (fijado
+  al proponer): no se firma un abierto ya vencido. Antes de guardar, los abiertos se verifican con
+  `verify_open_proof`; si algo falla, 503 `delegation_signer_unavailable` sin escribir nada.
+- La vista de una tarea comprada toma el título de `purchases.selected_variant_id`, el total de la
+  reserva y la orden del outbox. El prellenado de un escalamiento usa la variante elegida o, si la
+  ejecución no llegó a elegir, la primera del alcance, con el total máximo consentido.
 
 ### 5.2 Rutas internas (`/internal/hnp/*`)
 
@@ -668,7 +707,10 @@ los duplica. Las vistas nunca llevan mandatos, tokens, dirección completa ni `s
 ### 5.4 `/health` y `/me/purchases`
 
 `Health` agrega `hnp_enabled: bool`, `hnp_kill_switch: bool`, `hnp_active_grants: int`,
-`hnp_running_tasks: int` y `hnp_uncertain_tasks: int` (los conteos son 0 con el flag apagado).
+`hnp_running_tasks: int` y `hnp_uncertain_tasks: int`. **Ajuste de HNP-08:** con el flag apagado los
+cinco campos se omiten (`exclude_if`) en vez de valer `false` y 0, porque las pruebas HP y los
+runners de los pilotos fijan el cuerpo exacto de `/health`; ausente equivale a HNP apagado.
+`hnp_active_grants` no cuenta un grant `active` que ya venció (las vistas lo muestran `expired`).
 `PurchaseSummary` y `PurchaseTrace` agregan `purchase_mode: "HP" | "HNP"` (HNP-11) como campo
 **opcional**: ausente equivale a `"HP"`, el backend lo omite en las compras HP (como `authorization`
 en P3, `exclude_if`) y lo escribe solo con `"HNP"`. `parsePurchaseTrace` acepta su ausencia. Así las
@@ -690,6 +732,11 @@ Con `AGENT_HNP_ENABLED=true` el arranque exige además `AGENT_AUTH_MODE=jwt`,
 `AGENT_AP2_REQUIRED=true`, `AGENT_AP2_PRIVATE_KEY_PEM`, las tres variables HNP secretas,
 `AGENT_D1_KEY_ID` y `AGENT_D1_HMAC_KEY_HEX` (§4.2), y `AGENT_GOVERNANCE_MODE` en `off` o `enforce`;
 con `enforce`, `AGENT_HP_FLOW=governed`. Cualquier otra combinación falla al arrancar.
+**Ajuste de HNP-08:** también exige `AGENT_D1_AES_KEY_HEX`, porque los seudónimos salen de
+`ProvenanceKeys` (`pseudonym`), que valida las dos claves de la bóveda juntas. Las comprobaciones
+viven en `delegation/bootstrap.py`, corren antes de crear el store y fallan con `RuntimeError` sin
+repetir ningún valor; el arranque construye el emisor, que compara las públicas de la Agent Key y
+del proveedor.
 
 **Decisión de spec, constantes y no settings:** cierres de 300 s, lease de 120 s, tolerancia de reloj
 de los verificadores de 60 s, 5 variantes por alcance y 280 caracteres de indicación. Son parte del
@@ -704,7 +751,8 @@ y el PSP no ganan variables: reutilizan su confianza AP2 y `PAYMENT_MERCHANT_ID`
 
 ## 7. Policy set `b2-hnp-v1`
 
-Policy set nuevo, revisión 1, con las filas HNP de `APPLICABLE_RULES` (Adenda 1 de la ola HP):
+Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP de `APPLICABLE_RULES`
+(Adenda 1 de la ola HP):
 
 | `(fase, purchase_mode)` | Reglas, en orden | Acción | Policy set | PR |
 | --- | --- | --- | --- | --- |
@@ -723,36 +771,55 @@ Policy set nuevo, revisión 1, con las filas HNP de `APPLICABLE_RULES` (Adenda 1
   boundary (D1, D2 y D3) deniega con `GOV_ARTIFACT_MISMATCH`, sin llamar al motor, si
   `(policy_set_id == "b2-hnp-v1") != (purchase_mode == "HNP")`. HNP-05 además restringe
   `rules_apply` para que `D1_PILOT_RULES` valga solo con `purchase_mode="HP"`.
-- **Artefacto:** el mismo `D1PolicyArtifact` de P1/P3, con `policy_set_id="b2-hnp-v1"`, `version=1`,
+- **Artefacto:** el mismo `D1PolicyArtifact` de P1/P3, con `policy_set_id="b2-hnp-v1"`, `version=2`,
   `allowed_merchant_refs` (la lista del operador que evalúa POL-02 de HP,
   `AGENT_D1_ALLOWED_MERCHANT_ORIGINS`; sin ella, el comercio configurado), `currency="COP"`,
   `quantity=1` y:
   - `policy_ids = APPLICABLE_RULES[("D1", "HNP")]` y `allowed_actions = ("prepare_checkout",)`;
   - `authorization` en su variante HNP, `HnpAuthorizationRules{policy_ids =
     APPLICABLE_RULES[("D2", "HNP")], allowed_actions = ("complete_purchase",), authentication_bases =
-    ("service_and_grant",), profiles = ("ap2-hnp/v1",)}`; el campo pasa a ser `AuthorizationRules |
-    HnpAuthorizationRules | None`;
+    ("service_and_grant",), profiles = ("profile:ap2-hnp-v1",)}`; el campo pasa a ser
+    `AuthorizationRules | HnpAuthorizationRules | None`. El id del perfil es el `ObjectRef.id` de
+    gobernanza (K6): `Id` no admite `/`, así que `ap2-hnp/v1` (`ap2_hnp.PROFILE_ID`) se nombra
+    `profile:ap2-hnp-v1` (`hnp_policy.HNP_AUTHORIZATION_PROFILE_ID`);
   - `dispatch` nuevo, `DispatchRules{policy_ids = APPLICABLE_RULES[("D3", "HNP")], allowed_actions =
     ("commit_dispatch",)}`, tipado `DispatchRules | None`.
 
   Los campos nuevos quedan fuera de la forma canónica cuando son `None` (`exclude_if`, como
-  `authorization` en P3), así que los bytes de `b2-hp-v2` y de `b2-pilot-v1` no cambian.
+  `authorization` en P3), así que los bytes de `b2-hp-v2` y de `b2-pilot-v1` no cambian. El
+  artefacto valida C02 en sus secciones: `HnpAuthorizationRules` y `dispatch` solo en `b2-hnp-v1`,
+  `AuthorizationRules` nunca en él.
 - **Archivos y dueños:** `governance/hnp_policy.py` (`build_hnp_policy`) lo crea HNP-05 con la fila
   D1 y lo extiende HNP-06 con `authorization` y `dispatch`. En `governance/models.py`, HNP-05 agrega
   la fila `(D1, HNP)` y HNP-06 las filas `(D2, HNP)` y `(D3, HNP)`, `"D3"` en `Phase`,
   `HnpAuthorizationRules` (la contraparte de `AuthorizationRules` de P3, con `profiles`) y
   `DispatchRules`.
-- **Revisión. Decisión de spec:** HNP-05 crea `b2-hnp-v1` con la fila D1 y HNP-06 le agrega D2 y D3,
-  sin subir la revisión. Es el mismo patrón que P1/P3 con `b2-hp-v2`: no existe evidencia con ese
-  artefacto antes de la corrida.
+- **Revisión. Decisión de spec, corregida en HNP-06:** HNP-05 crea `b2-hnp-v1` revisión 1 con la
+  fila D1 y HNP-06 le agrega D2 y D3 en la revisión 2 (`HNP_POLICY_REVISION`). La bóveda de
+  procedencia rechaza bytes nuevos bajo una revisión que ya registró (`d1_provenance_policies`), así
+  que completar el artefacto sin subirla dejaría inservible cualquier base con un D1-HNP de la
+  revisión 1. La evidencia de la revisión 1 sigue verificándose con sus propios bytes.
+- **Entradas y motor:** la rama `hnp` vive en `governance/hnp_models.py`; la unión discriminada por
+  `purchase_mode` es `D2PolicyInput` (`parse_d2_input`), y `models.AuthorizationPolicyInput` sigue
+  nombrando la rama HP, con sus bytes. Los límites son `HnpD2PolicyBoundary` y `D3PolicyBoundary`
+  (`evaluator.py`), con `ReferenceHnpAuthorizationEvaluator` y `ReferenceDispatchEvaluator`; antes
+  del motor niegan C02, los prerrequisitos de `hnp_rules` y un perfil que el artefacto no admite
+  (`GOV_AUTHORIZATION_PROFILE_UNRESOLVED`). El motor medido agrega `hnp_models.py` y `hnp_rules.py`
+  a su manifiesto y pasa a `reference-d1-d2-d3:3`; los archivos del motor anterior (cuatro fuentes)
+  siguen verificándose.
 - **Reglas:** las de policy-v1 §6 con la rama `hnp` de `AuthorizationPolicyInput` (P3) y
   `DispatchPolicyInput`. Razones por id de política (`POLICY_REASONS`). Sin cortocircuito: N10 lista
   POL-09 y POL-10 cuando ambas fallan.
 - **Hechos del executor:** `PrincipalFacts` con `principal_ref="service:hnp-executor"`,
   `authentication_basis="service_and_grant"`, `owns_run` por el dueño del grant, y `permitted_actions`
   del grant (las tres acciones). `GrantFacts.agent_key_ref = agent_key_kid`. `authorization_profile`
-  = `{status, profile_ref: {id: "ap2-hnp/v1", version: 1, digest}}`, con el digest de las constantes
-  del perfil AP2 HNP (HNP-04).
+  = `{status, profile_ref: {id: "profile:ap2-hnp-v1", version: 1, digest}}`, con el digest de las
+  constantes del perfil AP2 HNP (`PROFILE_DIGEST`, HNP-04).
+- **POL-03 y POL-04 en HNP:** POL-03 no exige `principal_ref == owner_ref` (el principal es el
+  servicio; el dueño lo liga el grant con `owns_run`). POL-04 exige el allow de D1 de este episodio,
+  como en HP, y que el grant, la `reservation_intent` y la operación sean del run y del dueño
+  esperados (policy-v1, POL-04); por eso un grant de otro dueño también falla POL-07 y una reserva
+  de otro run también POL-09.
 
 ## 8. Escalamiento, revocación y kill switch
 
@@ -956,7 +1023,7 @@ historias.
   HP (§5.4). La traza de una compra HNP lee la compra de §4.6 (`purchases`, `completion_results`,
   `orders`), igual que HP.
 - En HNP no aparecen `approval` ni `authorization_signed`; `payment_authorized`, `order_confirmed`,
-  `order_event` y `failed` se reutilizan. `PolicyRef` muestra `b2-hnp-v1`, revisión 1.
+  `order_event` y `failed` se reutilizan. `PolicyRef` muestra `b2-hnp-v1`, revisión 2.
 
 ## 11. Condiciones
 
@@ -1047,7 +1114,8 @@ archivo caliente, no global. La coordinación del día está en el contrato de c
 13. Rutas internas rechazan cualquier `Origin`.
 14. El kill switch revoca (`operator`) los grants que alcanza; apagarlo no los reanuda.
 15. Constantes del perfil (300 s, 120 s, 60 s, 5 variantes, 280 caracteres) en código, no en settings.
-16. `b2-hnp-v1` armado en código, sin variable; HNP-05 lo crea y HNP-06 lo completa sin subir revisión.
+16. `b2-hnp-v1` armado en código, sin variable; HNP-05 crea la revisión 1 y HNP-06 la completa en
+    la revisión 2 (la bóveda no admite bytes nuevos en una revisión registrada).
 17. Fail-closed gana a escalar cuando D2/D3 niega con políticas de ambos grupos.
 18. Eslabones comunes con nombres de P2; los de cada modo son `not_applicable` en el otro.
 19. D2-HNP reutiliza `authorization_decision` de P3; D3 usa `dispatch_decision`; `TraceActor`
@@ -1062,3 +1130,5 @@ archivo caliente, no global. La coordinación del día está en el contrato de c
 24. `purchase_mode` en traza e historial es opcional y se omite en HP.
 25. `uncertain` no se concilia con código en v1.
 26. Revocar un grant ya cerrado por otra causa responde 200 `no_effect`.
+27. El destino se normaliza al proponer como lo hace el comercio; uno que el comercio rechazaría es
+    422 `delegation_destination_unsupported`.

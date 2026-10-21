@@ -309,7 +309,9 @@ class HnpExecutionService:
             amount_minor=checkout.total_minor,
             d2_evidence_id=d2.evidence_id,
         )
-        reserved = self._applied(run, self._ledger.reserve(reserve, hooks=d2.hooks), purchase)
+        reserved = self._applied(
+            run, self._ledger.reserve(reserve, hooks=d2.hooks), purchase, lost=d2.conflict_hooks
+        )
         if reserved.reservation is None:
             raise LookupError("UoW-1 returned without the reservation")
         digest = self._close(run, checkout, reserved, operation_id, purchase)
@@ -322,14 +324,15 @@ class HnpExecutionService:
             expected=reserved.authority,
             reservation_id=reservation_id,
             reservation_version=reserved.reservation.state_version,
-            outbox_id=self._new_id("ob"),
+            # The id the D3 allow names as its transition (§4.3); B0-HNP has none.
+            outbox_id=d3.transition_ref or self._new_id("ob"),
             checkout_expires_at=checkout.expires_at,
             payment_request_digest=digest,
             d3_evidence_id=d3.evidence_id,
         )
         hooks = (*d3.hooks, self._completing(run.run_id, purchase))
         step = self._ledger.commit_dispatch(commit, hooks=hooks)
-        self._applied(run, step, purchase, stage="uow2")
+        self._applied(run, step, purchase, stage="uow2", lost=d3.conflict_hooks)
         return step
 
     # Steps 2 to 5
@@ -510,12 +513,20 @@ class HnpExecutionService:
     # Ending a run
 
     def _applied(
-        self, run: _Run, step: Step, purchase: int, *, stage: KillSwitchStage = "uow1"
+        self,
+        run: _Run,
+        step: Step,
+        purchase: int,
+        *,
+        stage: KillSwitchStage = "uow1",
+        lost: Sequence[TransactionHook] = (),
     ) -> Execution:
+        """`lost`: the allow's `conflict_hooks`, kept as `blocked` with the terminal (§4.5)."""
         if step.status in ("applied", "reused") and step.execution is not None:
             return step.execution
         if step.status == "blocked":
-            self._end(run, step.outcome or "state_conflict", stage=stage, purchase=purchase)
+            outcome = step.outcome or "state_conflict"
+            self._end(run, outcome, stage=stage, purchase=purchase, hooks=lost)
         raise _Stopped(step)  # another lease owns the task: it writes the terminal, not this run
 
     def _end(
