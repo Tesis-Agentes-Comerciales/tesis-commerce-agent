@@ -26,6 +26,7 @@ function states(canvasElement: HTMLElement) {
 const HP_ONLY = ["Pedido recibido", "Producto elegido", "Tu aprobación", "Autorización firmada"]
 const NOT_REACHED = ["Reservar el uso único", "Cerrar la autorización", "Autorizar el pago", "Confirmar la orden"]
 const NO_CHARGE = "No se hizo ningún cobro."
+const PRECAUTION = "Por precaución, la compra se detuvo."
 
 const meta = {
   title: "Trace/ControlTimeline HNP",
@@ -126,13 +127,13 @@ export const Escalated: Story = {
   },
 }
 
-/** La frescura al cerrar detuvo la compra: qué cambió, D2 sin evaluar y el escalamiento. */
+/** La frescura al cerrar detuvo la compra: qué cambió y el escalamiento, sin llegar a D2. */
 export const OfferChangedAtClose: Story = {
   args: { trace: HNP_TRACES.offerChanged },
   play: async ({ canvas, canvasElement }) => {
+    // El ejecutor se detiene en la frescura: D2 no llega a correr.
     await expect(titles(canvasElement).slice(4)).toEqual([
       "Las condiciones del comercio cambiaron",
-      "No se pudo verificar la autorización",
       "Necesito tu decisión",
       ...NOT_REACHED,
     ])
@@ -232,12 +233,10 @@ export const Resumed: Story = {
 export const WaitingForPolicy: Story = {
   args: { trace: HNP_TRACES.waitingForPolicy },
   play: async ({ canvas, canvasElement }) => {
-    await expect(titles(canvasElement).at(-1)).toBe("La compra espera la política de compra")
-    await expect(
-      canvas.getByText(
-        `La compra espera que se recupere la decisión de la política de compra. ${NO_CHARGE}`,
-      ),
-    ).toBeVisible()
+    await expect(titles(canvasElement).at(-1)).toBe(
+      "La compra espera la recuperación de la política de compra",
+    )
+    await expect(canvas.getByText(`La delegación quedó cerrada. ${NO_CHARGE}`)).toBeVisible()
     await expect(canvas.queryByText("No se ejecutó")).toBeNull()
   },
 }
@@ -256,7 +255,52 @@ export const CheckoutRefused: Story = {
     await expect(
       canvas.getByText(`El producto se agotó antes de completar la compra. ${NO_CHARGE}`),
     ).toBeVisible()
-    await expect(canvas.getByText(`El comercio no pudo crear el checkout. ${NO_CHARGE}`)).toBeVisible()
+    // `checkout_failed` no dice qué falló: también sale con el checkout ya creado.
+    await expect(canvas.getByText(`${PRECAUTION} ${NO_CHARGE}`)).toBeVisible()
+  },
+}
+
+const HAPPY = HNP_TRACES.enforceCompleted.steps
+const RESERVED = stepOf(HNP_TRACES.enforceCompleted, "reservation")
+
+/**
+ * El cierre con la Agent Key falló con el checkout creado y el uso único reservado: la tarea termina
+ * `checkout_failed`, la reserva se libera y la traza no culpa al comercio ni a la política.
+ */
+export const FailedAfterCheckout: Story = {
+  args: {
+    trace: {
+      ...HNP_TRACES.enforceCompleted,
+      status: "failed",
+      steps: [
+        ...HAPPY.slice(0, HAPPY.indexOf(RESERVED) + 1),
+        { ...RESERVED, id: "reservation:2", at: "2026-10-21T15:00:03.281Z", outcome: "released" },
+        {
+          id: "failed",
+          at: "2026-10-21T15:00:03.281Z",
+          duration_ms: null,
+          actor: "agent",
+          state: "error",
+          kind: "failed",
+          code: "checkout_failed",
+        },
+      ],
+    },
+  },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(titles(canvasElement).slice(3)).toEqual([
+      "Checkout creado en el comercio",
+      "Oferta vigente al cerrar",
+      "Autorización delegada verificada",
+      "Uso único reservado",
+      "Uso único liberado",
+      "La compra no se pudo completar",
+      "Cerrar la autorización",
+      "Autorizar el pago",
+      "Confirmar la orden",
+    ])
+    await expect(rows(canvasElement)[8]).toHaveTextContent(`${PRECAUTION} ${NO_CHARGE}`)
+    await expect(canvas.queryByText(/no pudo crear el checkout|no estaba disponible/)).toBeNull()
   },
 }
 
@@ -274,7 +318,7 @@ async function expectFitsColumn(canvasElement: HTMLElement) {
 }
 
 const SUMMARIES: [PurchaseTrace, string][] = [
-  [HNP_TRACES.waitingForPolicy, "Por confirmar: espera la política"],
+  [HNP_TRACES.waitingForPolicy, "Por confirmar: recuperación pendiente"],
   [HNP_TRACES.d2Denied, "Bloqueada por la política de compra"],
   [HNP_TRACES.killSwitch, "Compra cancelada"],
 ]

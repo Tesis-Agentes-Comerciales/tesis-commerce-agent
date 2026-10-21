@@ -7,7 +7,7 @@
   "merchant_name": "Synthetic Commerce Merchant",
   "total": null,
   "started_at": "2026-10-21T14:58:10.204Z",
-  "updated_at": "2026-10-21T15:00:02.851Z",
+  "updated_at": "2026-10-21T15:00:02.826Z",
   "steps": [
     {
       "id": "delegation_consented",
@@ -118,75 +118,8 @@
       "evidence_digest": "sha256:7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"
     },
     {
-      "id": "authorization_decision",
-      "at": "2026-10-21T15:00:02.836Z",
-      "duration_ms": 2,
-      "actor": "policy",
-      "state": "blocked",
-      "kind": "authorization_decision",
-      "decision": {
-        "mode": "enforce",
-        "outcome": "deny",
-        "effect": "blocked",
-        "policy": {
-          "set_id": "b2-hnp-v1",
-          "revision": 2
-        },
-        "rules": [
-          {
-            "id": "POL-03",
-            "result": "not_evaluated",
-            "observed": null,
-            "expected": null
-          },
-          {
-            "id": "POL-04",
-            "result": "not_evaluated",
-            "observed": null,
-            "expected": null
-          },
-          {
-            "id": "POL-05",
-            "result": "not_evaluated",
-            "observed": null,
-            "expected": null
-          },
-          {
-            "id": "POL-06",
-            "result": "not_evaluated",
-            "observed": null,
-            "expected": null
-          },
-          {
-            "id": "POL-07",
-            "result": "not_evaluated",
-            "observed": null,
-            "expected": null
-          },
-          {
-            "id": "POL-08",
-            "result": "not_evaluated",
-            "observed": null,
-            "expected": null
-          },
-          {
-            "id": "POL-09",
-            "result": "not_evaluated",
-            "observed": null,
-            "expected": null
-          }
-        ],
-        "reason_codes": [
-          "GOV_FRESHNESS_UNRESOLVED"
-        ],
-        "latency_ms": 2,
-        "decision_id": "decision:5c7e9a1b3d5f4071c2e4a6b8d0f2a4c6",
-        "evidence_id": "evidence:a1c3e5f7092b4d6e8f0a2c4e6b8d0f13"
-      }
-    },
-    {
       "id": "escalated",
-      "at": "2026-10-21T15:00:02.851Z",
+      "at": "2026-10-21T15:00:02.826Z",
       "duration_ms": null,
       "actor": "agent",
       "state": "blocked",
