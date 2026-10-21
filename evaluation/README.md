@@ -213,6 +213,9 @@ re-puntuar el JSONL congelado del piloto v1 da los mismos números
 - `data/pilot-scenarios.json`: matriz canónica y legible por máquina de los cinco escenarios piloto.
 - `data/pilot-matrix.md`: vista humana, protocolo de ejecución y criterios de puntuación.
 - `data/b2-design.json`: manifiesto de tratamiento, puntos de decisión, evidencia y criterios de éxito.
+- `data/b2-pilot-v1.json`: manifiesto pre-registrado del piloto B0'/B2 v1 (congelado).
+- `data/b2-pilot-v2.json`, `data/pilot-scenarios-v2.json`: pre-registro del piloto v2 con la
+  política `b2-hp-v2` y los escenarios S01–S08 ([spec](../docs/design/b2-governed-pilot-v2.md)).
 - `data/hnp/cases.json`, `data/hnp/oracle.json`: corpus HNP de 27 casos y su oráculo separado.
 - `results/b0-pilot-v1.jsonl`: las 25 ejecuciones del piloto B0.
 - `results/b0-pilot-v1.summary.json`: agregado generado por el runner.
