@@ -230,6 +230,7 @@ def test_an_incoherent_error_receipt_is_refused_before_writing(
             replace(receipt("checkout", error="invalid_mandate"), order_id="order_1"),
         ),
         (receipt("payment"), replace(receipt("checkout"), order_id="order_2")),
+        (replace(receipt("payment"), status="Error"), receipt("checkout")),
     ],
     ids=[
         "swapped",
@@ -238,6 +239,7 @@ def test_an_incoherent_error_receipt_is_refused_before_writing(
         "payment_error",
         "checkout_error",
         "another_order",
+        "error_status",
     ],
 )
 def test_uow3_refuses_incoherent_receipts_before_writing(
@@ -251,6 +253,40 @@ def test_uow3_refuses_incoherent_receipts_before_writing(
         flow.ledger.record_completion(flow.task_id, flow.lease_id, payment, checkout)
 
     assert (flow.state(), event_types(flow)) == (before, events)
+
+
+# The receipt status of the AP2 profile: the JWT's `Success`/`Error` or the spec's lowercase form
+
+
+@pytest.mark.parametrize(
+    ("given", "kept"),
+    [("Success", "success"), ("Error", "error"), ("success", "success"), ("error", "error")],
+)
+def test_a_receipt_status_in_either_form_of_the_profile_is_kept_lowercase(
+    given: str, kept: str
+) -> None:
+    assert replace(receipt("payment"), status=given).status == kept
+
+
+@pytest.mark.parametrize("status", ["SUCCESS", "ERROR", "Ok", "failed", "", "Success "])
+def test_a_receipt_status_outside_the_profile_is_refused(status: str) -> None:
+    with pytest.raises(ValueError, match="AP2 receipt status"):
+        replace(receipt("payment"), status=status)
+
+
+def test_an_error_receipt_as_the_jwt_says_it_rejects_the_dispatch(flow: Flow) -> None:
+    flow.committed()
+    flow.advance("payment_sent")
+    error = replace(receipt("payment", error="invalid_mandate"), status="Error")
+
+    step = flow.ledger.reject_dispatch(flow.task_id, flow.lease_id, "invalid_mandate", error)
+
+    assert step.status == "closed" and step.execution is not None
+    assert step.execution.outbox is not None and step.execution.outbox.state == "rejected"
+    [recorded] = [
+        e for e in flow.ledger.events(flow.grant_id) if e.event_type == "receipt_recorded"
+    ]
+    assert recorded.body["status"] == "error"
 
 
 def test_a_completed_dispatch_keeps_its_order(flow: Flow) -> None:

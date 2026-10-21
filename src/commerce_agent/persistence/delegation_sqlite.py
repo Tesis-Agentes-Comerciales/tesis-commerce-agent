@@ -809,8 +809,9 @@ class SqliteDelegationLedger:
     ) -> Step:
         """UoW-3: the order with both receipts consumes the reservation and the grant. A grant
         revoked or expired after the commitment stays so; the reservation is consumed anyway."""
-        if (payment_receipt.kind, checkout_receipt.kind) != ("payment", "checkout") or (
-            payment_receipt.error is not None or checkout_receipt.error is not None
+        if (payment_receipt.kind, checkout_receipt.kind) != ("payment", "checkout") or any(
+            receipt.status != "success" or receipt.error is not None
+            for receipt in (payment_receipt, checkout_receipt)
         ):
             raise ValueError("UoW-3 takes the payment and checkout receipts, without error")
         with self._fenced(task_id, lease_id) as (connection, now, ex):
