@@ -518,14 +518,11 @@ def test_hn11_ends_as_its_oracle_says(tmp_path: Path, condition: str) -> None:
     ]
     if condition == "B2-HNP":
         assert governance == oracle["governance"]
-        assert chain_vector_match(oracle, chain) == 1
-        return
-    assert oracle["governance"] is None and governance["D1"] == "not_reached"
-    # Reported, the manifest unchanged: the registered B0-HNP vector has intent and d1_decision
-    # missing, but HNP-V1 marks both not_applicable when the task ends before `start`.
-    links = chain["links"]
-    assert (links["intent"]["status"], links["d1_decision"]["status"]) == ("not_applicable",) * 2
-    assert chain_vector_match(oracle, chain) == 0
+    else:
+        assert oracle["governance"] is None and governance["D1"] == "not_reached"
+    # In B0-HNP intent and d1_decision never happen: not_applicable (amendment A1).
+    assert chain_vector_match(oracle, chain) == 1
+    assert chain["complete"] is True
 
 
 def test_every_model_row_counts_and_unknown_tokens_stay_unknown(
