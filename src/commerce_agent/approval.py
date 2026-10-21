@@ -102,8 +102,11 @@ class ApprovalService:
         expected_fingerprint: str,
         checkout: CheckoutSession,
         checkout_jwt: str | None = None,
-        before_signing: Callable[[], None] | None = None,
+        before_signing: Callable[[], str | None] | None = None,
+        save: Callable[[ApprovalRecord], None] | None = None,
     ) -> ApprovalRecord:
+        """`before_signing` may return the D2 evidence that authorized this approval; `save`
+        then writes the record with that decision's transition instead of on its own."""
         terms = self.present(checkout)
         if not hmac.compare_digest(expected_fingerprint, terms.fingerprint):
             raise ApprovalError(
@@ -111,8 +114,7 @@ class ApprovalService:
                 code="checkout_terms_changed",
             )
         # Live checks run only on terms the human saw, before any mandate or record exists.
-        if before_signing is not None:
-            before_signing()
+        authorization_evidence_id = before_signing() if before_signing is not None else None
         approved_at = _timestamp(self._clock())
         checkout_mandate: str | None = None
         payment_mandate: str | None = None
@@ -135,13 +137,15 @@ class ApprovalService:
                 checkout_jwt,
                 checkout_mandate,
                 payment_mandate,
+                authorization_evidence_id,
             ),
             consumed_at=None,
             checkout_jwt=checkout_jwt,
             checkout_mandate=checkout_mandate,
             payment_mandate=payment_mandate,
+            authorization_evidence_id=authorization_evidence_id,
         )
-        self._store.save_approval(record)
+        (save or self._store.save_approval)(record)
         return record
 
     def authorize(self, *, run_id: str, checkout: CheckoutSession) -> ApprovalRecord:
@@ -171,6 +175,7 @@ class ApprovalService:
             record.checkout_jwt,
             record.checkout_mandate,
             record.payment_mandate,
+            record.authorization_evidence_id,
         )
         if not hmac.compare_digest(record.signature, expected_signature):
             raise ApprovalError("Approval signature is invalid", code="invalid_approval")
@@ -200,13 +205,16 @@ class ApprovalService:
         checkout_jwt: str | None = None,
         checkout_mandate: str | None = None,
         payment_mandate: str | None = None,
+        authorization_evidence_id: str | None = None,
     ) -> str:
         values = (run_id, checkout_id, fingerprint, actor_id, approved_at)
         mandate_hashes = tuple(
             hashlib.sha256((value or "").encode()).hexdigest()
             for value in (checkout_jwt, checkout_mandate, payment_mandate)
         )
-        content = "\x1f".join((*values, *mandate_hashes)).encode()
+        # Bound only when D2 authorized the approval: earlier signatures stay valid.
+        bound = (authorization_evidence_id,) if authorization_evidence_id is not None else ()
+        content = "\x1f".join((*values, *mandate_hashes, *bound)).encode()
         return hmac.new(
             self._secret.get_secret_value().encode(), content, hashlib.sha256
         ).hexdigest()

@@ -121,6 +121,17 @@ mismo texto, nunca con el mensaje interno. La aprobación, la cancelación del
 comprador y la finalización usan los mismos servicios que B0 (`approval.py`,
 `completion.py`) y dejan su evidencia en las tablas de B0, no en el diario de D1.
 
+### Autorización D2-HP al aprobar
+
+Si el artefacto de política configurado trae reglas D2 (sección `authorization`, como
+`b2-hp-v2`), aprobar evalúa además POL-03..06 después de la frescura `approve` y antes de
+firmar ([diseño](../design/hp-p3-d2-authorization.md)). Un deny responde 409 `d2_denied` y un
+fallo del motor o de los hechos `d2_unavailable`; en los dos casos no se firma ni se registra la
+aprobación. Un allow escribe la aprobación, la etapa `approved` y su evidencia D2 en una sola
+transacción; si esa transacción falla responde `d2_allow_unapplied`. Sin reglas D2
+(`b2-pilot-v1`) la aprobación es la de siempre. Con reglas D2, una base cuyo ledger se creó antes
+de D2 (solo admite la fase D1) impide arrancar.
+
 ## Límites
 
 - La guarda B0 `invalid_candidate` corre antes del gate: POL-01 nunca deniega en

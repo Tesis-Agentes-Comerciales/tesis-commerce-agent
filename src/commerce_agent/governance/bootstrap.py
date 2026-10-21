@@ -27,6 +27,7 @@ from .provenance import (
 )
 
 if TYPE_CHECKING:
+    from .authorization import SqliteD2AuthorizationGate
     from .enforce import SqliteD1EnforceGate
 
 
@@ -148,3 +149,44 @@ def build_enforce_gate(
     except Exception:
         # Never fall back to ungoverned B0, and never echo settings or secrets.
         raise RuntimeError("AGENT_GOVERNANCE_MODE=enforce requires valid D1 settings") from None
+
+
+def build_authorization_gate(
+    settings: Settings, commercial_clock: Callable[[], datetime] | None, *, ap2: bool
+) -> "SqliteD2AuthorizationGate | None":
+    """D2-HP gate: enforce, governed flow and a policy artifact with D2 rules (b2-hp-v2).
+
+    Any other configuration approves as before; b2-pilot-v1 carries no D2 rules.
+    """
+    from .authorization import SqliteD2AuthorizationGate
+
+    if settings.agent_governance_mode != "enforce" or settings.agent_hp_flow != "governed":
+        return None
+    try:
+        configured = configured_d1(settings, commercial_clock)
+        if not isinstance(configured.configuration, D1EnforceConfiguration):
+            raise ValueError("D1 enforce configuration required")
+        policy, binding = configured.policy_bytes, configured.policy_binding
+        if policy is None or binding is None:
+            # The same artifact every D1 context of this configuration registers.
+            policy, binding = build_d1_policy(
+                policy_set_id=configured.configuration.policy_set_id,
+                version=configured.configuration.policy_revision,
+                merchant_ref=merchant_pseudonym(configured.keys, settings.merchant_base_url),
+            )
+        if verify_artifact(policy, binding).authorization is None:
+            return None
+        gate = SqliteD2AuthorizationGate(
+            settings.agent_database_path,
+            configured.configuration,
+            configured.keys,
+            configured.clocks,
+            profile="hp-ap2/v1" if ap2 else "hp-hmac/v1",
+            policy_bytes=configured.policy_bytes,
+            policy_binding=configured.policy_binding,
+        )
+        # A ledger created before D2 only admits D1: refuse it rather than lose evidence.
+        gate.ready()
+        return gate
+    except Exception:
+        raise RuntimeError("AGENT_GOVERNANCE_MODE=enforce requires valid D2 settings") from None

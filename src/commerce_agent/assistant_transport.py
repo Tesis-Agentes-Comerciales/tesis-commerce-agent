@@ -112,6 +112,19 @@ ERROR_MESSAGES = {
         "Esta compra pasó por la política de compra y no puedo continuarla desde aquí, así que "
         "no seguí con ella."
     ),
+    # D2 refuses before any mandate exists: nothing was signed or charged.
+    "d2_denied": (
+        "La política de compra no autorizó esta compra al aprobarla. No se firmó ninguna "
+        "autorización ni se hizo ningún cobro."
+    ),
+    "d2_unavailable": (
+        "No pude verificar la autorización de la compra, así que la detuve por precaución. "
+        "No se firmó ninguna autorización ni se hizo ningún cobro."
+    ),
+    "d2_allow_unapplied": (
+        "La política autorizó la compra, pero no pude registrar tu aprobación, así que la detuve "
+        "por precaución. No se firmó ninguna autorización ni se hizo ningún cobro."
+    ),
     "checkout_terms_changed": (
         "Las condiciones del comercio cambiaron (por ejemplo, el precio, el envío o la "
         "disponibilidad), así que no seguí con la compra. No se hizo ningún cobro."

@@ -235,3 +235,31 @@ def test_ap2_approval_signs_both_mandates_and_detects_tampering(tmp_path: Path) 
     with pytest.raises(ApprovalError) as tampered:
         approval.authorize(run_id="run-ap2", checkout=current)
     assert tampered.value.code == "invalid_approval"
+
+
+def test_d2_evidence_is_bound_to_the_approval_signature(tmp_path: Path) -> None:
+    store, approval = service(tmp_path)
+    current = checkout()
+    displayed = approval.present(current)
+    saved: list[ApprovalRecord] = []
+
+    def save(record: ApprovalRecord) -> None:
+        saved.append(record)
+        store.save_approval(record)
+
+    record = approval.approve(
+        run_id="run-1",
+        actor_id="buyer-1",
+        expected_fingerprint=displayed.fingerprint,
+        checkout=current,
+        before_signing=lambda: "evidence:d2",
+        save=save,
+    )
+    # The D2 hook writes the record instead of the service, and the store keeps the link.
+    assert saved == [record] and record.authorization_evidence_id == "evidence:d2"
+    assert store.approval("run-1") == record
+    assert approval.authorize(run_id="run-1", checkout=current) == record
+    store.save_approval(replace(record, authorization_evidence_id="evidence:other"))
+    with pytest.raises(ApprovalError) as tampered:
+        approval.authorize(run_id="run-1", checkout=current)
+    assert tampered.value.code == "invalid_approval"

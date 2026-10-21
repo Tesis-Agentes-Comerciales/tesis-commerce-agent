@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from enum import StrEnum
 from typing import Protocol
 
@@ -109,6 +109,27 @@ class D1EnforceGate(Protocol):
     def post_create_flow(self, run_id: str, owner_id: str) -> PostCreateFlow: ...
 
 
+class D2Attempt(Protocol):
+    """One approval: `authorize` before any mandate exists, `commit` in place of the save."""
+
+    def authorize(self, current: ApprovalTerms) -> str: ...
+
+    def commit(self, approval: ApprovalRecord) -> None: ...
+
+
+class D2AuthorizationGate(Protocol):
+    """Backend injection only: POL-03..06 when the human approves (D2-HP)."""
+
+    def attempt(
+        self,
+        *,
+        run_id: str,
+        actor_id: str,
+        expected_fingerprint: str,
+        checkout: CheckoutSession,
+    ) -> AbstractContextManager[D2Attempt]: ...
+
+
 class D1Continuation(Protocol):
     """Whether a purchase with D1 history may continue past checkout preparation."""
 
@@ -156,6 +177,7 @@ class PurchaseService:
         d1_observer: D1SelectionObserver | None = None,
         d1_gate: D1EnforceGate | None = None,
         d1_continuation: D1Continuation | None = None,
+        d2_gate: D2AuthorizationGate | None = None,
         ap2_evidence: Ap2EvidenceRecorder | None = None,
     ) -> None:
         self._feed = feed
@@ -170,6 +192,9 @@ class PurchaseService:
         if d1_continuation is not None and d1_gate is None:
             raise ValueError("Governed continuation requires the D1 enforce gate")
         self._d1_continuation = d1_continuation
+        if d2_gate is not None and d1_continuation is None:
+            raise ValueError("D2 authorization requires the governed continuation")
+        self._d2_gate = d2_gate
         self._ap2_evidence = ap2_evidence
 
     def start(
@@ -342,15 +367,40 @@ class PurchaseService:
             if checkout_jwt is None:
                 raise ApprovalError("Signed checkout is required", code="ap2_checkout_required")
             self._checkout.verify_signed_checkout(checkout_jwt, checkout)
-        record = self._approvals.approve(
-            run_id=run_id,
-            actor_id=actor_id,
-            expected_fingerprint=expected_fingerprint,
-            checkout=checkout,
-            checkout_jwt=checkout_jwt,
-            before_signing=lambda: self._check_offer(run_id, checkout, "approve"),
-        )
-        self._store.update_purchase(run_id, stage=PurchaseStage.APPROVED)
+        if self._d2_gate is None:
+            record = self._approvals.approve(
+                run_id=run_id,
+                actor_id=actor_id,
+                expected_fingerprint=expected_fingerprint,
+                checkout=checkout,
+                checkout_jwt=checkout_jwt,
+                before_signing=lambda: self._check_offer(run_id, checkout, "approve"),
+            )
+            self._store.update_purchase(run_id, stage=PurchaseStage.APPROVED)
+        else:
+            with self._d2_gate.attempt(
+                run_id=run_id,
+                actor_id=actor_id,
+                expected_fingerprint=expected_fingerprint,
+                checkout=checkout,
+            ) as attempt:
+
+                def authorize() -> str:
+                    # Freshness first: D2 reads the `approve` check this request just recorded.
+                    self._check_offer(run_id, checkout, "approve")
+                    return attempt.authorize(self._approvals.present(checkout))
+
+                # D2 writes the approval, the `approved` stage and its evidence in one transaction.
+                record = self._approvals.approve(
+                    run_id=run_id,
+                    actor_id=actor_id,
+                    expected_fingerprint=expected_fingerprint,
+                    checkout=checkout,
+                    checkout_jwt=checkout_jwt,
+                    before_signing=authorize,
+                    save=attempt.commit,
+                )
+        # AP2 consent: only once the approval exists (after the D2 commit when D2 runs).
         if self._ap2_evidence is not None:
             self._ap2_evidence.consent(record)
         return record
