@@ -235,7 +235,7 @@ _KEYS = {
 }
 _LEASE = timedelta(seconds=LEASE_SECONDS)
 _DISPATCH_STEPS = ("committed", "payment_sent", "payment_accepted", "complete_sent", "completed")
-_SENT = ("payment_sent", "payment_accepted", "complete_sent")
+_SENT = ("payment_sent", "complete_sent")  # §4.4: only a send can end in doubt
 _CANCELLATIONS = frozenset({"revoked_by_owner", "kill_switch", "grant_expired"})
 _UNCERTAIN = frozenset({"dispatch_timeout", "partial_verifier_failure", "receipt_mismatch"})
 _VERIFIER_OUTCOMES: dict[Ap2Error, OutcomeCode] = {

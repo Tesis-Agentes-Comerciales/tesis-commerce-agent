@@ -72,10 +72,14 @@ def test_a_dispatch_timeout_becomes_uncertain_without_releasing(flow: Flow) -> N
 
 
 def test_uncertainty_needs_a_send(flow: Flow) -> None:
+    """§4.4: only `payment_sent` or `complete_sent` can end `uncertain`."""
     flow.committed()
-    assert flow.ledger.mark_uncertain(flow.task_id, flow.lease_id, "dispatch_timeout").status == (
-        "blocked"
-    )
+    ledger, task_id, lease = flow.ledger, flow.task_id, flow.lease_id
+    assert ledger.mark_uncertain(task_id, lease, "dispatch_timeout").status == "blocked"
+    flow.advance("payment_sent", "payment_accepted")
+    assert ledger.mark_uncertain(task_id, lease, "dispatch_timeout").status == "blocked"
+    flow.advance("complete_sent")
+    assert ledger.mark_uncertain(task_id, lease, "receipt_mismatch").status == "closed"
 
 
 @pytest.mark.parametrize(
