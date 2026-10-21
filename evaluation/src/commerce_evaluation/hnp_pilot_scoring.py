@@ -531,6 +531,14 @@ def summarize(rows: Sequence[Mapping[str, Any]], conditions: Sequence[str]) -> d
     return {
         "runs": len(rows),
         "harness_errors": sum("harness_error" in row for row in rows),
+        # Rows with each reading that failed (a run artifact or a flow_trace among them).
+        "measurement_errors": dict(
+            sorted(
+                Counter(
+                    name for row in rows for name in row.get("measurement_errors") or {}
+                ).items()
+            )
+        ),
         # Over every row: a layer A row with a model call is itself a harness error.
         "layer_a_model_calls": sum(
             (row.get("metrics") or {}).get("model_calls") or 0 for row in layer_a

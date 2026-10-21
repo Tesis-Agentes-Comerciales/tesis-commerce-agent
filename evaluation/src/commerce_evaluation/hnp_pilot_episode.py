@@ -37,6 +37,7 @@ from commerce_evaluation.governance_pilot import (
 )
 from commerce_evaluation.hnp_pilot_scoring import TERMINAL_TASK_STATES, escalation_view_shown
 from commerce_evaluation.pilot_measures import read_only, read_psp_payments
+from commerce_evaluation.redaction import error_text
 
 GOVERNANCE_MODES = {"B0-HNP": "off", "B2-HNP": "enforce"}
 MERCHANT_LABELS = {"B0-HNP": "B0", "B2-HNP": "B2"}
@@ -290,7 +291,7 @@ def _measure[T](errors: dict[str, str], name: str, read: Callable[[], T]) -> T |
     try:
         return read()
     except Exception as error:
-        errors[name] = f"{type(error).__name__}: {error}"
+        errors[name] = error_text(error)
         return None
 
 

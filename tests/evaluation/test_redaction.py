@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
 from commerce_evaluation import governance_pilot, hnp_pilot
 from commerce_evaluation.governance_pilot import (
@@ -19,6 +20,7 @@ from commerce_evaluation.governance_pilot import (
     PilotError,
     _ap2_private_key,
 )
+from commerce_evaluation.hnp_pilot_episode import _measure
 from commerce_evaluation.redaction import REDACTED, redact, secret_values, sweep_fields
 
 # Shaped like the real ones: a three-part JWT, an OpenAI project key and an opaque bearer token.
@@ -157,3 +159,19 @@ def test_the_log_tail_also_hides_secret_shapes(tmp_path: Path) -> None:
 
     assert JWT not in tail and OPENAI_KEY not in tail
     assert tail.count(REDACTED) == 2
+
+
+def test_a_failed_reading_names_where_its_input_failed_never_the_input() -> None:
+    """A Pydantic error quotes its input cut short, a fragment no sweep recognizes as a secret."""
+    key = secrets.token_hex(32)
+
+    class Reading(BaseModel):
+        count: int
+
+    errors: dict[str, str] = {}
+    assert (
+        _measure(errors, "ledger", lambda: Reading.model_validate({"count": f"x {key} y"})) is None
+    )
+    assert errors == {"ledger": "ValidationError: count: int_parsing"}
+    assert _measure(errors, "order", lambda: int("not a count")) is None
+    assert errors["order"] == "ValueError: invalid literal for int() with base 10: 'not a count'"

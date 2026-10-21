@@ -225,6 +225,30 @@ def test_a_failure_to_keep_is_a_measurement_error_and_the_row_survives(tmp_path:
     assert finished["metrics"] == row["metrics"]
 
 
+def test_no_row_names_a_local_directory(tmp_path: Path) -> None:
+    """An error names the artifacts root, the invocation's temporary directory or the home
+    directory by their labels, never by the absolute path (T3)."""
+    run_dir = tmp_path / "temp" / "001-b2-hnp-hn01"
+    run_dir.mkdir(parents=True)
+    root = tmp_path / "runs"
+    root.write_text("a file where the artifacts directory should be", encoding="utf-8")
+    merchant = Path.home() / "repos" / "tesis-commerce-merchant"
+    row = {
+        "harness_error": f"PilotError: {merchant} answered 500",
+        "measurement_errors": {"ledger": f"OperationalError: {run_dir / 'agent.db'}"},
+    }
+
+    finished = finished_row(artifacts(root), run_dir, row, key={})
+
+    assert "<artifacts-dir>" in finished["measurement_errors"]["run_artifact"]
+    assert finished["measurement_errors"]["ledger"] == (
+        "OperationalError: <run-tmp>/001-b2-hnp-hn01/agent.db"
+    )
+    assert finished["harness_error"] == "PilotError: ~/repos/tesis-commerce-merchant answered 500"
+    text = json.dumps(finished)
+    assert str(tmp_path) not in text and str(Path.home()) not in text
+
+
 def test_the_row_s_error_fields_are_swept_with_the_invocation_secrets(tmp_path: Path) -> None:
     token = secrets.token_urlsafe(32)
     row = {
@@ -508,4 +532,7 @@ def test_each_hnp_pilot_row_links_its_artifact(
         assert sorted(manifest["files"]) == ["agent.db", "agent.log", "feed/products.jsonl"]
         assert_nowhere(directory, *started_with)
         assert REDACTED in (directory / "agent.log").read_text(encoding="utf-8")
+        # The stub agent.db has no HNP ledger: the block is null and the invocation goes on (T3).
+        assert row["flow_trace"] is None
+        assert row["measurement_errors"]["flow_trace"].startswith("OperationalError")
     assert rows[0]["merchant_run_id"] == "mr-1"

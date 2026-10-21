@@ -36,8 +36,11 @@ DATABASES = ("agent.db", "agent.graph.db")
 LOG = "agent.log"
 FEED = "feed"
 MANIFEST = "MANIFEST.json"
-# Row fields the runners fill from errors: redacted before the row is written (§4.2).
-ERROR_FIELDS = ("harness_error", "error_response", "measurement_errors")
+# Row fields the runners fill from errors, and the HNP row's flow_trace (T3): swept before the row
+# is written (§4.2).
+SWEPT_FIELDS = ("harness_error", "error_response", "measurement_errors", "flow_trace")
+# What a row shows instead of a local directory (§4.2): no row names an absolute local path.
+ARTIFACTS_LABEL, TEMPORARY_LABEL, HOME_LABEL = "<artifacts-dir>", "<run-tmp>", "~"
 SERVICES = ("agent", "merchant", "payment")
 
 
@@ -101,6 +104,21 @@ class RunArtifacts:
     def hide(self, *values: str | None) -> None:
         self.secrets.update(value for value in values if value)
 
+    def local_paths(self, run_dir: Path) -> dict[str, str]:
+        """The local directories a row's error may name, and the label it shows instead: the
+        artifacts root, the invocation's temporary directory (the parent of each row's run
+        directory) and the home directory."""
+        temporary = run_dir.parent
+        labels = {
+            Path.home(): HOME_LABEL,
+            temporary: TEMPORARY_LABEL,
+            temporary.resolve(): TEMPORARY_LABEL,
+            self.root: ARTIFACTS_LABEL,
+            self.root.resolve(): ARTIFACTS_LABEL,
+        }
+        # A filesystem root (a home of `/`) would relabel every path separator.
+        return {str(path): label for path, label in labels.items() if path.parent != path}
+
     def keep(self, run_dir: Path, key: Mapping[str, Any]) -> dict[str, Any]:
         """Copy the row's run directory, write its MANIFEST.json and return the row's link."""
         invocation = self.root / self.invocation_id
@@ -155,7 +173,8 @@ class RunArtifacts:
 def finished_row(
     artifacts: RunArtifacts, run_dir: Path, row: Mapping[str, Any], *, key: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """The row as the runner writes it: linked to its artifact and with its error fields redacted.
+    """The row as the runner writes it: linked to its artifact, with its error fields and its
+    flow_trace redacted and without an absolute local path.
 
     Failing to keep the artifact never loses the row nor fails the run, whose observation stands
     without it: `run_artifact` is null and the reason is the row's `run_artifact` measurement
@@ -169,4 +188,6 @@ def finished_row(
         finished["measurement_errors"] = dict(row.get("measurement_errors") or {}) | {
             "run_artifact": f"{type(error).__name__}: {error}"
         }
-    return sweep_fields(finished, ERROR_FIELDS, artifacts.secrets)
+    return sweep_fields(
+        finished, SWEPT_FIELDS, artifacts.secrets, paths=artifacts.local_paths(run_dir)
+    )

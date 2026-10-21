@@ -375,3 +375,24 @@ def test_the_summary_keeps_conditions_apart_and_counts_layer_a_model_calls() -> 
     # B0-HNP's purchases have the PDP links missing: h2_hnp is 0 by construction.
     assert b0["h2_hnp"] == 0.0
     assert set(summary["by_condition_scenario"]["B2-HNP"]) == {"HN01", "HN03", "HN04"}
+
+
+def test_the_summary_counts_each_measurement_error_by_its_reading() -> None:
+    """A failed copy or flow_trace is never silent; the measures stay as they were."""
+    rows = [
+        {"scenario_id": "HN01", "condition": "B2-HNP", "measurement_errors": {}},
+        {
+            "scenario_id": "HN01",
+            "condition": "B2-HNP",
+            "measurement_errors": {"run_artifact": "OSError: <artifacts-dir>", "flow_trace": "x"},
+        },
+        {"scenario_id": "HN01", "condition": "B0-HNP", "measurement_errors": {"flow_trace": "x"}},
+        {"scenario_id": "HN01", "condition": "B0-HNP", "harness_error": "x"},
+    ]
+    summary = summarize(rows, LEDGER_CONDITIONS)
+    assert summary["measurement_errors"] == {"flow_trace": 2, "run_artifact": 1}
+    without = summarize([{**row, "measurement_errors": {}} for row in rows], LEDGER_CONDITIONS)
+    assert without["measurement_errors"] == {}
+    assert {key: value for key, value in summary.items() if key != "measurement_errors"} == {
+        key: value for key, value in without.items() if key != "measurement_errors"
+    }

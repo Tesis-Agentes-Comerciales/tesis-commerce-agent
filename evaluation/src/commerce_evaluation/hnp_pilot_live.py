@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from commerce_evaluation import hnp_pilot_agent, verify_evidence
+from commerce_evaluation.flow_trace import with_flow_trace
 from commerce_evaluation.governance_pilot import (
     AGENT_SECRETS,
     INVOCATION_SECRETS,
@@ -182,6 +183,16 @@ def artifact_key(row: Mapping[str, Any]) -> dict[str, Any]:
     return {name: row.get(name) for name in ARTIFACT_KEY} | {"purchase_run_id": task.get("run_id")}
 
 
+def finished_episode(
+    artifacts: RunArtifacts, run_dir: Path, row: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The episode's row as the runner writes it. Its `flow_trace` (T3) is built once the agent
+    stopped and `score_episode` and C8 were measured, and only adds keys; then the run directory
+    is kept and the row swept (T1)."""
+    traced = with_flow_trace(row, run_dir, artifacts.secrets)
+    return finished_row(artifacts, run_dir, traced, key=artifact_key(traced))
+
+
 def run_live(
     preparation: Preparation,
     *,
@@ -247,12 +258,11 @@ def run_live(
         psp_database = Path(environment["PAYMENT_DATABASE_PATH"])
 
         def execute(episode: PlannedEpisode, index: int) -> dict[str, Any]:
-            """The episode's row, linked to its kept run directory and redacted (T1)."""
+            """The episode's row, with its flow_trace, its kept run directory and redacted."""
             run_dir = (
                 temp / f"{index:03d}-{episode.condition.lower()}-{episode.scenario_id.lower()}"
             )
-            row = episode_row(episode, index, run_dir)
-            return finished_row(artifacts, run_dir, row, key=artifact_key(row))
+            return finished_episode(artifacts, run_dir, episode_row(episode, index, run_dir))
 
         def episode_row(episode: PlannedEpisode, index: int, run_dir: Path) -> dict[str, Any]:
             scenario, condition = episode.scenario, episode.condition
