@@ -39,6 +39,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | `src/commerce_evaluation/hnp/` | arnés HNP-01 y validador LLM de HNP-02 ([`llm/`](src/commerce_evaluation/hnp/llm/README.md)) |
 | `src/commerce_evaluation/hnp_review_demo.py`, `hnp_matrix.py` | runners de HNP-01 y HNP-02 |
 | `src/commerce_evaluation/hnp_pilot.py` | `hnp-pilot`: plan, guardas y `--dry-run` del piloto HNP v1 ([spec](../docs/design/hnp-pilot.md)) |
+| `src/commerce_evaluation/hnp_pilot_episode.py` | un episodio HNP sobre el stack del piloto de gobernanza y lo que se lee después |
 | `src/commerce_evaluation/hnp_pilot_scoring.py` | oráculo, métricas y costo de cada fila del piloto HNP |
 | `src/commerce_evaluation/hnp_pilot_agent.py` | agente de HN11 con el selector guionado inyectado por código |
 | `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto lo ejecuta con el entorno del Merchant |
