@@ -375,6 +375,21 @@ class SqliteD1ProvenanceStore:
         return ProductFeed.model_validate_json(self._get(run_id, owner_id, ref, "feed")[0])
 
     @_safe
+    def selected_unit_minor(
+        self, run_id: str, owner_id: str, feed_ref: ObjectRef, variant_id: str
+    ) -> int | None:
+        """POL-11's fact: the selected variant's catalog price in the registered snapshot.
+
+        `None` when the snapshot prices it in another currency: D1 compares COP only.
+        """
+        candidate = self.recover_feed(run_id, owner_id, feed_ref).candidate(variant_id)
+        if candidate is None:
+            raise GovernanceError("GOV_INPUT_INVALID")
+        if candidate.currency.upper() != "COP":
+            return None
+        return candidate.observed_unit_amount_minor
+
+    @_safe
     def register_context(
         self,
         run_id: str,

@@ -138,13 +138,22 @@ def selection_step(records: PurchaseRecords, requested_at: str | None) -> TraceS
     )
 
 
+RuleValue = str | dict[str, Any] | None
+
+
+def cop(minor: int | None) -> dict[str, Any] | None:
+    """D1 compares COP minor units only (IntentFacts.currency)."""
+    return None if minor is None else {"minor": minor, "currency": "COP"}
+
+
 def policy_rules(
     record: DecisionRecord, records: PurchaseRecords, origins: dict[str, str]
 ) -> tuple[dict[str, Any], ...]:
     results = {rule.policy_id: rule.result for rule in record.decision.rule_results}
+    values: dict[str, tuple[RuleValue, RuleValue]] = {}
     if not results:  # A runtime guard stopped the purchase before any rule was evaluated.
-        results = dict.fromkeys(("POL-01", "POL-02"), "not_evaluated")
-        values = {}
+        rules = records.policy.policy_ids if records.policy else ("POL-01", "POL-02")
+        results = dict.fromkeys(rules, "not_evaluated")
     else:
         data = record.policy_input()
         allowed = records.policy.allowed_merchant_refs if records.policy else ()
@@ -154,13 +163,15 @@ def policy_rules(
                 origins.get(data.merchant_ref, data.merchant_ref),
                 ", ".join(sorted(origins.get(ref, ref) for ref in allowed)),
             ),
+            # The catalog price against the total budget, never the merchant's total.
+            "POL-11": (cop(data.selected_unit_minor), cop(data.intent.max_total_minor)),
         }
     return tuple(
         {
             "id": rule,
             "result": result,
-            "observed": values.get(rule, ("", ""))[0] or None,
-            "expected": values.get(rule, ("", ""))[1] or None,
+            "observed": values.get(rule, (None, None))[0] or None,
+            "expected": values.get(rule, (None, None))[1] or None,
         }
         for rule, result in results.items()
     )

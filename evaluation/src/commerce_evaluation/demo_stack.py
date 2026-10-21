@@ -38,6 +38,7 @@ from jwcrypto.jwk import JWK
 from commerce_agent.llm.prices import format_minor_amount
 from commerce_evaluation.governance_pilot import (
     CONDITIONS,
+    HP_V2_POLICY,
     ConditionMismatchError,
     D1RunKeys,
     PilotCondition,
@@ -275,9 +276,10 @@ def base_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
 def mode_environment(
     mode: DemoMode, merchant_origin: str, keys: D1RunKeys | None
 ) -> dict[str, str]:
-    """The pilot's condition variables; pol02-deny only swaps the POL-02 allowlist."""
+    """The pilot's condition variables with the b2-hp-v2 policy (POL-11 included); pol02-deny
+    only swaps the POL-02 allowlist."""
     allowed = merchant_origin if mode.allows_merchant else OTHER_MERCHANT
-    return agent_environment(mode.condition, allowed, keys)
+    return agent_environment(mode.condition, allowed, keys, HP_V2_POLICY)
 
 
 @dataclass(frozen=True)
@@ -779,10 +781,15 @@ class Launcher:
             f"Modo efectivo (de /health): governance_mode={health.get('governance_mode')} · "
             f"hp_flow={health.get('hp_flow')}"
         )
-        allowlist = plan.mode_environment().get("AGENT_D1_ALLOWED_MERCHANT_ORIGINS")
+        environment = plan.mode_environment()
+        allowlist = environment.get("AGENT_D1_ALLOWED_MERCHANT_ORIGINS")
         if allowlist is not None:
             excluded = "" if plan.mode.allows_merchant else " (excluye al comercio de la demo)"
             self.say(f"Comercios permitidos por POL-02: {allowlist}{excluded}")
+            self.say(
+                f"Política D1: {environment['AGENT_D1_POLICY_SET_ID']} · "
+                f"revisión {environment['AGENT_D1_POLICY_REVISION']}"
+            )
         self.say(f"UI:    {plan.ui_origin}")
         self.say(f"Auth:  {plan.ports.origin('auth')}")
         self.say(f"Logs:  {plan.run_dir}")

@@ -124,7 +124,9 @@ comprador y la finalización usan los mismos servicios que B0 (`approval.py`,
 ## Límites
 
 - La guarda B0 `invalid_candidate` corre antes del gate: POL-01 nunca deniega en
-  el flujo integrado. El deny demostrable es POL-02 (merchant no autorizado).
+  el flujo integrado. Los deny demostrables son POL-02 (merchant no autorizado) y, con la
+  política `b2-hp-v2`, POL-11 (el precio del catálogo por la cantidad supera el presupuesto
+  total; [hp-p1-budget-d1.md](../design/hp-p1-budget-d1.md)).
 - La cancelación del comprador y la finalización no se registran en
   `d1_post_create_events`: ese diario termina en `awaiting_confirmation`.
 - Una compra `uncertain` cuenta como pendiente y bloquea compras nuevas del mismo

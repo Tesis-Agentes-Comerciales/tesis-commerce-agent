@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 
 from commerce_agent.api import create_app
 from commerce_agent.config import Settings
-from commerce_agent.governance.bootstrap import build_enforce_gate
+from commerce_agent.governance.bootstrap import build_enforce_gate, configured_d1
+from commerce_agent.governance.evaluator import verify_artifact
 from commerce_evaluation.governance_pilot import (
     AGENT_SECRETS,
     CONDITIONS,
@@ -70,6 +71,23 @@ def test_b2_environment_starts_the_enforce_gate_with_the_governed_flow(
     assert settings.agent_hp_flow == "governed"
     assert settings.agent_d1_allowed_merchant_origins == MERCHANT
     build_enforce_gate(settings, None)
+
+
+def test_the_v1_pilot_stays_pinned_to_its_published_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # B2-PILOT-v1 was published with b2-pilot-v1; POL-11 (b2-hp-v2) would change its S02 path.
+    environment = agent_environment(B2, MERCHANT, KEYS)
+    start_with(environment | {"AGENT_DATABASE_PATH": str(tmp_path / "agent.db")}, monkeypatch)
+
+    configured = configured_d1(Settings(_env_file=None), None)  # type: ignore[call-arg]
+
+    assert environment["AGENT_D1_POLICY_SET_ID"] == "b2-pilot-v1"
+    assert environment["AGENT_D1_POLICY_REVISION"] == "1"
+    assert environment["AGENT_D1_KEY_ID"] == "b2-pilot-v1-run"
+    assert configured.policy_binding is not None
+    policy = verify_artifact(configured.policy_bytes, configured.policy_binding)
+    assert policy.policy_ids == ("POL-01", "POL-02")
 
 
 @pytest.mark.parametrize("requested", ["B0prime", "B0"])

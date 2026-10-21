@@ -52,6 +52,40 @@ export const ProductOutsideRequest: Story = {
   },
 }
 
+/**
+ * S02 con `b2-hp-v2`: el precio del catálogo ya supera el presupuesto total, así que la política se
+ * detiene antes del checkout. Muestra el precio y el presupuesto, como la regla de comercios.
+ */
+export const BudgetNotSatisfiable: Story = {
+  args: {
+    decision: decisionOf(TRACES.blockedBudget),
+    merchant: traceMerchant(TRACES.blockedBudget),
+  },
+  play: async ({ canvas, userEvent }) => {
+    await expect(
+      canvas.getByRole("heading", { name: "La política de compra detuvo esta compra" }),
+    ).toBeVisible()
+    await expect(canvas.getByText("No se cumplió una regla.")).toBeVisible()
+    await expect(canvas.getByText("Precio dentro de tu presupuesto")).toBeVisible()
+    await expect(canvas.getByText("Precio en el catálogo")).toBeVisible()
+    await expect(canvas.getByText(/^\$\s?1\.540\.000(,00)? COP$/)).toBeVisible()
+    await expect(canvas.getByText("Tu presupuesto total")).toBeVisible()
+    await expect(canvas.getByText(/^\$\s?1\.000\.000(,00)? COP$/)).toBeVisible()
+    await expect(canvas.getByText(NOTHING_HAPPENED)).toBeVisible()
+    // Solo la regla que falló: las que cumplen no se listan en la tarjeta.
+    await expect(canvas.queryByText("Comercio permitido")).toBeNull()
+    await expect(canvas.getByText("BUDGET_NOT_SATISFIABLE")).not.toBeVisible()
+    await userEvent.click(canvas.getByText("Detalle técnico"))
+    await expect(canvas.getByText("POL-11")).toBeVisible()
+    await expect(canvas.getByText("b2-hp-v2 · revisión 1")).toBeVisible()
+  },
+}
+
+export const BudgetNotSatisfiableMobile: Story = {
+  args: BudgetNotSatisfiable.args,
+  globals: { viewport: { value: "mobile", isRotated: false } },
+}
+
 /** La política no respondió: se detiene por precaución, sin reglas que mostrar. */
 export const PolicyUnavailable: Story = {
   args: { decision: decisionOf(TRACES.policyUnavailable) },

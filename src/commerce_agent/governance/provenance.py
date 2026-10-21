@@ -11,7 +11,25 @@ from pydantic import BaseModel, ConfigDict, SecretBytes, field_validator, model_
 from commerce_agent.config import validate_service_base_url
 
 from .evaluator import GovernanceError, verify_artifact
-from .models import SCHEMA, D1PolicyArtifact, Id, ObjectRef, One, PolicyBinding, UtcTime, Version
+from .models import (
+    APPLICABLE_RULES,
+    D1_PILOT_RULES,
+    SCHEMA,
+    D1PolicyArtifact,
+    Id,
+    ObjectRef,
+    One,
+    PolicyBinding,
+    Rules,
+    UtcTime,
+    Version,
+)
+
+HP_POLICY_SET_ID = "b2-hp-v2"
+# D1 rules of each named policy set: b2-hp-v2 takes the D1/HP row of APPLICABLE_RULES. Any other
+# set, b2-pilot-v1 included, keeps the pilot's POL-01 and POL-02 with the same artifact bytes, so
+# its published runs stay reproducible.
+D1_RULES_BY_POLICY_SET: dict[str, Rules] = {HP_POLICY_SET_ID: APPLICABLE_RULES[("D1", "HP")]}
 
 
 class ProvenanceModel(BaseModel):
@@ -185,7 +203,7 @@ def build_d1_policy(
         schema_version=SCHEMA,
         policy_set_id=policy_set_id,
         version=version,
-        policy_ids=("POL-01", "POL-02"),
+        policy_ids=D1_RULES_BY_POLICY_SET.get(policy_set_id, D1_PILOT_RULES),
         allowed_actions=("prepare_checkout",),
         allowed_merchant_refs=(merchant_ref,) if isinstance(merchant_ref, str) else merchant_ref,
         currency="COP",

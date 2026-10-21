@@ -96,7 +96,10 @@ El runner le pasa al agente la condición como variables de proceso, que ganan s
 | `B2` | `AGENT_GOVERNANCE_MODE=enforce`, `AGENT_HP_FLOW=governed`, `AGENT_D1_ALLOWED_MERCHANT_ORIGINS` = origen del comercio y los `AGENT_D1_*` de abajo |
 
 - Los identificadores de D1 son estables: política `b2-pilot-v1`, revisión `1` y clave
-  `b2-pilot-v1-run`. Las claves HMAC y AES se generan en memoria en cada invocación y solo las
+  `b2-pilot-v1-run`. El runner del piloto v1 queda fijado a esa política (`PILOT_V1_POLICY` en
+  `governance_pilot.py`), con POL-01 y POL-02, para que sus resultados publicados se puedan
+  reproducir. `demo-stack` usa la misma condición B2 con `b2-hp-v2` (`HP_V2_POLICY`), que agrega
+  POL-11 («Precio dentro de tu presupuesto») a D1. Las claves HMAC y AES se generan en memoria en cada invocación y solo las
   recibe el agente. No se escriben en los resultados y se ocultan en la cola del log del agente.
 - Antes de cada repetición, el runner lee `GET /health` del agente. Si `governance_mode` o `hp_flow`
   no son los de la condición, aborta la invocación completa, con todas sus condiciones. Cada fila

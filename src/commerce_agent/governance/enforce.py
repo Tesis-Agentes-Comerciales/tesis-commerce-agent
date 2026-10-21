@@ -242,6 +242,7 @@ class SqliteD1EnforceGate:
             eligible = sorted(item.candidate.variant_id for item in selection.ranked)
             if len(eligible) != len(set(eligible)) or candidate.variant_id not in eligible:
                 raise GovernanceError("GOV_INPUT_INVALID")
+            unit = vault.selected_unit_minor(run_id, owner_id, feed_ref, candidate.variant_id)
             template = {
                 "schema_version": SCHEMA,
                 "run_id": run_id,
@@ -263,6 +264,7 @@ class SqliteD1EnforceGate:
                 "eligible_variant_ids": eligible,
                 "selected_variant_id": candidate.variant_id,
                 "merchant_ref": ctx.merchant_ref,
+                **({} if unit is None else {"selected_unit_minor": unit}),
             }
             key = creation_idempotency_key(
                 self._keys.pseudonym_key,

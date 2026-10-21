@@ -59,8 +59,9 @@ class PolicyRef(TraceModel):
 class PolicyRule(TraceModel):
     id: Text
     result: Literal["pass", "fail", "not_evaluated"]
-    observed: Text | None
-    expected: Text | None
+    # A text (POL-01 variants, POL-02 origins) or an amount (POL-11), which the UI formats.
+    observed: Text | Money | None
+    expected: Text | Money | None
 
 
 class PolicyDecision(TraceModel):

@@ -1,0 +1,81 @@
+{
+  "run_id": "run_7d2b9e41c05a4f63b8e1a2c9d4f60b17",
+  "status": "blocked",
+  "policy_mode": "enforce",
+  "request": "Quiero exactamente el Google Pixel 8 de 128 GB negro, pero no puedo gastar mas de 1.000.000 COP y no acepto otro modelo.",
+  "merchant": "http://127.0.0.1:4120",
+  "merchant_name": "Synthetic Commerce Merchant",
+  "total": null,
+  "started_at": "2026-10-21T15:20:04.218Z",
+  "updated_at": "2026-10-21T15:20:31.902Z",
+  "steps": [
+    {
+      "id": "request",
+      "at": "2026-10-21T15:20:04.218Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "request"
+    },
+    {
+      "id": "selection",
+      "at": "2026-10-21T15:20:31.897Z",
+      "duration_ms": 27679,
+      "actor": "agent",
+      "state": "done",
+      "kind": "selection",
+      "product": "Google Pixel 8 128GB",
+      "total_minor": 154000000,
+      "currency": "COP"
+    },
+    {
+      "id": "policy_decision",
+      "at": "2026-10-21T15:20:31.902Z",
+      "duration_ms": 5,
+      "actor": "policy",
+      "state": "blocked",
+      "kind": "policy_decision",
+      "decision": {
+        "mode": "enforce",
+        "outcome": "deny",
+        "effect": "blocked",
+        "policy": {
+          "set_id": "b2-hp-v2",
+          "revision": 1
+        },
+        "rules": [
+          {
+            "id": "POL-01",
+            "result": "pass",
+            "observed": "BBGooglePixel8-128GB",
+            "expected": "BBGooglePixel8-128GB"
+          },
+          {
+            "id": "POL-02",
+            "result": "pass",
+            "observed": "http://127.0.0.1:4120",
+            "expected": "http://127.0.0.1:4120"
+          },
+          {
+            "id": "POL-11",
+            "result": "fail",
+            "observed": {
+              "minor": 154000000,
+              "currency": "COP"
+            },
+            "expected": {
+              "minor": 100000000,
+              "currency": "COP"
+            }
+          }
+        ],
+        "reason_codes": [
+          "BUDGET_NOT_SATISFIABLE"
+        ],
+        "latency_ms": 5,
+        "decision_id": "decision:3f8a0c6e2d914b57a1e9c4d02b7f5e63",
+        "evidence_id": "evidence:9c1e5a7b3d20f46e8a5b2c71d0e9f384"
+      }
+    }
+  ]
+}
