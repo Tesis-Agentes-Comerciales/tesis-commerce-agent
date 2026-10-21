@@ -109,8 +109,8 @@
     },
     "P2": {
       "branch": "feat/evidence-chain",
-      "provides": "uv run verify-evidence and the per-link chain",
-      "readiness_check": "the verify-evidence entry point is installed"
+      "provides": "order webhooks in the runner (#69), linked receipts (#71) and the verifier: verify_database and h2_summary",
+      "readiness_check": "the verifier module is installed and its links are the nine of evidence_chain"
     },
     "P3": {
       "branch": "feat/d2-hp-authorization",
@@ -146,13 +146,12 @@
     "evidence_chain_scenarios": ["S01", "S05"]
   },
   "evidence_chain": {
-    "verifier": "uv run verify-evidence",
+    "verifier": "commerce_evaluation.verify_evidence: verify_database and h2_summary (P2)",
     "links": [
       "intent",
       "d1_decision",
       "checkout_created",
-      "freshness_present",
-      "freshness_approve",
+      "freshness",
       "d2_decision",
       "approval",
       "mandates",
@@ -160,8 +159,9 @@
       "order_webhook"
     ],
     "statuses": ["ok", "missing", "mismatch", "not_applicable"],
-    "complete": "every link listed here is ok",
-    "h2": "complete chains / purchases the runner completed with a confirmed order, per condition"
+    "freshness": "one link for both freshness checks, present and approve",
+    "complete": "a purchase with an effect (an order) is complete only when the nine links are ok; not_applicable is not accepted for it",
+    "h2": "complete chains / purchases with an effect (an order), per condition"
   },
   "acceptance": {
     "S01": {"oracle_pass": "10/10", "purchase_completed": "10/10 of the approved", "d2_outcome": "allow on every approval", "evidence_chain_complete": "10/10 of the completed"},
@@ -186,7 +186,7 @@
   },
   "allowed_amendments": {
     "rule": "Only before the first live repetition, recorded here with date and reason in the same commit the run uses; never after seeing a live result. A smoke run does not count as a result",
-    "E1_verifier_contract": "map the verify-evidence arguments and link names to P2's final contract; the ten links and the definition of a complete chain stay",
+    "E1_verifier_contract": "map the call to the verifier to P2's final contract; the nine links and the definition of a complete chain stay",
     "E2_d2_refusal_code": "if P3 refuses an approval with a code outside the d1_/d2_ prefixes, name that code in M5",
     "E3_policy_configuration": "if P1 or P3 configure b2-hp-v2 through something other than AGENT_D1_POLICY_SET_ID, AGENT_D1_POLICY_REVISION and the allowlist, adapt the runner; set, revision and rules stay",
     "not_allowed": "changing requests, catalog, model, repetitions, oracles or acceptance criteria"

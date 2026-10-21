@@ -73,8 +73,7 @@ EVIDENCE_LINKS = [
     "intent",
     "d1_decision",
     "checkout_created",
-    "freshness_present",
-    "freshness_approve",
+    "freshness",
     "d2_decision",
     "approval",
     "mandates",
@@ -175,7 +174,9 @@ def test_v2_manifest_points_to_its_matrix_policy_and_controls() -> None:
     assert {"pol02_allowlist", "pol11_budget", "d2_policy_context"} <= set(
         attribution["decisive_control_by_scenario"].values()
     )
+    # The nine links of P2's verifier; with an order, only ok counts (no not_applicable).
     assert manifest["evidence_chain"]["links"] == EVIDENCE_LINKS
+    assert "not_applicable is not accepted" in manifest["evidence_chain"]["complete"]
     assert manifest["amendments_recorded"] == []
 
 
