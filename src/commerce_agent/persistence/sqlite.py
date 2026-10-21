@@ -18,6 +18,17 @@ def failure_code(value: object) -> str | None:
     return value if isinstance(value, str) and _FAILURE_CODE.fullmatch(value) else None
 
 
+# Where the executor may move an HNP purchase after `start` left it `checkout_prepared`
+# (docs/design/hnp-governed.md §4.6): UoW-2 commits it, a task terminal closes it. Its
+# completion is `record_hnp_completion`, never this transition.
+_HNP_SOURCES: dict[str, tuple[str, ...]] = {
+    "completing": ("checkout_prepared",),
+    "uncertain": ("completing",),
+    "failed": ("checkout_prepared", "completing"),
+    "canceled": ("checkout_prepared", "completing"),
+}
+
+
 @dataclass(frozen=True, slots=True)
 class PurchaseCASResult:
     status: Literal["applied", "unchanged", "stale", "not_found"]
@@ -151,6 +162,7 @@ class SqliteAgentStore:
             )
             self._initialize_webhook_events(connection)
             self._initialize_purchase_revision(connection)
+            self._initialize_purchase_mode(connection)
 
     @staticmethod
     def _initialize_purchase_revision(connection: sqlite3.Connection) -> None:
@@ -200,24 +212,55 @@ class SqliteAgentStore:
             BEGIN SELECT RAISE(ABORT, 'purchase_revision_mismatch'); END"""
         )
 
+    @staticmethod
+    def _initialize_purchase_mode(connection: sqlite3.Connection) -> None:
+        """HNP purchases share the table (§4.3): a mode and its grant, fixed at creation."""
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(purchases)")}
+        if "purchase_mode" not in columns:
+            connection.execute(
+                "ALTER TABLE purchases ADD COLUMN purchase_mode TEXT NOT NULL DEFAULT 'HP' "
+                "CHECK(purchase_mode IN ('HP','HNP'))"
+            )
+        if "grant_id" not in columns:
+            connection.execute(
+                "ALTER TABLE purchases ADD COLUMN grant_id TEXT "
+                "CHECK((purchase_mode = 'HNP') = (grant_id IS NOT NULL))"
+            )
+        connection.execute(
+            """CREATE TRIGGER IF NOT EXISTS purchases_mode_immutable
+            BEFORE UPDATE ON purchases
+            WHEN NEW.purchase_mode IS NOT OLD.purchase_mode OR NEW.grant_id IS NOT OLD.grant_id
+            BEGIN SELECT RAISE(ABORT, 'purchase_mode_immutable'); END"""
+        )
+
     def create_purchase(
-        self, run_id: str, request_text: str, owner_id: str = "local-human"
+        self,
+        run_id: str,
+        request_text: str,
+        owner_id: str = "local-human",
+        *,
+        grant_id: str | None = None,
     ) -> None:
+        """A purchase that executes a grant is Human Not Present; any other is Human Present."""
         now = _timestamp()
+        mode = "HP" if grant_id is None else "HNP"
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO purchases
-                  (run_id, owner_id, request_text, stage, created_at, updated_at)
-                VALUES (?, ?, ?, 'received', ?, ?)
+                  (run_id, owner_id, request_text, stage, created_at, updated_at,
+                   purchase_mode, grant_id)
+                VALUES (?, ?, ?, 'received', ?, ?, ?, ?)
                 ON CONFLICT (run_id) DO NOTHING
                 """,
-                (run_id, owner_id, request_text, now, now),
+                (run_id, owner_id, request_text, now, now, mode, grant_id),
             )
             row = connection.execute(
-                "SELECT owner_id, request_text FROM purchases WHERE run_id = ?", (run_id,)
+                "SELECT owner_id, request_text, purchase_mode, grant_id "
+                "FROM purchases WHERE run_id = ?",
+                (run_id,),
             ).fetchone()
-            if row is None or row[0] != owner_id or row[1] != request_text:
+            if row is None or tuple(row) != (owner_id, request_text, mode, grant_id):
                 raise ValueError("Purchase run conflicts with another request")
 
     def save_graph_thread(self, run_id: str, thread_id: str) -> None:
@@ -378,7 +421,10 @@ class SqliteAgentStore:
     def pending_purchase(
         self, stages: Sequence[str], owner_id: str = "local-human"
     ) -> dict[str, str | None] | None:
-        """Oldest purchase still in one of ``stages``, without asking the client for a run ID."""
+        """Oldest HP purchase still in one of ``stages``, without asking the client for a run ID.
+
+        An HNP execution is never the buyer's pending purchase, nor does it block one.
+        """
         if not stages:
             return None
         placeholders = ", ".join("?" for _ in stages)
@@ -386,7 +432,8 @@ class SqliteAgentStore:
             row = connection.execute(
                 f"""
                 SELECT run_id, stage, order_id
-                FROM purchases WHERE owner_id = ? AND stage IN ({placeholders})
+                FROM purchases WHERE owner_id = ? AND purchase_mode = 'HP'
+                  AND stage IN ({placeholders})
                 ORDER BY created_at, run_id LIMIT 1
                 """,
                 (owner_id, *stages),
@@ -452,13 +499,16 @@ class SqliteAgentStore:
         return dict(row) if row is not None else None
 
     def claim_completion(self, run_id: str) -> bool:
-        """Atomically reserve the only outbound completion attempt for a purchase."""
+        """Atomically reserve the only outbound completion attempt for an HP purchase.
+
+        An HNP purchase completes only through its dispatch (§4.6), never through approval.
+        """
         with self._connect() as connection:
             cursor = connection.execute(
                 """
                 UPDATE purchases
                 SET stage = 'completing', updated_at = ?, state_version = state_version + 1
-                WHERE run_id = ? AND stage IN ('approved', 'uncertain')
+                WHERE run_id = ? AND purchase_mode = 'HP' AND stage IN ('approved', 'uncertain')
                 """,
                 (_timestamp(), run_id),
             )
@@ -483,6 +533,44 @@ class SqliteAgentStore:
             )
             if cursor.rowcount != 1:
                 raise RuntimeError("Purchase completion reservation is no longer active")
+
+    @staticmethod
+    def transition_hnp_purchase(
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        expected_state_version: int,
+        stage: str,
+        failure_code: str | None = None,
+    ) -> int:
+        """CAS of an HNP purchase on the caller's connection and transaction (§4.5, hooks).
+
+        UoW-2 moves it to `completing` and a task terminal to `failed` (with the task's
+        `outcome_code`), `canceled` or `uncertain`. Anything else raises, so the caller's unit
+        of work rolls back whole. Returns the new `state_version`.
+        """
+        sources = _HNP_SOURCES.get(stage)
+        if (
+            sources is None
+            or type(expected_state_version) is not int
+            or expected_state_version < 1
+            or (stage == "failed") != (failure_code is not None)
+            or (failure_code is not None and not _FAILURE_CODE.fullmatch(failure_code))
+        ):
+            raise ValueError("Invalid HNP purchase transition")
+        if not connection.in_transaction:
+            raise RuntimeError("An HNP purchase transition needs the caller's transaction")
+        placeholders = ", ".join("?" for _ in sources)
+        changed = connection.execute(
+            "UPDATE purchases SET stage = ?, failure_code = COALESCE(?, failure_code), "
+            "updated_at = ?, state_version = state_version + 1 "
+            "WHERE run_id = ? AND purchase_mode = 'HNP' AND state_version = ? "
+            f"AND stage IN ({placeholders})",
+            (stage, failure_code, _timestamp(), run_id, expected_state_version, *sources),
+        ).rowcount
+        if changed != 1:
+            raise RuntimeError("HNP purchase is not at the expected version and stage")
+        return expected_state_version + 1
 
     def idempotency_key(self, run_id: str, operation: str) -> str:
         now = _timestamp()

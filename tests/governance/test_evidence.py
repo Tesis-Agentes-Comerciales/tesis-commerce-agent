@@ -31,6 +31,7 @@ from commerce_agent.governance.evidence_artifacts import (
     capture_reference_sources,
     logical_result,
 )
+from commerce_agent.governance.hnp_policy import build_hnp_policy
 from commerce_agent.governance.models import SCHEMA, EvaluationMetadata, SelectionPolicyInput
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.persistence.sqlite import SqliteAgentStore
@@ -61,8 +62,13 @@ class Case:
 def make_case(**changes: Any) -> Case:
     payload = json.loads((FIXTURES / "d1-input.json").read_bytes())
     payload.update(changes)
-    data = parse_input(canonical_bytes(payload))
     policy = (FIXTURES / "d1-policy.json").read_bytes()
+    if payload["purchase_mode"] == "HNP":
+        # An HNP decision evaluates only b2-hnp-v1 (C02), whose D1 row adds POL-11.
+        policy, binding = build_hnp_policy(merchant_ref=payload["merchant_ref"])
+        payload["expected_policy"] = binding.model_dump(mode="json")
+        payload["selected_unit_minor"] = payload["intent"]["max_unit_minor"]
+    data = parse_input(canonical_bytes(payload))
     identity = measure_reference_engine()
     metadata = EvaluationMetadata(
         schema_version=SCHEMA, decided_at="2026-10-14T15:00:00.005Z", latency_ms=5

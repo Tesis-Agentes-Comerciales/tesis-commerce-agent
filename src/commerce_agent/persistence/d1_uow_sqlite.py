@@ -23,7 +23,13 @@ from ..governance.evidence import (
     scope_input,
     validate_evidence,
 )
-from ..governance.models import ObjectRef, PolicyBinding
+from ..governance.hnp_policy import (
+    HnpGrant,
+    grant_scope_eligibility,
+    grant_shortlist,
+    registered_grant,
+)
+from ..governance.models import ObjectRef, PolicyBinding, policy_set_matches_mode
 from ..governance.provenance import ProvenanceKeys
 from ..governance.provenance_artifacts import measure_d1_sources
 from ..governance.shadow_artifacts import verify_loaded_selection
@@ -186,7 +192,7 @@ class SqliteD1UnitOfWork:
         data = record.policy_input()
         if (
             data.governance_mode != "enforce"
-            or data.purchase_mode != "HP"
+            or not policy_set_matches_mode(self._binding.policy_set_id, data.purchase_mode)
             or data.expected_policy != self._binding
         ):
             raise EvidenceError("GOV_INPUT_INVALID")
@@ -211,7 +217,8 @@ class SqliteD1UnitOfWork:
             scope_input(scope, data)
         self._admitted.add(self._key(request))
 
-    def _facts(self, request: D1Application, owner_id: str) -> None:
+    def _facts(self, request: D1Application, owner_id: str) -> HnpGrant | None:
+        """Recompute the decided facts; return the grant an HNP context restricts to."""
         data = request.evidence.policy_input()
         context = self.vault.recover_context(data.run_id, owner_id, request.context_ref)
         ctx = context.data
@@ -222,8 +229,18 @@ class SqliteD1UnitOfWork:
         feed = self.vault.recover_feed(data.run_id, owner_id, data.feed_snapshot_ref)
         selection = rank_candidates(feed, intent)
         eligible = tuple(sorted(item.candidate.variant_id for item in selection.ranked))
+        algorithm = self._sources["algorithm"]
+        grant = None
+        if ctx.purchase_mode == "HNP":
+            registered = self.vault.public_source(
+                data.run_id, owner_id, ctx.eligibility_algorithm_ref, "algorithm"
+            )
+            grant = registered_grant(registered)
+            algorithm = grant_scope_eligibility(algorithm, grant)
+            eligible = grant_shortlist(eligible, grant)
         if (
             ctx.governance_mode != "enforce"
+            or data.purchase_mode != ctx.purchase_mode
             or request.evidence.policy_artifact_ref != ctx.policy_artifact_ref
             or data.intent != facts
             or data.context_version != context.ref.version
@@ -256,9 +273,11 @@ class SqliteD1UnitOfWork:
             (ctx.eligibility_algorithm_ref, "algorithm"),
             (ctx.normalization_ref, "normalization"),
         )
+        expected = {"algorithm": algorithm, "normalization": self._sources["normalization"]}
         for ref, kind in sources:
-            if self.vault.public_source(data.run_id, owner_id, ref, kind) != self._sources[kind]:
+            if self.vault.public_source(data.run_id, owner_id, ref, kind) != expected[kind]:
                 raise EvidenceError("GOV_ARTIFACT_MISMATCH")
+        return grant
 
     def apply(self, request: D1Application, *, owner_id: str) -> D1ApplicationResult:
         request = D1Application.model_validate(request)
@@ -268,7 +287,7 @@ class SqliteD1UnitOfWork:
             with self._atomic():
                 if self._key(request) not in self._admitted:
                     raise EvidenceError("GOV_OUTPUT_INVALID")
-                self._facts(request, owner_id)
+                grant = self._facts(request, owner_id)
                 scope, _, _ = self.ledger._episode(data.run_id, data.decision_id)
                 scope_input(scope, data)
                 old = self.connection.execute(
@@ -292,8 +311,8 @@ class SqliteD1UnitOfWork:
                         raise EvidenceError("GOV_STATE_CONFLICT")
                     return D1ApplicationResult(False, True, request.operation_id, old[4])
                 current = self.connection.execute(
-                    "SELECT owner_id,stage,state_version,selected_variant_id,checkout_id,order_id "
-                    "FROM purchases WHERE run_id=?",
+                    "SELECT owner_id,stage,state_version,selected_variant_id,checkout_id,order_id,"
+                    "purchase_mode,grant_id FROM purchases WHERE run_id=?",
                     (data.run_id,),
                 ).fetchone()
                 version = data.expected_local_state_version
@@ -304,6 +323,8 @@ class SqliteD1UnitOfWork:
                     None,
                     None,
                     None,
+                    data.purchase_mode,
+                    None if grant is None else grant.grant_id,
                 ):
                     raise EvidenceError("GOV_STATE_CONFLICT")
                 if record.decision.outcome == "deny":

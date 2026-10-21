@@ -63,16 +63,24 @@ from .evidence import (
     EvidenceScope,
 )
 from .evidence_artifacts import capture_reference_sources
+from .hnp_policy import HnpGrant, build_hnp_policy, grant_shortlist, hnp_d1_configuration
 from .models import (
     SCHEMA,
     EvaluationMetadata,
     ObjectRef,
     PolicyBinding,
     PolicyDecision,
+    PurchaseMode,
     SelectionPolicyInput,
 )
 from .post_create import ExperimentalPostCreateDispatch, PostCreateFlow
-from .provenance import ClockReader, D1EnforceConfiguration, ProvenanceKeys, utc_milliseconds
+from .provenance import (
+    ClockReader,
+    D1EnforceConfiguration,
+    ProvenanceKeys,
+    merchant_pseudonym,
+    utc_milliseconds,
+)
 from .provenance_artifacts import measure_d1_sources
 from .shadow_artifacts import verify_loaded_selection
 from .uow import D1Application
@@ -134,6 +142,9 @@ class _Capture:
 
 
 class SqliteD1EnforceGate:
+    """D1 before `create_checkout`. With `purchase_mode="HNP"` it is D1-HNP: it decides only
+    purchases that execute a grant, always under b2-hnp-v1 built in code (hnp_policy.py)."""
+
     def __init__(
         self,
         path: Path,
@@ -150,8 +161,24 @@ class SqliteD1EnforceGate:
         | None = None,
         connection_factory: Callable[[], sqlite3.Connection] | None = None,
         expected_remote_binding: ExpectedRemoteBinding | None = None,
+        purchase_mode: PurchaseMode = "HP",
+        merchant_refs: tuple[str, ...] | None = None,
     ):
         started = perf_counter_ns()
+        self._mode: PurchaseMode = purchase_mode
+        if purchase_mode == "HNP":
+            # Never AGENT_D1_POLICY_*: those configure the HP policy set (§7). The operator's
+            # merchant list arrives as `merchant_refs` (hnp_policy.operator_merchant_refs, K11).
+            if policy_bytes is not None or policy_binding is not None:
+                raise GovernanceError("GOV_ARTIFACT_MISMATCH")
+            configuration = hnp_d1_configuration(configuration)
+            policy_bytes, policy_binding = build_hnp_policy(
+                merchant_ref=merchant_pseudonym(keys, configuration.merchant_base_url)
+                if merchant_refs is None
+                else merchant_refs
+            )
+        elif merchant_refs is not None:
+            raise GovernanceError("GOV_ARTIFACT_MISMATCH")
         self._path = path
         self._configuration = D1EnforceConfiguration.model_validate(configuration)
         self._keys = ProvenanceKeys.model_validate(keys)
@@ -218,6 +245,7 @@ class SqliteD1EnforceGate:
         owner_id: str,
         selection: SelectionResult,
         candidate: ProductCandidate,
+        grant: HnpGrant | None,
     ) -> tuple[SelectionPolicyInput, ObjectRef, str, str, str, int, EvidenceScope, bytes]:
         vault = SqliteD1ProvenanceStore(connection, self._keys)
         ledger = SqliteGovernanceEvidenceStore(connection)
@@ -226,6 +254,15 @@ class SqliteD1EnforceGate:
             vault.initialize()
             ledger.initialize()
             SqliteD1DispatchStore(connection).initialize()
+            # The purchase names its mode and grant when created; the gate never infers them.
+            purchase = connection.execute(
+                "SELECT purchase_mode,grant_id FROM purchases WHERE run_id=?", (run_id,)
+            ).fetchone()
+            if purchase is None or tuple(purchase) != (
+                self._mode,
+                None if grant is None else grant.grant_id,
+            ):
+                raise GovernanceError("GOV_INPUT_INVALID")
             vault.register_episode(run_id, owner_id, experiment_run_id=None)
             context = vault.register_context(
                 run_id,
@@ -233,22 +270,25 @@ class SqliteD1EnforceGate:
                 self._configuration,
                 policy_bytes=self._policy,
                 policy_binding=self._binding,
+                grant=grant,
             )
             ctx = context.data
             intent_ref = vault.register_intent(run_id, owner_id, capture.intent)
             feed_ref = vault.register_feed(run_id, owner_id, capture.feed)
             facts = vault.intent_facts(run_id, owner_id, intent_ref, context.ref)
             observed = vault.observe_context(run_id, owner_id, context.ref, self._clocks)
-            eligible = sorted(item.candidate.variant_id for item in selection.ranked)
-            if len(eligible) != len(set(eligible)) or candidate.variant_id not in eligible:
+            ranked = sorted(item.candidate.variant_id for item in selection.ranked)
+            if len(ranked) != len(set(ranked)) or candidate.variant_id not in ranked:
                 raise GovernanceError("GOV_INPUT_INVALID")
+            # In HNP, POL-01 decides whether the selection is inside the grant (§3.3).
+            eligible = ranked if grant is None else list(grant_shortlist(ranked, grant))
             unit = vault.selected_unit_minor(run_id, owner_id, feed_ref, candidate.variant_id)
             template = {
                 "schema_version": SCHEMA,
                 "run_id": run_id,
                 "trace_id": ctx.trace_id,
                 "owner_ref": ctx.owner_ref,
-                "purchase_mode": "HP",
+                "purchase_mode": self._mode,
                 "governance_mode": "enforce",
                 "phase": "D1",
                 "action": "prepare_checkout",
@@ -334,7 +374,7 @@ class SqliteD1EnforceGate:
                 run_id=run_id,
                 trace_id=data.trace_id,
                 owner_ref=ctx.owner_ref,
-                purchase_mode="HP",
+                purchase_mode=self._mode,
                 governance_mode="enforce",
                 phase="D1",
                 context_version=data.context_version,
@@ -373,11 +413,13 @@ class SqliteD1EnforceGate:
         selection: SelectionResult,
         candidate: ProductCandidate,
         gateway: CheckoutGateway,
+        grant: HnpGrant | None = None,
     ) -> CheckoutSession:
         record: DecisionRecord | None = None
         uow: SqliteD1UnitOfWork | None = None
         try:
-            if not isinstance(capture, _Capture):
+            # A gate decides only purchases of its own mode: HNP ones execute a grant.
+            if not isinstance(capture, _Capture) or (grant is None) != (self._mode == "HP"):
                 raise GovernanceError("GOV_INPUT_INVALID")
             if _operational_bytes(capture.live_feed) != _operational_bytes(
                 capture.feed
@@ -397,7 +439,9 @@ class SqliteD1EnforceGate:
                     sequence,
                     scope,
                     policy,
-                ) = self._assemble(connection, capture, run_id, owner_id, selection, candidate)
+                ) = self._assemble(
+                    connection, capture, run_id, owner_id, selection, candidate, grant
+                )
                 self.timings["snapshots_ms"] = (perf_counter_ns() - started) / 1e6
                 started = perf_counter_ns()
                 uow = SqliteD1UnitOfWork(

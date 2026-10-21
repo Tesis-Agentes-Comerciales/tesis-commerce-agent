@@ -20,7 +20,15 @@ from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.domain.intent import PurchaseIntent
 from commerce_agent.governance.canonical import canonical_bytes, parse_model, sha256_digest
 from commerce_agent.governance.evaluator import GovernanceError, verify_artifact
-from commerce_agent.governance.models import SCHEMA, Id, IntentFacts, ObjectRef, PolicyBinding
+from commerce_agent.governance.hnp_policy import HnpGrant, grant_scope_eligibility
+from commerce_agent.governance.models import (
+    SCHEMA,
+    Id,
+    IntentFacts,
+    ObjectRef,
+    PolicyBinding,
+    PurchaseMode,
+)
 from commerce_agent.governance.provenance import (
     ClockProfile,
     ClockReader,
@@ -425,11 +433,19 @@ class SqliteD1ProvenanceStore:
         *,
         policy_bytes: bytes | None = None,
         policy_binding: PolicyBinding | None = None,
+        grant: HnpGrant | None = None,
     ) -> RegisteredContext:
+        """With `grant` the context is HNP: its eligibility source carries the grant's
+        restriction (hnp_policy.grant_scope_eligibility) and the caller supplies b2-hnp-v1."""
         self._episode(run_id, owner_id)
         configuration = TypeAdapter(D1Configuration | D1EnforceConfiguration).validate_python(
             configuration, strict=True
         )
+        mode: PurchaseMode = "HP" if grant is None else "HNP"
+        if grant is not None and (
+            configuration.governance_mode != "enforce" or policy_bytes is None
+        ):
+            raise GovernanceError("GOV_INPUT_INVALID")
         # Mode belongs to the episode, not to a replaceable snapshot. This also
         # covers a shadow context registered before its first ledger observation.
         for source_id, version, digest in self.connection.execute(
@@ -439,11 +455,20 @@ class SqliteD1ProvenanceStore:
         ).fetchall():
             ref = ObjectRef(schema_version=SCHEMA, id=source_id, version=version, digest=digest)
             previous = parse_model(ContextData, self._get(run_id, owner_id, ref, "context")[0])
-            if previous.governance_mode != configuration.governance_mode:
+            if (previous.governance_mode, previous.purchase_mode) != (
+                configuration.governance_mode,
+                mode,
+            ):
                 raise GovernanceError("GOV_INPUT_INVALID")
         measured = measure_d1_sources()
         algorithm = self._register(
-            run_id, owner_id, "algorithm", measured["algorithm"], public=True
+            run_id,
+            owner_id,
+            "algorithm",
+            measured["algorithm"]
+            if grant is None
+            else grant_scope_eligibility(measured["algorithm"], grant),
+            public=True,
         )
         normalization = self._register(
             run_id, owner_id, "normalization", measured["normalization"], public=True
@@ -453,12 +478,13 @@ class SqliteD1ProvenanceStore:
         )
         commercial = self._register(run_id, owner_id, "commercial", canonical_bytes(configuration))
         merchant_ref = merchant_pseudonym(self._keys, configuration.merchant_base_url)
-        payload, binding = build_d1_policy(
-            policy_set_id=configuration.policy_set_id,
-            version=configuration.policy_revision,
-            merchant_ref=merchant_ref,
-        )
-        if policy_bytes is not None or policy_binding is not None:
+        if policy_bytes is None and policy_binding is None:
+            payload, binding = build_d1_policy(
+                policy_set_id=configuration.policy_set_id,
+                version=configuration.policy_revision,
+                merchant_ref=merchant_ref,
+            )
+        else:
             if policy_bytes is None or policy_binding is None:
                 raise GovernanceError("GOV_ARTIFACT_MISMATCH")
             artifact = verify_artifact(policy_bytes, policy_binding)
@@ -503,7 +529,7 @@ class SqliteD1ProvenanceStore:
             trace_id=episode[1],
             conversation_id=episode[2],
             experiment_run_id=episode[3],
-            purchase_mode="HP",
+            purchase_mode=mode,
             governance_mode=configuration.governance_mode,
             merchant_ref=merchant_ref,
             commercial_ref=commercial,

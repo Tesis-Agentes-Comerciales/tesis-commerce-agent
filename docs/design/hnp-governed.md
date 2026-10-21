@@ -157,6 +157,18 @@ max_total_amount_minor=scope.total_max_minor))`, guardada en el grant. En D1,
 `eligible_variant_ids` es la lista corta del paso 2 y `eligibility_algorithm_ref` identifica
 `rank_candidates+grant_scope/v1`. Así POL-01 cubre una selección fuera del grant.
 
+**Cómo lo arma HNP-05.** D1-HNP es `SqliteD1EnforceGate(..., purchase_mode="HNP")`: arma
+`b2-hnp-v1` con `build_hnp_policy` y no acepta bytes de política por configuración; la lista de
+comercios le llega como `merchant_refs=operator_merchant_refs(settings, configured)`, que toma las
+refs que `configured_d1` ya derivó de `AGENT_D1_ALLOWED_MERCHANT_ORIGINS`. Su
+`create_checkout` recibe `grant=HnpGrant(grant_id, variant_ids)`, que el executor lee del ledger, y
+solo decide una compra cuyo `purchases.(purchase_mode, grant_id)` coincide; si no, `d1_unavailable`
+sin evidencia. La fuente pública de elegibilidad que guarda la bóveda es la del algoritmo medido más
+`eligibility_profile`, `grant_id` y `variant_ids`, así que la UoW de D1 recalcula la lista corta desde
+la evidencia. `PurchaseService.start(grant=...)` crea la compra con `purchase_mode='HNP'` (un trigger
+impide cambiar el modo o el grant después) y se detiene en `checkout_prepared`, con el journal
+post-create en `observed`. `claim_completion`, como `pending_purchase`, solo ve compras HP.
+
 ### 3.4 Dónde corren D1, D2-HNP y D3-HNP
 
 | Punto | Código | Políticas | Efecto protegido | Con deny |
@@ -687,7 +699,9 @@ Policy set nuevo, revisión 1, con las filas HNP de `APPLICABLE_RULES` (Adenda 1
   `(policy_set_id == "b2-hnp-v1") != (purchase_mode == "HNP")`. HNP-05 además restringe
   `rules_apply` para que `D1_PILOT_RULES` valga solo con `purchase_mode="HP"`.
 - **Artefacto:** el mismo `D1PolicyArtifact` de P1/P3, con `policy_set_id="b2-hnp-v1"`, `version=1`,
-  `allowed_merchant_refs` (el comercio configurado), `currency="COP"`, `quantity=1` y:
+  `allowed_merchant_refs` (la lista del operador que evalúa POL-02 de HP,
+  `AGENT_D1_ALLOWED_MERCHANT_ORIGINS`; sin ella, el comercio configurado), `currency="COP"`,
+  `quantity=1` y:
   - `policy_ids = APPLICABLE_RULES[("D1", "HNP")]` y `allowed_actions = ("prepare_checkout",)`;
   - `authorization` en su variante HNP, `HnpAuthorizationRules{policy_ids =
     APPLICABLE_RULES[("D2", "HNP")], allowed_actions = ("complete_purchase",), authentication_bases =

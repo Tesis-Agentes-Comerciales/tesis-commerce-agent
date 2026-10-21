@@ -19,6 +19,7 @@ from commerce_agent.application.offer_freshness import FreshnessStage, OfferFres
 from commerce_agent.approval import ApprovalError, ApprovalService, ApprovalTerms
 from commerce_agent.domain import PurchaseIntent, SelectionResult, rank_candidates
 from commerce_agent.governance.canonical import canonical_bytes
+from commerce_agent.governance.hnp_policy import HnpGrant
 from commerce_agent.governance.post_create import PostCreateFlow
 from commerce_agent.persistence import ApprovalRecord, SqliteAgentStore
 
@@ -109,6 +110,31 @@ class D1EnforceGate(Protocol):
     def post_create_flow(self, run_id: str, owner_id: str) -> PostCreateFlow: ...
 
 
+class D1HnpGate(Protocol):
+    """D1-HNP: the D1 gate bound to b2-hnp-v1, deciding over the grant's shortlist (§3.4)."""
+
+    def capture(
+        self,
+        feed: ProductFeed,
+        intent: PurchaseIntent,
+        ranking: Callable[[ProductFeed, PurchaseIntent], SelectionResult],
+    ) -> object: ...
+
+    def create_checkout(
+        self,
+        capture: object,
+        *,
+        run_id: str,
+        owner_id: str,
+        selection: SelectionResult,
+        candidate: ProductCandidate,
+        gateway: CheckoutGateway,
+        grant: HnpGrant,
+    ) -> CheckoutSession: ...
+
+    def post_create_flow(self, run_id: str, owner_id: str) -> PostCreateFlow: ...
+
+
 class D2Attempt(Protocol):
     """One approval: `authorize` before any mandate exists, `commit` in place of the save."""
 
@@ -179,6 +205,7 @@ class PurchaseService:
         d1_continuation: D1Continuation | None = None,
         d2_gate: D2AuthorizationGate | None = None,
         ap2_evidence: Ap2EvidenceRecorder | None = None,
+        hnp_d1_gate: D1HnpGate | None = None,
     ) -> None:
         self._feed = feed
         self._checkout = checkout
@@ -196,6 +223,9 @@ class PurchaseService:
             raise ValueError("D2 authorization requires the governed continuation")
         self._d2_gate = d2_gate
         self._ap2_evidence = ap2_evidence
+        if hnp_d1_gate is not None and d1_gate is None:
+            raise ValueError("D1-HNP runs only beside the D1 enforce gate")
+        self._hnp_d1_gate = hnp_d1_gate
 
     def start(
         self,
@@ -208,13 +238,25 @@ class PurchaseService:
         graph_thread_id: str | None = None,
         owner_id: str = "local-human",
         feed: ProductFeed | None = None,
+        grant: HnpGrant | None = None,
     ) -> PurchasePreparation:
-        self._store.create_purchase(run_id, request, owner_id)
-        if self._d1_gate is None and self._store.has_d1_operation(run_id):
+        """Prepare a checkout. With a `grant` the purchase is Human Not Present: D1 runs with
+        its own gate and the purchase stops at `checkout_prepared` for the executor (§4.6)."""
+        if grant is not None and (
+            self._d1_observer is not None
+            or (self._d1_gate is not None and self._hnp_d1_gate is None)
+        ):
+            # B0-HNP runs no D1 and B2-HNP runs D1-HNP; shadow is not defined for HNP (§2.2).
+            raise PurchaseServiceError("D1-HNP is not configured", code="d1_unavailable")
+        self._store.create_purchase(
+            run_id, request, owner_id, grant_id=None if grant is None else grant.grant_id
+        )
+        gate = self._d1_gate if grant is None else self._hnp_d1_gate
+        if gate is None and self._store.has_d1_operation(run_id):
             raise PurchaseServiceError(
                 "D1 operation requires explicit recovery", code="d1_recovery_required"
             )
-        if self._d1_gate is not None:
+        if gate is not None:
             current = self._store.purchase(run_id)
             if current is None or current["stage"] != PurchaseStage.RECEIVED:
                 raise PurchaseServiceError(
@@ -224,9 +266,9 @@ class PurchaseService:
             self._store.save_graph_thread(run_id, graph_thread_id)
         effective_feed = feed or self._feed
         captured = None
-        if self._d1_gate is not None:
+        if gate is not None:
             try:
-                captured = self._d1_gate.capture(effective_feed, intent, rank_candidates)
+                captured = gate.capture(effective_feed, intent, rank_candidates)
             except Exception:
                 raise PurchaseServiceError(
                     "D1 capture unavailable", code="d1_capture_failed"
@@ -253,14 +295,14 @@ class PurchaseService:
             self._store.update_purchase(run_id, stage=PurchaseStage.FAILED, failure=error.code)
             raise error
         enforced_checkout = None
-        if self._d1_gate is not None:
-            enforced_checkout = self._d1_gate.create_checkout(
+        if gate is not None:
+            enforced_checkout = self._governed_checkout(
                 captured,
                 run_id=run_id,
                 owner_id=owner_id,
                 selection=selection,
                 candidate=candidate,
-                gateway=self._checkout,
+                grant=grant,
             )
             if not isinstance(enforced_checkout, CheckoutSession):
                 raise PurchaseServiceError(
@@ -284,14 +326,10 @@ class PurchaseService:
             except Exception:
                 self._shadow_unavailable()
         idempotency_key = (
-            self._store.idempotency_key(run_id, "checkout.create")
-            if self._d1_gate is None
-            else None
+            self._store.idempotency_key(run_id, "checkout.create") if gate is None else None
         )
         # Preserve legacy abandonment only for off/shadow episodes without D1 history.
-        flow = (
-            self._d1_gate.post_create_flow(run_id, owner_id) if self._d1_gate is not None else None
-        )
+        flow = gate.post_create_flow(run_id, owner_id) if gate is not None else None
         with self._abandon_on_error(run_id, flow):
             if enforced_checkout is not None:
                 checkout = enforced_checkout
@@ -315,19 +353,54 @@ class PurchaseService:
             ready = self._apply_details(run_id, checkout, details, flow)
             self._validate_created_checkout(ready, candidate)
             self._enforce_authoritative_budget(run_id, ready, intent, flow)
-            if flow is None:
+            # An HNP purchase stays `checkout_prepared`: nobody is there to confirm it.
+            if flow is None and grant is None:
                 self._store.update_purchase(run_id, stage=PurchaseStage.AWAITING_CONFIRMATION)
             price_changed = _checkout_unit_amount(ready, candidate.variant_id) != (
                 candidate.observed_unit_amount_minor
             )
-            if flow is not None:
+            if flow is not None and grant is None:
                 flow.finish()
         return PurchasePreparation(
             run_id=run_id,
-            stage=PurchaseStage.AWAITING_CONFIRMATION,
+            stage=PurchaseStage.AWAITING_CONFIRMATION
+            if grant is None
+            else PurchaseStage.CHECKOUT_PREPARED,
             selected_candidate=candidate,
             checkout=ready,
             price_changed=price_changed,
+        )
+
+    def _governed_checkout(
+        self,
+        captured: object,
+        *,
+        run_id: str,
+        owner_id: str,
+        selection: SelectionResult,
+        candidate: ProductCandidate,
+        grant: HnpGrant | None,
+    ) -> CheckoutSession:
+        """The checkout D1 authorized: the HP gate, or D1-HNP over the grant's shortlist."""
+        if grant is None:
+            assert self._d1_gate is not None
+            return self._d1_gate.create_checkout(
+                captured,
+                run_id=run_id,
+                owner_id=owner_id,
+                selection=selection,
+                candidate=candidate,
+                gateway=self._checkout,
+            )
+        assert self._hnp_d1_gate is not None
+        return self._hnp_d1_gate.create_checkout(
+            captured,
+            run_id=run_id,
+            owner_id=owner_id,
+            selection=selection,
+            candidate=candidate,
+            gateway=self._checkout,
+            grant=grant,
         )
 
     def _check_offer(self, run_id: str, checkout: CheckoutSession, stage: FreshnessStage) -> None:
