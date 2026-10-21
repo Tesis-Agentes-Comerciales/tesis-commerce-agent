@@ -311,6 +311,45 @@ siquiera los copia.
 | cualquier otro | `in_progress` |
 | solo en el historial: la traza no está disponible | `trace_unavailable` |
 
+### Compra delegada (HNP-11)
+
+Una compra con `purchases.grant_id` es delegada (`docs/design/hnp-governed.md` §10): la traza y la
+fila del historial llevan `purchase_mode: "HNP"`; en HP el campo se omite y sus bytes no cambian. No
+hay `request`, `selection`, `approval` ni `authorization_signed`: el comprador consintió antes de
+irse y el agente no lee el precio del catálogo en `off`. `request` de la traza es el texto fijo
+del ejecutor («Compra delegada»).
+
+| Paso | Fuente | Hora |
+| --- | --- | --- |
+| `delegation_consented` | evento `consented` de `delegation_events`; `total_max` y el comercio salen de `delegation_grants.scope_json` (SQLite extrae `total_max_minor` y `merchant_refs[0]`, nada más). Actor `user` | `recorded_at` |
+| `task_activated` | cada `task_claimed` (uno por claim: el segundo, `task_activated:2`, es una reanudación). `trigger: "service"` | `recorded_at` |
+| `policy_decision`, `authorization_decision` | D1 y D2-HNP de `governance_evidence`, como en HP. D2 lista POL-03..09; POL-05 trae los montos y POL-07..09 nunca traen valores | `decided_at` |
+| `dispatch_decision` | D3-HNP de `governance_evidence` (POL-09, POL-10, sin valores) | `decided_at` |
+| `freshness_check` | `hp_evidence` con `stage: "close"` | `checked_at` |
+| `reservation` | `reservation_reserved`, `reservation_released`, `reservation_uncertain` y `consumed`; el monto es el reservado | `recorded_at` |
+| `mandates_closed` | evento `mandates_closed`, sin los mandatos | `recorded_at` |
+| `revoked` | `revoked` con `revoked_reason` `owner` (actor `user`) u `operator` (actor `operator`, el kill switch); `effect` del evento. Las revocaciones `escalated` y `failed` las explica su terminal | `recorded_at` |
+| `escalated` | `task_finished` con `state: "escalated"`; `reason` es el `outcome_code`. `state: "blocked"` | `recorded_at` |
+| `canceled` | `expired`: `by: "expiry"` (nombre nuevo de HNP-11) | `recorded_at` |
+| `failed` | la compra `failed`, como en HP; y `task_finished` `failed` si su código difiere del de la compra (#93): `failed` si la compra no falló, `failed:task` si sí | `recorded_at` |
+
+Toda la cadena del grant se verifica (`delegation.models.chain_is_valid`) y cada cuerpo leído se
+valida; si no, la traza no está disponible. Una revocación y la liberación que causa comparten la
+hora: va primero la revocación. El total de la traza es el último monto reservado (con envío).
+
+**Estado de una compra delegada:** `completed` si la compra se completó; `canceled` si la tarea
+terminó `revoked_by_owner`, `kill_switch` o `grant_expired`; `stale_terms` si la última frescura
+bloqueó; `blocked` si la última decisión D1/D2/D3 lo hizo (salvo un `state_conflict`); `uncertain`
+si la tarea quedó incierta o terminó con la compra todavía `selected` (K15: D1 permitió sin su
+resultado de despacho; la traza dice «La compra espera la política de compra» y el resumen «Por
+confirmar: espera la política»); si no, la etapa de la compra, como en HP. Una revocación con el
+despacho comprometido deja la compra `in_progress`.
+
+**Pendiente de 09b:** `payment_authorized` no sale todavía en una compra delegada (necesita la hora
+del envío al PSP que escribe 09b), y `order_confirmed` y la reserva `consumed` aparecen cuando
+`record_hnp_completion` escriba `completion_results` y el ledger su `consumed`. Las fixtures
+completadas (`trace-fixtures/hnp/`) ya los muestran así.
+
 ## Componentes
 
 Son de presentación: reciben datos del contrato por props, no hacen peticiones y cada uno tiene

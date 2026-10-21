@@ -2,7 +2,8 @@
 
 Queries name their columns: mandates, receipts, signatures and idempotency keys are only tested
 for presence, never read. The D1 creation envelope also holds an idempotency key: SQLite extracts
-its `prepared_at` and nothing else leaves the database.
+its `prepared_at` and nothing else leaves the database. Of an HNP grant, SQLite extracts the
+consented total and merchant: its checkout details and mandates never leave it.
 """
 
 import json
@@ -20,10 +21,13 @@ from pydantic import SecretBytes, TypeAdapter, ValidationError
 
 from commerce_agent.application.conversation import turn_run_id
 from commerce_agent.config import Settings, validate_service_base_url
+from commerce_agent.delegation.models import DelegationEvent
+from commerce_agent.delegation.models import chain_is_valid as delegation_chain_is_valid
 from commerce_agent.governance.evaluator import GovernanceError, verify_artifact
 from commerce_agent.governance.evidence import DecisionRecord, EvidenceError
 from commerce_agent.governance.models import D1PolicyArtifact
 from commerce_agent.governance.provenance import ProvenanceKeys, merchant_pseudonym
+from commerce_agent.persistence.delegation_sqlite import read_events
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.persistence.hp_evidence_sqlite import HpEvidence, chain_is_valid, read_run
 
@@ -53,6 +57,34 @@ class RecoveryBody(TypedDict):
     currency: NotRequired[object]
 
 
+class ReservedBody(TypedDict):
+    reservation_id: str
+    amount_minor: int
+
+
+class ReservationBody(TypedDict):
+    reservation_id: str
+
+
+class RevokedBody(TypedDict):
+    revoked_reason: str
+    effect: str
+
+
+class FinishedBody(TypedDict):
+    state: str
+    outcome_code: str | None
+
+
+# What the trace reads of each delegation event it shows (delegation_sqlite.py, spec §9.1).
+DELEGATION_BODIES: dict[str, TypeAdapter[Any]] = {
+    "reservation_reserved": TypeAdapter(ReservedBody),
+    "reservation_released": TypeAdapter(ReservationBody),
+    "reservation_uncertain": TypeAdapter(ReservationBody),
+    "consumed": TypeAdapter(ReservationBody),
+    "revoked": TypeAdapter(RevokedBody),
+    "task_finished": TypeAdapter(FinishedBody),
+}
 HP_BODIES: dict[str, TypeAdapter[Any]] = {
     "freshness_check": TypeAdapter(FreshnessBody),
     "governed_recovery": TypeAdapter(RecoveryBody),
@@ -68,6 +100,18 @@ class TurnSnapshot:
     started_at: str
     selected_at: str | None
     candidate: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class Delegation:
+    """The grant of an HNP purchase (docs/design/hnp-governed.md §4.3, §9.1)."""
+
+    grant_id: str
+    total_max_minor: int
+    expires_at: str
+    merchant_ref: str
+    # The grant's whole chain, verified: one task per grant, so every event is this run's.
+    events: tuple[DelegationEvent, ...]
 
 
 @dataclass(frozen=True)
@@ -88,6 +132,9 @@ class PurchaseRecords:
     checkout_prepared_at: str | None = None
     # D2 decisions, one per evaluated approval (b2-hp-v2), oldest first.
     authorizations: tuple[DecisionRecord, ...] = ()
+    # Human Not Present: the delegation and the D3 decisions (b2-hnp-v1).
+    delegation: Delegation | None = None
+    dispatches: tuple[DecisionRecord, ...] = ()
 
 
 def merchant_origins(settings: Settings) -> dict[str, str]:
@@ -178,11 +225,14 @@ def read_records(
         connection.execute("PRAGMA foreign_keys = ON")
         # Added by SqliteAgentStore.initialize; a database it has not migrated yet has none.
         columns = {row[1] for row in connection.execute("PRAGMA table_info(purchases)")}
-        failure = "failure_code" if "failure_code" in columns else "NULL AS failure_code"
+        optional = ", ".join(
+            name if name in columns else f"NULL AS {name}"
+            for name in ("failure_code", "purchase_mode", "grant_id")
+        )
         purchase = _row(
             connection,
             "SELECT run_id, request_text, stage, checkout_id, order_id, created_at, updated_at, "
-            f"{failure} FROM purchases WHERE run_id = ?",
+            f"{optional} FROM purchases WHERE run_id = ?",
             run_id,
         )
         if purchase is None:
@@ -230,6 +280,8 @@ def read_records(
             hp_evidence=_hp_evidence(connection, run_id),
             checkout_prepared_at=_checkout_prepared_at(connection, run_id),
             authorizations=tuple(item for item in ledger if item.decision.phase == "D2"),
+            delegation=_delegation(connection, purchase["grant_id"]),
+            dispatches=tuple(item for item in ledger if item.decision.phase == "D3"),
         )
 
 
@@ -274,6 +326,34 @@ def _hp_evidence(connection: sqlite3.Connection, run_id: str) -> tuple[HpEvidenc
     except (KeyError, ValidationError):
         raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
     return records
+
+
+def _delegation(connection: sqlite3.Connection, grant_id: str | None) -> Delegation | None:
+    """An HNP purchase's grant and its event chain; a broken link or a body the trace cannot
+    read makes the whole trace unavailable, as with hp_evidence."""
+    if grant_id is None:
+        return None
+    try:
+        grant = connection.execute(
+            "SELECT expires_at, json_extract(scope_json, '$.scope.total_max_minor'), "
+            "json_extract(scope_json, '$.scope.merchant_refs[0]') "
+            "FROM delegation_grants WHERE grant_id = ?",
+            (grant_id,),
+        ).fetchone()
+        events = read_events(connection, grant_id) if grant is not None else ()
+    except (sqlite3.Error, ValueError) as error:
+        if transient(error):
+            raise
+        raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
+    if grant is None or not delegation_chain_is_valid(grant_id, events):
+        raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE")
+    try:
+        for event in events:
+            if event.event_type in DELEGATION_BODIES:
+                DELEGATION_BODIES[event.event_type].validate_python(dict(event.body))
+    except ValidationError:
+        raise EvidenceError("GOV_EVIDENCE_UNAVAILABLE") from None
+    return Delegation(grant_id, grant[1], grant[0], grant[2], events)
 
 
 def _checkout_prepared_at(connection: sqlite3.Connection, run_id: str) -> str | None:
