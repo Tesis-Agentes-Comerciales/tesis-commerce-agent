@@ -48,7 +48,7 @@ La UI no muestra códigos internos. El código queda en el detalle técnico para
 
 | Interno | En la UI |
 | --- | --- |
-| D1, POL-01, POL-02 | Política de compra: «producto dentro de lo que pediste», «comercio permitido» |
+| D1, POL-01, POL-02, POL-11 | Política de compra: «producto dentro de lo que pediste», «comercio permitido», «precio dentro de tu presupuesto» |
 | `shadow` | «Solo observando: registra, no detiene» |
 | `enforce` | «Activa: detiene la compra si no cumple» |
 | `off` | «Política desactivada» |
@@ -103,6 +103,7 @@ type PurchaseStatus =
   | "in_progress" | "awaiting_approval" | "completed"
   | "blocked" | "stale_terms" | "canceled" | "failed" | "uncertain"
 type StepState = "done" | "running" | "waiting" | "blocked" | "error" | "skipped"
+type Money = { minor: number; currency: string }  // unidades menores; la UI lo escribe con formatMoney
 
 interface PurchaseTrace {
   run_id: string
@@ -111,7 +112,7 @@ interface PurchaseTrace {
   request: string
   merchant: string | null       // origen
   merchant_name: string | null  // nombre legible del comercio; null si no se conoce
-  total: { minor: number; currency: string } | null
+  total: Money | null
   started_at: string            // ISO-8601 UTC
   updated_at: string
   steps: TraceStep[]            // en orden cronológico
@@ -174,10 +175,10 @@ interface PolicyDecision {
   effect: "observed" | "blocked" | "continued"
   policy: { set_id: string; revision: number }
   rules: {
-    id: string                  // "POL-01", "POL-02"
+    id: string                  // "POL-01", "POL-02", "POL-11"
     result: "pass" | "fail" | "not_evaluated"
-    observed: string | null     // p. ej. el origen del comercio
-    expected: string | null     // p. ej. la lista de comercios permitidos
+    observed: string | Money | null  // p. ej. el origen del comercio; POL-11: precio del catálogo
+    expected: string | Money | null  // p. ej. los comercios permitidos; POL-11: presupuesto total
   }[]
   reason_codes: string[]
   latency_ms: number | null
@@ -271,7 +272,7 @@ interface PurchaseSummary {       // filas de GET /me/purchases
 | --- | --- | --- |
 | `request` | `purchases.request_text` | primer checkpoint del turno en el grafo; si no hay, `purchases.created_at` (se escribe después de elegir) |
 | `selection` | checkpoint del grafo escrito al terminar `select_product`: la variante elegida y su precio observado. Sin checkpoint, la línea de `approval_terms` | la de ese checkpoint; sin checkpoint, `null` |
-| `policy_decision` | `SqliteGovernanceEvidenceStore.for_run`. POL-01: variante elegida y elegibles. POL-02: origen del comercio y orígenes de la política (`governance_episodes`, verificada contra la decisión) | `decided_at` |
+| `policy_decision` | `SqliteGovernanceEvidenceStore.for_run`. POL-01: variante elegida y elegibles. POL-02: origen del comercio y orígenes de la política (`governance_episodes`, verificada contra la decisión). POL-11 (`b2-hp-v2`): `selected_unit_minor` y `intent.max_total_minor` de la entrada D1, como `Money` en COP; sin presupuesto total, `expected` es `null`. Las reglas `not_evaluated` de una guarda son las que lista el artefacto de la política | `decided_at` |
 | `checkout_created` | `purchases.checkout_id` | `operation_keys` (`checkout.create`), que se escribe justo antes de llamar al comercio. El modo activo no la guarda ahí: usa el `prepared_at` del sobre D1 (`d1_checkout_envelopes`), que es la hora de la decisión que lo permitió, así que empata con la política. Del sobre solo sale esa hora |
 | `approval` | `approval_terms` y `approvals`. `state`: `done` si se aprobó, `waiting` si la compra espera la aprobación y `skipped` si no la hubo (cancelada, o la frescura bloqueó los términos) | `approved_at`; si no hay aprobación, `approval_terms.updated_at` |
 | `authorization_signed` | `approvals`: solo si existe algún mandato, nunca su contenido | `approved_at` |
