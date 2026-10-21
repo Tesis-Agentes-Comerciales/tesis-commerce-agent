@@ -430,16 +430,16 @@ export const WithoutAddress: Story = {
 }
 
 /**
- * Teléfono de 320 px: el hilo deja 288 px. Con un total real en pesos, cada estado cabe sin
- * desbordar, también con las etiquetas más largas («Registrando aprobación…», «Cancelando…»): el
- * código de la moneda baja bajo el total y los botones se apilan.
+ * Teléfono de 320 px: el hilo deja 288 px y el mensaje, con su `px-2`, 272. Con un total real en
+ * pesos, cada estado con botones cabe sin desbordar: el código de la moneda baja bajo el total y los
+ * botones se apilan. Un título por tarjeta: dos regiones con el mismo nombre fallan axe
+ * (`landmark-unique`).
  */
 export const Phone320: Story = {
   args: { terms: TERMS_MILLIONS },
   render: (args) => (
-    <div className={`${PHONE_COLUMN} space-y-3`} data-testid="phone-column">
+    <div className={`${PHONE_COLUMN} space-y-3 px-2`} data-testid="phone-column">
       <PurchaseApprovalCard {...args} />
-      <PurchaseApprovalCard {...args} status="approving" />
       <PurchaseApprovalCard {...args} status="canceling" />
       <PurchaseApprovalCard
         {...args}
@@ -460,7 +460,7 @@ export const Phone320: Story = {
   ),
   play: async ({ canvas, canvasElement }) => {
     const cards = canvasElement.querySelectorAll<HTMLElement>("[data-testid=purchase-approval-card]")
-    await expect(cards).toHaveLength(6)
+    await expect(cards).toHaveLength(5)
     for (const card of cards) {
       await expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth)
       const { left, right } = card.getBoundingClientRect()
@@ -474,7 +474,7 @@ export const Phone320: Story = {
         await expect(box.right, label).toBeLessThanOrEqual(right)
       }
     }
-    await expect(canvas.getByRole("button", { name: "Aprobar y comprar" })).toBeVisible()
+    await expect(canvas.getAllByRole("button", { name: "Aprobar y comprar" })).toHaveLength(2)
     await expect(canvas.getByRole("link", { name: /Ver orden/ })).toBeVisible()
     await expectFitsPhoneColumn(canvasElement)
   },
