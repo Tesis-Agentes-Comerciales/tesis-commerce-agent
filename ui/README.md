@@ -51,6 +51,16 @@ La aplicación queda en `http://127.0.0.1:5173` y espera la API del agente en
   recuperación gobernada (por qué el agente no siguió).
 - Los `result` de cada paso se validan antes de dibujarlos (`src/features/agent-results.ts`): el feed
   y las respuestas ACP no son confiables.
+- Delegaciones (Human Not Present, HNP-10): el botón «Delegaciones» de la cabecera solo aparece si
+  `GET /health` trae `hnp_enabled: true`; apagado, la UI no llama a ninguna ruta de delegaciones.
+  `src/features/delegations.tsx` abre un diálogo dentro del runtime con el formulario (las opciones
+  son las que el chat ya mostró en `search_catalog`), la propuesta con su consentimiento y «Mis
+  delegaciones» con «Revocar» y «Revocar todo», contra las rutas del comprador
+  (`src/lib/delegation-api.ts`, [`docs/design/hnp-governed.md`](../docs/design/hnp-governed.md)
+  §5.1). Cada acción relee lo que cambió; el destino viaja tal como lo escribió el comprador, y los
+  errores `{code, message}` muestran el `message` del backend salvo
+  `delegation_destination_unsupported`, que la UI explica. «Comprar desde el chat» de un
+  escalamiento escribe la compra HP en el compositor.
 
 ## Storybook
 
@@ -129,8 +139,12 @@ viaje por REST con el fingerprint de los términos y que en móvil no haya scrol
 cubre la actividad de la compra: política permitida con sus dos reglas, bloqueo por el comercio con
 su tarjeta y sin «error inesperado», política desactivada y una traza que responde 404 o 503. Y los
 términos que ya no valen: aprobar responde 409 o 503, se cancela y se pide de nuevo, y una compra
-restaurada con `terms_status` se puede cancelar. Usa un puerto propio (5190) y el mismo Chromium que
-`test-storybook`.
+restaurada con `terms_status` se puede cancelar. `e2e/delegations.spec.ts` responde cada ruta de
+delegaciones con las secuencias de `src/storybook/fixtures/delegation-api/`, en orden: propuesta y
+consentimiento (el destino viaja tal como se escribió), 409 de alcance distinto y de propuesta
+vencida, 422 de destino no admitido, revocación con sus tres efectos, 409 de una delegación que ya
+terminó, «Revocar todo», «Comprar desde el chat», HNP apagado y el diálogo a 320 px. Usa un puerto
+propio (5190) y el mismo Chromium que `test-storybook`.
 
 La UI no contiene llaves ni tokens. Los datos de entrega se envían a FastAPI, y el único control que
 autoriza la compra usa el fingerprint de términos que devuelve el backend.

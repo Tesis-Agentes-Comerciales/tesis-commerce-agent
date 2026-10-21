@@ -926,7 +926,9 @@ que aplica `POST /delegations`). Diálogo «Delegaciones» con «Nueva delegaci�
 «Todavía no tienes delegaciones.» y «Revocar todo». Formulario «Delegar una compra»: «Opciones que
 puede comprar» (las que el chat ya mostró), «Total máximo con envío (pesos)», «Vigencia» (1, 6 o 24
 horas), «Entrega» con «Dirección», «Ciudad» y «Departamento», «Por ahora el comercio solo entrega en
-Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autorización».
+Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autorización». Los errores
+`{code, message}` de §5.1 muestran el `message` del backend; solo
+`delegation_destination_unsupported` lleva un texto de la UI.
 
 ### 8.4 Revocación y kill switch
 

@@ -9,13 +9,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { CommerceRuntime } from "@/features/commerce-runtime"
+import { DelegationsMount } from "@/features/delegations"
+import { DelegationsHostContext } from "@/features/delegations-host"
 import { staleApprovalPart } from "@/features/stale-terms"
 import { authClient } from "@/lib/auth-client"
 import { INITIAL_AGENT_STATE, type AgentAssistantPart, type AgentState } from "@/lib/agent-contract"
 import { AGENT_API_URL, health, pendingPurchase, type PendingPurchase } from "@/lib/commerce-api"
 import { DEMO_PROFILE } from "@/lib/commerce-types"
-import { Settings2Icon } from "lucide-react"
-import { lazy, Suspense, useCallback, useEffect, useState } from "react"
+import { Settings2Icon, ShieldCheckIcon } from "lucide-react"
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react"
 
 const BuyerProfileCard = lazy(() =>
   import("@/components/buyer-profile-card").then((module) => ({
@@ -26,7 +28,13 @@ const BuyerProfileCard = lazy(() =>
 type ConnectionStatus = "checking" | "online" | "offline"
 
 // Elemento estable: `CommerceRuntime` solo puede recibir props que no cambien entre renders.
-const THREAD = <Thread components={{ Welcome: CommerceWelcome }} autoFocus />
+// «Delegaciones» vive dentro del runtime y recibe lo que cambia por contexto.
+const CHAT = (
+  <>
+    <Thread components={{ Welcome: CommerceWelcome }} autoFocus />
+    <DelegationsMount />
+  </>
+)
 
 function restoredState(pending: PendingPurchase | null): AgentState {
   if (!pending) return INITIAL_AGENT_STATE
@@ -73,11 +81,24 @@ function CommerceApp({ userId }: { userId: string }) {
   const [profileOpen, setProfileOpen] = useState(false)
   const [initialState, setInitialState] = useState<AgentState | null>(null)
   const [bootstrapError, setBootstrapError] = useState(false)
+  // Las delegaciones (HNP) solo aparecen si `/health` dice que la API las expone.
+  const [hnpEnabled, setHnpEnabled] = useState(false)
+  const [delegationsOpen, setDelegationsOpen] = useState(false)
+  const delegations = useMemo(
+    () =>
+      hnpEnabled
+        ? { open: delegationsOpen, onOpenChange: setDelegationsOpen, profile }
+        : null,
+    [hnpEnabled, delegationsOpen, profile],
+  )
 
   useEffect(() => {
     const controller = new AbortController()
     health(controller.signal)
-      .then(() => setConnection("online"))
+      .then((condition) => {
+        setConnection("online")
+        setHnpEnabled(condition.hnp_enabled === true)
+      })
       .catch(() => {
         if (!controller.signal.aborted) setConnection("offline")
       })
@@ -132,6 +153,16 @@ function CommerceApp({ userId }: { userId: string }) {
               Agente sin conexión
             </span>
           )}
+          {hnpEnabled && (
+            <button
+              type="button"
+              onClick={() => setDelegationsOpen(true)}
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm hover:bg-[#f2f2f2] ${focusRing}`}
+            >
+              <ShieldCheckIcon className="size-4" aria-hidden />
+              Delegaciones
+            </button>
+          )}
           <button
             type="button"
             onClick={() => authClient.signOut()}
@@ -150,14 +181,16 @@ function CommerceApp({ userId }: { userId: string }) {
         </header>
 
         <section className="min-h-0 flex-1">
-          <CommerceRuntime
-            key={`${userId}:${session}`}
-            profile={profile}
-            initialState={initialState}
-            onNewPurchase={startNewPurchase}
-          >
-            {THREAD}
-          </CommerceRuntime>
+          <DelegationsHostContext.Provider value={delegations}>
+            <CommerceRuntime
+              key={`${userId}:${session}`}
+              profile={profile}
+              initialState={initialState}
+              onNewPurchase={startNewPurchase}
+            >
+              {CHAT}
+            </CommerceRuntime>
+          </DelegationsHostContext.Provider>
         </section>
       </main>
 

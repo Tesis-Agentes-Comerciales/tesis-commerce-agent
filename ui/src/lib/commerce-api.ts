@@ -20,7 +20,12 @@ export class AgentApiError extends Error {
   }
 }
 
-async function requestJson<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
+/** Pide JSON al agente con el token del comprador; una respuesta no 2xx lanza `AgentApiError`. */
+export async function requestJson<T>(
+  path: string,
+  init?: RequestInit,
+  authenticated = true,
+): Promise<T> {
   const headers = new Headers(init?.headers)
   if (authenticated) {
     for (const [name, value] of Object.entries(await buyerHeaders())) headers.set(name, value)
@@ -68,7 +73,8 @@ export function checkoutDetails(profile: BuyerProfile) {
   }
 }
 
-export function health(signal?: AbortSignal): Promise<{ status: string }> {
+/** `hnp_enabled` solo llega con `AGENT_HNP_ENABLED`; ausente, HNP está apagado (§5.4). */
+export function health(signal?: AbortSignal): Promise<{ status: string; hnp_enabled?: boolean }> {
   return requestJson("/health", { signal }, false)
 }
 
