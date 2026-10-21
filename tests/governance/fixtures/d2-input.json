@@ -1,0 +1,205 @@
+{
+  "schema_version": "commerce-policy/1.0",
+  "decision_id": "decision-d2-1",
+  "run_id": "run-1",
+  "trace_id": "trace-1",
+  "owner_ref": "owner-1",
+  "purchase_mode": "HP",
+  "governance_mode": "enforce",
+  "phase": "D2",
+  "action": "complete_purchase",
+  "context_version": 1,
+  "expected_local_state_version": 4,
+  "expected_policy": {
+    "schema_version": "commerce-policy/1.0",
+    "policy_set_id": "offline-hp",
+    "version": 1,
+    "artifact_digest": "sha256:d3e2394f657eab7a647249f8ede16522b522e75f080d87a92c53252e66e2e73a"
+  },
+  "authority_now": "2026-10-14T15:05:00.000Z",
+  "commercial_now": "2026-10-14T15:05:00.000Z",
+  "clock_profile_ref": {
+    "schema_version": "commerce-policy/1.0",
+    "id": "clock-1",
+    "version": 1,
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "experiment_run_id": null,
+  "conversation_id": null,
+  "principal": {
+    "schema_version": "commerce-policy/1.0",
+    "principal_ref": "owner-1",
+    "authentication_basis": "user_jwt",
+    "authentication_verified": true,
+    "owns_run": true,
+    "permitted_actions": [
+      "complete_purchase"
+    ]
+  },
+  "intent": {
+    "schema_version": "commerce-policy/1.0",
+    "intent_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "intent-1",
+      "version": 1,
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "currency": "COP",
+    "max_unit_minor": 90000,
+    "max_total_minor": 100000,
+    "quantity": 1,
+    "hard_constraint_refs": [
+      "constraint-1",
+      "constraint-2"
+    ],
+    "normalization_version": "normalizer-1"
+  },
+  "selected_variant_id": "variant-1",
+  "terms": {
+    "schema_version": "commerce-policy/1.0",
+    "snapshot_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "checkout-1",
+      "version": 1,
+      "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "merchant_ref": "merchant-1",
+    "checkout_id": "checkout-1",
+    "variant_id": "variant-1",
+    "checkout_status": "ready_for_payment",
+    "quantity": 1,
+    "unit_minor": 72000,
+    "shipping_minor": 2000,
+    "other_minor": 0,
+    "total_minor": 74000,
+    "currency": "COP",
+    "fulfillment_service_ref": "shipping-1",
+    "destination_binding": {
+      "schema_version": "commerce-policy/1.0",
+      "binding_id": "destination-1",
+      "scheme": "hmac-sha256/v1",
+      "key_id": "key-1",
+      "value": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "commercial_expires_at": "2026-10-14T16:00:00.000Z",
+    "material_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "material_contract_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "material-contract-1",
+      "version": 1,
+      "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  },
+  "freshness": {
+    "schema_version": "commerce-policy/1.0",
+    "status": "current",
+    "observed_at": "2026-10-14T15:04:59.000Z",
+    "valid_until": "2026-10-14T16:00:00.000Z",
+    "contract_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "freshness-contract-1",
+      "version": 1,
+      "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "source_offer_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "offer-check-1",
+      "version": 1,
+      "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+    }
+  },
+  "constraint_matches": [
+    {
+      "schema_version": "commerce-policy/1.0",
+      "constraint_ref": "constraint-1",
+      "kind": "category",
+      "matches": true,
+      "source_snapshot_ref": {
+        "schema_version": "commerce-policy/1.0",
+        "id": "feed-1",
+        "version": 1,
+        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    },
+    {
+      "schema_version": "commerce-policy/1.0",
+      "constraint_ref": "constraint-2",
+      "kind": "condition",
+      "matches": true,
+      "source_snapshot_ref": {
+        "schema_version": "commerce-policy/1.0",
+        "id": "feed-1",
+        "version": 1,
+        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    }
+  ],
+  "d1": {
+    "schema_version": "commerce-policy/1.0",
+    "decision_id": "decision-1",
+    "evidence_id": "evidence-1",
+    "evidence_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+    "outcome": "allow",
+    "run_id": "run-1",
+    "owner_ref": "owner-1",
+    "purchase_mode": "HP",
+    "governance_mode": "enforce",
+    "intent_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "intent-1",
+      "version": 1,
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "feed_snapshot_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "feed-1",
+      "version": 1,
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "selected_variant_id": "variant-1",
+    "merchant_ref": "merchant-1",
+    "policy_binding": {
+      "schema_version": "commerce-policy/1.0",
+      "policy_set_id": "offline-hp",
+      "version": 1,
+      "artifact_digest": "sha256:d3e2394f657eab7a647249f8ede16522b522e75f080d87a92c53252e66e2e73a"
+    },
+    "context_version": 1,
+    "input_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+  },
+  "authorization_id": "authorization-1",
+  "operation_id": "operation-1",
+  "authorization_profile": {
+    "schema_version": "commerce-policy/1.0",
+    "status": "validated",
+    "profile_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "profile-1",
+      "version": 1,
+      "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+    }
+  },
+  "hp": {
+    "schema_version": "commerce-policy/1.0",
+    "approval_attempt_id": "attempt-1",
+    "attempt_version": 1,
+    "attempt_owner_ref": "owner-1",
+    "presented_snapshot_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "presented-1",
+      "version": 1,
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "presented_at": "2026-10-14T15:01:00.000Z",
+    "attempt_valid_until": "2026-10-14T16:00:00.000Z",
+    "click_received": true,
+    "clicked_at": "2026-10-14T15:05:00.000Z",
+    "material_match": true,
+    "consent_binding_ref": {
+      "schema_version": "commerce-policy/1.0",
+      "id": "consent-1",
+      "version": 1,
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  }
+}

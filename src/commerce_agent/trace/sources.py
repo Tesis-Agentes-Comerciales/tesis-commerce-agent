@@ -244,7 +244,11 @@ def _decisions(connection: sqlite3.Connection, run_id: str) -> tuple[DecisionRec
     ).fetchone():
         return ()
     evidence = SqliteGovernanceEvidenceStore(connection).for_run(run_id)
-    return tuple(item for item in evidence if isinstance(item, DecisionRecord))
+    return tuple(
+        item
+        for item in evidence
+        if isinstance(item, DecisionRecord) and item.decision.phase == "D1"
+    )
 
 
 def _hp_evidence(connection: sqlite3.Connection, run_id: str) -> tuple[HpEvidence, ...]:

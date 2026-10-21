@@ -6,7 +6,12 @@ from typing import Literal
 from pydantic import model_validator
 
 from .canonical import canonical_bytes, parse_model, sha256_digest
-from .evaluator import ReferencePolicyEvaluator, measure_reference_engine, verify_artifact
+from .evaluator import (
+    ReferenceAuthorizationEvaluator,
+    ReferencePolicyEvaluator,
+    measure_reference_engine,
+    verify_artifact,
+)
 from .evidence import DecisionRecord, EvidenceError, EvidenceScope
 from .models import SCHEMA, ContractModel, EvaluationMetadata, PolicyDecision
 
@@ -101,16 +106,25 @@ def replay_reference(
         or identity.artifact_digest != scope.engine_artifact_ref.digest
     ):
         raise EvidenceError("GOV_FACTS_UNAVAILABLE")
-    result = ReferencePolicyEvaluator(
-        artifact_bytes=policy_bytes,
-        binding=scope.policy_binding,
-        identity=identity,
-        metadata=EvaluationMetadata(
-            schema_version=SCHEMA,
-            decided_at=record.decision.decided_at,
-            latency_ms=record.decision.latency_ms,
-        ),
-    ).evaluate(record.policy_input())
+    metadata = EvaluationMetadata(
+        schema_version=SCHEMA,
+        decided_at=record.decision.decided_at,
+        latency_ms=record.decision.latency_ms,
+    )
+    if record.decision.phase == "D2":
+        result = ReferenceAuthorizationEvaluator(
+            artifact_bytes=policy_bytes,
+            binding=scope.policy_binding,
+            identity=identity,
+            metadata=metadata,
+        ).evaluate(record.authorization_input())
+    else:
+        result = ReferencePolicyEvaluator(
+            artifact_bytes=policy_bytes,
+            binding=scope.policy_binding,
+            identity=identity,
+            metadata=metadata,
+        ).evaluate(record.policy_input())
     if logical_result(result) != logical_result(record.decision):
         raise EvidenceError("GOV_OUTPUT_INVALID")
     return result

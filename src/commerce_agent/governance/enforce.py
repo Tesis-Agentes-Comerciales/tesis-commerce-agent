@@ -843,12 +843,16 @@ class SqliteD1EnforceGate:
 
 
 def _committed_transition(history: tuple[DecisionEvidence, ...]) -> DecisionRecord | None:
-    """The run's committed D1 transition; at most one exists and none supersedes it."""
+    """The run's committed D1 transition; at most one exists and none supersedes it.
+
+    A D2 allow is also a committed transition (the approval), never the D1 one.
+    """
     return next(
         (
             item
             for item in history
             if isinstance(item, DecisionRecord)
+            and item.decision.phase == "D1"
             and item.application.disposition == "transition_committed"
         ),
         None,
