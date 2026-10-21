@@ -193,7 +193,16 @@
     "E3_policy_configuration": "if P1 or P3 configure b2-hp-v2 through something other than AGENT_D1_POLICY_SET_ID, AGENT_D1_POLICY_REVISION and the allowlist, adapt the runner; set, revision and rules stay",
     "not_allowed": "changing requests, catalog, model, repetitions, oracles or acceptance criteria"
   },
-  "amendments_recorded": [],
+  "amendments_recorded": [
+    {
+      "id": "E1",
+      "date": "2026-10-20",
+      "allowed_by": "E1_verifier_contract",
+      "change": "P2's final verifier reports d2_decision as not_applicable in B0', not missing: B0' does not run b2-hp-v2, so the verifier does not require D2; intent, d1_decision and freshness still come out missing. The verifier also keeps a D1 or D2 link ok when replaying its policy is unavailable (only a different decision is a mismatch), so each row keeps the replay of d1_decision and d2_decision and the summary counts how many were reproduced",
+      "reason": "the pre-registration said B0' leaves D1, freshness and D2 missing; P2's final contract (main 76af6a6) reports D2 as not_applicable there and makes the replay diagnostic",
+      "h2": "unchanged: the nine links and the definition of a complete chain stay, and B0' purchases with an order stay incomplete, so its H2 is still 0 by construction"
+    }
+  ],
   "cost_estimate": {
     "runs": 160,
     "model_stages_per_run": {"S03": "1", "others": "2"},

@@ -247,8 +247,10 @@ uv run governance-pilot --manifest evaluation/data/b2-pilot-v2.json --condition 
 - **H2.** Con el agente ya detenido, el runner llama una vez al verificador de P2 desde Python
   (`verify_database(agent.db, run_id=…, psp_database=…)`) y guarda en `evidence_chain` su documento
   de la compra sin `refs`: `run_id`, `stage`, `order_id`, `complete` y, por cada uno de los nueve
-  eslabones, `status` y `detail`. Si el verificador falla, la fila conserva el error en
-  `measurement_errors` y `evidence_chain` queda en `null`. La llamada vive en
+  eslabones, `status` y `detail`. `d1_decision` y `d2_decision` guardan además `replay`
+  (`reproduced`, `unavailable (código)` o `null`): el verificador deja en `ok` un eslabón cuya
+  reejecución no está disponible (enmienda E1). Si el verificador falla, la fila conserva el
+  error en `measurement_errors` y `evidence_chain` queda en `null`. La llamada vive en
   `pilot_evidence_chain.py`.
 - **Métricas nuevas.** `authority_violations` (S06: checkout creado; S08: aprobación aceptada),
   `over_budget_checkouts` (S02 y S07: checkouts del comercio), `purchase_completed`,
@@ -259,7 +261,9 @@ uv run governance-pilot --manifest evaluation/data/b2-pilot-v2.json --condition 
 - **Resumen.** Por condición y por condición × escenario suma `authority_violations`,
   `over_budget_checkouts`, `purchases_completed`, `evidence_chain` (`h2`: cadenas completas sobre
   todas las compras con orden, aunque el verificador no haya podido leer alguna; `verifier`: el
-  `h2_summary` de P2 de las mismas cadenas), `policy_latency_by_decision_point_ms` (D1 y D2),
+  `h2_summary` de P2 de las mismas cadenas; `replay`: por D1 y D2, cuántos eslabones `ok` y
+  cuántas reejecuciones `reproduced` o `unavailable`, en las compras con orden (`effects`) y en
+  todas (`all_runs`)), `policy_latency_by_decision_point_ms` (D1 y D2),
   `decision_points_reached`, `policy_mismatches` y `model_calls`.
 - **Catálogo de la corrida.** El agente lee el feed exportado del catálogo de la corrida del
   comercio (`AGENT_FEED_SOURCE=file`) y POL-11 compara ese precio unitario con el presupuesto.
@@ -302,7 +306,8 @@ El verificador no espera webhooks: el `order_create` debe haber llegado antes de
 compra aprobada con `b2-hp-v2` o con POL-03..06 en su artefacto (sin registro, `missing`). El
 eslabón verifica el registro D2 con el ledger, su enlace con D1 (`evidence_digest`,
 `operation_id`, `policy_binding`), su frescura `approve` y que `approvals.authorization_evidence_id`
-apunte a la autorización aplicada; un `deny` seguido de aprobación es `mismatch`.
+apunte a la autorización aplicada; una aprobación u orden sin una autorización D2 aplicada es
+`mismatch` (un `deny` seguido de un reintento con un `allow` aplicado es legítimo).
 
 ## Archivos
 
