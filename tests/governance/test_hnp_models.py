@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from commerce_agent.delegation.contract import ScopeView
 from commerce_agent.governance.canonical import canonical_bytes, parse_model
 from commerce_agent.governance.hnp_models import (
     SCOPE_DIGEST_DOMAIN,
@@ -181,6 +182,14 @@ def test_a_scope_without_preference_text_is_valid() -> None:
         _both(_set("preference_text", None), _set("display.preference_text", None)),
     )
     assert consent(payload).preference_text is None
+
+
+def test_the_consented_display_is_the_card_s_scope_view() -> None:
+    """`ScopeDisplay` keeps the JSON of the delegation views' `ScopeView`, so the proposal shows
+    exactly the bytes the buyer consents to."""
+    display = consent(load("consent-scope.json")).display
+    view = ScopeView.model_validate_json(canonical_bytes(display))
+    assert canonical_bytes(view) == canonical_bytes(display)
 
 
 # D2-HNP and D3-HNP inputs (policy-v1 §4): strict, no coercion and no HP branch.
