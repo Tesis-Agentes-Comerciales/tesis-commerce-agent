@@ -23,7 +23,9 @@ Count = Annotated[int, Field(ge=0)]
 Currency = Annotated[str, Field(pattern=r"^[A-Za-z]{3}$")]
 UtcTime = Annotated[str, Field(pattern=UTC_TIME_PATTERN), AfterValidator(_real_date)]
 
-TraceActor = Literal["user", "agent", "policy", "merchant", "payment"]
+# `operator`: the HNP kill switch (docs/design/hnp-governed.md §10).
+TraceActor = Literal["user", "agent", "policy", "merchant", "payment", "operator"]
+PurchaseMode = Literal["HP", "HNP"]
 PurchaseStatus = Literal[
     "in_progress",
     "awaiting_approval",
@@ -146,7 +148,8 @@ class OrderEventStep(StepBase):
 
 class CanceledStep(StepBase):
     kind: Literal["canceled"]
-    by: Literal["user", "budget"]
+    # `expiry`: an HNP delegation that expired before the purchase (`grant_expired`).
+    by: Literal["user", "budget", "expiry"]
 
 
 class FailedStep(StepBase):
@@ -185,7 +188,8 @@ class FreshnessCheckStep(StepBase):
     """Live-offer freshness; `state` is `blocked` when the check stopped the purchase."""
 
     kind: Literal["freshness_check"]
-    stage: Literal["present", "approve"]
+    # `close`: right before an HNP purchase reserves its single use (hnp-governed.md §3.3).
+    stage: Literal["present", "approve", "close"]
     mode: Literal["shadow", "enforce"]
     outcome: Literal["fresh", "changed", "unavailable"]
     changes: tuple[FreshnessChange, ...]
@@ -224,6 +228,65 @@ class GovernedRecoveryStep(StepBase):
     evidence_digest: Text
 
 
+# Human Not Present (docs/design/hnp-governed.md §10): the delegation ledger, never the model.
+
+EscalationReason = Literal[
+    "budget_not_satisfiable",
+    "no_candidate_in_scope",
+    "offer_changed",
+    "terms_out_of_scope",
+    "authorization_profile_unresolved",
+    "verifier_unresolved_constraint",
+    "verifier_mandates_not_supported",
+]
+
+
+class DelegationConsentedStep(StepBase):
+    """The buyer consented to the scope before leaving; `total_max` includes shipping."""
+
+    kind: Literal["delegation_consented"]
+    grant_id: Text
+    total_max: Money
+    expires_at: UtcTime
+
+
+class TaskActivatedStep(StepBase):
+    """The executor claimed the task (one step per claim: a re-claim resumes it)."""
+
+    kind: Literal["task_activated"]
+    trigger: Literal["service"]
+
+
+class ReservationStep(StepBase):
+    kind: Literal["reservation"]
+    outcome: Literal["reserved", "released", "consumed", "uncertain"]
+    amount: Money
+
+
+class MandatesClosedStep(StepBase):
+    kind: Literal["mandates_closed"]
+
+
+class DispatchDecisionStep(StepBase):
+    """D3-HNP: the policy checked the authority right before committing the dispatch."""
+
+    kind: Literal["dispatch_decision"]
+    decision: PolicyDecision
+
+
+class RevokedStep(StepBase):
+    kind: Literal["revoked"]
+    by: Literal["owner", "operator"]
+    effect: Literal["no_effect", "released", "in_flight"]
+
+
+class EscalatedStep(StepBase):
+    """The decision went back to the buyer: nothing was signed or charged (§8.2)."""
+
+    kind: Literal["escalated"]
+    reason: EscalationReason
+
+
 TraceStep = Annotated[
     RequestStep
     | SelectionStep
@@ -238,9 +301,21 @@ TraceStep = Annotated[
     | CanceledStep
     | FailedStep
     | FreshnessCheckStep
-    | GovernedRecoveryStep,
+    | GovernedRecoveryStep
+    | DelegationConsentedStep
+    | TaskActivatedStep
+    | ReservationStep
+    | MandatesClosedStep
+    | DispatchDecisionStep
+    | RevokedStep
+    | EscalatedStep,
     Field(discriminator="kind"),
 ]
+
+
+def _human_present(mode: PurchaseMode | None) -> bool:
+    """Absent means HP: only an HNP purchase writes its mode."""
+    return mode != "HNP"
 
 
 class PurchaseTrace(TraceModel):
@@ -254,6 +329,8 @@ class PurchaseTrace(TraceModel):
     started_at: UtcTime
     updated_at: UtcTime
     steps: tuple[TraceStep, ...]
+    # Optional and omitted in HP, so HP traces keep their bytes (hnp-governed.md §5.4).
+    purchase_mode: PurchaseMode | None = Field(default=None, exclude_if=_human_present)
 
 
 class PolicySummary(TraceModel):
@@ -276,6 +353,7 @@ class PurchaseSummary(TraceModel):
     approved_at: UtcTime | None
     order_id: Text | None
     duration_ms: Count | None
+    purchase_mode: PurchaseMode | None = Field(default=None, exclude_if=_human_present)
 
     @model_validator(mode="after")
     def _only_an_unavailable_row_omits_its_start(self) -> Self:
