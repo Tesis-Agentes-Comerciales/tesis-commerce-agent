@@ -280,6 +280,13 @@ test("prepara, aprueba y completa una compra; la aprobación solo viaja por REST
   await expect(card).toHaveAttribute("data-status", "completed")
   await expect(page.getByText(/La compra quedó completada/)).toBeVisible()
   await expect(card.getByRole("link", { name: /Ver orden/ })).toBeVisible()
+  // Con el mouse el foco vuelve al compositor: lo que se escribe enseguida no se pierde.
+  const composer = page.getByLabel("Mensaje de compra")
+  await expect(composer).toBeFocused()
+  await page.keyboard.type("gracias")
+  await expect(composer).toHaveValue("gracias")
+  const completedLive = page.getByRole("status").filter({ hasText: "Compra completada. El comercio registró la orden." })
+  await expect(completedLive).toHaveCount(1)
 
   // La aprobación va por REST con el fingerprint de los términos releídos.
   const approval = calls.find((call) => call.method === "POST" && call.path.endsWith("/approval"))
@@ -305,6 +312,8 @@ test.describe("actividad de la compra", () => {
     const activity = page.getByTestId("purchase-activity")
     await expect(activity).toHaveAttribute("data-status", "awaiting_approval")
     await expect(activity.getByRole("button", { name: /Esperando tu aprobación/ })).toBeVisible()
+    // La fila anuncia que hay que aprobar, y nadie más lo repite.
+    await expect(page.getByRole("status").filter({ hasText: "Esperando tu aprobación" })).toHaveCount(1)
     expect(callIndex(calls, "GET", `/purchases/${APPROVAL.run_id}/trace`)).toBeGreaterThanOrEqual(0)
 
     await card.getByTestId("approve-purchase").click()
@@ -507,6 +516,10 @@ test.describe("términos que ya no valen", () => {
         const staleCard = page.getByTestId("stale-terms-card")
         await expect(staleCard).toHaveAttribute("data-status", "stale")
         await expect(staleCard.getByRole("heading", { name: stale.title })).toBeVisible()
+        // Con el mouse el foco no salta al título; la tarjeta se anuncia por su región de estado.
+        await expect(staleCard.getByRole("heading", { name: stale.title })).not.toBeFocused()
+        const staleLive = page.getByRole("status").filter({ hasText: `${stale.title}. No se hizo ningún cobro.` })
+        await expect(staleLive).toHaveCount(1)
         await expect(staleCard.getByText("No se hizo ningún cobro.", { exact: true })).toBeVisible()
         await expect(staleCard.getByRole("button")).toHaveText(["Cancelar compra"])
         await expect(page.getByTestId("purchase-approval-card")).toHaveCount(0)
@@ -552,6 +565,8 @@ test.describe("términos que ya no valen", () => {
       await staleCard.getByRole("button", { name: "Cancelar compra" }).click()
       await expect(staleCard).toHaveAttribute("data-status", "canceled")
       await expect.poll(() => assistantBodies(calls).length).toBe(1)
+      // Con el mouse, el turno de `purchase-updated` devuelve el foco al compositor.
+      await expect(page.getByLabel("Mensaje de compra")).toBeFocused()
       expect(assistantBodies(calls)[0].commands).toEqual([{ type: "purchase-updated", runId: APPROVAL.run_id }])
       expect(calls.filter((call) => call.method === "POST" && call.path.endsWith("/cancel"))).toHaveLength(1)
     })

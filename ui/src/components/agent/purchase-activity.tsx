@@ -15,8 +15,9 @@ export type PurchaseActivityProps = {
   trace: PurchaseTrace
   defaultOpen?: boolean
   /**
-   * Anunciar los cambios de estado a los lectores de pantalla. En el chat calla cuando el mensaje
-   * tiene una tarjeta de la compra, que ya los anuncia.
+   * Anunciar el estado a los lectores de pantalla. En el chat calla cuando el mensaje tiene una
+   * tarjeta de la compra que ya anuncia ese estado. La región sigue montada aunque calle: una región
+   * que aparece ya con su texto no siempre se lee.
    */
   announce?: boolean
   className?: string
@@ -50,11 +51,9 @@ export function PurchaseActivity({
       data-status={trace.status}
     >
       {/* La traza se relee mientras la compra avanza: cada cambio de estado se anuncia una vez. */}
-      {announce && (
-        <span role="status" className="sr-only">
-          {summary}
-        </span>
-      )}
+      <span role="status" className="sr-only">
+        {announce ? summary : ""}
+      </span>
       {/*
         Rejilla y no flex: el resumen crece primero hasta su ancho completo y el producto solo usa
         lo que sobra. Con flex ambos se encogen a la vez y el estado salía cortado en el móvil. Si

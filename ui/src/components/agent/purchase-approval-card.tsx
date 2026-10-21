@@ -309,7 +309,8 @@ export function PurchaseApprovalCard({
     <>
       {/*
         Fuera de la sección: mientras esta lleva `aria-busy`, un lector puede callar lo que cambia
-        dentro. La tarjeta es la única que anuncia su compra (la fila de actividad calla).
+        dentro. La tarjeta anuncia lo que pasa al aprobar o cancelar; que espera la aprobación lo
+        anuncia la fila de actividad, que ya estaba en el mensaje.
       */}
       <p role="status" className="sr-only">
         {announce ? liveStatus(status, copy) : ""}

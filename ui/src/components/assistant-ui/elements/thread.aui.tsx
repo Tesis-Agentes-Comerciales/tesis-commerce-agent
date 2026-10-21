@@ -217,7 +217,11 @@ function AssistantMessage() {
         !(staleTerms && purchaseTrace.status === "awaiting_approval") && (
         <PurchaseActivity
           trace={purchaseTrace}
-          announce={!messageHasPurchaseCard(parts)}
+          // La tarjeta anuncia lo que pasa al aprobar o cancelar, pero no que espera la aprobación:
+          // eso lo dice esta fila, que ya estaba en el mensaje antes de la tarjeta.
+          announce={
+            purchaseTrace.status === "awaiting_approval" || !messageHasPurchaseCard(parts)
+          }
           className="mb-3"
         />
       )}
@@ -324,10 +328,13 @@ function StarterSuggestion() {
 function Composer({ autoFocus }: { autoFocus: boolean }) {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   // Al empezar una respuesta el compositor toma el foco (así lo recupera quien pulsó una sugerencia,
-  // que desaparece), salvo que esté en un mensaje: aprobar o cancelar una compra también empieza un
-  // turno (`purchase-updated`), y el foco debe quedarse en su tarjeta.
+  // que desaparece). Aprobar o cancelar una compra también empieza un turno (`purchase-updated`):
+  // con el mouse el foco vuelve aquí, listo para escribir; con el teclado se queda en la tarjeta.
   useAuiEvent("thread.runStart", () => {
-    if (!autoFocus || document.activeElement?.closest("[data-message-id]")) return
+    const active = document.activeElement
+    if (!autoFocus || (active?.closest("[data-message-id]") && active.matches(":focus-visible"))) {
+      return
+    }
     inputRef.current?.focus({ preventScroll: true })
   })
 

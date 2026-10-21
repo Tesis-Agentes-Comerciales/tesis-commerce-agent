@@ -152,8 +152,15 @@ export const AwaitingApproval: Story = {
     await expect(
       await canvas.findByRole("button", { name: /Esperando tu aprobación/ }),
     ).toHaveAttribute("aria-expanded", "false")
-    // Con tarjeta de la compra, ella anuncia los cambios: la fila no tiene región de estado.
-    await expect(activity.querySelector("[role='status']")).toBeNull()
+    // La tarjeta anuncia lo que pasa al aprobar o cancelar; que espera la aprobación lo anuncia la
+    // fila, una sola vez.
+    await expect(activity.querySelector("[role='status']")).toHaveTextContent(
+      "Esperando tu aprobación",
+    )
+    const announced = canvas
+      .getAllByRole("status")
+      .filter((region) => region.textContent?.includes("aprobación"))
+    await expect(announced).toHaveLength(1)
   },
 }
 
