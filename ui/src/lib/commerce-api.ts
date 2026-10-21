@@ -75,9 +75,16 @@ export function health(signal?: AbortSignal): Promise<{ status: string }> {
 /**
  * Por qué faltan los términos de una compra que espera confirmación: la oferta o el checkout
  * cambiaron (también un checkout que dejó de estar listo para pagar), vencieron o no se pudieron
- * confirmar con el comercio.
+ * confirmar con el comercio. Con `authorization_*` los términos valen, pero al aprobar la política
+ * no autorizó la compra (`denied`) o no se pudo verificar la autorización (`unverified`): aprobar de
+ * nuevo se rechazaría igual.
  */
-export type PendingTermsStatus = "changed" | "expired" | "unavailable"
+export type PendingTermsStatus =
+  | "changed"
+  | "expired"
+  | "unavailable"
+  | "authorization_denied"
+  | "authorization_unverified"
 
 export type PendingPurchase = {
   purchase: AgentPurchase & { checkout_id: string | null }

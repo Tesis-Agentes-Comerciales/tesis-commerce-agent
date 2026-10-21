@@ -5,6 +5,8 @@ import {
   type TraceStep,
 } from "@/lib/trace-contract"
 
+import authorizationDenied from "./authorization-denied.json"
+import authorizedEnforce from "./authorized-enforce.json"
 import awaitingApproval from "./awaiting-approval.json"
 import blockedBudget from "./blocked-budget.json"
 import blockedMerchant from "./blocked-merchant.json"
@@ -56,6 +58,14 @@ export const TRACES = {
   staleTermsReread: parsePurchaseTrace(staleTermsReread),
   /** S02: el total del comercio superó el presupuesto; el agente canceló el checkout y lo explicó. */
   governedRecovery: parsePurchaseTrace(governedRecovery),
+  // Autorización al aprobar (D2, `b2-hp-v2`): la política revisa la compra otra vez antes de firmar.
+  /** S01 con `b2-hp-v2`: POL-03..06 se cumplen y la firma AP2 viene después. */
+  authorizedEnforce: parsePurchaseTrace(authorizedEnforce),
+  /**
+   * El operador publicó la revisión 2 mientras la compra esperaba la aprobación: POL-06 la niega. No
+   * se registró la aprobación ni se firmó nada.
+   */
+  authorizationDenied: parsePurchaseTrace(authorizationDenied),
 } satisfies Record<string, PurchaseTrace>
 
 /** Último paso de un tipo: en S04, la comprobación de frescura que bloqueó. */

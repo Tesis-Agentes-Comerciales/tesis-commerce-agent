@@ -11,6 +11,7 @@ import {
   scriptedAssistant,
 } from "@/storybook/assistant-transport"
 import { mouseClick, sendComposerMessage } from "@/storybook/interactions"
+import { TRACES, withRunId } from "@/storybook/trace-fixtures"
 
 const meta = {
   title: "Pages/App",
@@ -256,6 +257,8 @@ const STALE_TITLE: Record<PendingTermsStatus, string> = {
   changed: "Las condiciones del comercio cambiaron",
   expired: "Las condiciones que revisaste vencieron",
   unavailable: "No pude confirmar las condiciones con el comercio",
+  authorization_denied: "La política de compra no autorizó esta compra",
+  authorization_unverified: "No pude verificar la autorización de la compra",
 }
 
 /**
@@ -453,3 +456,56 @@ export const RestoredTermsUnavailable: Story = restoredStaleStory("unavailable")
  * /me/pending-purchase` respondía 409 con el checkout vencido). Se puede cancelar.
  */
 export const RestoredTermsExpired: Story = restoredStaleStory("expired")
+
+/**
+ * Tras recargar, `terms_status: "authorization_denied"`: al aprobar, la política no autorizó la
+ * compra (D2). La tarjeta lo dice y solo deja cancelar; aprobar otra vez se rechazaría igual.
+ */
+export const RestoredAuthorizationDenied: Story = restoredStaleStory("authorization_denied")
+
+// Runs cuya aprobación la política no autorizó en esta historia: su traza pasa a la del deny.
+const deniedRuns = new Set<string>()
+
+/**
+ * Aprobar responde 409 `d2_denied` (POL-06): la tarjeta reemplaza a la de aprobación, dice que no se
+ * firmó nada y, cuando llega la traza, muestra la regla que falló. La fila de actividad dice que la
+ * política la bloqueó, sin aviso rojo.
+ */
+export const AuthorizationDeniedOnApprove: Story = {
+  parameters: {
+    agentApi: {
+      ...FAST_STREAM.agentApi,
+      "POST /purchases/:runId/approval": ({ params }: AgentApiRequest) => {
+        deniedRuns.add(params.runId ?? "")
+        return {
+          status: 409,
+          body: { code: "d2_denied", message: "La política de compra no autorizó esta compra al aprobarla." },
+        }
+      },
+      "GET /purchases/:runId/trace": ({ params }: AgentApiRequest) => {
+        const runId = params.runId ?? ""
+        const trace = deniedRuns.has(runId) ? TRACES.authorizationDenied : TRACES.awaitingApproval
+        return { body: withRunId(trace, runId) }
+      },
+    },
+  },
+  play: async (context) => {
+    const card = await approvalCard(context)
+    await context.userEvent.click(within(card).getByTestId("approve-purchase"))
+    const stale = await context.canvas.findByTestId("stale-terms-card", {}, STREAM_TIMEOUT)
+    await expect(
+      within(stale).getByRole("heading", { name: STALE_TITLE.authorization_denied }),
+    ).toBeVisible()
+    await expect(
+      within(stale).getByText("No se firmó ninguna autorización ni se hizo ningún cobro."),
+    ).toBeVisible()
+    await expect(
+      await within(stale).findByText("La política no cambió desde que eligió el producto", {}, STREAM_TIMEOUT),
+    ).toBeVisible()
+    await expect(within(stale).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Cancelar compra",
+    ])
+    await expect(context.canvas.queryByRole("alert")).toBeNull()
+    await expect(context.canvas.queryByTestId("policy-blocked-card")).toBeNull()
+  },
+}

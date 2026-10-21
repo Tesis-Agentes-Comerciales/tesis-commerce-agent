@@ -14,7 +14,7 @@ FIXTURE_FILES = sorted(FIXTURES.glob("*.json"))
 
 
 def test_every_ui_fixture_is_present() -> None:
-    assert len(FIXTURE_FILES) >= 13
+    assert len(FIXTURE_FILES) >= 17
 
 
 @pytest.mark.parametrize("path", FIXTURE_FILES, ids=lambda path: path.stem)
@@ -219,6 +219,42 @@ def test_the_budget_rule_carries_amounts_and_the_others_texts() -> None:
 def test_rule_amounts_are_as_strict_as_the_ui_validator(edit) -> None:
     with pytest.raises(ValidationError):
         PurchaseTrace.model_validate_json(json.dumps(mutated(edit, "blocked-budget")))
+
+
+def test_the_authorization_step_carries_the_d2_decision() -> None:
+    """D2 (hp-p3-d2-authorization): after the approval, before signing; the policy is the actor."""
+    allowed = PurchaseTrace.model_validate_json(json.dumps(fixture("authorized-enforce")))
+    kinds = [item.kind for item in allowed.steps]
+    assert kinds.index("approval") < kinds.index("authorization_decision")
+    assert kinds.index("authorization_decision") < kinds.index("authorization_signed")
+    denied = PurchaseTrace.model_validate_json(json.dumps(fixture("authorization-denied")))
+    [step] = [item for item in denied.steps if item.kind == "authorization_decision"]
+    assert (denied.status, step.state, step.actor) == ("blocked", "blocked", "policy")
+    assert [rule.id for rule in step.decision.rules] == ["POL-03", "POL-04", "POL-05", "POL-06"]
+    assert step.decision.reason_codes == ("POLICY_CONTEXT_MISMATCH",)
+
+
+def authorization(trace: dict[str, Any]) -> dict[str, Any]:
+    return kind(trace, "authorization_decision")
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(lambda trace: authorization(trace).update(evidence="x"), id="extra-field"),
+        pytest.param(lambda trace: authorization(trace).pop("decision"), id="no-decision"),
+        pytest.param(
+            lambda trace: authorization(trace)["decision"].update(effect="denied"), id="bad-effect"
+        ),
+        pytest.param(
+            lambda trace: authorization(trace)["decision"]["rules"][3].update(observed=""),
+            id="empty-observed",
+        ),
+    ],
+)
+def test_the_authorization_step_is_as_strict_as_the_ui_validator(edit) -> None:
+    with pytest.raises(ValidationError):
+        PurchaseTrace.model_validate_json(json.dumps(mutated(edit, "authorization-denied")))
 
 
 def test_purchase_summary_matches_the_ui_contract() -> None:

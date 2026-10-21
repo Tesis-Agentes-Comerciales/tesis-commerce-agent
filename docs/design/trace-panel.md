@@ -53,6 +53,7 @@ La UI no muestra códigos internos. El código queda en el detalle técnico para
 | `enforce` | «Activa: detiene la compra si no cumple» |
 | `off` | «Política desactivada» |
 | Aprobación B0 | «Tu aprobación» |
+| D2, POL-03..06 (al aprobar, `b2-hp-v2`) | «Autorización verificada», «La política no autorizó la compra»; reglas «tu cuenta puede aprobar esta compra», «es la misma compra que revisó la política», «total y condiciones dentro de lo que pediste», «la política no cambió desde que eligió el producto» |
 | Mandatos AP2 | «Autorización firmada» |
 | Pago delegado | «Pago autorizado» |
 | Frescura de la oferta (`freshness_check`) | «Condiciones confirmadas con el comercio», «Las condiciones del comercio cambiaron» |
@@ -130,6 +131,7 @@ type TraceStep = {
   | { kind: "policy_decision"; decision: PolicyDecision }
   | { kind: "checkout_created"; checkout_id: string }
   | { kind: "approval"; fingerprint: string; expires_at: string; approved_at: string | null }
+  | { kind: "authorization_decision"; decision: PolicyDecision }  // D2, actor "policy"
   | { kind: "authorization_signed"; mandates: ("checkout" | "payment")[] }
   | { kind: "payment_authorized"; max_minor: number; currency: string }
   | { kind: "order_confirmed"; order_id: string; receipts: ("checkout" | "payment")[] }
@@ -175,7 +177,7 @@ interface PolicyDecision {
   effect: "observed" | "blocked" | "continued"
   policy: { set_id: string; revision: number }
   rules: {
-    id: string                  // "POL-01", "POL-02", "POL-11"
+    id: string                  // "POL-01", "POL-02", "POL-11"; D2: "POL-03" a "POL-06"
     result: "pass" | "fail" | "not_evaluated"
     observed: string | Money | null  // p. ej. el origen del comercio; POL-11: precio del catálogo
     expected: string | Money | null  // p. ej. los comercios permitidos; POL-11: presupuesto total
@@ -275,6 +277,7 @@ interface PurchaseSummary {       // filas de GET /me/purchases
 | `policy_decision` | `SqliteGovernanceEvidenceStore.for_run`. POL-01: variante elegida y elegibles. POL-02: origen del comercio y orígenes de la política (`governance_episodes`, verificada contra la decisión). POL-11 (`b2-hp-v2`): `selected_unit_minor` y `intent.max_total_minor` de la entrada D1, como `Money` en COP; sin presupuesto total, `expected` es `null`. Las reglas `not_evaluated` de una guarda son las que lista el artefacto de la política | `decided_at` |
 | `checkout_created` | `purchases.checkout_id` | `operation_keys` (`checkout.create`), que se escribe justo antes de llamar al comercio. El modo activo no la guarda ahí: usa el `prepared_at` del sobre D1 (`d1_checkout_envelopes`), que es la hora de la decisión que lo permitió, así que empata con la política. Del sobre solo sale esa hora |
 | `approval` | `approval_terms` y `approvals`. `state`: `done` si se aprobó, `waiting` si la compra espera la aprobación y `skipped` si no la hubo (cancelada, o la frescura bloqueó los términos) | `approved_at`; si no hay aprobación, `approval_terms.updated_at` |
+| `authorization_decision` | Registros D2 de `SqliteGovernanceEvidenceStore.for_run` (`hp-p3-d2-authorization.md`), uno por aprobación evaluada, entre `approval` y `authorization_signed`. `state` `blocked` si la decisión detuvo la aprobación. POL-03 nunca trae valores (es la identidad del dueño). Cada regla trae los valores que explican su resultado: POL-04, la variante aprobada y la que revisó D1 solo si difieren; POL-05, el total autoritativo del checkout y `intent.max_total_minor` como `Money` si se cumplió o si el total lo supera; POL-06, la política de D1 y la vigente (`set · revisión N`) solo si difieren. Una guarda deja POL-03..06 `not_evaluated`. Si la última decisión D2 detuvo la aprobación y no hay aprobación, `approval` queda `skipped` y la compra `blocked` | `decided_at` |
 | `authorization_signed` | `approvals`: solo si existe algún mandato, nunca su contenido | `approved_at` |
 | `payment_authorized` | `operation_keys` (`payment.delegate`), solo si la etapa prueba que la delegación terminó (`completing`, `uncertain`, `completed`, `failed`) o si existe la clave del comercio (`checkout.complete`) y es posterior: el cierre la crea solo cuando el proveedor devolvió el token. Así un 4xx del comercio a `/complete`, que devuelve la compra a `approved`, conserva el paso, y una delegación fallida no lo muestra aunque después algo escriba la fila (`updated_at`, `failure_code`). Las compras anteriores a esta regla creaban esa clave antes de delegar: en `approved` no muestran el paso, en lugar de un éxito falso. Monto de `approval_terms` | `created_at` |
 | `order_confirmed` | `completion_results`: los recibos solo como presencia | `completed_at` |

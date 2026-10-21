@@ -55,6 +55,11 @@ export type TraceStep = {
   | { kind: "policy_decision"; decision: PolicyDecision }
   | { kind: "checkout_created"; checkout_id: string }
   | { kind: "approval"; fingerprint: string; expires_at: string; approved_at: string | null }
+  /**
+   * D2: al aprobar, la política revisa la compra (POL-03..06) antes de firmar. `state: "blocked"`
+   * si la detuvo: no se registró la aprobación ni se firmó nada.
+   */
+  | { kind: "authorization_decision"; decision: PolicyDecision }
   | { kind: "authorization_signed"; mandates: ("checkout" | "payment")[] }
   | { kind: "payment_authorized"; max_minor: number; currency: string }
   | { kind: "order_confirmed"; order_id: string; receipts: ("checkout" | "payment")[] }
@@ -133,10 +138,13 @@ export interface PolicyDecision {
   effect: "observed" | "blocked" | "continued"
   policy: { set_id: string; revision: number }
   rules: {
-    /** "POL-01", "POL-02", "POL-11". */
+    /** "POL-01", "POL-02", "POL-11"; al aprobar, "POL-03" a "POL-06". */
     id: string
     result: "pass" | "fail" | "not_evaluated"
-    /** Un texto, como el origen del comercio, o un monto, como el precio del catálogo (POL-11). */
+    /**
+     * Un texto, como el origen del comercio, o un monto, como el precio del catálogo (POL-11) o el
+     * total del comercio (POL-05).
+     */
     observed: string | Money | null
     /** Un texto, como la lista de comercios permitidos, o un monto, como tu presupuesto total. */
     expected: string | Money | null
@@ -277,6 +285,7 @@ const STEP_FIELDS: { [K in StepKind]: StepFields<K> } = {
   policy_decision: { decision: shape(POLICY_DECISION) },
   checkout_created: { checkout_id: text },
   approval: { fingerprint: text, expires_at: utc, approved_at: nullable(utc) },
+  authorization_decision: { decision: shape(POLICY_DECISION) },
   authorization_signed: { mandates: listOf(receiptKind) },
   payment_authorized: { max_minor: count, currency },
   order_confirmed: { order_id: text, receipts: listOf(receiptKind) },

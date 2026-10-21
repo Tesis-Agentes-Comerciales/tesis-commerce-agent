@@ -86,6 +86,8 @@ class PurchaseRecords:
     hp_evidence: tuple[HpEvidence, ...] = ()
     # The D1 enforce path keeps no `checkout.create` key: its creation envelope has the time.
     checkout_prepared_at: str | None = None
+    # D2 decisions, one per evaluated approval (b2-hp-v2), oldest first.
+    authorizations: tuple[DecisionRecord, ...] = ()
 
 
 def merchant_origins(settings: Settings) -> dict[str, str]:
@@ -188,7 +190,8 @@ def read_records(
         terms = _row(
             connection, "SELECT terms, updated_at FROM approval_terms WHERE run_id = ?", run_id
         )
-        decisions = _decisions(connection, run_id)
+        ledger = _ledger(connection, run_id)
+        decisions = tuple(item for item in ledger if item.decision.phase == "D1")
         thread = _row(
             connection, "SELECT thread_id FROM purchase_graph_threads WHERE run_id = ?", run_id
         )
@@ -226,6 +229,7 @@ def read_records(
             turn=_turn(graph.thread(thread["thread_id"]), run_id) if thread else None,
             hp_evidence=_hp_evidence(connection, run_id),
             checkout_prepared_at=_checkout_prepared_at(connection, run_id),
+            authorizations=tuple(item for item in ledger if item.decision.phase == "D2"),
         )
 
 
@@ -237,18 +241,15 @@ def _row(connection: sqlite3.Connection, query: str, run_id: str) -> dict[str, A
     )
 
 
-def _decisions(connection: sqlite3.Connection, run_id: str) -> tuple[DecisionRecord, ...]:
+def _ledger(connection: sqlite3.Connection, run_id: str) -> tuple[DecisionRecord, ...]:
+    """The run's evaluated decisions, D1 and D2, in ledger order."""
     # Databases that never ran with governance have no ledger at all.
     if not connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'governance_evidence'"
     ).fetchone():
         return ()
     evidence = SqliteGovernanceEvidenceStore(connection).for_run(run_id)
-    return tuple(
-        item
-        for item in evidence
-        if isinstance(item, DecisionRecord) and item.decision.phase == "D1"
-    )
+    return tuple(item for item in evidence if isinstance(item, DecisionRecord))
 
 
 def _hp_evidence(connection: sqlite3.Connection, run_id: str) -> tuple[HpEvidence, ...]:

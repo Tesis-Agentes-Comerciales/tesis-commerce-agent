@@ -6,8 +6,9 @@ import type { StaleTermsReason } from "@/components/agent"
 import type { PendingTermsStatus } from "@/lib/commerce-api"
 
 // Términos que ya no valen (b2-governed-pilot, S04): la oferta cambió, venció o no se pudo leer, o
-// el checkout venció. La compra sigue pendiente y no se puede aprobar; el comprador la cancela (el
-// comercio cancela también un checkout vencido) y la pide de nuevo.
+// el checkout venció. También una aprobación que la política no autorizó (D2, hp-p3-d2-authorization).
+// La compra sigue pendiente y no se puede aprobar; el comprador la cancela (el comercio cancela
+// también un checkout vencido) y la pide de nuevo.
 
 /** Códigos con los que el backend rechaza los términos: 409 y 503 en REST, o el paso en el stream. */
 const STALE_TERMS = new Map<string, StaleTermsReason>([
@@ -15,6 +16,10 @@ const STALE_TERMS = new Map<string, StaleTermsReason>([
   ["offer_expired", "expired"],
   ["checkout_expired", "expired"],
   ["offer_freshness_unavailable", "unavailable"],
+  // Solo los responde aprobar: antes de firmar nada, la política revisó la compra otra vez.
+  ["d2_denied", "authorization_denied"],
+  ["d2_unavailable", "authorization_unverified"],
+  ["d2_allow_unapplied", "authorization_unverified"],
 ])
 
 /** Error del paso restaurado: un código que `staleTermsOf` lee como el mismo motivo, y su texto. */
@@ -30,6 +35,14 @@ const RESTORED_ERROR: Record<PendingTermsStatus, { code: string; message: string
   unavailable: {
     code: "offer_freshness_unavailable",
     message: "No pude confirmar las condiciones con el comercio. No se hizo ningún cobro.",
+  },
+  authorization_denied: {
+    code: "d2_denied",
+    message: "La política de compra no autorizó esta compra. No se hizo ningún cobro.",
+  },
+  authorization_unverified: {
+    code: "d2_unavailable",
+    message: "No pude verificar la autorización de la compra. No se hizo ningún cobro.",
   },
 }
 

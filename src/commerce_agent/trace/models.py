@@ -100,6 +100,16 @@ class PolicyDecisionStep(StepBase):
     decision: PolicyDecision
 
 
+class AuthorizationDecisionStep(StepBase):
+    """D2: the policy checked the approval (POL-03..06) before anything was signed.
+
+    `state` is `blocked` when it stopped the purchase: no approval was recorded.
+    """
+
+    kind: Literal["authorization_decision"]
+    decision: PolicyDecision
+
+
 class CheckoutCreatedStep(StepBase):
     kind: Literal["checkout_created"]
     checkout_id: Text
@@ -220,6 +230,7 @@ TraceStep = Annotated[
     | PolicyDecisionStep
     | CheckoutCreatedStep
     | ApprovalStep
+    | AuthorizationDecisionStep
     | AuthorizationSignedStep
     | PaymentAuthorizedStep
     | OrderConfirmedStep

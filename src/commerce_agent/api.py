@@ -77,7 +77,9 @@ class ApprovalReceipt(BaseModel):
     stage: str = "approved"
 
 
-TermsStatus = Literal["changed", "expired", "unavailable"]
+TermsStatus = Literal[
+    "changed", "expired", "unavailable", "authorization_denied", "authorization_unverified"
+]
 
 # Refusals to present the terms that leave a pending purchase visible: the live offer changed,
 # expired or could not be read, or the checkout expired or stopped being ready for payment. The
@@ -98,7 +100,8 @@ class PendingPurchase(BaseModel):
 
     purchase: PurchaseStatus
     approval_terms: ApprovalTerms | None
-    # Why `approval_terms` is null for a purchase awaiting confirmation; null otherwise.
+    # Why `approval_terms` is null for a purchase awaiting confirmation; null otherwise. The
+    # `authorization_*` ones: D2 refused the approval (hp-p3-d2-authorization), only cancel remains.
     terms_status: TermsStatus | None = None
 
 
@@ -286,7 +289,17 @@ def create_app(
         snapshots = conversation.approval_terms_snapshots([run_id], buyer.id)
         terms = snapshots.get(run_id)
         terms_status: TermsStatus | None = None
-        if purchase["stage"] == "awaiting_confirmation" and (
+        refusal = (
+            runtime.d2_gate.refusal(run_id)
+            if runtime.d2_gate is not None and purchase["stage"] == "awaiting_confirmation"
+            else None
+        )
+        if refusal is not None:
+            terms = None
+            terms_status = (
+                "authorization_denied" if refusal == "denied" else "authorization_unverified"
+            )
+        elif purchase["stage"] == "awaiting_confirmation" and (
             terms is None or runtime.mandate_signer is not None
         ):
             try:

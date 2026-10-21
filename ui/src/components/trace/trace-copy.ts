@@ -69,6 +69,29 @@ const RULES: Record<string, RuleCopy> = {
     observed: "Comercio",
     expected: "Comercios permitidos",
   },
+  // Al aprobar (D2). POL-03 revisa la identidad del dueño: nunca trae valores.
+  "POL-03": {
+    name: "Tu cuenta puede aprobar esta compra",
+    observed: "Valor observado",
+    expected: "Valor esperado",
+  },
+  // La traza solo trae sus valores si difieren: cubren el producto, no la presentación ni el clic.
+  "POL-04": {
+    name: "Es la misma compra que revisó la política",
+    observed: "Producto aprobado",
+    expected: "Producto que revisó la política",
+  },
+  // El total autoritativo del comercio, con envío, frente al presupuesto total.
+  "POL-05": {
+    name: "Total y condiciones dentro de lo que pediste",
+    observed: "Total del comercio",
+    expected: "Tu presupuesto total",
+  },
+  "POL-06": {
+    name: "La política no cambió desde que eligió el producto",
+    observed: "Política al elegir",
+    expected: "Política vigente",
+  },
   // Compara el precio del catálogo con el presupuesto total: el total del comercio nunca es menor.
   "POL-11": {
     name: "Precio dentro de tu presupuesto",
@@ -101,12 +124,18 @@ export function traceMerchant(
 
 /**
  * Controles del recorrido normal de una compra, en orden; los eventos sueltos no cuentan. Tampoco
- * la frescura ni la recuperación: solo existen en el flujo gobernado, y una fila «No se ejecutó»
- * suya mentiría con la gobernanza apagada.
+ * la frescura, la recuperación ni la autorización al aprobar: solo existen en el flujo gobernado (la
+ * autorización, además, solo con una política que la trae), y una fila «No se ejecutó» suya
+ * mentiría con la gobernanza apagada.
  */
 export type ControlKind = Exclude<
   StepKind,
-  "order_event" | "canceled" | "failed" | "freshness_check" | "governed_recovery"
+  | "order_event"
+  | "canceled"
+  | "failed"
+  | "freshness_check"
+  | "governed_recovery"
+  | "authorization_decision"
 >
 
 type ControlCopy = { todo: string; running: string; done: string; error: string }
@@ -224,6 +253,40 @@ function policyTitle(state: StepState, decision: PolicyDecision) {
       : "La política detuvo la compra"
   }
   return decision.outcome === "allow" ? CONTROLS.policy_decision.done : "Política de compra: no se cumplió"
+}
+
+// Autorización al aprobar (D2): la política revisa la compra otra vez antes de firmar nada.
+
+type AuthorizationStep = Extract<TraceStep, { kind: "authorization_decision" }>
+
+/** Qué no pasó cuando la autorización detuvo la compra: no hay aprobación registrada. */
+export const NOTHING_SIGNED = "No se firmó ninguna autorización ni se hizo ningún cobro."
+
+const AUTHORIZATION_TITLE = {
+  running: "Verificando la autorización…",
+  done: "Autorización verificada",
+  denied: "La política no autorizó la compra",
+  unverified: "No se pudo verificar la autorización",
+  unapplied: "La política autorizó la compra; se detuvo por precaución",
+}
+
+/** Se detuvo sin una regla que falle: el motor no respondió, faltaron datos o no se aplicó. */
+function authorizationUnverified(decision: PolicyDecision) {
+  return decision.effect === "blocked" && !decision.rules.some((rule) => rule.result === "fail")
+}
+
+function authorizationTitle(step: AuthorizationStep) {
+  if (step.state === "running") return AUTHORIZATION_TITLE.running
+  const { decision } = step
+  if (allowNotApplied(decision)) return AUTHORIZATION_TITLE.unapplied
+  if (decision.effect === "blocked") {
+    return authorizationUnverified(decision) ? AUTHORIZATION_TITLE.unverified : AUTHORIZATION_TITLE.denied
+  }
+  return decision.outcome === "allow" ? AUTHORIZATION_TITLE.done : AUTHORIZATION_TITLE.denied
+}
+
+function authorizationDetail(step: AuthorizationStep) {
+  return step.state === "blocked" ? NOTHING_SIGNED : "Antes de firmar la autorización"
 }
 
 function lookup(table: Record<string, string>, key: string) {
@@ -391,6 +454,8 @@ export function stepTitle(step: TraceStep) {
       return RECOVERY_TITLE
     case "policy_decision":
       return policyTitle(step.state, step.decision)
+    case "authorization_decision":
+      return authorizationTitle(step)
     case "order_event":
       return lookup(ORDER_EVENTS, step.event_type) ?? "Aviso del comercio"
     case "canceled":
@@ -425,6 +490,8 @@ export function stepDetail(step: TraceStep, merchantName: string | null = null) 
       return POLICY_MODE_LABEL[step.decision.mode]
     case "approval":
       return approvalDetail(step)
+    case "authorization_decision":
+      return authorizationDetail(step)
     case "authorization_signed": {
       const scopes = scopeList(step.mandates)
       return scopes && `Para ${scopes}`
@@ -484,7 +551,12 @@ export function purchaseSummary(trace: PurchaseTrace) {
     return offerExpired(check) ? STALE_EXPIRED_SUMMARY : STALE_UNAVAILABLE_SUMMARY
   }
   if (trace.status === "blocked") {
-    const policy = trace.steps.findLast((step) => step.kind === "policy_decision")
+    const policy = trace.steps.findLast(
+      (step) => step.kind === "policy_decision" || step.kind === "authorization_decision",
+    )
+    if (policy?.kind === "authorization_decision" && authorizationUnverified(policy.decision)) {
+      return ALLOW_NOT_APPLIED_SUMMARY
+    }
     return policy?.kind === "policy_decision" && allowNotApplied(policy.decision)
       ? ALLOW_NOT_APPLIED_SUMMARY
       : PURCHASE_SUMMARY.blocked
@@ -556,6 +628,16 @@ function stepRefs(step: TraceStep): EvidenceRef[] {
         ...(step.variant_id ? [{ label: "Variante", value: step.variant_id }] : []),
         { label: "Evidencia de recuperación", value: step.evidence_digest },
       ]
+    case "authorization_decision": {
+      // Aquí sí van los códigos de la decisión al aprobar (D2).
+      const failed = step.decision.rules.filter((rule) => rule.result === "fail").map((rule) => rule.id)
+      return [
+        { label: "Decisión al aprobar", value: step.decision.decision_id },
+        { label: "Evidencia al aprobar", value: step.decision.evidence_id },
+        ...listRef("Reglas que fallaron al aprobar", failed),
+        ...listRef("Códigos al aprobar", step.decision.reason_codes),
+      ]
+    }
     case "checkout_created":
       return [{ label: "Checkout", value: step.checkout_id }]
     case "order_confirmed":

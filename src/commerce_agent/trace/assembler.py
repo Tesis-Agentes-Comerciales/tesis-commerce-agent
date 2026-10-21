@@ -16,10 +16,12 @@ from pydantic import TypeAdapter, ValidationError
 
 from commerce_agent.config import Settings
 from commerce_agent.governance.evidence import DecisionRecord, EvidenceError
+from commerce_agent.governance.models import APPLICABLE_RULES, PolicyBinding
 from commerce_agent.persistence.hp_evidence_sqlite import HpEvidence
 
 from .models import (
     ApprovalStep,
+    AuthorizationDecisionStep,
     Money,
     OrderConfirmedStep,
     PolicyDecisionStep,
@@ -50,7 +52,13 @@ DELEGATED_STAGES = {"completing", "uncertain", "completed", "failed"}
 FINISHED = {"completed", "blocked", "canceled", "failed"}
 CANCELED_BY: dict[str, TraceActor] = {"user": "user", "budget": "agent"}
 # What a freshness check gates: it always runs before these are recorded.
-GATED = {"approval", "authorization_signed", "payment_authorized", "order_confirmed"}
+GATED = {
+    "approval",
+    "authorization_decision",
+    "authorization_signed",
+    "payment_authorized",
+    "order_confirmed",
+}
 # Fields offer_freshness.compare_offer compares; a field it adds later stays out of the trace.
 AMOUNT_FIELDS = {"subtotal_minor", "shipping_minor", "total_minor", "delivery_days", "stock"}
 
@@ -177,16 +185,63 @@ def policy_rules(
     )
 
 
+def revision(binding: PolicyBinding) -> str:
+    return f"{binding.policy_set_id} · revisión {binding.version}"
+
+
+def authorization_rules(record: DecisionRecord) -> tuple[dict[str, Any], ...]:
+    """POL-03..06 check several facts each: a rule shows the values that explain its result."""
+    results = {rule.policy_id: rule.result for rule in record.decision.rule_results}
+    values: dict[str, tuple[RuleValue, RuleValue]] = {}
+    if not results:  # A runtime guard stopped the approval before any rule was evaluated.
+        results = dict.fromkeys(APPLICABLE_RULES[("D2", "HP")], "not_evaluated")
+    else:
+        data = record.authorization_input()
+        terms, limit = data.terms, data.intent.max_total_minor
+        approved, reviewed = terms.variant_id, data.d1.selected_variant_id
+        then, now = revision(data.d1.policy_binding), revision(data.expected_policy)
+        # POL-03 checks the owner's identity: it never shows values. The total against the budget
+        # explains POL-05 when it passed or when the total exceeds it, not a constraint mismatch.
+        over = limit is not None and terms.total_minor > limit
+        values = {
+            "POL-04": (approved, reviewed) if approved != reviewed else (None, None),
+            "POL-05": (cop(terms.total_minor), cop(limit))
+            if over or results.get("POL-05") == "pass"
+            else (None, None),
+            "POL-06": (then, now) if then != now else (None, None),
+        }
+    return tuple(
+        {
+            "id": rule,
+            "result": result,
+            "observed": values.get(rule, (None, None))[0],
+            "expected": values.get(rule, (None, None))[1],
+        }
+        for rule, result in results.items()
+    )
+
+
 def policy_step(
     record: DecisionRecord, index: int, records: PurchaseRecords, origins: dict[str, str]
+) -> TraceStep:
+    return decision_step("policy_decision", record, index, policy_rules(record, records, origins))
+
+
+def authorization_decision_step(record: DecisionRecord, index: int) -> TraceStep:
+    """D2: the policy checked the approval before anything was signed (actor: the policy)."""
+    return decision_step("authorization_decision", record, index, authorization_rules(record))
+
+
+def decision_step(
+    kind: str, record: DecisionRecord, index: int, rules: tuple[dict[str, Any], ...]
 ) -> TraceStep:
     decision, effect = record.decision, EFFECTS[record.application.disposition]
     binding = decision.policy_binding
     return step(
-        "policy_decision",
+        kind,
         utc(decision.decided_at),
         "policy",
-        step_id="policy_decision" if index == 0 else f"policy_decision:{index + 1}",
+        step_id=kind if index == 0 else f"{kind}:{index + 1}",
         state="blocked" if effect == "blocked" else "done",
         duration_ms=decision.latency_ms,
         decision={
@@ -194,7 +249,7 @@ def policy_step(
             "outcome": decision.outcome,
             "effect": effect,
             "policy": {"set_id": binding.policy_set_id, "revision": binding.version},
-            "rules": policy_rules(record, records, origins),
+            "rules": rules,
             "reason_codes": decision.reason_codes,
             "latency_ms": decision.latency_ms,
             "decision_id": decision.decision_id,
@@ -218,13 +273,26 @@ def stale_terms(records: PurchaseRecords) -> bool:
     return bool(checks) and checks[-1].body.get("decision") == "block"
 
 
+def authorization_refused(records: PurchaseRecords) -> bool:
+    """The last D2 decision stopped the approval: none was recorded and only canceling remains."""
+    return (
+        bool(records.authorizations)
+        and records.authorizations[-1].application.disposition == "blocked"
+        and records.approval is None
+    )
+
+
 def approval_step(records: PurchaseRecords) -> TraceStep | None:
     terms, approval = records.terms, records.approval
     if terms is None or records.terms_shown_at is None:
         return None
     shown = utc(records.terms_shown_at)
     approved = utc(approval["approved_at"]) if approval else None
-    waiting = records.purchase["stage"] == "awaiting_confirmation" and not stale_terms(records)
+    waiting = (
+        records.purchase["stage"] == "awaiting_confirmation"
+        and not stale_terms(records)
+        and not authorization_refused(records)
+    )
     return step(
         "approval",
         approved or shown,
@@ -503,6 +571,8 @@ def purchase_status(records: PurchaseRecords) -> PurchaseStatus:
     stage = records.purchase["stage"]
     if stage == "awaiting_confirmation" and stale_terms(records):
         return "stale_terms"
+    if stage == "awaiting_confirmation" and authorization_refused(records):
+        return "blocked"
     if stage in ("completed", "awaiting_confirmation"):
         return STAGE_STATUS[stage]
     if records.decisions and records.decisions[-1].application.disposition == "blocked":
@@ -530,6 +600,11 @@ def assemble(records: PurchaseRecords, context: TraceContext) -> PurchaseTrace:
         ),
         checkout_step(records),
         approval_step(records),
+        # After the click and before signing: the approval's time is when it was recorded.
+        *(
+            authorization_decision_step(item, index)
+            for index, item in enumerate(records.authorizations)
+        ),
         authorization_step(records),
         payment_step(records),
         order_step(records),
@@ -568,7 +643,12 @@ def finished_at(trace: PurchaseTrace, order: OrderConfirmedStep | None) -> str |
 
 
 def summarize(trace: PurchaseTrace) -> PurchaseSummary:
-    policies = [item.decision for item in trace.steps if isinstance(item, PolicyDecisionStep)]
+    # D2 follows D1: the last decision is the one that let the purchase on or stopped it.
+    policies = [
+        item.decision
+        for item in trace.steps
+        if isinstance(item, PolicyDecisionStep | AuthorizationDecisionStep)
+    ]
     approval = next((item for item in trace.steps if isinstance(item, ApprovalStep)), None)
     order = next((item for item in trace.steps if isinstance(item, OrderConfirmedStep)), None)
     last = policies[-1] if policies else None

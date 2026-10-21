@@ -6,7 +6,7 @@ import { isRecord } from "@/features/agent-results"
 import { usePurchaseSession } from "@/features/purchase-session"
 import type { AgentMessageStatus } from "@/lib/agent-contract"
 import { getPurchaseTrace } from "@/lib/commerce-api"
-import type { PolicyDecision, PurchaseTrace } from "@/lib/trace-contract"
+import type { PolicyDecision, PolicyRule, PurchaseTrace } from "@/lib/trace-contract"
 
 // Traza en vivo de la compra de un mensaje (docs/design/trace-panel.md, «Integración»). El stream
 // de /assistant no la trae: se relee por REST cada vez que algo pudo cambiarla.
@@ -91,6 +91,16 @@ export function blockingDecision(trace: PurchaseTrace | null): PolicyDecision | 
     (candidate) => candidate.kind === "policy_decision" && candidate.decision.effect === "blocked",
   )
   return step?.kind === "policy_decision" ? step.decision : null
+}
+
+/**
+ * Reglas que no se cumplieron cuando, al aprobar, la política no autorizó la compra (D2). Las muestra
+ * la tarjeta que reemplaza a la de aprobación; sin traza todavía, ninguna.
+ */
+export function refusedRules(trace: PurchaseTrace | null): PolicyRule[] {
+  const step = trace?.steps.findLast((candidate) => candidate.kind === "authorization_decision")
+  if (step?.kind !== "authorization_decision" || step.decision.effect !== "blocked") return []
+  return step.decision.rules.filter((rule) => rule.result === "fail")
 }
 
 /** Recibo de la tarjeta de aprobación: la hora registrada y si hubo autorización firmada. */

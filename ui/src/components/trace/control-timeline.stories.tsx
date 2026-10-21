@@ -309,6 +309,51 @@ export const GovernedRecovery: Story = {
   },
 }
 
+/**
+ * S01 con `b2-hp-v2`: al aprobar, la política revisa la compra otra vez (D2) y después se firma. El
+ * paso va entre «Aprobaste la compra» y «Autorización firmada».
+ */
+export const AuthorizedOnApprove: Story = {
+  args: { trace: TRACES.authorizedEnforce },
+  play: async ({ canvas, canvasElement }) => {
+    const titles = timelineRows(canvasElement).map((row) => row.querySelector("p")?.textContent)
+    const verified = titles.indexOf("Autorización verificada")
+    await expect(titles[verified - 1]).toBe("Aprobaste la compra")
+    await expect(titles[verified + 1]).toBe("Autorización firmada")
+    await expect(canvas.getByText("Antes de firmar la autorización")).toBeVisible()
+    await expect(canvas.queryByText("No se ejecutó")).toBeNull()
+  },
+}
+
+/**
+ * La política no autorizó la aprobación (POL-06): la regla que falló con sus valores, nada firmado
+ * y los controles que ya no ocurrieron. No es la frescura: las condiciones se confirmaron.
+ */
+export const AuthorizationDenied: Story = {
+  args: { trace: TRACES.authorizationDenied },
+  play: async ({ canvas, canvasElement }) => {
+    const rows = timelineRows(canvasElement)
+    const titles = rows.map((row) => row.querySelector("p")?.textContent)
+    await expect(titles.slice(4)).toEqual([
+      "Condiciones confirmadas con el comercio",
+      "Tu aprobación",
+      "Condiciones confirmadas con el comercio",
+      "La política no autorizó la compra",
+      "Firmar la autorización",
+      "Autorizar el pago",
+      "Confirmar la orden",
+    ])
+    const denied = rows[7]
+    await expect(denied).toHaveAttribute("data-state", "blocked")
+    await expect(denied).toHaveTextContent(
+      "No se firmó ninguna autorización ni se hizo ningún cobro.",
+    )
+    await expect(canvas.getByText("La política no cambió desde que eligió el producto")).toBeVisible()
+    await expect(canvas.getByText("b2-hp-v2 · revisión 2")).toBeVisible()
+    await expect(rows[5]).toHaveTextContent("No se ejecutó")
+  },
+}
+
 /** No se sabe si la orden se creó: no se agregan controles omitidos. */
 export const Uncertain: Story = {
   args: { trace: TRACES.uncertain },
