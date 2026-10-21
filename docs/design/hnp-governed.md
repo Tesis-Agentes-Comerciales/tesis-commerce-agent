@@ -1071,9 +1071,11 @@ cualquier rastro suyo (fila de la compra, registros D1/D2/D3, `close`, reserva, 
   (`success`/`error`), que es la que guarda el ledger desde HNP-09b (`RECEIPT_STATUSES`); el
   verificador las normaliza con una tabla idéntica. Con orden, el JWT y el evento son un éxito y
   exige los JWT de `completion_results`, que escribe la UoW-3 de HNP-09b: hasta entonces sale
-  `missing`. El rechazo del PSP lee el `error_receipt_jwt` del outbox y exige el JWT en `Error` y el
-  evento en `error`. Un estado fuera de esas cuatro formas, o un tipo de recibo repetido en la
-  cadena, es `mismatch`.
+  `missing`. Un rechazo (del PSP o del comercio) lee el `error_receipt_jwt` del outbox y exige el
+  JWT en `Error`, el evento en `error`, el `payment_id` (PSP) o el `order_id` (comercio) del JWT
+  igual al del evento, y que en la cadena no haya otro recibo que el de quien rechazó. Un estado
+  fuera de esas cuatro formas o del resultado (una orden en `error`, un rechazo en `success`), un
+  recibo de otro tipo en un rechazo o un tipo de recibo repetido en la cadena son `mismatch`.
 - Salida: `purchase_mode: "HNP"`, `grant_id`, `task_id`, `task_state`, `outcome_code` y
   `h2_hnp` (`orders` = H2-HNP, `blocked` = tareas `escalated`, `failed` o `canceled`, `all_runs`,
   `by_link`) solo si hay ejecuciones HNP; `h2` cuenta solo compras HP. `blocked` incluye HN04: no es
