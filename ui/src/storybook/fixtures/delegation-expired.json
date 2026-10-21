@@ -1,0 +1,36 @@
+{
+  "grant_id": "dg_ab58cbf87d58413592360f9f0ffd38cc",
+  "state": "expired",
+  "revoked_reason": null,
+  "scope": {
+    "merchant_name": "Synthetic Commerce Merchant",
+    "variants": [
+      {
+        "variant_id": "BBGooglePixel8-128GB",
+        "title": "Google Pixel 8 128 GB negro"
+      }
+    ],
+    "total_max": {
+      "minor": 100000000,
+      "currency": "COP"
+    },
+    "expires_at": "2026-10-21T10:00:00.000Z",
+    "destination_label": "Bogotá, Cundinamarca",
+    "instrument_label": "Tarjeta de prueba del sandbox",
+    "uses": 1,
+    "preference_text": null
+  },
+  "consented_at": "2026-10-21T09:00:02.004Z",
+  "expires_at": "2026-10-21T10:00:00.000Z",
+  "task": {
+    "task_id": "ht_82fb158dbe08435cac9d8ec709ff6b84",
+    "state": "canceled",
+    "outcome_code": "grant_expired",
+    "run_id": null,
+    "order_id": null,
+    "message": "Tu delegación venció antes de que el agente comprara. No se hizo ningún cobro.",
+    "updated_at": "2026-10-21T10:02:13.550Z"
+  },
+  "escalation": null,
+  "last_activity_at": "2026-10-21T10:02:13.550Z"
+}

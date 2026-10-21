@@ -1,0 +1,36 @@
+{
+  "grant_id": "dg_08dd91d379c54382ba61e94adeb80c99",
+  "state": "revoked",
+  "revoked_reason": "owner",
+  "scope": {
+    "merchant_name": "Synthetic Commerce Merchant",
+    "variants": [
+      {
+        "variant_id": "BOS-QCU-BLK",
+        "title": "Bose QuietComfort Ultra negro"
+      }
+    ],
+    "total_max": {
+      "minor": 180000000,
+      "currency": "COP"
+    },
+    "expires_at": "2026-10-21T21:00:00.000Z",
+    "destination_label": "Bogotá, Cundinamarca",
+    "instrument_label": "Tarjeta de prueba del sandbox",
+    "uses": 1,
+    "preference_text": null
+  },
+  "consented_at": "2026-10-21T13:00:05.611Z",
+  "expires_at": "2026-10-21T21:00:00.000Z",
+  "task": {
+    "task_id": "ht_0dd09a20da504df39c513c311af8e443",
+    "state": "canceled",
+    "outcome_code": "revoked_by_owner",
+    "run_id": null,
+    "order_id": null,
+    "message": "Revocaste la delegación antes de la compra. No se hizo ningún cobro.",
+    "updated_at": "2026-10-21T13:20:47.019Z"
+  },
+  "escalation": null,
+  "last_activity_at": "2026-10-21T13:20:47.019Z"
+}
