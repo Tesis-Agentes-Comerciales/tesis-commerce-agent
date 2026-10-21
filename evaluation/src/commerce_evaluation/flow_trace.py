@@ -1,11 +1,13 @@
-"""The `flow_trace` block of a pilot row (docs/design/run-traceability.md §4.1 and §4.2, T3).
+"""The `flow_trace` block of a pilot row (docs/design/run-traceability.md §4.1 and §4.2, T3, T4).
 
-`build_flow_trace` explains one run from its stopped agent's databases alone, opened read only:
+`build_flow_trace` explains one HNP run from its stopped agent's databases alone, opened read only:
 the delegation the task executed (scope, derived intent, the shortlist the selector saw and its
 choice), each governance decision with its input and its rule results, the freshness checks, the
-reservation, the dispatch and the order, the errors with their stage, and each model request. It
-is a pure function of those files, so it runs again on a kept run artifact (T1) and gives the
-same block.
+reservation, the dispatch and the order, the errors with their stage, and each model request.
+`build_hp_flow_trace` explains a Human Present run the same way, with each conversation turn read
+from the graph's checkpoints (what the model understood, saw and chose, and its catalog lookup)
+and the approval instead of the delegation. Both are pure functions of those files, so they run
+again on a kept run artifact (T1) and give the same block.
 
 The block is a whitelist by construction: it reads named columns only, never a mandate or receipt
 JWT, an idempotency key, the buyer's checkout details, an AP2 envelope, the encrypted D1
@@ -24,9 +26,11 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, Literal
 
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from commerce_agent.acp.feed import load_product_feed
+from commerce_agent.application.conversation import turn_run_id
 from commerce_agent.application.hnp_selection import MODEL_STAGE
 from commerce_agent.domain import PurchaseIntent, rank_candidates
 from commerce_agent.llm.prices import format_minor_amount
@@ -36,6 +40,10 @@ from commerce_evaluation.redaction import error_text, redact, sweep_fields
 SCHEMA = "flow-trace/1"
 # An ObjectRef of a canonical input: the block keeps its id, and `input_digest` binds the rest.
 REFERENCE_KEYS = frozenset({"id", "digest", "schema_version", "version"})
+# The router's stage (stage_timing.py) and its one tool (catalog_tool.py).
+ROUTE_STAGE, CATALOG_TOOL = "model.route", "lookup_catalog"
+# Row metrics a block's model requests give, and the counter each one sums (§4.5).
+TOKEN_METRICS = {"model_input_tokens": "input_tokens", "model_output_tokens": "output_tokens"}
 
 
 class FlowTraceError(ValueError):
@@ -172,6 +180,80 @@ class FlowTrace(_Block):
     unavailable: list[str]
 
 
+class TurnIntent(_Block):
+    """The router's decision as the graph kept it: the intent already aligned with the catalog
+    (the model's own answer is in `model_requests[].output`)."""
+
+    action: str
+    purchase_request: str | None
+    hard: dict[str, Any] | None
+    preferences: dict[str, Any] | None
+
+
+class ShortlistCandidate(_Block):
+    variant_id: str
+    title: str
+    variant_title: str
+    unit_minor: int
+    currency: str
+    preference_score: int
+    matched_preferences: list[str]
+
+
+class TurnChoice(_Block):
+    action: str
+    selected_variant_id: str | None
+    message: str | None
+
+
+class CatalogLookup(_Block):
+    query: str
+    result_variant_ids: list[str]
+
+
+class Turn(_Block):
+    # The run the turn's purchase has or would have (`turn_run_id`): its model requests' run.
+    run_id: str
+    intent: TurnIntent | None
+    shortlist: list[ShortlistCandidate] | None
+    rejection_counts: dict[str, int] | None
+    choice: TurnChoice | None
+    lookup_catalog: CatalogLookup | None
+
+
+class HpCheckout(Checkout):
+    # The presented terms' authoritative total; never the rest of the terms (buyer, JWT).
+    total_minor: int | None
+    currency: str | None
+
+
+class Mandates(_Block):
+    checkout: bool
+    payment: bool
+
+
+class Approval(_Block):
+    fingerprint: str
+    approved_at: str
+    mandates: Mandates
+
+
+class HpFlowTrace(_Block):
+    schema_version: Literal["flow-trace/1"]
+    run_ids: list[str]
+    turns: list[Turn] | None
+    decisions: list[Decision] | None
+    freshness: list[dict[str, Any]] | None
+    recovery: list[dict[str, Any]] | None
+    checkout: HpCheckout | None
+    approval: Approval | None
+    order: Order | None
+    webhooks: list[Webhook] | None
+    errors: list[FlowError]
+    model_requests: list[ModelRequest] | None
+    unavailable: list[str]
+
+
 class _Database:
     """Named columns of a run's agent database. A missing table reads as no rows and is named in
     `unavailable`: B0-HNP never creates the governance stores, an older agent `model_requests`."""
@@ -196,19 +278,22 @@ class _Database:
         names = [column[0] for column in cursor.description]
         return [dict(zip(names, row, strict=True)) for row in cursor]
 
-    def per_run(self, table: str, query: str, run_ids: list[str]) -> list[dict[str, Any]] | None:
-        """`query` (with one `run_id = ?`) for each run, in order; None without the table."""
+    def per_run(
+        self, table: str, query: str, run_ids: list[str], *values: Any
+    ) -> list[dict[str, Any]] | None:
+        """`query` (with `run_id = ?` first, then `values`) for each run, in order; None without
+        the table."""
         if not self.has(table):
             return None
-        return [row for run_id in run_ids for row in self.rows(table, query, run_id)]
+        return [row for run_id in run_ids for row in self.rows(table, query, run_id, *values)]
 
 
 def build_flow_trace(
     agent_db: Path, graph_db: Path | None, secrets: Iterable[str], *, feed: Path | None = None
 ) -> dict[str, Any]:
-    """The run's `flow_trace`, swept. `graph_db` is the conversation checkpointer: an HNP task
-    has no conversation, so nothing is read from it until the HP block adds `turns` (T4). `feed`
-    is the run's feed directory, to recompute a shortlist no model request recorded."""
+    """The HNP run's `flow_trace`, swept. `graph_db` is the conversation checkpointer: an HNP
+    task has no conversation, so nothing is read from it (`build_hp_flow_trace` reads its turns).
+    `feed` is the run's feed directory, to recompute a shortlist no model request recorded."""
     with closing(read_only(agent_db)) as connection:
         database = _Database(connection)
         tasks = database.rows(
@@ -218,16 +303,8 @@ def build_flow_trace(
         )
         run_ids = [task["run_id"] for task in tasks if task["run_id"]]
         requests = _model_requests(database)
-        timings = database.rows(
-            "stage_timings", "SELECT stage, outcome FROM stage_timings ORDER BY sequence"
-        )
-        evidence = database.per_run(
-            "governance_evidence",
-            "SELECT phase, record_kind, decision_id, evidence_id, input_digest, canonical_input, "
-            "body FROM governance_evidence WHERE run_id = ? ORDER BY sequence",
-            run_ids,
-        )
-        decisions = None if evidence is None else [_decision(row) for row in evidence]
+        timings = _timings(database)
+        decisions = _decisions(database, run_ids)
         purchase = _last(
             database.per_run(
                 "purchases",
@@ -251,7 +328,7 @@ def build_flow_trace(
                 database, tasks, requests, timings, _recorded_choice(purchase, decisions), feed
             ),
             "decisions": decisions,
-            "freshness": _freshness(database, run_ids),
+            "freshness": _hp_evidence(database, run_ids, "freshness_check"),
             "checkout": purchase and _without(purchase, "selected_variant_id"),
             "reservation": _last(
                 database.per_run(
@@ -271,8 +348,70 @@ def build_flow_trace(
     return _swept(FlowTrace.model_validate(trace).model_dump(mode="json"), list(secrets))
 
 
+def build_hp_flow_trace(agent_db: Path, graph_db: Path, secrets: Iterable[str]) -> dict[str, Any]:
+    """A Human Present run's `flow_trace`, swept: each conversation turn from `graph_db`, then its
+    purchases as the HNP block reads them, with the presented total and the approval (only whether
+    each mandate exists) instead of the delegation. One agent runs one pilot row, so every
+    purchase, model request and webhook of the database is the row's."""
+    with closing(read_only(agent_db)) as connection:
+        database = _Database(connection)
+        purchases = database.rows(
+            "purchases",
+            "SELECT purchase.run_id, purchase.checkout_id, purchase.stage AS purchase_stage, "
+            "purchase.failure_code, json_extract(terms.terms, '$.total_minor') AS total_minor, "
+            "json_extract(terms.terms, '$.currency') AS currency, purchase.order_id "
+            "FROM purchases purchase LEFT JOIN approval_terms terms "
+            "ON terms.run_id = purchase.run_id ORDER BY purchase.created_at",
+        )
+        run_ids = [row["run_id"] for row in purchases]
+        requests = _model_requests(database)
+        timings = _timings(database)
+        decisions = _decisions(database, run_ids)
+        purchase = _last(purchases)
+        trace = {
+            "schema_version": SCHEMA,
+            "run_ids": run_ids,
+            "turns": _turns(graph_db, requests, database.unavailable),
+            "decisions": decisions,
+            "freshness": _hp_evidence(database, run_ids, "freshness_check"),
+            "recovery": _hp_evidence(database, run_ids, "governed_recovery"),
+            "checkout": purchase and {name: purchase[name] for name in HpCheckout.model_fields},
+            "approval": _approval(database, run_ids),
+            "order": _order(database, (purchase or {}).get("order_id")),
+            "webhooks": _webhooks(database),
+            "errors": [
+                *(
+                    _error("purchase", row["failure_code"], "purchases")
+                    for row in purchases
+                    if row["failure_code"]
+                ),
+                *_errors(database, [], run_ids, timings, requests, decisions, None),
+            ],
+            "model_requests": None if requests is None else [_request(row) for row in requests],
+        }
+        trace["unavailable"] = database.unavailable
+    return _swept(HpFlowTrace.model_validate(trace).model_dump(mode="json"), list(secrets))
+
+
+def token_metrics(trace: Mapping[str, Any] | None) -> dict[str, int | None]:
+    """The row's token metrics (§4.5): each counter summed over the block's model requests. Null
+    without the block or its `model_requests`, as before the block existed, and when a request has
+    no usage (a failed call): a partial sum would understate what the run used."""
+    requests = None if trace is None else trace.get("model_requests")
+    return {
+        metric: None
+        if requests is None or any(item[counter] is None for item in requests)
+        else sum(item[counter] for item in requests)
+        for metric, counter in TOKEN_METRICS.items()
+    }
+
+
 def with_flow_trace(
-    row: Mapping[str, Any], run_dir: Path, secrets: Iterable[str]
+    row: Mapping[str, Any],
+    run_dir: Path,
+    secrets: Iterable[str],
+    *,
+    purchase_mode: Literal["HP", "HNP"] = "HNP",
 ) -> dict[str, Any]:
     """The row plus its `flow_trace`. The runner calls it once the agent stopped and the row was
     scored (C8 included), and it only adds keys: a block that cannot be built is null, its cause
@@ -281,9 +420,12 @@ def with_flow_trace(
     if not (run_dir / "agent.db").exists():
         return dict(row) | {"flow_trace": None}
     hidden = tuple(secrets)
+    agent_db, graph_db = run_dir / "agent.db", run_dir / "agent.graph.db"
     try:
-        trace = build_flow_trace(
-            run_dir / "agent.db", run_dir / "agent.graph.db", hidden, feed=run_dir / "feed"
+        trace = (
+            build_hp_flow_trace(agent_db, graph_db, hidden)
+            if purchase_mode == "HP"
+            else build_flow_trace(agent_db, graph_db, hidden, feed=run_dir / "feed")
         )
     except Exception as error:
         errors = dict(row.get("measurement_errors") or {})
@@ -467,14 +609,160 @@ def _compact(value: Any) -> Any:
     return value
 
 
-def _freshness(database: _Database, run_ids: list[str]) -> list[dict[str, Any]] | None:
-    checks = database.per_run(
+def _hp_evidence(
+    database: _Database, run_ids: list[str], record_kind: str
+) -> list[dict[str, Any]] | None:
+    """The bodies of one kind of application record (`freshness_check`, `governed_recovery`); a
+    recovery keeps the intent and its explanation only as sha256."""
+    records = database.per_run(
         "hp_evidence",
-        "SELECT body FROM hp_evidence WHERE run_id = ? AND record_kind = 'freshness_check' "
-        "ORDER BY sequence",
+        "SELECT body FROM hp_evidence WHERE run_id = ? AND record_kind = ? ORDER BY sequence",
+        run_ids,
+        record_kind,
+    )
+    return None if records is None else [json.loads(row["body"]) for row in records]
+
+
+def _timings(database: _Database) -> list[dict[str, Any]]:
+    return database.rows(
+        "stage_timings", "SELECT stage, outcome FROM stage_timings ORDER BY sequence"
+    )
+
+
+def _decisions(database: _Database, run_ids: list[str]) -> list[dict[str, Any]] | None:
+    evidence = database.per_run(
+        "governance_evidence",
+        "SELECT phase, record_kind, decision_id, evidence_id, input_digest, canonical_input, "
+        "body FROM governance_evidence WHERE run_id = ? ORDER BY sequence",
         run_ids,
     )
-    return None if checks is None else [json.loads(row["body"]) for row in checks]
+    return None if evidence is None else [_decision(row) for row in evidence]
+
+
+def _approval(database: _Database, run_ids: list[str]) -> dict[str, Any] | None:
+    """The buyer's approval of the last purchase: whether each mandate exists is decided in SQLite,
+    so no mandate, checkout JWT or signature is ever read."""
+    approval = _last(
+        database.per_run(
+            "approvals",
+            "SELECT checkout_fingerprint, approved_at, checkout_mandate IS NOT NULL AS checkout, "
+            "payment_mandate IS NOT NULL AS payment FROM approvals WHERE run_id = ?",
+            run_ids,
+        )
+    )
+    if approval is None:
+        return None
+    return {
+        "fingerprint": approval["checkout_fingerprint"],
+        "approved_at": approval["approved_at"],
+        "mandates": {"checkout": bool(approval["checkout"]), "payment": bool(approval["payment"])},
+    }
+
+
+def _turns(
+    graph_db: Path, requests: list[dict[str, Any]] | None, unavailable: list[str]
+) -> list[dict[str, Any]] | None:
+    """One turn per conversation thread, from its last checkpoint, oldest thread first. The graph
+    is read with the serializer `trace/sources.py` uses, but without `SqliteSaver`: its setup
+    writes, so it cannot open read only a kept copy, which is no longer in WAL mode."""
+    if not graph_db.is_file():
+        unavailable.append(graph_db.name)
+        return None
+    with closing(read_only(graph_db)) as connection:
+        if not connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'checkpoints'"
+        ).fetchone():
+            unavailable.append(graph_db.name)
+            return None
+        latest: dict[str, tuple[str, bytes]] = {}
+        # Checkpoint ids grow with time; a thread keeps the place of its first checkpoint.
+        for thread_id, kind, checkpoint in connection.execute(
+            "SELECT thread_id, type, checkpoint FROM checkpoints WHERE checkpoint_ns = '' "
+            "ORDER BY checkpoint_id"
+        ):
+            latest[thread_id] = (kind, checkpoint)
+    serializer = JsonPlusSerializer(allowed_msgpack_modules=[])
+    return [
+        _turn(serializer.loads_typed(stored)["channel_values"], requests)
+        for stored in latest.values()
+    ]
+
+
+def _turn(values: Mapping[str, Any], requests: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """What the model understood, what it saw and what it chose in one turn. Only a purchase
+    searches the catalog, so another action shows no shortlist (a thread's earlier turn may
+    have left one)."""
+    run_id = turn_run_id(values["turn_id"])
+    decision = values.get("decision")
+    searched = decision is not None and decision["action"] == "purchase"
+    ranked = values.get("ranked_candidates") if searched else None
+    intent = (decision or {}).get("intent") or {}
+    return {
+        "run_id": run_id,
+        "intent": None
+        if decision is None
+        else {
+            "action": decision["action"],
+            "purchase_request": decision.get("purchase_request"),
+            "hard": intent.get("hard"),
+            "preferences": intent.get("preferences"),
+        },
+        "shortlist": None if ranked is None else [_candidate(item) for item in ranked],
+        "rejection_counts": values.get("rejection_counts") if searched else None,
+        "choice": _choice(values, bool(ranked)),
+        "lookup_catalog": _lookup(requests, run_id),
+    }
+
+
+def _candidate(ranked: Mapping[str, Any]) -> dict[str, Any]:
+    """A `RankedCandidate` the graph kept, as `choose_candidate` received it."""
+    candidate = ranked["candidate"]
+    return {
+        "variant_id": candidate["variant_id"],
+        "title": candidate["product_title"],
+        "variant_title": candidate["variant_title"],
+        "unit_minor": candidate["observed_unit_amount_minor"],
+        "currency": candidate["currency"],
+        "preference_score": ranked["preference_score"],
+        "matched_preferences": list(ranked.get("matched_preferences") or []),
+    }
+
+
+def _choice(values: Mapping[str, Any], shortlisted: bool) -> dict[str, Any] | None:
+    """`choose_candidate`'s answer as the graph kept it: a pick with its message, or a
+    clarification. None when the turn never chose, or when the governed flow explained a pick
+    outside the shortlist: that variant is in `recovery` and the answer in `model_requests`."""
+    selected = values.get("selected_variant_id")
+    if selected:
+        message = values.get("selection_message")
+        return {"action": "purchase", "selected_variant_id": selected, "message": message}
+    response = values.get("response") or {}
+    if shortlisted and response.get("action") == "clarify":
+        message = response.get("assistant_message")
+        return {"action": "clarify", "selected_variant_id": None, "message": message}
+    return None
+
+
+def _lookup(requests: list[dict[str, Any]] | None, run_id: str) -> dict[str, Any] | None:
+    """The router's `lookup_catalog` call: its query and the variants it returned, from the
+    follow-up request that carried both back to the model (`input_json`, never copied whole)."""
+    for row in requests or []:
+        if (row["run_id"], row["stage"]) != (run_id, ROUTE_STAGE) or not row["input_json"]:
+            continue
+        items = [item for item in json.loads(row["input_json"]) if isinstance(item, dict)]
+        call = next(
+            (item for item in items if item.get("type") == "function_call"),
+            None,
+        )
+        output = next((item for item in items if item.get("type") == "function_call_output"), None)
+        if call is not None and output is not None and call.get("name") == CATALOG_TOOL:
+            return {
+                "query": json.loads(call["arguments"])["query"],
+                "result_variant_ids": [
+                    product["variant_id"] for product in json.loads(output["output"])["products"]
+                ],
+            }
+    return None
 
 
 def _order(database: _Database, order_id: str | None) -> dict[str, Any] | None:

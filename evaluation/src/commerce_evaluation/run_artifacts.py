@@ -36,7 +36,7 @@ DATABASES = ("agent.db", "agent.graph.db")
 LOG = "agent.log"
 FEED = "feed"
 MANIFEST = "MANIFEST.json"
-# Row fields the runners fill from errors, and the HNP row's flow_trace (T3): swept before the row
+# Row fields the runners fill from errors, and the row's flow_trace (T3, T4): swept before the row
 # is written (§4.2).
 SWEPT_FIELDS = ("harness_error", "error_response", "measurement_errors", "flow_trace")
 # What a row shows instead of a local directory (§4.2): no row names an absolute local path.
