@@ -71,7 +71,10 @@ class SqliteHpEvidenceStore:
     def append_once(
         self, run_id: str, record_kind: HpRecordKind, body: Mapping[str, object]
     ) -> HpEvidence:
-        """The run's identical record if it exists; otherwise appended. Retries add nothing."""
+        """The run's earliest identical record if any exists, anywhere in its chain; else appended.
+
+        Retries add nothing, and neither does a repeat after other records: A, B, A keeps A and B.
+        """
         return self._write(run_id, record_kind, body, once=True)
 
     def _write(
