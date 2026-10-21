@@ -20,6 +20,7 @@ from .models import (
     PolicyId,
     RuleResult,
     SelectionPolicyInput,
+    policy_set_matches_mode,
     rules_apply,
 )
 
@@ -119,8 +120,10 @@ class ReferencePolicyEvaluator:
         data = parse_input(canonical_bytes(policy_input))
         if data.governance_mode == "off":
             raise GovernanceError("GOV_INPUT_INVALID")
-        if data.expected_policy != self._binding or not rules_apply(
-            self._artifact.policy_ids, data.phase, data.purchase_mode
+        if (
+            data.expected_policy != self._binding
+            or not policy_set_matches_mode(self._artifact.policy_set_id, data.purchase_mode)
+            or not rules_apply(self._artifact.policy_ids, data.phase, data.purchase_mode)
         ):
             raise GovernanceError("GOV_ARTIFACT_MISMATCH")
         checks: dict[PolicyId, Callable[[], bool]] = {
@@ -204,8 +207,11 @@ class D1PolicyBoundary:
             artifact = verify_artifact(self._bytes, self._binding)
             if data.expected_policy != self._binding:
                 raise GovernanceError("GOV_ARTIFACT_MISMATCH")
-            # A policy only evaluates the rules of its own phase and purchase mode.
-            if not rules_apply(artifact.policy_ids, data.phase, data.purchase_mode):
+            # A policy only evaluates the rules of its own phase and purchase mode, and an HNP
+            # purchase only b2-hnp-v1 (C02): both deny before the engine is called.
+            if not policy_set_matches_mode(
+                artifact.policy_set_id, data.purchase_mode
+            ) or not rules_apply(artifact.policy_ids, data.phase, data.purchase_mode):
                 raise GovernanceError("GOV_ARTIFACT_MISMATCH")
             if self._identity_failure is not None:
                 raise GovernanceError(self._identity_failure)

@@ -14,6 +14,7 @@ from .evaluator import GovernanceError, verify_artifact
 from .models import (
     APPLICABLE_RULES,
     D1_PILOT_RULES,
+    HNP_POLICY_SET_ID,
     SCHEMA,
     AuthorizationRules,
     D1PolicyArtifact,
@@ -21,6 +22,7 @@ from .models import (
     ObjectRef,
     One,
     PolicyBinding,
+    PurchaseMode,
     Rules,
     UtcTime,
     Version,
@@ -125,7 +127,7 @@ class ContextData(ProvenanceModel):
     run_id: Id
     trace_id: Id
     owner_ref: Id
-    purchase_mode: Literal["HP"]
+    purchase_mode: PurchaseMode
     governance_mode: Literal["shadow", "enforce"]
     conversation_id: Id | None
     experiment_run_id: Id | None
@@ -211,6 +213,9 @@ def build_d1_policy(
     configuration, never a fixture."""
     from .canonical import canonical_bytes, sha256_digest
 
+    if policy_set_id == HNP_POLICY_SET_ID:
+        # b2-hnp-v1 has one builder (hnp_policy.build_hnp_policy); HP never names it.
+        raise GovernanceError("GOV_ARTIFACT_MISMATCH")
     artifact = D1PolicyArtifact(
         schema_version=SCHEMA,
         policy_set_id=policy_set_id,

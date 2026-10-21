@@ -60,6 +60,7 @@ APPLICABLE_RULES: Mapping[tuple[Phase, PurchaseMode], Rules] = MappingProxyType(
     {
         ("D1", "HP"): ("POL-01", "POL-02", "POL-11"),
         ("D2", "HP"): ("POL-03", "POL-04", "POL-05", "POL-06"),
+        ("D1", "HNP"): ("POL-01", "POL-02", "POL-11"),
     }
 )
 # b2-pilot-v1 predates the table: its published artifact evaluates POL-01 and POL-02 in D1.
@@ -68,12 +69,23 @@ D1_PROFILES: tuple[Rules, ...] = (
     D1_PILOT_RULES,
     *(rules for (phase, _), rules in APPLICABLE_RULES.items() if phase == "D1"),
 )
+# The policy set of every HNP decision, built in code (governance/hnp_policy.py).
+HNP_POLICY_SET_ID = "b2-hnp-v1"
 
 
 def rules_apply(rules: Rules, phase: Phase, purchase_mode: PurchaseMode) -> bool:
-    """Whether a policy may evaluate these rules for this phase and purchase mode."""
-    pilot = phase == "D1" and rules == D1_PILOT_RULES
+    """Whether a policy may evaluate these rules for this phase and purchase mode.
+
+    The pilot's profile is Human Present only: an HNP purchase never runs without POL-11.
+    """
+    pilot = (phase, purchase_mode) == ("D1", "HP") and rules == D1_PILOT_RULES
     return pilot or rules == APPLICABLE_RULES.get((phase, purchase_mode))
+
+
+def policy_set_matches_mode(policy_set_id: str, purchase_mode: PurchaseMode) -> bool:
+    """C02: b2-hnp-v1 governs exactly the HNP purchases. `(D1, HP)` and `(D1, HNP)` list the
+    same rules, so `rules_apply` alone cannot tell an HP policy from the HNP one."""
+    return (policy_set_id == HNP_POLICY_SET_ID) == (purchase_mode == "HNP")
 
 
 GuardReason = Literal[
@@ -438,7 +450,7 @@ class D1PolicyArtifact(ContractModel):
 
     policy_set_id: Id
     version: Version
-    # Pilot bytes stay ["POL-01","POL-02"]; b2-hp-v2 lists APPLICABLE_RULES[("D1", "HP")].
+    # Pilot bytes stay ["POL-01","POL-02"]; b2-hp-v2 and b2-hnp-v1 list their D1 row.
     policy_ids: Rules
     allowed_actions: Actions
     allowed_merchant_refs: Ids

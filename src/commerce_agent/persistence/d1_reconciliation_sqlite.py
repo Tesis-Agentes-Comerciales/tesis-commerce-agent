@@ -13,6 +13,7 @@ from typing import Literal
 from ..governance.canonical import canonical_bytes, parse_model, sha256_digest
 from ..governance.dispatch_envelope import CheckoutCreationEnvelope
 from ..governance.evidence import DecisionRecord, EvidenceError
+from ..governance.models import policy_set_matches_mode
 from ..governance.provenance import ProvenanceKeys, utc_milliseconds
 from ..governance.reconciliation import (
     Reason,
@@ -134,7 +135,7 @@ class SqliteD1Reconciler:
         row = self.connection.execute(
             "SELECT o.evidence_id,o.evidence_digest,o.input_digest,o.merchant_ref,"
             "o.variant_id,o.currency,o.idempotency_key,o.state,p.stage,p.state_version,"
-            "p.checkout_id,o.expected_version,o.resulting_version "
+            "p.checkout_id,o.expected_version,o.resulting_version,p.purchase_mode "
             "FROM d1_checkout_operations o JOIN purchases p ON p.run_id=o.run_id "
             "WHERE o.operation_id=? AND o.run_id=? AND p.owner_id=?",
             (operation_id, run_id, owner_id),
@@ -238,7 +239,9 @@ class SqliteD1Reconciler:
                 and record.decision.outcome == "allow"
                 and record.decision.origin == "policy"
                 and data.governance_mode == "enforce"
-                and data.purchase_mode == "HP"
+                # The purchase's own mode, under the policy set of that mode (C02).
+                and data.purchase_mode == row[13]
+                and policy_set_matches_mode(data.expected_policy.policy_set_id, row[13])
                 and data.run_id == request.run_id
                 and data.owner_ref == owner_ref
                 and data.merchant_ref == row[3]

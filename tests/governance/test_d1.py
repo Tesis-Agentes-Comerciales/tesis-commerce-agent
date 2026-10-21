@@ -119,6 +119,12 @@ def test_policy_matrix(
     data = parse_input(canonical_bytes(payload))
     evaluator = reference(data, artifact, metadata)
     decision = boundary(data, artifact, metadata, lambda: evaluator).evaluate(data)
+    if purchase_mode == "HNP":
+        # C02: this HP policy set never decides an HNP purchase, whatever the facts.
+        assert (decision.outcome, decision.origin) == ("deny", "runtime_guard")
+        assert decision.reason_codes == ("GOV_ARTIFACT_MISMATCH",)
+        assert decision.engine.attempted is False
+        return
     assert decision.outcome == ("deny" if expected else "allow")
     assert decision.origin == "policy"
     assert decision.reason_codes == tuple(expected or ["ALL_APPLICABLE_POLICIES_SATISFIED"])
