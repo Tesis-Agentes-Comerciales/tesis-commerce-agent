@@ -97,6 +97,30 @@ export const DeniedWithoutRules: Story = {
   },
 }
 
+/**
+ * La política permitió, pero el allow no se pudo dejar listo (falló al guardarlo) y quedó bloqueado.
+ * La tarjeta cuenta lo mismo que el chat (`d1_allow_unapplied`): permitió y se detuvo por precaución.
+ */
+export const AllowNotApplied: Story = {
+  args: {
+    decision: {
+      ...MERCHANT_DECISION,
+      outcome: "allow",
+      rules: MERCHANT_DECISION.rules.map((rule) => ({ ...rule, result: "pass" as const })),
+      reason_codes: [],
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("heading", { name: "La política de compra permitió esta compra" }),
+    ).toBeVisible()
+    await expect(canvas.getByText("Por precaución, la compra se detuvo.")).toBeVisible()
+    await expect(canvas.getByText(/No se pudo dejar lista para crear el checkout\./)).toBeVisible()
+    await expect(canvas.getByText(NOTHING_HAPPENED)).toBeVisible()
+    await expect(canvas.queryByText(/No se pudo verificar la política/)).toBeNull()
+  },
+}
+
 /** El detalle técnico lleva los códigos y la versión de la política. */
 export const TechnicalDetail: Story = {
   play: async ({ args, canvas, userEvent }) => {

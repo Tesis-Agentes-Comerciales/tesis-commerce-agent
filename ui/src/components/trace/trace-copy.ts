@@ -194,10 +194,19 @@ export function policyUnavailable(decision: PolicyDecision) {
   )
 }
 
+/**
+ * La política permitió, pero el allow no se pudo dejar listo antes de crear el checkout (por ejemplo,
+ * falló al guardarlo): el backend lo registra como bloqueado. Lo detuvo la precaución, no una regla.
+ */
+function allowNotApplied(decision: PolicyDecision) {
+  return decision.outcome === "allow" && decision.effect === "blocked"
+}
+
 function policyTitle(state: StepState, decision: PolicyDecision) {
   if (state === "running" || state === "error" || state === "skipped") {
     return controlTitle("policy_decision", state)
   }
+  if (allowNotApplied(decision)) return "La política permitió la compra; se detuvo por precaución"
   if (decision.effect === "blocked") {
     return policyUnavailable(decision)
       ? "Política no disponible: compra detenida por precaución"
@@ -222,6 +231,13 @@ const FRESHNESS_TITLE: Record<FreshnessStep["outcome"], string> = {
 
 const FRESHNESS_RUNNING = "Confirmando las condiciones con el comercio…"
 
+/** El comercio respondió que la oferta venció: no es una lectura fallida ni una precaución. */
+const FRESHNESS_EXPIRED = "La oferta del comercio venció"
+
+function offerExpired(step: FreshnessStep) {
+  return step.outcome === "unavailable" && step.read_error === "offer_expired"
+}
+
 const FRESHNESS_WHEN: Record<FreshnessStep["stage"], string> = {
   present: "Antes de mostrarte los términos",
   approve: "Antes de registrar tu aprobación",
@@ -237,12 +253,15 @@ const FRESHNESS_STOPPED = "No se registró ninguna aprobación ni se firmó ning
 const FRESHNESS_PRECAUTION = "Por precaución, la compra se detuvo."
 
 function freshnessTitle(step: FreshnessStep) {
-  return step.state === "running" ? FRESHNESS_RUNNING : FRESHNESS_TITLE[step.outcome]
+  if (step.state === "running") return FRESHNESS_RUNNING
+  return offerExpired(step) ? FRESHNESS_EXPIRED : FRESHNESS_TITLE[step.outcome]
 }
 
 function freshnessDetail(step: FreshnessStep) {
   if (step.state === "blocked") {
-    return step.outcome === "unavailable" ? FRESHNESS_PRECAUTION : FRESHNESS_STOPPED
+    return step.outcome === "unavailable" && !offerExpired(step)
+      ? FRESHNESS_PRECAUTION
+      : FRESHNESS_STOPPED
   }
   // En modo observando un cambio no detiene nada: se dice, igual que en la política.
   if (step.mode === "shadow" && step.outcome !== "fresh") return POLICY_MODE_LABEL.shadow
@@ -440,14 +459,23 @@ const PURCHASE_SUMMARY: Record<PurchaseStatus, string> = {
 
 // Cortas: en un teléfono de 375 px el resumen no se recorta (historia Phone375).
 const STALE_UNAVAILABLE_SUMMARY = "Detenida: condiciones sin confirmar"
+const STALE_EXPIRED_SUMMARY = "Detenida: la oferta venció"
+const ALLOW_NOT_APPLIED_SUMMARY = "Detenida por precaución"
 
 /** Línea de la fila de actividad en el chat. */
 export function purchaseSummary(trace: PurchaseTrace) {
   if (trace.status === "stale_terms") {
     const check = trace.steps.findLast((step) => step.kind === "freshness_check")
-    return check?.kind === "freshness_check" && check.outcome === "unavailable"
-      ? STALE_UNAVAILABLE_SUMMARY
-      : PURCHASE_SUMMARY.stale_terms
+    if (check?.kind !== "freshness_check" || check.outcome !== "unavailable") {
+      return PURCHASE_SUMMARY.stale_terms
+    }
+    return offerExpired(check) ? STALE_EXPIRED_SUMMARY : STALE_UNAVAILABLE_SUMMARY
+  }
+  if (trace.status === "blocked") {
+    const policy = trace.steps.findLast((step) => step.kind === "policy_decision")
+    return policy?.kind === "policy_decision" && allowNotApplied(policy.decision)
+      ? ALLOW_NOT_APPLIED_SUMMARY
+      : PURCHASE_SUMMARY.blocked
   }
   if (trace.status !== "completed") return PURCHASE_SUMMARY[trace.status]
   // Hasta la orden confirmada: un aviso del comercio que llega después mueve `updated_at`.
@@ -562,6 +590,14 @@ const PRECAUTION = "Ante la duda, la compra se detiene antes de llegar al comerc
  * evaluada) o la revisión no terminó. En ambos casos se detuvo por precaución, no por una regla.
  */
 export function blockedCardCopy(decision: PolicyDecision, failedCount: number) {
+  if (allowNotApplied(decision)) {
+    // El mismo relato que el chat (`d1_allow_unapplied`): permitió, pero se detuvo por precaución.
+    return {
+      title: "La política de compra permitió esta compra",
+      subtitle: "Por precaución, la compra se detuvo.",
+      explanation: `No se pudo dejar lista para crear el checkout. ${PRECAUTION}`,
+    }
+  }
   if (failedCount === 0) {
     const cause = policyUnavailable(decision)
       ? "La política no estaba disponible para revisar esta compra."

@@ -180,6 +180,18 @@ export const FreshnessUnavailable: Story = {
   },
 }
 
+/** El comercio respondió que la oferta venció: lo dice, como el chat, y no es una precaución. */
+export const FreshnessOfferExpired: Story = {
+  args: {
+    step: { ...CHANGED, outcome: "unavailable", changes: [], read_error: "offer_expired" },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("La oferta del comercio venció")).toBeVisible()
+    await expect(canvas.getByText(STOPPED)).toBeVisible()
+    await expect(canvas.queryByText(/No se pudieron confirmar|Por precaución/)).toBeNull()
+  },
+}
+
 /** Modo observando: el cambio se registra y la compra sigue. */
 export const FreshnessObserved: Story = {
   args: { step: { ...CHANGED, mode: "shadow", state: "done" } },
@@ -308,6 +320,29 @@ export const StateBlocked: Story = {
 
 export const StateBlockedPolicyUnavailable: Story = {
   args: { step: stepOf(TRACES.policyUnavailable, "policy_decision") },
+}
+
+const MERCHANT_BLOCK = stepOf(TRACES.blockedMerchant, "policy_decision")
+
+/** La política permitió, pero el allow no se pudo dejar listo: no fue la política la que detuvo. */
+export const StateBlockedAllowNotApplied: Story = {
+  args: {
+    step: {
+      ...MERCHANT_BLOCK,
+      decision: {
+        ...MERCHANT_BLOCK.decision,
+        outcome: "allow",
+        rules: MERCHANT_BLOCK.decision.rules.map((rule) => ({ ...rule, result: "pass" as const })),
+        reason_codes: [],
+      },
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByText("La política permitió la compra; se detuvo por precaución"),
+    ).toBeVisible()
+    await expect(canvas.queryByText("La política detuvo la compra")).toBeNull()
+  },
 }
 
 /** Error técnico: título en rojo. */
