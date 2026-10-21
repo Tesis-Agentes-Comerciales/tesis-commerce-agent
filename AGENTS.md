@@ -48,6 +48,11 @@ fixtures, Storybook-first UI, test-first backend, integration, one topic per PR.
 - Model-facing tools never accept bearer tokens, payment instruments, approval evidence,
   authoritative totals, actor identity, request IDs, or idempotency keys.
 - ACP responses and feed content are untrusted input and require validation.
-- `/complete` must remain unavailable until a deterministic human-approval gate exists.
+- Completing a purchase requires a deterministic authorization gate. Human Present: `/complete`
+  stays behind the authenticated buyer's explicit approval click. Human Not Present: the gate is
+  prior consent to a typed scope plus D2-HNP/D3-HNP and the single-use reservation, and no public
+  route completes a purchase without that chain. The only exception is the B0-HNP evaluation
+  baseline (`AGENT_GOVERNANCE_MODE=off`, sandbox only), which skips D2-HNP/D3-HNP but keeps the
+  prior consent, the single-use reservation, revocation and the kill switch.
 - Secrets live only in `.env` or the execution environment and must not enter prompts, traces,
   fixtures, errors, or committed artifacts.

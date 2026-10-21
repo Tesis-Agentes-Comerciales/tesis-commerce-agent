@@ -148,6 +148,30 @@ Para HNP07 se necesitan dos niveles de pruebas: fixtures offline del bridge y
 verificación independiente en merchant/proveedor. Aquí solo se especifican; ninguna
 afirmación de conformidad HNP procede de parsear modelos o simular status=valid.
 
+### 5.1 Mapeo de HNP01–HNP10 a los PRs de HNP
+
+Agregado el 20-oct-2026 con la spec [`hnp-governed.md`](../design/hnp-governed.md) (HNP-00). No
+cambia ningún caso ni oráculo: dice qué PR cubre cada caso y en qué capa. Los ids son los del plan
+de PRs de esa spec (`HNP-0x`, con guion), distintos de los casos de esta tabla (`HNP0x`, sin guion)
+y de los experimentos offline «HNP-01/HNP-02» del validador; «I1» es la prueba en vivo (`tests/integration`, a mano con `RUN_LIVE_STACK=1`),
+que cierra los gates H01/H04/H05/H06 en vivo.
+
+| Caso | Store y reglas (sin servicios) | Servicio, executor y verificadores | En vivo |
+| --- | --- | --- | --- |
+| HNP01 | HNP-02 (vencimiento en el claim y en las UoW, con el reloj real leído dentro de la transacción), HNP-03 (POL-07: antes de `valid_from`, `now == expires_at` y después deniegan) | HNP-06 (POL-07 por el boundary), HNP-09a (claim de un grant vencido: 0 checkout; margen de 300 s en UoW-1), HNP-M1 y HNP-P1 (`now < exp` del abierto sin holgura; solo `iat` tiene 60 s) | I1; HN04 en la evaluación (HNP-E1/E2) |
+| HNP02 | HNP-03 (POL-08 con total, envío y demás términos) | HNP-06 (POL-05 y POL-08 por el boundary), HNP-09a: cambio antes de crear el checkout (HN02): D2 y cierre al precio nuevo; cambio al cerrar: `escalated(offer_changed)`, sin firma | I1 (precio sobre el límite: escalamiento y 0 firmas); HN02 y HN03 en la evaluación |
+| HNP03 | HNP-02 (revocar antes del compromiso no deja outbox; epoch re-chequeado en UoW-1 y UoW-2) | HNP-08 (revocación idempotente), HNP-09a (revocación antes de UoW-1 y entre UoW-1 y UoW-2), HNP-06 (N10/F10) | I1 (revocación con `FaultProxy` en `/ap2/checkout-jwt`: 0 órdenes y 0 tokens) |
+| HNP04 | HNP-02 (revocar después del compromiso deja la operación «en curso») | HNP-08 (`RevokeReceipt` con `in_flight`), HNP-09b (el despacho sigue y se reconcilia; sin promesa de cancelar) | I1 |
+| HNP05 | HNP-02 (de dos reservas sobre el mismo grant gana una; índice `one_use_per_grant`) | HNP-09a (conflicto CAS: el perdedor no avanza), HNP-03 (N09 con reserva ajena) | I1 (dos disparos: 1 orden); HN07 en la evaluación |
+| HNP06 | HNP-02 (reintentar la misma operación devuelve la misma reserva, sin doble conteo) | HNP-09b (mismo `operation_id`, claves `:payment` y `:complete`; sin cadena nueva al reanudar) | I1 |
+| HNP07 | HNP-04 (fixtures de oro: firma ajena, `cnf` ajeno, `sd_hash` de otro abierto, `checkout_hash` alterado) | HNP-M1 y HNP-P1 (verificación independiente con recibo de error) | I1 (cadenas alteradas enviadas directo al comercio y al PSP) |
+| HNP08 | HNP-04 (restricción desconocida rechazada) | HNP-M1 y HNP-P1 (`unresolved_constraint`), HNP-09b (escala y no presenta otra vez) | I1 |
+| HNP09 | HNP-02 (el estado sobrevive al reinicio) | HNP-09b (crash después de la reserva, del cierre, del outbox o del token: sin cierre nuevo; consulta antes de otro efecto) | I1 |
+| HNP10 | HNP-02 (timeout → `uncertain` sin liberar) | HNP-09b (timeout después de la primera presentación: reserva retenida, sin re-cotizar ni cerrar de nuevo) | I1 |
+
+Los P/N/F de POL-07..10 (§2) los cubren HNP-03 (reglas puras) y HNP-06 (boundary y evidencia); C01–C05,
+C09 y C11 (§3), HNP-06; la cadena de evidencia de cada caso, HNP-V1.
+
 ## 6. Matriz de modos y comparabilidad
 
 | Caso | off | shadow | enforce |
