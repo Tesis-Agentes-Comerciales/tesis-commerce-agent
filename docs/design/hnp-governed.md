@@ -825,7 +825,20 @@ Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP d
   `authentication_basis="service_and_grant"`, `owns_run` por el dueño del grant, y `permitted_actions`
   del grant (las tres acciones). `GrantFacts.agent_key_ref = agent_key_kid`. `authorization_profile`
   = `{status, profile_ref: {id: "profile:ap2-hnp-v1", version: 1, digest}}`, con el digest de las
-  constantes del perfil AP2 HNP (`PROFILE_DIGEST`, HNP-04).
+  constantes del perfil AP2 HNP (`PROFILE_DIGEST`, HNP-04). Los arma
+  `hnp_policy.executor_principal`, el mismo para D1, D2 y D3.
+- **Principal en D1-HNP, solo para atribución (§9.1).** La entrada D1-HNP lleva los mismos hechos
+  del executor en `SelectionPolicyInput.principal`. POL-01, 02 y 11 no los leen. `owns_run` sale de
+  `delegation_grants`: el dueño del grant es el dueño del run. Sin la fila del grant es `false`,
+  porque D1 no la exige; D2-HNP sí la exige y falla cerrado sin ella. El campo es opcional y solo
+  HNP:
+  - una entrada HP que lo traiga es inválida;
+  - ausente, no entra en la forma canónica (como `selected_unit_minor`), así que los bytes de la
+    entrada y de la evidencia D1-HP no cambian;
+  - la evidencia D1-HNP anterior, sin principal, se sigue leyendo y verificando.
+
+  Como todo cambio de `models.py`, cambia el digest del motor medido. El piloto v2 no lo nota: corre
+  desde `pilot-v2-base`.
 - **POL-03 y POL-04 en HNP:** POL-03 no exige `principal_ref == owner_ref` (el principal es el
   servicio; el dueño lo liga el grant con `owns_run`). POL-04 exige el allow de D1 de este episodio,
   como en HP, y que el grant, la `reservation_intent` y la operación sean del run y del dueño
@@ -984,8 +997,11 @@ Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autoriza
 | `task_finished` | `service` | `state`, `outcome_code`, `run_id` |
 
 Todos llevan `actor_kind`, `actor_ref`, `on_behalf_of`, `task_id` y `run_id` en la fila. Las
-decisiones D1/D2/D3 viven en `governance_evidence` y la frescura `close` en `hp_evidence`, con la
-atribución en su cabecera (`principal_ref`, `owner_ref`).
+decisiones D1/D2/D3 viven en `governance_evidence` y la frescura `close` en `hp_evidence`. La
+atribución de cada decisión va en su entrada (`canonical_input`): `owner_ref` en la cabecera y
+`principal.principal_ref = "service:hnp-executor"` en D1-HNP, D2-HNP y D3-HNP (§7). Así una
+ejecución B2-HNP completa puede dar el 100 % de `attribution_completeness` que pre-registra el
+piloto (`docs/design/hnp-pilot.md`).
 
 ### 9.2 Eslabones del verificador (HNP-V1, sobre `verify-evidence` de P2)
 
@@ -1216,3 +1232,5 @@ archivo caliente, no global. La coordinación del día está en el contrato de c
 27. El destino se normaliza al proponer como lo hace el comercio; uno que el comercio rechazaría es
     422 `delegation_destination_unsupported`.
 28. Los montos de los textos HNP usan la notación de `formatMoney` de la UI (K16, §8.3).
+29. D1-HNP registra el principal del executor solo para atribución; sin la fila del grant,
+    `owns_run` es `false` (§7).
