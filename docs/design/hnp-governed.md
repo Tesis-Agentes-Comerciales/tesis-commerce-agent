@@ -1032,11 +1032,7 @@ B2-HNP.
 `verify_database`: un documento por tarea de `hnp_tasks`, encontrada por su grant (`--grant`)
 o su `run_id`, así que HN04–HN06 se verifican sin fila en `purchases`. Que un paso aplique se lee de
 cualquier rastro suyo (fila de la compra, registros D1/D2/D3, `close`, reserva, outbox,
-`kill_switch_blocked` en `uow1`/`uow2`), no de la etapa de la compra. Va en dos partes: esta
-verifica los eslabones 1 a 6, `order_webhook` y los terminales; `freshness`, `d2_decision`,
-`reservation`, `closed_mandates`, `d3_decision`, `receipts` y `consumption` llegan con la segunda
-y, mientras tanto, una ejecución que pasó del checkout los tiene `missing` (nunca `ok`), así que su
-cadena no es completa. Precisiones de lo construido:
+`kill_switch_blocked` en `uow1`/`uow2`), no de la etapa de la compra. Precisiones de lo construido:
 
 - `ledger_chain` (fuera de los 17): la cadena `delegation_events` entera verifica, `hnp_tasks`
   coincide con la tarea que dejan sus eventos (último `task_finished`, o el `task_claimed`, o la
@@ -1056,11 +1052,25 @@ cadena no es completa. Precisiones de lo construido:
   `b2-hnp-v1`, variante elegida dentro del grant).
 - `open_mandates` verifica las firmas con `public_jwk_json` y su huella = `issuer_kid`, a la hora
   `consented_at` del grant (el `iat` del abierto puede ir hasta 1 s antes: no se compara por
-  igualdad). El comercio de confianza sale del propio mandato abierto: los pseudónimos
-  `merchant_refs` y `owner_ref` no se recalculan (requieren la clave del vault; el eslabón los
-  lista en `not_verified`).
-- Ningún eslabón lee `observed_state_version` de `application_failure`: se lee después de las
-  escrituras del terminal.
+  igualdad); `closed_mandates`, a la hora `iat` del cerrado. El comercio de confianza sale del
+  propio mandato abierto: los pseudónimos `merchant_refs` y `owner_ref` no se recalculan (requieren
+  la clave del vault; `open_mandates` los lista en `not_verified`), ni la firma del Checkout JWT
+  del comercio (su JWKS no se guarda).
+- `d2_decision` y `d3_decision` reejecutan la política y siguen las referencias de su entrada (D1,
+  grant, consentimiento, mandatos, reserva, frescura `close`, outbox). No leen
+  `observed_state_version` de `application_failure`: se lee después de las escrituras del terminal.
+- `d3_decision` ancla además la fila del outbox: grant, `run_id`, checkout, operación, monto,
+  moneda y época de la reserva; `checkout_expires_at` = `expires_at` del checkout JWT del cerrado;
+  `payment_request_digest` = el que recalcula `hnp_execution.payment_request_digest` con ese
+  checkout, su JWT y los dos cerrados; y `control_epoch` existe en `hnp_controls` con el kill switch
+  apagado.
+- `receipts` lee los JWT de los recibos con el perfil AP2 (`PaymentReceipt`/`CheckoutReceipt` del
+  SDK, `status` solo `Success` o `Error`): `reference` = `link_hash` del cerrado, y emisor,
+  `order_id`/`payment_id`, `error` y estado iguales a su `receipt_recorded`. Con orden exige los
+  JWT de `completion_results`, que escribe la UoW-3 de HNP-09b: hasta entonces sale `missing`. El
+  rechazo del PSP lee el `error_receipt_jwt` del outbox; mientras el ledger guarde el estado como
+  `error` (fuera del perfil AP2, lo normaliza HNP-09b) sale `missing`, nunca `ok`. Un tipo de
+  recibo repetido en la cadena es `mismatch`.
 - Salida: `purchase_mode: "HNP"`, `grant_id`, `task_id`, `task_state`, `outcome_code` y
   `h2_hnp` (`orders` = H2-HNP, `blocked` = tareas `escalated`, `failed` o `canceled`, `all_runs`,
   `by_link`) solo si hay ejecuciones HNP; `h2` cuenta solo compras HP. `blocked` incluye HN04: no es
