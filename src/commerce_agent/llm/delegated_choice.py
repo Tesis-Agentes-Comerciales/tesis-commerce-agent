@@ -5,6 +5,9 @@ response model is P5b's `CandidateChoice` with its JSON schema restricted to the
 The model sees catalog observations, the derived intent and the buyer's own preference text, and
 answers a variant id: never a mandate, key, token, amount or anything the executor signs. The id
 is re-checked against the shortlist (K12): by the executor in B0-HNP, by D1-HNP in B2-HNP.
+
+With a ledger, the request and its answer, including the one-sentence reason the choice itself
+leaves out, go to `model_requests` (docs/design/run-traceability.md §4.4).
 """
 
 import json
@@ -24,6 +27,7 @@ from commerce_agent.llm.conversation_router import (
     _candidate_payload,
     _restricted_to_shortlist,
 )
+from commerce_agent.llm.model_requests import ModelRequestRecorder, ModelRequestSink
 
 _DELEGATED_INSTRUCTIONS = """You choose one catalog candidate for a purchase the buyer delegated
 in advance. The buyer is not present and cannot answer questions, so always choose exactly one of
@@ -55,13 +59,20 @@ class OpenAIDelegatedChooser:
         model: str,
         timeout_seconds: float = 20.0,
         reasoning_effort: ReasoningEffort | None = None,
+        model_requests: ModelRequestSink | None = None,
     ) -> None:
         if not model.strip():
             raise ValueError("OpenAI model must not be empty")
         self._model = model
         self._reasoning_effort: ReasoningEffort | None = reasoning_effort
+        self._recorder = ModelRequestRecorder(
+            model_requests, model=model, reasoning_effort=reasoning_effort
+        )
         self._client = OpenAI(
-            api_key=api_key.get_secret_value(), timeout=timeout_seconds, max_retries=1
+            api_key=api_key.get_secret_value(),
+            timeout=timeout_seconds,
+            max_retries=1,
+            http_client=self._recorder.http_client(),
         )
 
     def choose(
@@ -89,15 +100,23 @@ class OpenAIDelegatedChooser:
         options: dict[str, Any] = {}
         if self._reasoning_effort is not None:
             options["reasoning"] = Reasoning(effort=self._reasoning_effort)
+        model_input = json.dumps(payload, ensure_ascii=False)
+        text_format = _restricted_to_shortlist(CandidateChoice, shortlist)
         try:
-            response = self._client.responses.parse(
-                model=self._model,
+            with self._recorder.request(
                 instructions=_DELEGATED_INSTRUCTIONS,
-                input=json.dumps(payload, ensure_ascii=False),
-                text_format=_restricted_to_shortlist(CandidateChoice, shortlist),
-                store=False,
-                **options,
-            )
+                model_input=model_input,
+                text_format=text_format,
+            ) as pending:
+                response = self._client.responses.parse(
+                    model=self._model,
+                    instructions=_DELEGATED_INSTRUCTIONS,
+                    input=model_input,
+                    text_format=text_format,
+                    store=False,
+                    **options,
+                )
+                pending.response = response
         except (OpenAIError, ValidationError) as error:
             raise IntentInterpretationError("The delegated choice request failed") from error
         parsed = response.output_parsed

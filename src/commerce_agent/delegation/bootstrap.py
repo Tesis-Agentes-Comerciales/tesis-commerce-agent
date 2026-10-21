@@ -37,6 +37,7 @@ from commerce_agent.governance.hnp_ports import HnpPolicyGate
 from commerce_agent.governance.provenance import ProvenanceKeys
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
+from commerce_agent.persistence.model_requests_sqlite import SqliteModelRequests
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 
 from .service import DelegationService, HnpTrust
@@ -118,6 +119,8 @@ def build_hnp_selector(
         model=settings.openai_model,
         timeout_seconds=settings.openai_timeout_seconds,
         reasoning_effort=settings.openai_reasoning_effort,
+        # The runtime created the table in this same database.
+        model_requests=SqliteModelRequests(settings.agent_database_path),
     )
     return ModelHnpSelector(chooser, timings), chooser
 

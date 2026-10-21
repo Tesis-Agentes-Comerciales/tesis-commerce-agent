@@ -42,6 +42,7 @@ from commerce_agent.llm import (
     IntentInterpretationError,
     UnknownVariantSelection,
 )
+from commerce_agent.llm.model_requests import model_request_scope
 from commerce_agent.llm.reasoning import reasoning_listener
 from commerce_agent.persistence import SqliteAgentStore
 
@@ -408,7 +409,12 @@ class ConversationService:
             )
         listener = observer.reasoning_delta if observer is not None else None
         try:
-            with reasoning_listener(listener), observe_turn(observer):
+            with (
+                reasoning_listener(listener),
+                observe_turn(observer),
+                # The model requests of the turn go under the run its purchase has or would have.
+                model_request_scope(run_id=turn_run_id(internal_turn_id)),
+            ):
                 state = self._graph.invoke(
                     {
                         "incoming_messages": [

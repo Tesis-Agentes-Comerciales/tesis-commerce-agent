@@ -18,6 +18,7 @@ from pydantic import (
 from commerce_agent.acp.feed import ProductCandidate, ProductFeed
 from commerce_agent.domain import HardConstraints, PurchaseIntent, RankedCandidate, SoftPreferences
 from commerce_agent.llm.catalog_tool import CatalogLookupArgs, make_catalog_lookup
+from commerce_agent.llm.model_requests import ModelRequestRecorder, ModelRequestSink
 from commerce_agent.llm.prices import format_minor_amount
 from commerce_agent.llm.reasoning import emit_reasoning, reasoning_requested
 
@@ -394,6 +395,7 @@ class OpenAIConversationRouter:
         timeout_seconds: float = 20.0,
         reasoning_summary: bool = False,
         reasoning_effort: ReasoningEffort | None = None,
+        model_requests: ModelRequestSink | None = None,
     ) -> None:
         if not model.strip():
             raise ValueError("OpenAI model must not be empty")
@@ -402,13 +404,17 @@ class OpenAIConversationRouter:
         self._reasoning_effort: ReasoningEffort | None = reasoning_effort
         self._feed = feed
         self._catalog_tool = make_catalog_lookup(feed)
-        self._instructions = (
-            f"{_INSTRUCTIONS}\nCurrent catalog vocabulary:\n{_catalog_vocabulary(feed)}"
+        self._vocabulary = _catalog_vocabulary(feed)
+        self._instructions = f"{_INSTRUCTIONS}\nCurrent catalog vocabulary:\n{self._vocabulary}"
+        # Without a ledger (studio, tests) nothing is recorded and the SDK builds its own client.
+        self._recorder = ModelRequestRecorder(
+            model_requests, model=model, reasoning_effort=reasoning_effort
         )
         self._client = OpenAI(
             api_key=api_key.get_secret_value(),
             timeout=timeout_seconds,
             max_retries=1,
+            http_client=self._recorder.http_client(),
         )
 
     def route(self, messages: tuple[ConversationMessage, ...]) -> CommerceDecision:
@@ -613,16 +619,25 @@ class OpenAIConversationRouter:
             options["parallel_tool_calls"] = False
         if tool_choice is not None:
             options["tool_choice"] = tool_choice
+        recorded = self._recorder.request(
+            instructions=instructions,
+            model_input=model_input,
+            text_format=text_format,
+            # Only the router's own instructions carry the feed's vocabulary.
+            catalog_vocabulary=self._vocabulary if instructions is self._instructions else None,
+        )
         if not (self._reasoning_summary and reasoning_requested()):
             try:
-                response = self._client.responses.parse(
-                    model=self._model,
-                    instructions=instructions,
-                    input=model_input,
-                    text_format=text_format,
-                    store=False,
-                    **options,
-                )
+                with recorded as pending:
+                    response = self._client.responses.parse(
+                        model=self._model,
+                        instructions=instructions,
+                        input=model_input,
+                        text_format=text_format,
+                        store=False,
+                        **options,
+                    )
+                    pending.response = response
             except (OpenAIError, ValidationError) as error:
                 raise IntentInterpretationError(failure) from error
             return response
@@ -631,14 +646,17 @@ class OpenAIConversationRouter:
             reasoning["effort"] = effort
         options["reasoning"] = reasoning
         try:
-            with self._client.responses.stream(
-                model=self._model,
-                instructions=instructions,
-                input=model_input,
-                text_format=text_format,
-                store=False,
-                **options,
-            ) as stream:
+            with (
+                recorded as pending,
+                self._client.responses.stream(
+                    model=self._model,
+                    instructions=instructions,
+                    input=model_input,
+                    text_format=text_format,
+                    store=False,
+                    **options,
+                ) as stream,
+            ):
                 for event in stream:
                     if event.type == "response.reasoning_summary_part.added":
                         if event.summary_index > 0:
@@ -646,6 +664,7 @@ class OpenAIConversationRouter:
                     elif event.type == "response.reasoning_summary_text.delta":
                         emit_reasoning(event.delta)
                 response = stream.get_final_response()
+                pending.response = response
         except (OpenAIError, ValidationError) as error:
             raise IntentInterpretationError(failure) from error
         except RuntimeError as error:

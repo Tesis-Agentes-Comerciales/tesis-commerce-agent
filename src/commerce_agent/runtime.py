@@ -28,6 +28,7 @@ from commerce_agent.config import Settings
 from commerce_agent.delegated_payment import DelegatedPaymentClient
 from commerce_agent.llm import ConversationRouter, OpenAIConversationRouter
 from commerce_agent.persistence import SqliteAgentStore
+from commerce_agent.persistence.model_requests_sqlite import SqliteModelRequests
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 
 if TYPE_CHECKING:
@@ -115,6 +116,9 @@ def build_runtime(
     if hnp_trust is not None:
         # The HNP model selector reports its tokens; HP keeps the table's shape.
         timings.initialize_model_tokens()
+    # Every request to the model, HP and HNP (docs/design/run-traceability.md §4.4).
+    model_requests = SqliteModelRequests(configuration.agent_database_path)
+    model_requests.initialize()
     checkpoint_path = configuration.agent_database_path.with_name(
         f"{configuration.agent_database_path.stem}.graph.db"
     )
@@ -223,6 +227,7 @@ def build_runtime(
                 timeout_seconds=configuration.openai_timeout_seconds,
                 reasoning_summary=configuration.openai_reasoning_summary,
                 reasoning_effort=configuration.openai_reasoning_effort,
+                model_requests=model_requests,
             )
 
         if published_feed is None:
