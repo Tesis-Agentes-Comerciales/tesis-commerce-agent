@@ -12,7 +12,7 @@ it without a cycle, and it never imports the trace or delegation view contracts.
 
 from typing import Annotated, Literal, Self
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from .canonical import canonical_bytes, parse_model, sha256_digest
 from .models import (
@@ -23,6 +23,7 @@ from .models import (
     Digest,
     FreshnessFacts,
     GovernanceMode,
+    HpAuthorizationPolicyInput,
     Id,
     IntentFacts,
     MaterialTerms,
@@ -37,7 +38,7 @@ from .models import (
     ResolvedD1,
     UtcTime,
     Version,
-    _constraint_set,
+    constraint_set,
 )
 
 # Profile constants (§6): part of the profile and of the evidence, never settings.
@@ -263,12 +264,29 @@ class HnpAuthorizationPolicyInput(PolicyHeader):
     terms: MaterialTerms
     freshness: FreshnessFacts
     # Same set rule as the HP branch, so both canonicalize their matches alike.
-    constraint_matches: Annotated[tuple[ConstraintMatch, ...], AfterValidator(_constraint_set)]
+    constraint_matches: Annotated[tuple[ConstraintMatch, ...], AfterValidator(constraint_set)]
     d1: ResolvedD1
     authorization_id: Id
     operation_id: Id
     authorization_profile: AuthorizationProfile
     hnp: HnpAuthorizationFacts
+
+
+# The D2 input of policy-v1 §4: the branch is chosen by `purchase_mode` and never falls back to
+# the other one (C02). The HP branch keeps its own model and bytes (`models.py`).
+D2PolicyInput = Annotated[
+    HpAuthorizationPolicyInput | HnpAuthorizationPolicyInput,
+    Field(discriminator="purchase_mode"),
+]
+
+
+class _D2Input(RootModel[D2PolicyInput]):
+    pass
+
+
+def parse_d2_input(payload: bytes) -> HpAuthorizationPolicyInput | HnpAuthorizationPolicyInput:
+    """Strict parse of a D2 input of either branch, with the rules of `parse_model`."""
+    return parse_model(_D2Input, payload).root
 
 
 # D3-HNP (policy-v1 §4, DispatchPolicyInput).

@@ -50,7 +50,7 @@ _TABLES = (
         decision_id TEXT NOT NULL,
         record_kind TEXT NOT NULL CHECK(record_kind IN
             ('decision_record','input_rejected','application_failure')),
-        phase TEXT NOT NULL CHECK(phase IN ('D1','D2')),
+        phase TEXT NOT NULL CHECK(phase IN ('D1','D2','D3')),
         governance_mode TEXT NOT NULL CHECK(governance_mode IN ('shadow','enforce')),
         policy_version INTEGER NOT NULL CHECK(policy_version >= 1),
         expected_state_version INTEGER NOT NULL CHECK(expected_state_version >= 1),
@@ -316,18 +316,25 @@ class SqliteGovernanceEvidenceStore:
             is not None
         )
 
-    def admits_phase_d2(self) -> bool:
-        """False on a ledger created before D2: its `phase` column only admits D1."""
+    def _admits_phase(self, phase: str) -> bool:
         row = self.connection.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='governance_evidence'"
         ).fetchone()
-        return row is None or "'D2'" in row[0]
+        return row is None or f"'{phase}'" in row[0]
+
+    def admits_phase_d2(self) -> bool:
+        """False on a ledger created before D2: its `phase` column only admits D1."""
+        return self._admits_phase("D2")
+
+    def admits_phase_d3(self) -> bool:
+        """False on a ledger created before D3-HNP: its `phase` column stops at D2."""
+        return self._admits_phase("D3")
 
     def initialize_decision_scopes(self) -> None:
-        """Opt-in additive extension: the scope of one later-phase decision (D2).
+        """Opt-in additive extension: the scope of one later-phase decision (D2 or D3).
 
-        A D2 decision is evaluated under the policy and engine of its own moment, so it keeps
-        their bytes here instead of reusing the episode's D1 registration.
+        A D2 or D3 decision is evaluated under the policy and engine of its own moment, so it
+        keeps their bytes here instead of reusing the episode's D1 registration.
         """
         self._transaction()
         try:
@@ -371,13 +378,13 @@ class SqliteGovernanceEvidenceStore:
         policy_bytes: bytes | None,
         engine_bytes: bytes | None,
     ) -> None:
-        """Bind a D2 decision to its scope before its evidence exists; never afterwards."""
+        """Bind a D2 or D3 decision to its scope before its evidence exists; never afterwards."""
         self._transaction()
         try:
             TypeAdapter(Id).validate_python(decision_id, strict=True)
             scope = EvidenceScope.model_validate(scope)
             base, _, _ = self._episode(scope.run_id)
-            if scope.phase != "D2" or not _same_episode(base, scope):
+            if scope.phase not in ("D2", "D3") or not _same_episode(base, scope):
                 raise EvidenceError("GOV_INPUT_INVALID")
             verify_artifacts(scope, policy_bytes, engine_bytes)
             if engine_bytes is not None:

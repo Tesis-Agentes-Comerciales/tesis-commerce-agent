@@ -115,6 +115,8 @@ def test_the_rules_that_apply_depend_on_the_phase_and_the_purchase_mode() -> Non
         ("D1", "HP"): ("POL-01", "POL-02", "POL-11"),
         ("D2", "HP"): ("POL-03", "POL-04", "POL-05", "POL-06"),
         ("D1", "HNP"): ("POL-01", "POL-02", "POL-11"),
+        ("D2", "HNP"): ("POL-03", "POL-04", "POL-05", "POL-06", "POL-07", "POL-08", "POL-09"),
+        ("D3", "HNP"): ("POL-09", "POL-10"),
     }
     payload, binding = build_d1_policy(
         policy_set_id="b2-hp-v2", version=1, merchant_ref=MERCHANT_REF
