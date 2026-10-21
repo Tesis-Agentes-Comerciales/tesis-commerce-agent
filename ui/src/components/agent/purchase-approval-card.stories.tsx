@@ -18,6 +18,7 @@ import {
   TERMS_PRICE_CHANGED,
 } from "@/storybook/agent-fixtures"
 import { TERMS } from "@/storybook/fixtures"
+import { mouseClick } from "@/storybook/interactions"
 import { stepOf, TRACES } from "@/storybook/trace-fixtures"
 
 type CardState = Pick<
@@ -215,6 +216,33 @@ export const KeyboardCancelFocus: Story = {
     const title = await canvas.findByRole("heading", { name: "Compra cancelada" }, SETTLE)
     await expect(title).toHaveFocus()
     await expect(canvas.getByRole("status")).toBeEmptyDOMElement()
+  },
+}
+
+/**
+ * Con el mouse el foco no salta al título: en el chat vuelve al compositor con el turno siguiente,
+ * así que quien presenta puede escribir enseguida. El resultado lo anuncia la región de estado.
+ */
+export const MouseApprove: Story = {
+  play: async ({ canvas }) => {
+    mouseClick(canvas.getByRole("button", { name: "Aprobar y comprar" }))
+    const title = await canvas.findByRole("heading", { name: "Compra completada" }, SETTLE)
+    await expect(title).not.toHaveFocus()
+    await expect(canvas.getByRole("status")).toHaveTextContent(
+      "Compra completada. El comercio registró la orden.",
+    )
+  },
+}
+
+/** Con el mouse: cancelada, el foco tampoco salta al título y la región de estado lo anuncia. */
+export const MouseCancel: Story = {
+  play: async ({ canvas }) => {
+    mouseClick(canvas.getByRole("button", { name: "Cancelar" }))
+    const title = await canvas.findByRole("heading", { name: "Compra cancelada" }, SETTLE)
+    await expect(title).not.toHaveFocus()
+    await expect(canvas.getByRole("status")).toHaveTextContent(
+      "Compra cancelada. No se registró ninguna aprobación ni cargo.",
+    )
   },
 }
 

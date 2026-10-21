@@ -426,15 +426,19 @@ bloqueo quedan en un desplegable «Detalle técnico», cerrado por defecto.
     muestra mientras tanto, porque contradiría a la tarjeta.
   - **Recibo:** la tarjeta de aprobación lee la misma traza (una por compra, compartida en la sesión).
   - **Anuncios:** cada cambio de la compra se anuncia una sola vez con `role="status"`. Si el
-    mensaje tiene una tarjeta de la compra (aprobación o términos que ya no valen), anuncia ella y
-    la fila calla. Si no la tiene (bloqueo, recuperación), anuncia la fila. Los errores van en su
-    aviso (`role="alert"`). La región de estado de la tarjeta queda fuera de la sección con
-    `aria-busy`, para que un lector no la calle mientras la compra avanza.
+    mensaje tiene una tarjeta de la compra (aprobación o términos que ya no valen), ella anuncia lo
+    que pasa al aprobar o cancelar, y la fila solo anuncia que la compra espera la aprobación: la
+    fila ya estaba en el mensaje, y una región que aparece con su texto no siempre se lee. Si no hay
+    tarjeta (bloqueo, recuperación), anuncia la fila. Los errores van en su aviso (`role="alert"`).
+    La región de estado de la tarjeta queda fuera de la sección con `aria-busy`, para que un lector
+    no la calle mientras la compra avanza.
   - **Foco:** el botón que se pulsa conserva el foco mientras trabaja (`aria-disabled`, no
     `disabled`). Cuando desaparece (completada, cancelada, o la tarjeta de términos reemplaza a la
-    de aprobación), el foco pasa al título de la tarjeta y esa vez la región de estado no repite el
-    anuncio. Con el foco en otra parte no se mueve. El turno de `purchase-updated` tampoco se lo
-    pasa al compositor.
+    de aprobación) y se había pulsado con el teclado (`:focus-visible`), el foco pasa al título de
+    la tarjeta, y esa vez la región de estado no repite el anuncio; el turno de `purchase-updated`
+    no se lo quita. Con el mouse, el foco vuelve al compositor al empezar ese turno, listo para
+    escribir. Si el foco ya está en otra parte, no se mueve. Siempre que el foco no llega al título,
+    anuncia la región de estado.
 - `features/audit/` carga la tabla y el detalle.
 - La app gana una navegación mínima entre Chat y Compras.
 

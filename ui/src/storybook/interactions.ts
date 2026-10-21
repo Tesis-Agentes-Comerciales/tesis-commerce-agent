@@ -15,3 +15,12 @@ export async function sendComposerMessage(
   await userEvent.paste(text)
   await userEvent.keyboard("{Enter}")
 }
+
+/**
+ * Clic de mouse: el botón recibe el foco sin `:focus-visible`, como en un navegador. `userEvent.click`
+ * enfoca por script, y Chromium trata ese foco como de teclado.
+ */
+export function mouseClick(element: HTMLElement) {
+  element.focus({ focusVisible: false })
+  element.click()
+}

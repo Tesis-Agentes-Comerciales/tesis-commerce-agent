@@ -52,8 +52,8 @@ export function useMessageStaleTerms(parts: readonly StepPart[]) {
 
 /**
  * El mensaje muestra una tarjeta de la compra: la de aprobación o la de términos que ya no valen.
- * Ella anuncia cada cambio de la compra a los lectores de pantalla, así que la fila de actividad no
- * lo repite.
+ * Ella anuncia a los lectores de pantalla lo que pasa al aprobar o cancelar, así que la fila de
+ * actividad no lo repite.
  */
 export function messageHasPurchaseCard(parts: readonly StepPart[]) {
   return parts.some(

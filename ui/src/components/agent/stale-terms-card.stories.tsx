@@ -8,6 +8,7 @@ import {
   type StaleTermsCardStatus,
 } from "@/components/agent/stale-terms-card"
 import { SONORA } from "@/storybook/agent-fixtures"
+import { mouseClick } from "@/storybook/interactions"
 
 const NO_CHARGE = "No se hizo ningún cobro."
 
@@ -171,15 +172,29 @@ export const CanceledWhileFocusElsewhere: Story = {
   },
 }
 
-/** Aprobar respondió que los términos cambiaron: esta tarjeta reemplaza a la de aprobación. */
-function ReplacesApproval(props: StaleTermsCardProps) {
+const STALE_LIVE = `Las condiciones del comercio cambiaron. ${NO_CHARGE}`
+
+/**
+ * Aprobar respondió que los términos cambiaron: esta tarjeta reemplaza a la de aprobación. La
+ * respuesta llega tras `delayMs`, y debajo está el compositor del chat.
+ */
+function ReplacesApproval({ delayMs = 0, ...props }: StaleTermsCardProps & { delayMs?: number }) {
   const [stale, setStale] = useState(false)
-  return stale ? (
-    <StaleTermsCard {...props} autoFocus />
-  ) : (
-    <button type="button" onClick={() => setStale(true)}>
-      Aprobar y comprar
-    </button>
+  const approve = () => {
+    if (delayMs === 0) setStale(true)
+    else setTimeout(() => setStale(true), delayMs)
+  }
+  return (
+    <div className="space-y-3">
+      {stale ? (
+        <StaleTermsCard {...props} autoFocus />
+      ) : (
+        <button type="button" onClick={approve}>
+          Aprobar y comprar
+        </button>
+      )}
+      <textarea aria-label="Mensaje de compra" className="w-full rounded-md border p-2" />
+    </div>
   )
 }
 
@@ -195,6 +210,48 @@ export const ReplacesApprovalCard: Story = {
     await expect(title).toHaveFocus()
     await userEvent.tab()
     await expect(canvas.getByRole("button", { name: "Cancelar compra" })).toHaveFocus()
+  },
+}
+
+/** Con el mouse el foco no salta al título: la región de estado anuncia la tarjeta nueva. */
+export const ReplacesApprovalCardWithMouse: Story = {
+  render: (args) => <ReplacesApproval {...args} />,
+  play: async ({ canvas }) => {
+    mouseClick(canvas.getByRole("button", { name: "Aprobar y comprar" }))
+    const title = await canvas.findByRole("heading", {
+      name: "Las condiciones del comercio cambiaron",
+    })
+    await expect(title).not.toHaveFocus()
+    await expect(canvas.getByRole("status")).toHaveTextContent(STALE_LIVE)
+  },
+}
+
+/**
+ * La respuesta llega cuando la persona ya pasó al compositor: el foco se queda ahí y, como no llegó
+ * al título, la región de estado anuncia la tarjeta nueva.
+ */
+export const ReplacesApprovalCardWhileTyping: Story = {
+  render: (args) => <ReplacesApproval {...args} delayMs={300} />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.tab()
+    await userEvent.keyboard("{Enter}")
+    const composer = canvas.getByRole("textbox", { name: "Mensaje de compra" })
+    await userEvent.tab()
+    await expect(composer).toHaveFocus()
+    await canvas.findByRole("heading", { name: "Las condiciones del comercio cambiaron" })
+    await expect(composer).toHaveFocus()
+    await expect(canvas.getByRole("status")).toHaveTextContent(STALE_LIVE)
+  },
+}
+
+/** Cancelar con el mouse: el foco no salta al título y la región de estado lo anuncia. */
+export const CanceledWithMouse: Story = {
+  render: (args) => <InteractiveStaleTermsCard {...args} />,
+  play: async ({ canvas }) => {
+    mouseClick(canvas.getByRole("button", { name: "Cancelar compra" }))
+    const title = await canvas.findByRole("heading", { name: "Compra cancelada" })
+    await expect(title).not.toHaveFocus()
+    await expect(canvas.getByRole("status")).toHaveTextContent(`Compra cancelada. ${NO_CHARGE}`)
   },
 }
 

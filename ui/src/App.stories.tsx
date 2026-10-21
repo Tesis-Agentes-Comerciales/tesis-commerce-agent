@@ -10,7 +10,7 @@ import {
   fixtureState,
   scriptedAssistant,
 } from "@/storybook/assistant-transport"
-import { sendComposerMessage } from "@/storybook/interactions"
+import { mouseClick, sendComposerMessage } from "@/storybook/interactions"
 
 const meta = {
   title: "Pages/App",
@@ -63,40 +63,66 @@ export const Offline: Story = {
   },
 }
 
-/** La fila de actividad del mensaje no anuncia nada: la tarjeta de la compra ya lo hace. */
-function expectActivitySilent({ canvasElement }: PlayContext) {
-  return expect(
-    canvasElement.querySelectorAll("[data-testid='purchase-activity'] [role='status']"),
-  ).toHaveLength(0)
+/** Región de estado de la fila de actividad del mensaje, o `null` si no hay fila. */
+function activityStatus({ canvasElement }: PlayContext) {
+  return canvasElement.querySelector("[data-testid='purchase-activity'] [role='status']")
 }
 
+/** Región de estado de la tarjeta: va justo antes de la sección, fuera de su `aria-busy`. */
+const cardStatus = (card: HTMLElement) => card.previousElementSibling
+
+/**
+ * Con el mouse. La fila anuncia que la compra espera la aprobación y la tarjeta no lo repite.
+ * Completada, el foco vuelve al compositor, como antes de la tarjeta: quien presenta escribe
+ * enseguida. El resultado lo anuncia la tarjeta, y la fila calla.
+ */
 export const PurchaseFlow: Story = {
   parameters: FAST_STREAM,
   play: async (context) => {
     const card = await approvalCard(context)
-    await context.userEvent.click(within(card).getByTestId("approve-purchase"))
+    await waitFor(
+      () => expect(activityStatus(context)).toHaveTextContent("Esperando tu aprobación"),
+      STREAM_TIMEOUT,
+    )
+    await expect(cardStatus(card)).toBeEmptyDOMElement()
+
+    mouseClick(within(card).getByTestId("approve-purchase"))
     await waitFor(() => expect(card).toHaveAttribute("data-status", "completed"), STREAM_TIMEOUT)
-    // «Aprobar y comprar» ya no está: el foco queda en el título de la tarjeta, no en el <body>.
-    await expect(within(card).getByRole("heading", { name: "Compra completada" })).toHaveFocus()
-    await expectActivitySilent(context)
     // purchase-updated reproduce purchase-completed.sse.
     await expect(
       await context.canvas.findByText(/La compra quedó completada/, {}, STREAM_TIMEOUT),
     ).toBeVisible()
+    const composer = context.canvas.getByRole("textbox", { name: "Mensaje de compra" })
+    await waitFor(() => expect(composer).toHaveFocus())
+    await context.userEvent.keyboard("gracias")
+    await expect(composer).toHaveValue("gracias")
+    await expect(cardStatus(card)).toHaveTextContent(
+      "Compra completada. El comercio registró la orden.",
+    )
+    await context.canvas.findByRole("button", { name: /Compra completada/ }, STREAM_TIMEOUT)
+    await expect(activityStatus(context)).toBeEmptyDOMElement()
     await expect(within(card).getByRole("link", { name: /Ver orden/ })).toBeVisible()
   },
 }
 
+/**
+ * Con el teclado: «Cancelar» desaparece y el foco pasa al título, que el lector lee al llegar. El
+ * turno de `purchase-updated` no se lo quita.
+ */
 export const CancelFlow: Story = {
   parameters: FAST_STREAM,
   play: async (context) => {
     const card = await approvalCard(context)
-    await context.userEvent.click(within(card).getByRole("button", { name: "Cancelar" }))
+    within(card).getByRole("button", { name: "Cancelar" }).focus()
+    await context.userEvent.keyboard("{Enter}")
     await waitFor(() => expect(card).toHaveAttribute("data-status", "canceled"), STREAM_TIMEOUT)
-    await expect(within(card).getByRole("heading", { name: "Compra cancelada" })).toHaveFocus()
+    const title = within(card).getByRole("heading", { name: "Compra cancelada" })
+    await expect(title).toHaveFocus()
+    await expect(cardStatus(card)).toBeEmptyDOMElement()
     await expect(
       await context.canvas.findByText(/Cancelé la compra pendiente/, {}, STREAM_TIMEOUT),
     ).toBeVisible()
+    await expect(title).toHaveFocus()
   },
 }
 
@@ -241,7 +267,9 @@ export const TermsChangedOnApprove: Story = {
     const title = within(stale).getByRole("heading", { name: STALE_TITLE.changed })
     await expect(title).toBeVisible()
     await expect(title).toHaveFocus()
-    await expectActivitySilent(context)
+    // Ni la fila ni la región de la tarjeta repiten lo que el lector lee en el título.
+    await expect(activityStatus(context)?.textContent ?? "").toBe("")
+    await expect(cardStatus(stale)).toBeEmptyDOMElement()
     await expect(within(stale).getByText("No se hizo ningún cobro.")).toBeVisible()
     await expect(within(stale).getAllByRole("button").map((button) => button.textContent)).toEqual([
       "Cancelar compra",
@@ -304,7 +332,10 @@ export const ApproveInvalidStage: Story = {
   },
 }
 
-/** Cancelar: el comercio no canceló el checkout esperado (409 `checkout_mismatch`). */
+/**
+ * Cancelar: el comercio devolvió otro checkout, o el mismo sin quedar cancelado; el backend responde
+ * 409 `checkout_mismatch` en los dos casos. El texto es cierto para ambos.
+ */
 export const CancelCheckoutMismatch: Story = {
   parameters: {
     agentApi: {
@@ -319,7 +350,7 @@ export const CancelCheckoutMismatch: Story = {
     const card = await approvalCard(context)
     await context.userEvent.click(within(card).getByRole("button", { name: "Cancelar" }))
     await expect(await within(card).findByRole("alert", {}, STREAM_TIMEOUT)).toHaveTextContent(
-      "El comercio respondió con un checkout que no coincide con esta compra, así que me detuve.",
+      "La respuesta del comercio no coincide con esta compra, así que me detuve.",
     )
     // El mensaje en inglés del backend no llega a la UI; el nombre del comercio sí puede.
     await expect(context.canvas.queryByText(/Merchant did not|expected checkout/)).toBeNull()
