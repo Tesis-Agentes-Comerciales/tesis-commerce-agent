@@ -5,6 +5,7 @@ and D2/D3-HNP that count what each step reached (tests/support/hnp_executor.py).
 """
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -128,6 +129,39 @@ def test_b2_applies_each_decision_inside_its_unit_of_work(tmp_path: Path) -> Non
     assert (ex.reservation.d2_evidence_id, ex.outbox.d3_evidence_id) == ("gov_d2_1", "gov_d3_1")
     assert bench.purchase() == ("completing", None)
     assert bench.effects() == COMMITTED
+    assert gate.lost == []
+
+
+def test_the_outbox_row_takes_the_id_the_d3_allow_names(tmp_path: Path) -> None:
+    """D3's `transition_ref` is the `outbox_id` its evidence was prepared with (§4.3)."""
+    gate = Gate()
+    gate.outbox_id = "ob_named_by_d3"
+    bench = Bench(tmp_path, mode="enforce", gate=gate)
+
+    assert bench.run().status == "applied"
+
+    outbox = bench.execution().outbox
+    assert outbox is not None and outbox.outbox_id == "ob_named_by_d3"
+
+
+@pytest.mark.parametrize(
+    ("where", "seen_by_terminal"),
+    [("D2", ("canceled", None, 0)), ("D3", ("canceled", "released", 0))],
+)
+def test_an_allow_whose_unit_of_work_is_blocked_keeps_its_conflict_evidence(
+    tmp_path: Path, where: str, seen_by_terminal: tuple[Any, ...]
+) -> None:
+    """§4.5: in B2 the loser of a CAS leaves evidence. Its allow's hooks never run; its
+    `conflict_hooks` do, inside the terminal's unit of work."""
+    gate = Gate()
+    bench = Bench(tmp_path, mode="enforce", gate=gate)
+    gate.before[where] = lambda: bench.ledger.set_kill_switch(True)
+
+    assert bench.run().status == "closed"
+
+    assert bench.ended() == ("canceled", "kill_switch")
+    assert gate.lost == [(where, seen_by_terminal)]
+    assert [phase for phase, _ in gate.applied] == (["D2"] if where == "D3" else [])
 
 
 def test_the_selector_sees_the_shortlist_and_never_a_mandate(tmp_path: Path) -> None:

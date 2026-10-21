@@ -330,6 +330,13 @@ class SqliteGovernanceEvidenceStore:
         """False on a ledger created before D3-HNP: its `phase` column stops at D2."""
         return self._admits_phase("D3")
 
+    def on_connection(self, connection: sqlite3.Connection) -> "SqliteGovernanceEvidenceStore":
+        """This store's admissions over another connection, so a record prepared here can be
+        written inside a unit of work that another store opened (the delegation ledger's hooks)."""
+        store = SqliteGovernanceEvidenceStore(connection)
+        store._prepared = self._prepared
+        return store
+
     def initialize_decision_scopes(self) -> None:
         """Opt-in additive extension: the scope of one later-phase decision (D2 or D3).
 

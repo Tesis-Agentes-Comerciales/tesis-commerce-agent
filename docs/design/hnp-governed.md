@@ -542,11 +542,17 @@ UoW-2, UoW-3 y para terminar la tarea reciben `hooks: Sequence[TransactionHook]`
 dentro de su `BEGIN IMMEDIATE`, después de sus propias escrituras y antes del `COMMIT`; si uno lanza,
 se revierte todo. Los usan:
 
-- HNP-06: escribe el registro D2 o D3 en `governance_evidence` y su fila en
-  `governance_decision_scopes`, y verifica la transición (como `_ApprovalTransition` de P3, contra
-  `delegation_grants.state_version` y la reserva). `d2_evidence_id` y `d3_evidence_id` se generan
-  antes de la transacción, como en P3, y el ledger los recibe como valores. Si el hook falla:
-  `GOV_EVIDENCE_UNAVAILABLE`.
+- HNP-06: escribe el registro D2 o D3 en `governance_evidence` y verifica la transición (como
+  `_ApprovalTransition` de P3, contra `delegation_grants.state_version` y la reserva o la fila del
+  outbox). `d2_evidence_id` y `d3_evidence_id` se generan antes de la transacción, como en P3, y el
+  ledger los recibe como valores. Si el hook falla: `GOV_EVIDENCE_UNAVAILABLE`. La fila de
+  `governance_decision_scopes` se registra al armar el input, como en P3. `SqliteHnpPolicyGate`
+  (`governance/hnp_gate.py`, armado por `build_hnp_policy_gate`) devuelve en `HnpGateDecision`:
+  `hooks` (el allow en UoW-1 o UoW-2, el deny en el terminal); `conflict_hooks`, que el executor pasa
+  al terminal cuando UoW-1 o UoW-2 vuelve `blocked` y que guardan el allow como `blocked` más
+  `GOV_STATE_CONFLICT` (el perdedor del CAS deja evidencia); y `transition_ref`, el `outbox_id` que
+  nombra el allow de D3 y con el que el executor escribe la fila del outbox. Las conexiones del ledger
+  de delegación activan `foreign_keys`, que la evidencia necesita.
 - HNP-05: `SqliteAgentStore.transition_hnp_purchase(connection, run_id, *, expected_state_version,
   stage, failure_code=None)`, el CAS de `purchases` que usan UoW-2 y los terminales.
 - HNP-09b: `SqliteAgentStore.record_hnp_completion(connection, run_id, snapshot, *,

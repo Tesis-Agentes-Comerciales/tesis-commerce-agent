@@ -183,6 +183,9 @@ class Gate:
         self.verdicts = {"D2": d2, "D3": d3}
         self.calls: list[str] = []
         self.applied: list[tuple[str, tuple[Any, ...]]] = []
+        # The allow's conflict hooks, when its unit of work comes back blocked (§4.5).
+        self.lost: list[tuple[str, tuple[Any, ...]]] = []
+        self.outbox_id: str | None = None
         self.before: dict[str, Hook] = {}
 
     def decide_d2(self, **request: Any) -> HnpGateDecision:
@@ -218,7 +221,17 @@ class Gate:
         def hook(connection: sqlite3.Connection) -> None:
             self.applied.append((phase, seen(connection, grant_id)))
 
-        return HnpGateDecision(decision, verdict.proof, f"gov_{phase.lower()}_1", (hook,))
+        def lost(connection: sqlite3.Connection) -> None:
+            self.lost.append((phase, seen(connection, grant_id)))
+
+        return HnpGateDecision(
+            decision,
+            verdict.proof,
+            f"gov_{phase.lower()}_1",
+            (hook,),
+            conflict_hooks=(lost,) if verdict.outcome == "allow" else (),
+            transition_ref=self.outbox_id if phase == "D3" else None,
+        )
 
 
 def seen(connection: sqlite3.Connection, grant_id: str) -> tuple[Any, ...]:

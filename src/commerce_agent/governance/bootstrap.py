@@ -27,8 +27,11 @@ from .provenance import (
 )
 
 if TYPE_CHECKING:
+    from commerce_agent.ap2_hnp import MandateTrust
+
     from .authorization import SqliteD2AuthorizationGate
     from .enforce import SqliteD1EnforceGate
+    from .hnp_gate import SqliteHnpPolicyGate
 
 
 @dataclass(frozen=True)
@@ -190,3 +193,30 @@ def build_authorization_gate(
         return gate
     except Exception:
         raise RuntimeError("AGENT_GOVERNANCE_MODE=enforce requires valid D2 settings") from None
+
+
+def build_hnp_policy_gate(
+    settings: Settings, commercial_clock: Callable[[], datetime] | None, *, trust: "MandateTrust"
+) -> "SqliteHnpPolicyGate":
+    """D2-HNP and D3-HNP for the executor in enforce (hnp-governed.md §3.4): `b2-hnp-v1` with
+    the merchants of D1-HNP (K11) and the AP2 trust startup verified (`HnpTrust.mandates`)."""
+    from .hnp_gate import SqliteHnpPolicyGate
+    from .hnp_policy import operator_merchant_refs
+
+    try:
+        configured = configured_d1(settings, commercial_clock)
+        if not isinstance(configured.configuration, D1EnforceConfiguration):
+            raise ValueError("D1 enforce configuration required")
+        gate = SqliteHnpPolicyGate(
+            settings.agent_database_path,
+            configured.configuration,
+            configured.keys,
+            configured.clocks,
+            trust=trust,
+            merchant_refs=operator_merchant_refs(settings, configured),
+        )
+        # A ledger created before D3-HNP is refused rather than losing evidence.
+        gate.ready()
+        return gate
+    except Exception:
+        raise RuntimeError("AGENT_HNP_ENABLED in enforce requires valid D2-HNP settings") from None
