@@ -19,8 +19,8 @@ from typing import Any, TextIO
 from commerce_evaluation import hnp_pilot_agent, verify_evidence
 from commerce_evaluation.governance_pilot import (
     AGENT_SECRETS,
+    INVOCATION_SECRETS,
     MUTATE_OFFER,
-    SERVICE_SECRETS,
     ConditionMismatchError,
     _merchant_db,
     _request_json,
@@ -57,8 +57,21 @@ from commerce_evaluation.hnp_pilot_episode import (
 )
 from commerce_evaluation.hnp_pilot_scoring import CostMeter, score_episode, summarize
 from commerce_evaluation.paths import ROOT
+from commerce_evaluation.redaction import secret_values
+from commerce_evaluation.run_artifacts import RunArtifacts, finished_row
 
 AGENT_FACTORY = "commerce_agent.api:app_factory"
+# What identifies an HNP row in its artifact's MANIFEST.json, besides its purchase run.
+ARTIFACT_KEY = (
+    "layer",
+    "scenario_id",
+    "repetition",
+    "condition",
+    "plan_index",
+    "merchant_run_id",
+    "grant_id",
+    "task_id",
+)
 
 
 class CliMerchant:
@@ -163,6 +176,12 @@ def verify_task(
     )
 
 
+def artifact_key(row: Mapping[str, Any]) -> dict[str, Any]:
+    """The row's key in MANIFEST.json; the purchase run is the task's (`GET` of the task)."""
+    task = (row.get("observed") or {}).get("task_view") or {}
+    return {name: row.get(name) for name in ARTIFACT_KEY} | {"purchase_run_id": task.get("run_id")}
+
+
 def run_live(
     preparation: Preparation,
     *,
@@ -170,6 +189,7 @@ def run_live(
     output: Path,
     temp: Path,
     invocation_id: str,
+    artifacts_root: Path,
 ) -> dict[str, Any]:
     manifest, matrix = preparation.manifest, preparation.matrix
     assert preparation.cost.cap_usd is not None
@@ -197,7 +217,13 @@ def run_live(
         auth_origin=environment["BETTER_AUTH_URL"],
     )
     invocation = InvocationSecrets.generate()
-    hidden = (*invocation.values(), *(environment[name] for name in SERVICE_SECRETS))
+    artifacts = RunArtifacts(
+        root=artifacts_root,
+        invocation_id=invocation_id,
+        runner="hnp-pilot",
+        provenance=run_metadata,
+    )
+    artifacts.hide(*invocation.values(), *secret_values(environment, INVOCATION_SECRETS))
     meter = CostMeter.from_manifest(manifest)
     started_at = datetime.now(UTC).isoformat()
     prepare_services(
@@ -221,8 +247,15 @@ def run_live(
         psp_database = Path(environment["PAYMENT_DATABASE_PATH"])
 
         def execute(episode: PlannedEpisode, index: int) -> dict[str, Any]:
+            """The episode's row, linked to its kept run directory and redacted (T1)."""
+            run_dir = (
+                temp / f"{index:03d}-{episode.condition.lower()}-{episode.scenario_id.lower()}"
+            )
+            row = episode_row(episode, index, run_dir)
+            return finished_row(artifacts, run_dir, row, key=artifact_key(row))
+
+        def episode_row(episode: PlannedEpisode, index: int, run_dir: Path) -> dict[str, Any]:
             scenario, condition = episode.scenario, episode.condition
-            run_dir = temp / f"{index:03d}-{condition.lower()}-{episode.scenario_id.lower()}"
             run_dir.mkdir(parents=True, exist_ok=True)
             scripted = scenario["selector"]["kind"] == "scripted_adversarial"
             variables = {
@@ -278,8 +311,10 @@ def run_live(
                     row["harness_error"] = str(error)
                 except Exception as error:
                     row["harness_error"] = f"{type(error).__name__}: {error}"
+            # The merchant session the agent started with, and the consent JWT's signature.
+            artifacts.hide(*agent.secrets, run.token_probe if run is not None else None)
             if "harness_error" in row:
-                tail = _tail(run_dir / "agent.log", (*hidden, *agent.secrets))
+                tail = _tail(run_dir / "agent.log", tuple(artifacts.secrets))
                 if tail:
                     print(f"Agent log tail for {run_dir.name}:\n{tail}", file=sys.stderr)
             if run is None:

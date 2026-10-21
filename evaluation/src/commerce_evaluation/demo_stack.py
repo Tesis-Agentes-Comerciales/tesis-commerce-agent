@@ -48,6 +48,7 @@ from commerce_evaluation.governance_pilot import (
 )
 from commerce_evaluation.paths import LOCAL, ROOT
 from commerce_evaluation.pilot_policy import HP_V2_POLICY
+from commerce_evaluation.redaction import redact as redact_secrets
 
 DEMO_RUNS = LOCAL / "demo"
 AUTH = ROOT / "auth"
@@ -104,8 +105,6 @@ INHERITED_NAMES = frozenset(
     }
 )
 REDACTED = "[redactado]"
-# A merchant step that fails to connect prints its DSN, password included (like commerce_lab.db).
-DATABASE_URL = re.compile(r"postgres(?:ql)?(?:\+\w+)?://\S+")
 # What python-dotenv (and so Settings) drops from an unquoted value: whitespace, then a comment.
 INLINE_COMMENT = re.compile(r"\s+#.*")
 READY_TIMEOUT_SECONDS = 90.0
@@ -545,18 +544,9 @@ def offer_summary(offer: Mapping[str, Any]) -> str:
 
 def redact(text: str, values: Iterable[str]) -> str:
     """Remove every secret, also JSON-escaped and line by line for multi-line keys, and every
-    PostgreSQL URL."""
-    forms: set[str] = set()
-    for value in values:
-        if not value:
-            continue
-        forms.update({value, json.dumps(value)[1:-1]})
-        forms.update(
-            line for line in value.splitlines() if len(line) >= 16 and not line.startswith("-----")
-        )
-    for form in sorted(forms, key=len, reverse=True):
-        text = text.replace(form, REDACTED)
-    return DATABASE_URL.sub(REDACTED, text)
+    secret shape, PostgreSQL URLs among them: a merchant step that fails to connect prints its
+    DSN, password included (like commerce_lab.db). The demo marks it in Spanish."""
+    return redact_secrets(text, values, marker=REDACTED)
 
 
 def tail(text: str, values: Iterable[str], lines: int = 30) -> str:

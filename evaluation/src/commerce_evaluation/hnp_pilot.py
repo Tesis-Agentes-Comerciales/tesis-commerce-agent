@@ -48,9 +48,11 @@ from commerce_evaluation.governance_pilot import (
     _ap2_private_key,
     base_readiness,
     repository_provenance,
+    run_artifacts_root,
 )
 from commerce_evaluation.paths import DATA, RESULTS, ROOT
 from commerce_evaluation.pilot_policy import ALLOWLIST, HP_V2_POLICY, scenario_environment
+from commerce_evaluation.redaction import redact
 
 MANIFEST = DATA / "hnp-pilot-v1.json"
 CONDITIONS = ("B0-HNP", "B2-HNP", "P")
@@ -943,6 +945,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--agent-port", type=int, default=43125)
     parser.add_argument("--auth-port", type=int, default=4215)
     parser.add_argument("--skip-postgres-start", action="store_true")
+    parser.add_argument(
+        "--artifacts-dir",
+        type=Path,
+        help="where each row's run artifact is kept (default: .local/runs); never a versioned path",
+    )
     return parser
 
 
@@ -970,6 +977,7 @@ def _run(arguments: argparse.Namespace) -> int:
         ),
         os.environ,
     )
+    runs_root = run_artifacts_root(arguments.artifacts_dir)
     assert preparation.cost.cap_usd is not None
     from commerce_evaluation.hnp_pilot_live import run_live
 
@@ -986,6 +994,7 @@ def _run(arguments: argparse.Namespace) -> int:
             output=output,
             temp=Path(temporary),
             invocation_id=f"hnp-pilot-{uuid4().hex[:12]}",
+            artifacts_root=runs_root,
         )
     print(json.dumps(summary, ensure_ascii=False))
     return 0
@@ -995,7 +1004,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         return _run(_parser().parse_args(argv))
     except PilotError as error:
-        print(f"hnp pilot failed: {error}", file=sys.stderr)
+        print(f"hnp pilot failed: {redact(str(error))}", file=sys.stderr)
         return 1
 
 
