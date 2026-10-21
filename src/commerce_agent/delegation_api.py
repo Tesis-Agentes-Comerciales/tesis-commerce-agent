@@ -41,6 +41,10 @@ _ERRORS: dict[str, tuple[int, str]] = {
         "Alguna de las opciones elegidas no está en el catálogo actual del comercio.",
     ),
     "delegation_validity_exceeded": (422, "La vigencia pedida supera la máxima permitida."),
+    "delegation_destination_unsupported": (
+        422,
+        "El comercio solo entrega en Bogotá, DC, Colombia, con código postal 110111.",
+    ),
     "delegation_proposal_not_found": (404, "No encontré esa propuesta de delegación."),
     "delegation_scope_mismatch": (
         409,

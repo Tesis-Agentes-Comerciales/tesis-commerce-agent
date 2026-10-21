@@ -1,0 +1,47 @@
+{
+  "description": "Como acepta y devuelve el comercio la direccion de entrega. Cada caso cambia campos de address; echo son los cambios que el comercio devuelve en fulfillment_details sobre lo enviado, o null si lo rechaza (INVALID_INPUT).",
+  "merchant": {
+    "repository": "Tesis-Agentes-Comerciales/tesis-commerce-merchant",
+    "commit": "abf30df",
+    "accepts": "src/commerce_lab/contracts/commerce.py: FulfillmentDetailsInfo, AddressInfo y normalize_supported_city",
+    "echoes": "src/commerce_lab/acp.py: fulfillment_details.model_dump(mode=\"json\", exclude_none=True)"
+  },
+  "fulfillment": {
+    "name": "Buyer Test",
+    "email": "buyer@example.test",
+    "phone_number": "+573000000000",
+    "address": {
+      "name": "Buyer Test",
+      "line_one": "Calle 100 # 10-20",
+      "city": "Bogota",
+      "state": "DC",
+      "country": "CO",
+      "postal_code": "110111"
+    }
+  },
+  "cases": [
+    {"name": "canonical", "address": {}, "echo": {}},
+    {"name": "accented", "address": {"city": "Bogotá"}, "echo": {"city": "Bogota"}},
+    {"name": "lowercase", "address": {"city": "bogota"}, "echo": {"city": "Bogota"}},
+    {"name": "uppercase_accented", "address": {"city": "BOGOTÁ"}, "echo": {"city": "Bogota"}},
+    {"name": "mixed_case", "address": {"city": "bOgOtÁ"}, "echo": {"city": "Bogota"}},
+    {"name": "padded", "address": {"city": "  Bogotá\t"}, "echo": {"city": "Bogota"}},
+    {"name": "no_break_spaces", "address": {"city": " Bogota "}, "echo": {"city": "Bogota"}},
+    {"name": "decomposed_accent", "address": {"city": "Bogotá"}, "echo": null},
+    {"name": "city_with_district", "address": {"city": "Bogotá D.C."}, "echo": null},
+    {"name": "other_city", "address": {"city": "Medellín"}, "echo": null},
+    {"name": "empty_city", "address": {"city": ""}, "echo": null},
+    {"name": "state_lowercase", "address": {"state": "dc"}, "echo": null},
+    {"name": "state_padded", "address": {"state": " DC"}, "echo": null},
+    {"name": "state_name", "address": {"state": "Cundinamarca"}, "echo": null},
+    {"name": "country_lowercase", "address": {"country": "co"}, "echo": null},
+    {"name": "country_name", "address": {"country": "Colombia"}, "echo": null},
+    {"name": "other_postal_code", "address": {"postal_code": "110221"}, "echo": null},
+    {"name": "padded_postal_code", "address": {"postal_code": "110111 "}, "echo": null},
+    {
+      "name": "free_text_kept_verbatim",
+      "address": {"name": "  Buyer Test ", "line_one": "Calle 100 # 10-20  "},
+      "echo": {}
+    }
+  ]
+}
