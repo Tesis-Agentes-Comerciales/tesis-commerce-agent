@@ -210,6 +210,23 @@ con alerta (`selection_not_eligible`, `merchant_not_allowed`, `mandate_proof_inv
 `ERROR` en el logger `commerce_agent.hnp.alerts`, con `task_id`, estado y código y sin datos del
 dueño. No hay otro canal de notificación.
 
+**Cómo lo arma HNP-09b, despacho.** `HnpDispatcher.dispatch(execution)`
+(`application/hnp_dispatch.py`) hace los pasos 11 y 12 con los clientes del producto
+(`DelegatedPaymentClient` y `ACPClient`; perfil AP2, «Clientes del despacho»), y
+`HnpExecutionService` lo recibe como `dispatcher` y lo llama después de UoW-2 o en un re-claim con
+outbox. Nunca firma ni cierra: manda los cerrados que guardó UoW-C con las claves que fija el
+outbox (`<operation_id>:payment` en el PSP, `<operation_id>:complete` en el comercio), así que un
+re-claim repite las mismas peticiones. Antes de enviar reconstruye la petición al PSP y compara su
+`payment_request_digest` con el que comprometió UoW-2; si no coincide, no la manda. Cada envío se
+anota antes de salir (`payment_sent`, `complete_sent`) y avanza solo con la respuesta del
+verificador: el token del PSP lleva a `payment_accepted`; la orden con el recibo verificado del
+comercio y el recibo de pago verificado, a `completed` y a UoW-3, que pasa la compra a `completed`
+con `record_hnp_completion` en la misma transacción. Un recibo de error válido del PSP termina
+`rejected(psp)` y libera la reserva: en `enforce` escala y cancela el checkout propio (§8.2); en
+`off` falla con el mismo código. Desde `completed` no hay paso a `uncertain`: si la corrida no
+puede volver a obtener los recibos, la tarea sigue `running` y la próxima corrida repite las dos
+peticiones idempotentes.
+
 **Arranque (HNP-09a).** Con `AGENT_HNP_ENABLED`, `build_runtime` arma el executor en un solo lugar,
 `delegation/bootstrap.build_hnp_executor`, que es donde 09b enchufa el despacho. En `enforce`, la
 `PurchaseService` del runtime recibe D1-HNP (`governance/bootstrap.build_hnp_d1_gate`, con
@@ -906,6 +923,13 @@ Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP d
 - Recibo de error del comercio después del token del PSP: `uncertain(partial_verifier_failure)`,
   aunque el código AP2 sea de escalamiento; el fallo parcial entre verificadores es de reconciliación
   manual (fuera de alcance).
+- **Razones de `uncertain`. Decisión de 09b:** `dispatch_timeout` cuando no hay respuesta
+  clasificable (timeout, error de transporte o 5xx, incluido el 503 `mandates_not_supported` sin
+  recibo); `receipt_mismatch` cuando la respuesta no trae un recibo válido (4xx sin recibo, 409
+  `idempotency_conflict`, recibo que no verifica o que nombra otra cadena u otra orden) o cuando la
+  petición ya no coincide con su digest; `partial_verifier_failure` con el recibo de error válido
+  del comercio. Como el ledger solo pasa a `uncertain` desde un envío, un digest distinto con el
+  outbox en `committed` anota `payment_sent` sin enviar nada y termina `uncertain(receipt_mismatch)`.
 
 ### 8.2 Escalamiento
 
