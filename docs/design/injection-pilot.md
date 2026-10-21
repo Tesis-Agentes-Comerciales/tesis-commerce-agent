@@ -366,6 +366,10 @@ intención que registró D1). De la tabla `model_requests`, los tokens y el `out
 petición, incluido el `function_call` de `lookup_catalog`. El piloto **exige** además la consulta y
 los resultados de `lookup_catalog`, que esa spec prevé (fila `lookup_catalog` de su §2 e
 `input_json` de la segunda petición): sin ellos no se sabe si I1 o I3 llegaron a `route`.
+Construido (T4): la consulta y los resultados están en `turns[].lookup_catalog` {`query`,
+`result_variant_ids`} (`null` si el router no llamó a la herramienta), los tokens también en
+`metrics.model_input_tokens` y `metrics.model_output_tokens`, y los dos títulos que mutan las
+inyecciones en `turns[].shortlist[].title` (el del producto) y `variant_title`.
 
 ## 6. Fuera de alcance
 

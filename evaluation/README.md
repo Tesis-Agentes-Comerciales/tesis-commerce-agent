@@ -46,7 +46,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | `src/commerce_evaluation/hnp_pilot_agent.py` | agente de HN11 con el selector guionado inyectado por código |
 | `src/commerce_evaluation/run_artifacts.py` | artefacto local de cada corrida de `governance-pilot` y `hnp-pilot` ([spec](../docs/design/run-traceability.md), T1) |
 | `src/commerce_evaluation/redaction.py` | redacción común de logs, errores y campos de fila (secretos conocidos y formas de secreto) |
-| `src/commerce_evaluation/flow_trace.py` | bloque `flow_trace` de cada fila de `hnp-pilot`: qué decidió y por qué, de `agent.db` ([spec](../docs/design/run-traceability.md) §4.1, T3) |
+| `src/commerce_evaluation/flow_trace.py` | bloque `flow_trace` de cada fila de `hnp-pilot` y de `governance-pilot`: qué decidió y por qué, de `agent.db` y, en HP, `agent.graph.db` ([spec](../docs/design/run-traceability.md) §4.1, T3 y T4) |
 | `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto lo ejecuta con el entorno del Merchant |
 | `scripts/build_b0_analysis_notebook.py` | genera el notebook B0; `nbformat` no está en el lock |
 
@@ -106,6 +106,17 @@ su directorio temporal:
   `measurement_errors.flow_trace`, sin citar ningún valor de la corrida (solo tipo y, en un error
   de validación, dónde y por qué). Sin `agent.db` (el agente no arrancó), el bloque es `null` sin
   error de medición. Pesa de ~2 KB (B0-HNP) a ~20 KB (compra B2-HNP con D1, D2 y D3).
+- **`flow_trace` en `governance-pilot` (T4).** Cada fila HP suma el mismo bloque, armado por
+  `build_hp_flow_trace(agent_db, graph_db, secrets)` con el agente detenido y la fila ya puntuada:
+  `turns` (de `agent.graph.db`, un turno por hilo: `run_id`, `intent`, `shortlist` con
+  `variant_title`, `rejection_counts`, `choice` y `lookup_catalog` {`query`,
+  `result_variant_ids`}), `decisions` (D1 y D2), `freshness`, `recovery`, `checkout` (con
+  `total_minor` y `currency`), `approval` (huella, hora y si hay mandatos, sin leerlos), `order`,
+  `webhooks`, `errors`, `model_requests` y `unavailable`. Las mismas reglas de lista blanca,
+  barrido y falla que en HNP. De `model_requests` salen `metrics.model_input_tokens` y
+  `metrics.model_output_tokens` (`null` sin bloque o si alguna petición no trae su contador);
+  `--rescore` los recalcula del bloque y no lee nada más de él, así que los resúmenes v1 y v2 no
+  cambian. Pesa ~4 KB (deny de D1) a ~15 KB (compra B2 completa).
 - **Nunca va a Git.** El artefacto contiene JWT, mandatos y llaves de idempotencia del sandbox.
   `.local/` está en `.gitignore` y el runner rechaza un `--artifacts-dir` dentro del checkout que Git
   no ignore. Nunca guarda `auth.db` ni `payments.db`, que comparten todas las filas y llevan
