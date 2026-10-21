@@ -16,10 +16,12 @@ from commerce_agent.delegation.models import (
     ConsentRequest,
     ConsentResult,
     DispatchCommit,
+    DispatchStep,
     Execution,
     KillSwitchStage,
     OutcomeCode,
     ProposalDraft,
+    Receipt,
     ReservationRequest,
     SignedMandate,
     Step,
@@ -208,6 +210,14 @@ class Flow:
         for step in (self.claim(), self.reserve(), self.close(), self.commit()):
             assert step.status == "applied", step
 
+    def advance(self, *steps: DispatchStep) -> None:
+        for to in steps:
+            order_id = "order_1" if to == "completed" else None
+            result = self.ledger.advance_dispatch(
+                self.task_id, self.lease_id, to, order_id=order_id
+            )
+            assert result.status == "applied", result
+
     def finish(
         self,
         state: Literal["escalated", "failed", "canceled"],
@@ -218,3 +228,16 @@ class Flow:
     ) -> Step:
         request = TaskFinish(self.task_id, self.lease_id, state, outcome, stage)
         return self.ledger.finish_task(request, hooks=hooks)
+
+
+def receipt(kind: Literal["payment", "checkout"], *, error: str | None = None) -> Receipt:
+    return Receipt(
+        kind=kind,
+        jwt=f"eyJ.{kind}-receipt.sig",
+        issuer="tesis_payment_provider" if kind == "payment" else "http://merchant",
+        status="error" if error else "success",
+        reference="sd-hash-p" if kind == "payment" else "sd-hash-c",
+        error=error,
+        payment_id=None if error or kind != "payment" else "pay_1",
+        order_id="order_1" if kind == "checkout" and not error else None,
+    )

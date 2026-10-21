@@ -83,6 +83,7 @@ Ap2Error = Literal[
     "invalid_credential", "invalid_mandate", "unresolved_constraint", "mandates_not_supported"
 ]
 KillSwitchStage = Literal["claim", "uow1", "uow2"]
+DispatchStep = Literal["payment_sent", "payment_accepted", "complete_sent", "completed"]
 RevokeEffect = Literal["no_effect", "released", "in_flight"]
 # applied: this call wrote its step. reused: the step was already durable (a retry).
 # closed: the call ended the task. lease_lost: another lease owns the task; nothing written.
@@ -312,6 +313,20 @@ class DispatchCommit:
     checkout_expires_at: str
     payment_request_digest: str
     d3_evidence_id: str | None  # None in B0-HNP
+
+
+@dataclass(frozen=True, slots=True)
+class Receipt:
+    """A verified AP2 receipt; the event keeps its digest and public fields, not the JWT."""
+
+    kind: Literal["payment", "checkout"]
+    jwt: str = field(repr=False)
+    issuer: str
+    status: str
+    reference: str
+    error: str | None = None
+    payment_id: str | None = None
+    order_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
