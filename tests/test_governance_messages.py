@@ -58,6 +58,15 @@ def test_a_rest_governance_stop_carries_the_chat_copy(code: str, error_type: typ
     assert json.loads(bytes(response.body)) == {"code": code, "message": error_message(code)}
 
 
+@pytest.mark.parametrize("code", ["out_of_stock", "offer_expired", "invalid_item"])
+def test_a_governed_creation_refusal_carries_the_chat_copy(code: str) -> None:
+    # The merchant refused D1's one POST: REST shows the same copy as the chat and as B0.
+    response = error_response(PurchaseServiceError("Merchant refused the checkout", code=code))
+    assert response.status_code == 409
+    assert json.loads(bytes(response.body)) == {"code": code, "message": error_message(code)}
+    assert error_message(code) != DEFAULT_ERROR
+
+
 def test_policy_block_in_the_chat_says_what_did_not_happen(tmp_path: Path) -> None:
     with shop(tmp_path, "enforce", agent_d1_allowed_merchant_origins=ALLIED_STORE) as current:
         current.client.headers.update(as_buyer())

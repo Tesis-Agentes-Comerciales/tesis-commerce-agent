@@ -123,6 +123,11 @@ _ACP_ERROR_RESPONSES: dict[str, tuple[int, str]] = {
 }
 
 
+# Merchant answers the governed flow reports itself: the offer expired (freshness or creation),
+# or the creation was refused before anything existed (governance/runtime_dispatch.py).
+_GOVERNED_MERCHANT_CODES = frozenset({"offer_expired", "out_of_stock", "invalid_item"})
+
+
 def error_response(error: Exception) -> JSONResponse:
     if isinstance(error, ProductFeedError):
         return JSONResponse(
@@ -157,7 +162,8 @@ def error_response(error: Exception) -> JSONResponse:
     else:
         status = 409 if code not in {"purchase_not_found", "checkout_missing"} else 404
     # Governance stops reach REST clients with the chat's Spanish copy, never internal names.
-    governed = code.startswith("d1_") or code == "offer_expired"
+    # So does a refusal of D1's creation POST, which arrives as a service error, not ACP's.
+    governed = code.startswith("d1_") or code in _GOVERNED_MERCHANT_CODES
     message = error_message(code) if governed else str(error)
     return JSONResponse({"code": code, "message": message}, status_code=status)
 

@@ -21,8 +21,10 @@ Hay cuatro grupos sobre el mismo PostgreSQL:
   al E2E conjunto de septiembre ([equivalencias](#equivalencia-con-el-e2e-conjunto)).
 - B2 gobernado (`test_live_b2_governed_purchase.py`): sobre el carril `b0`, la compra con
   `AGENT_GOVERNANCE_MODE=enforce` y `AGENT_HP_FLOW=governed`. El gate sale del bootstrap de
-  producción y crea el checkout con un solo POST; la segunda prueba arma el runtime como el
-  piloto y llega a la orden con los recibos AP2. `test_live_b2_pol02_allowlist.py` arma el
+  producción y crea el checkout con un solo POST; otra prueba deja sin stock la variante en el
+  Merchant después de exportar el feed, de modo que su 409 `out_of_stock` al único POST termina la
+  compra en `failed` sin dejarla pendiente y la compra siguiente crea su checkout; la última arma
+  el runtime como el piloto y llega a la orden con los recibos AP2. `test_live_b2_pol02_allowlist.py` arma el
   Agent con `build_runtime` y las variables de la condición B2 del piloto en el entorno (las
   mismas que exporta el lanzador de la demo) y corre el mismo turno de compra con dos listas
   de comercios de POL-02: con otro comercio (modo `pol02-deny`) termina en `d1_denied`, POL-02

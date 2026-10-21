@@ -108,6 +108,19 @@ export const Failed: Story = {
   },
 }
 
+/**
+ * El comercio rechazó el único POST de creación antes de crear nada (la oferta venció): la compra
+ * falló y el comprador puede pedirla de nuevo. El código se traduce, como el de un pago rechazado.
+ */
+export const FailedCreationRefused: Story = {
+  args: { step: { ...stepOf(TRACES.failed, "failed"), actor: "agent", code: "offer_expired" } },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("La compra no se pudo completar")).toBeVisible()
+    await expect(canvas.getByText("La oferta del comercio venció.")).toBeVisible()
+    await expect(canvas.queryByText(/offer_expired/)).toBeNull()
+  },
+}
+
 // Controles de la aplicación del flujo HP gobernado: nunca se presentan como política.
 
 const FRESH = stepOf(TRACES.staleTerms, "freshness_check")

@@ -56,9 +56,20 @@ los puertos de `governance/runtime_dispatch.py`:
 - **Creación.** Después de comprometer el allow y reclamar la operación, el gate envía un
   solo `POST /checkout_sessions` con el cliente ACP y la clave de idempotencia del sobre.
   No hay reintentos. Un timeout, un fallo de transporte (también una conexión rechazada),
-  cualquier error HTTP (4xx o 5xx) o una respuesta inválida dejan la operación `uncertain`
-  con `DISPATCH_UNCERTAIN` y la compra en `uncertain`: ninguno prueba que el checkout no
-  exista. La siguiente compra del mismo `run_id` responde `d1_recovery_required` sin otro POST.
+  cualquier otro error HTTP (4xx o 5xx) o una respuesta inválida dejan la operación
+  `uncertain` con `DISPATCH_UNCERTAIN` y la compra en `uncertain`: ninguno prueba que el
+  checkout no exista. La siguiente compra del mismo `run_id` responde `d1_recovery_required`
+  sin otro POST.
+- **Rechazo definitivo.** El comercio responde 409 `out_of_stock`, 409 `OFFER_EXPIRED` y 404
+  `invalid_item` después de comprobar que la clave no creó ningún checkout y antes de crear uno
+  (`runtime_dispatch.DEFINITIVE_CREATION_REFUSALS`). Con D1 hay un solo POST por clave, así que
+  esas respuestas prueban que no existe nada: la operación queda `definitive_failure` con
+  `VERIFIED_NOT_CREATED` y la compra en `failed`, con el código del agente (`out_of_stock`,
+  `offer_expired`, `invalid_item`) en `failure_code` y en la respuesta, como en B0. La compra no
+  queda pendiente: el comprador la pide de nuevo y obtiene otro `run_id`, otra decisión D1 y otra
+  clave. El mismo `run_id` sigue sin reenviarse (`d1_recovery_required`). Prueba live:
+  `test_b2_merchant_refusal_fails_the_purchase_and_frees_the_buyer`. Detalle en
+  `docs/design/hp-p5a-definitive-failures.md`.
 - **Fallos antes del POST.** Si la revisión no se completa (contexto, evidencia o un deny que
   no se pudo registrar), la compra responde `d1_unavailable`. Si la política ya permitió y lo
   que falló fue comprometer el allow, verificarlo, validar la sesión o reclamar la operación,
@@ -117,4 +128,5 @@ comprador y la finalización usan los mismos servicios que B0 (`approval.py`,
 - La cancelación del comprador y la finalización no se registran en
   `d1_post_create_events`: ese diario termina en `awaiting_confirmation`.
 - Una compra `uncertain` cuenta como pendiente y bloquea compras nuevas del mismo
-  comprador. No hay salida automática de ese estado: la demo usa una base limpia.
+  comprador. No hay salida automática de ese estado: la demo usa una base limpia. Un rechazo
+  definitivo del comercio al crear no llega a ese estado (ver «Rechazo definitivo»).

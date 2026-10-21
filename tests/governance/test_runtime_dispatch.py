@@ -14,10 +14,12 @@ import pytest
 
 from commerce_agent.application import PurchaseServiceError
 from commerce_agent.config import Settings
+from commerce_agent.domain import PurchaseIntent
 from commerce_agent.runtime import AgentRuntime, build_runtime
-from tests.governance.test_shadow_integration import configuration, start
+from tests.governance.test_shadow_integration import OWNER, configuration, start
 from tests.test_api import checkout
 from tests.test_client import lab_offer
+from tests.test_purchase_service import details
 
 UNLISTED = "https://otro-comercio.example"
 CREATE = ("POST", "/checkout_sessions")
@@ -47,6 +49,24 @@ def acp_checkout(status: str, *, with_details: bool) -> dict[str, Any]:
     for option in payload["fulfillment_options"]:
         option["earliest_delivery_time"] = option["latest_delivery_time"] = "2026-09-22T11:00:00Z"
     return payload
+
+
+# Error answers to the creation POST, as the merchant's ACP layer shapes them (`detail.code`).
+CREATE_ERRORS: dict[str, tuple[int, Any]] = {
+    "server_error": (500, {"code": "internal"}),
+    # The merchant's 409 on creation; a reused key with other content is a 422 there.
+    "client_error": (409, {"code": "idempotency_in_flight"}),
+    # A checkout exists for the key, but its creation response cannot be rebuilt.
+    "unrecoverable": (409, {"code": "creation_unrecoverable"}),
+    "key_conflict": (422, {"code": "idempotency_conflict"}),
+    # A 404 that is not the merchant's typed refusal, e.g. from a proxy.
+    "route_not_found": (404, "Not Found"),
+    # Refusals the merchant answers before creating anything for the key.
+    "out_of_stock": (409, {"code": "out_of_stock", "message": "Not available."}),
+    "offer_expired": (409, {"code": "OFFER_EXPIRED", "message": "Refresh the offer."}),
+    "offer_expired_lowercase": (409, {"code": "offer_expired"}),
+    "invalid_item": (404, {"code": "invalid_item", "message": "The offer does not exist."}),
+}
 
 
 class Merchant:
@@ -80,11 +100,9 @@ class Merchant:
             raise httpx.ReadTimeout("Merchant answered too late", request=request)
         if self.fault == "connect_error":
             raise httpx.ConnectError("Merchant connection refused", request=request)
-        if self.fault == "server_error":
-            return httpx.Response(500, json={"detail": {"code": "internal"}})
-        if self.fault == "client_error":
-            # The merchant's 409 on creation; a reused key with other content is a 422 there.
-            return httpx.Response(409, json={"detail": {"code": "idempotency_in_flight"}})
+        if self.fault in CREATE_ERRORS:
+            status, detail = CREATE_ERRORS[self.fault]
+            return httpx.Response(status, json={"detail": detail})
         if self.fault == "malformed":
             return httpx.Response(201, json={"id": "cs_api_1"})
         return httpx.Response(201, json=self.current)
@@ -144,10 +162,21 @@ def dispatch_result(path: Path) -> tuple[str, str | None, str]:
     return row
 
 
-# A refused connection or a 4xx is no proof that nothing was created: never inferred, never
-# retried. The ACP client rejects a malformed body before the gate reads it.
+# A refused connection or a 4xx outside the merchant's definitive refusals is no proof that
+# nothing was created: never inferred, never retried. The ACP client rejects a malformed body
+# before the gate reads it.
 @pytest.mark.parametrize(
-    "fault", ["timeout", "connect_error", "server_error", "client_error", "malformed"]
+    "fault",
+    [
+        "timeout",
+        "connect_error",
+        "server_error",
+        "client_error",
+        "unrecoverable",
+        "key_conflict",
+        "route_not_found",
+        "malformed",
+    ],
 )
 def test_governed_uncertain_creation_is_never_retried(tmp_path: Path, fault: str) -> None:
     settings = governed(tmp_path / "agent.db")
@@ -173,6 +202,73 @@ def test_governed_uncertain_creation_is_never_retried(tmp_path: Path, fault: str
     finally:
         built.close()
     assert merchant.creations() == 1
+
+
+def start_run(built: AgentRuntime, run_id: str):
+    return built.purchases.start(
+        run_id=run_id,
+        request="private original request",
+        intent=PurchaseIntent(),
+        selected_variant_id="SON-01",
+        details=details(),
+        owner_id=OWNER,
+    )
+
+
+def failure_of(path: Path, run_id: str) -> tuple[str, str | None]:
+    with closing(sqlite3.connect(path)) as connection:
+        (row,) = connection.execute(
+            "SELECT stage, failure_code FROM purchases WHERE run_id=?", (run_id,)
+        )
+    return row
+
+
+# The merchant answers these before creating anything for the key, and D1 sends one POST per
+# key: the purchase fails as in B0 and nothing stays pending (hp-p5a-definitive-failures.md).
+@pytest.mark.parametrize(
+    ("fault", "code"),
+    [
+        ("out_of_stock", "out_of_stock"),
+        ("offer_expired", "offer_expired"),
+        ("offer_expired_lowercase", "offer_expired"),
+        ("invalid_item", "invalid_item"),
+    ],
+)
+def test_governed_definitive_refusal_fails_the_purchase_and_frees_the_buyer(
+    tmp_path: Path, fault: str, code: str
+) -> None:
+    settings = governed(tmp_path / "agent.db")
+    merchant = Merchant(fault)
+    built = runtime(settings, merchant)
+    try:
+        with pytest.raises(PurchaseServiceError) as refused:
+            start(built.purchases)
+        assert refused.value.code == code
+        assert built.d1_gate is not None
+        status = built.d1_gate.recovery_status("run-real")
+        assert status is not None and status[0:2] == ("definitive_failure", None)
+        assert dispatch_result(settings.agent_database_path) == (
+            "definitive_failure",
+            None,
+            "VERIFIED_NOT_CREATED",
+        )
+        assert failure_of(settings.agent_database_path, "run-real") == ("failed", code)
+        assert built.conversation.pending_purchase_view(OWNER) is None
+        # The refused run itself is never sent again.
+        with pytest.raises(PurchaseServiceError) as again:
+            start(built.purchases)
+        assert again.value.code == "d1_recovery_required"
+        assert merchant.creations() == 1
+        # The buyer asks again: a new run, its own D1 decision and key, and one more POST.
+        merchant.fault = None
+        prepared = start_run(built, "run-next")
+        assert prepared.stage == "awaiting_confirmation"
+        status = built.d1_gate.recovery_status("run-next")
+        assert status is not None and status[0:2] == ("confirmed", "cs_api_1")
+    finally:
+        built.close()
+    assert merchant.creations() == 2
+    assert len(set(merchant.create_keys)) == 2
 
 
 def test_blocked_flow_still_stops_at_the_reservation(tmp_path: Path) -> None:
