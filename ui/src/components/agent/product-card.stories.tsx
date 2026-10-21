@@ -3,6 +3,7 @@ import { expect } from "storybook/test"
 
 import { formatMoneyParts } from "@/components/agent/agent-format"
 import { ProductCard, ProductCardSkeleton } from "@/components/agent/product-card"
+import { expectFitsPhoneColumn, PHONE_COLUMN } from "@/components/delegation/story-helpers"
 import {
   BRISA,
   ESTUDIO,
@@ -145,6 +146,22 @@ export const CompactLoading: Story = {
 
 export const Mobile: Story = {
   globals: { viewport: { value: "mobile", isRotated: false } },
+}
+
+/**
+ * Teléfono de 320 px: el mensaje deja 272 px a la tarjeta. Con un precio de ocho cifras en pesos,
+ * el código de la moneda baja bajo el precio en vez de salirse del padding con una fuente ancha.
+ */
+export const Phone320: Story = {
+  args: { product: { ...SONORA, observed_unit_amount_minor: 1_249_990_000 } },
+  render: (args) => (
+    <div className={`${PHONE_COLUMN} px-2`} data-testid="phone-column">
+      <ProductCard {...args} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    await expectFitsPhoneColumn(canvasElement)
+  },
 }
 
 export const MobileLongText: Story = {

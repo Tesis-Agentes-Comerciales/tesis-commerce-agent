@@ -117,6 +117,13 @@ navegador de Playwright: `npx playwright install chromium` (en Linux/CI, `--with
 el proyecto `unit` de Vitest (`src/**/*.test.ts` en Node; solo él con `npm test`), así el job `ui` de
 CI lo ejecuta sin un paso nuevo.
 
+La UI usa la fuente del sistema (`ui-sans-serif, system-ui, sans-serif`): SF Pro en macOS y DejaVu
+Sans, bastante más ancha, en el Chromium del CI (Linux). Las historias «Phone 320» miden contra el
+ancho real de un teléfono de 320 px (272 px para una tarjeta del hilo, 254 para una del diálogo
+«Delegaciones»), así que un monto que cabe justo en macOS puede desbordar en CI: un texto sin
+espacios necesita un tamaño que baje con la tarjeta o un punto de corte (`totalAmount` en
+`agent-styles.ts`).
+
 ## Verificación
 
 ```sh

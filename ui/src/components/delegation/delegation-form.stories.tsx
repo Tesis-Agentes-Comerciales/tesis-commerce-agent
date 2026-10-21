@@ -5,7 +5,7 @@ import { DelegationForm } from "@/components/delegation/delegation-form"
 import {
   expectFitsPhoneColumn,
   expectKeyboardFocus,
-  PHONE_COLUMN,
+  PHONE_DIALOG_COLUMN,
 } from "@/components/delegation/story-helpers"
 import { seenOffers } from "@/features/seen-offers"
 import { DEMO_PROFILE } from "@/lib/commerce-types"
@@ -156,7 +156,7 @@ export const Keyboard: Story = {
 export const Phone320: Story = {
   args: { error: "Elige al menos una opción." },
   render: (args) => (
-    <div className={PHONE_COLUMN} data-testid="phone-column">
+    <div className={PHONE_DIALOG_COLUMN} data-testid="phone-column">
       <DelegationForm {...args} />
     </div>
   ),

@@ -10,6 +10,12 @@ export const plain = (text: string) => text.replace(/\s+/g, " ")
 /** Un teléfono de 320 px deja 288 px al hilo del chat. */
 export const PHONE_COLUMN = "w-[288px]"
 
+/**
+ * Las tarjetas de delegación no van en el hilo sino en el diálogo «Delegaciones»: en ese teléfono
+ * mide 288 px (`calc(100% - 2rem)`) y, con su borde y su `p-4`, les deja 254.
+ */
+export const PHONE_DIALOG_COLUMN = "w-[254px]"
+
 /** Un nodo legible en el mensaje de un fallo: etiqueta, test id y el inicio de su texto. */
 const describe = (element: HTMLElement) =>
   `<${element.tagName.toLowerCase()}${element.dataset.testid ? ` ${element.dataset.testid}` : ""}> ${element.textContent?.slice(0, 40) ?? ""}`

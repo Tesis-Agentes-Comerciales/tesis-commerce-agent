@@ -12,7 +12,7 @@ import {
   escalationOf,
   expectFitsPhoneColumn,
   expectKeyboardFocus,
-  PHONE_COLUMN,
+  PHONE_DIALOG_COLUMN,
   plain,
 } from "@/components/delegation/story-helpers"
 import {
@@ -335,7 +335,7 @@ export const ReplacesConsentCard: Story = {
 /** A 320 px cada estado cabe: título, alcance, filas, botones y recibo, sin desbordar. */
 export const Phone320: Story = {
   render: (args) => (
-    <div className={`${PHONE_COLUMN} space-y-3`} data-testid="phone-column">
+    <div className={`${PHONE_DIALOG_COLUMN} space-y-3`} data-testid="phone-column">
       {Object.values(DELEGATIONS).map((delegation) => (
         <DelegationStatusCard
           key={delegation.grant_id + delegation.task.state}

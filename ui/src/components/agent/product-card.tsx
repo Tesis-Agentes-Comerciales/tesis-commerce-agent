@@ -152,8 +152,10 @@ function CatalogPrice({
 
   return (
     <div>
-      <p className="flex items-baseline gap-1.5">
-        <span className="text-2xl font-semibold tracking-[-0.03em] tabular-nums">{parts.amount}</span>
+      <p className="flex flex-wrap items-baseline gap-x-1.5">
+        <span className="text-2xl font-semibold tracking-[-0.03em] tabular-nums wrap-anywhere">
+          {parts.amount}
+        </span>
         <span className="text-xs font-medium text-[#6b6b6b]">{parts.code}</span>
       </p>
       <p className="mt-0.5 text-xs leading-5 text-[#6b6b6b]">
