@@ -23,7 +23,8 @@ from .models import (
     rules_apply,
 )
 
-ENGINE_VERSION = "reference-d1:1"
+# The same measured engine evaluates D1 and, since b2-hp-v2, D2.
+ENGINE_VERSION = "reference-d1-d2:2"
 
 
 class GovernanceError(ValueError):

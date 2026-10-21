@@ -263,8 +263,14 @@ def test_decision_reports_exactly_its_phase_rules(
 ) -> None:
     data = parsed(payload)
     raw = reference(data, artifact, metadata).evaluate(data).model_dump(mode="json")
+    pilot = [
+        {"schema_version": SCHEMA, "policy_id": policy, "result": "pass"}
+        for policy in D1_PILOT_RULES
+    ]
     for rules in (
         [{"schema_version": SCHEMA, "policy_id": "POL-01", "result": "pass"}],
+        # The pilot profile (POL-01, POL-02) is a D1 profile only: never a D2 decision.
+        pilot,
         raw["rule_results"][:3],
     ):
         with pytest.raises(ValidationError):

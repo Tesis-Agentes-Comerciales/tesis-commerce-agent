@@ -237,5 +237,6 @@ sección `authorization` de `b2-hp-v2` son parte de A.
 - **Desglose.** `other_minor = total − unitario × cantidad − envío`; un resto negativo no es
   representable y detiene la aprobación.
 - **Identidad del motor.** El código de D2 vive en `models.py` y `evaluator.py`, que ya mide
-  `measure_reference_engine`: cambia el digest del motor de referencia. La evidencia histórica sigue
-  verificándose con su archivo; su replay con el código nuevo ya no aplica, como antes.
+  `measure_reference_engine`: cambia el digest del motor de referencia y su versión pasa de
+  `reference-d1:1` a `reference-d1-d2:2`. La evidencia histórica sigue verificándose con su archivo;
+  su replay con el código nuevo ya no aplica, como antes.
