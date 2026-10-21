@@ -72,3 +72,15 @@ def acp(acp_lane: PurchaseLane):
     """Plain ACP completion (AP2 off) against the real Merchant and payment provider."""
     with checked(acp_lane.proxy):
         yield acp_lane
+
+
+@pytest.fixture(scope="session")
+def hnp_lane(stack: LiveStack):
+    yield from lane(stack, "hnp")
+
+
+@pytest.fixture
+def hnp(hnp_lane: PurchaseLane):
+    """Human Not Present: the B0 Merchant and provider, and an HNP Agent per episode."""
+    with checked(hnp_lane.proxy):
+        yield hnp_lane
