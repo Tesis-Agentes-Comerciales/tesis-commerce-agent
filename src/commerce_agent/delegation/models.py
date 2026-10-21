@@ -324,9 +324,31 @@ class DispatchCommit:
     d3_evidence_id: str | None  # None in B0-HNP
 
 
+# The status of an AP2 receipt as the profile admits it: the SDK's `status` (`Success`, `Error`),
+# which the JWTs carry, or the spec's `result` (`success`, `error`) (docs/ap2-profile.md, Recibos).
+# The ledger keeps the lowercase form.
+RECEIPT_STATUSES: Mapping[str, Literal["success", "error"]] = {
+    "Success": "success",
+    "Error": "error",
+    "success": "success",
+    "error": "error",
+}
+
+
+def receipt_status(status: str) -> Literal["success", "error"]:
+    """The ledger's form of an AP2 receipt status; anything outside the profile raises."""
+    try:
+        return RECEIPT_STATUSES[status]
+    except (KeyError, TypeError):
+        raise ValueError("Not an AP2 receipt status") from None
+
+
 @dataclass(frozen=True, slots=True)
 class Receipt:
-    """A verified AP2 receipt; the event keeps its digest and public fields, not the JWT."""
+    """A verified AP2 receipt; the event keeps its digest and public fields, not the JWT.
+
+    `status` takes either form of the profile and is kept lowercase (`receipt_status`), the one
+    place where the two meet."""
 
     kind: Literal["payment", "checkout"]
     jwt: str = field(repr=False)
@@ -336,6 +358,9 @@ class Receipt:
     error: str | None = None
     payment_id: str | None = None
     order_id: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "status", receipt_status(self.status))
 
 
 @dataclass(frozen=True, slots=True)

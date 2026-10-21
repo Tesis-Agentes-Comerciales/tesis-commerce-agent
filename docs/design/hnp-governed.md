@@ -180,13 +180,56 @@ UoW-1 y no la que relee UoW-C, que no compara el kill switch ni el grant (K10). 
 `start` dejó `selected` termina `failed(governance_unavailable)` (K15). `payment_request_digest`
 fija la petición al PSP del despacho (clave `<operation_id>:payment`, `allowance` y los digests del
 checkout JWT y de los dos cerrados); 09b la reconstruye igual. Lo que §8.1 no nombra: un feed ilegible, un rechazo del comercio, una firma del
-checkout o un cierre que falla terminan `checkout_failed`; un selector que falla o elige fuera de la
-lista corta, `selection_not_eligible`; un grant ilegible y un re-claim con avance sin outbox,
-`state_conflict` (reanudarlo es de 09b). El `outcome_code` de un deny de D1 sale de los
+checkout o un cierre que falla terminan `checkout_failed`; un selector que falla o, en B0-HNP, elige
+fuera de la lista corta, `selection_not_eligible`; un grant ilegible y un re-claim con avance que no se puede
+reanudar (abajo), `state_conflict`. El `outcome_code` de un deny de D1 sale de los
 `reason_codes` de su evidencia (`sqlite_d1_denials`): POL-01, luego POL-02, luego POL-11.
 
+**K12 por condición (HNP-09b).** En B0-HNP la guarda de la lista corta del executor termina
+`failed(selection_not_eligible)` antes de `start`. En B2-HNP no hay guarda previa: la elección va a
+`start` y D1-HNP la niega con POL-01, con su evidencia y antes de cualquier POST; el terminal es el
+mismo por el mapeo de `reason_codes`. Así, en B2 los eslabones `intent` y `d1_decision` quedan
+completos (HN11 de `docs/design/hnp-pilot.md`). Una variante que ni siquiera es candidata del feed
+la rechaza `start` antes de D1 (`invalid_candidate`), con el mismo código.
+
+**Cómo lo arma HNP-09b, reanudación.** Un re-claim sigue desde el estado durable (§4.5). Con fila
+en el outbox pasa directo al despacho. Sin ella, solo sigue una reserva `reserved` con la compra en
+`checkout_prepared` y los cerrados que guardó UoW-C (`closed_request`), cuyo checkout y monto son
+los de la reserva: si `now ≥ iat + 300` del cerrado, termina `failed(close_expired_before_dispatch)`
+con la reserva `released(no_outbox)`; si no, recalcula `payment_request_digest` desde los cerrados
+guardados y corre D3 y UoW-2 con la `Authority` del re-claim (la que validó UoW-1 se perdió con la
+corrida), sin crear ni cerrar otra vez. Cualquier otro avance termina con el terminal que `start`
+dejó anotado o `state_conflict`. Lo que escapa de una corrida se clasifica: un `GovernanceError`
+(el hook de evidencia de un allow que no se pudo escribir, `GOV_EVIDENCE_UNAVAILABLE`) termina
+`failed(governance_unavailable)`, y un `LookupError` (una fila durable que desapareció bajo la
+corrida), `failed(state_conflict)`. Si no se puede escribir la evidencia de un deny, el terminal se
+escribe sin ella: una cancelación conserva su causa y lo demás termina
+`failed(governance_unavailable)`. **Decisión de 09b, alerta al operador:** los terminales de §8.1
+con alerta (`selection_not_eligible`, `merchant_not_allowed`, `mandate_proof_invalid`,
+`verifier_invalid_mandate`, `verifier_invalid_credential`; `OPERATOR_ALERTS`) dejan un registro
+`ERROR` en el logger `commerce_agent.hnp.alerts`, con `task_id`, estado y código y sin datos del
+dueño. No hay otro canal de notificación.
+
+**Cómo lo arma HNP-09b, despacho.** `HnpDispatcher.dispatch(execution)`
+(`application/hnp_dispatch.py`) hace los pasos 11 y 12 con los clientes del producto
+(`DelegatedPaymentClient` y `ACPClient`; perfil AP2, «Clientes del despacho»), y
+`HnpExecutionService` lo recibe como `dispatcher` y lo llama después de UoW-2 o en un re-claim con
+outbox. Nunca firma ni cierra: manda los cerrados que guardó UoW-C con las claves que fija el
+outbox (`<operation_id>:payment` en el PSP, `<operation_id>:complete` en el comercio), así que un
+re-claim repite las mismas peticiones. Antes de enviar reconstruye la petición al PSP y compara su
+`payment_request_digest` con el que comprometió UoW-2; si no coincide, no la manda. Cada envío se
+anota antes de salir (`payment_sent`, `complete_sent`) y avanza solo con la respuesta del
+verificador: el token del PSP lleva a `payment_accepted`; la orden con el recibo verificado del
+comercio y el recibo de pago verificado, a `completed` y a UoW-3, que pasa la compra a `completed`
+con `record_hnp_completion` en la misma transacción. Un recibo de error válido del PSP termina
+`rejected(psp)` y libera la reserva: en `enforce` escala y cancela el checkout propio (§8.2); en
+`off` falla con el mismo código. Desde `completed` no hay paso a `uncertain`: si la corrida no
+puede volver a obtener los recibos, la tarea sigue `running` y la próxima corrida repite las dos
+peticiones idempotentes.
+
 **Arranque (HNP-09a).** Con `AGENT_HNP_ENABLED`, `build_runtime` arma el executor en un solo lugar,
-`delegation/bootstrap.build_hnp_executor`, que es donde 09b enchufa el despacho. En `enforce`, la
+`delegation/bootstrap.build_hnp_executor`, que desde 09b le enchufa el `HnpDispatcher` con el mismo
+ledger, el `DelegatedPaymentClient` y el `ACPClient` del runtime. En `enforce`, la
 `PurchaseService` del runtime recibe D1-HNP (`governance/bootstrap.build_hnp_d1_gate`, con
 `merchant_refs=operator_merchant_refs(...)`, K11) y el executor recibe
 `build_hnp_policy_gate(settings, clock, trust=hnp_trust.mandates)` y el guard de frescura del
@@ -535,7 +578,12 @@ cierran la tarea si no hay outbox.
 
 **Lease y fencing.** Toda UoW posterior al claim (UoW-1, UoW-C, UoW-2, despacho y UoW-3) compara
 `hnp_tasks.lease_id` y `state='running'`, y renueva `lease_expires_at` (`now + 120 s`). Cada llamada
-externa tiene un timeout menor que el lease. Ante un CAS perdido, el executor relee y clasifica así:
+externa tiene un timeout menor que el lease. **Decisión de 09b:** el selector `llm` puede tardar
+más que el lease (`OPENAI_TIMEOUT_SECONDS` llega a 120 s y hay un reintento), así que antes del
+primer efecto (`start`) la corrida renueva su lease con `renew_lease`, por CAS de `lease_id` y
+`running`: si otro claim tomó la tarea mientras tanto, sale con `lease_lost` sin crear el checkout;
+si no, un claim concurrente encuentra el lease vigente. Ante un CAS perdido, el executor relee y
+clasifica así:
 
 - lease ajeno → sale sin escribir terminal;
 - `authority_epoch` cambió por una revocación del dueño → `canceled(revoked_by_owner)`;
@@ -587,6 +635,7 @@ La compra HNP vive en las mismas tablas que HP, para que la traza, `/me/purchase
 | --- | --- | --- |
 | `PurchaseService.start` con `purchase_mode=HNP` | `received` → `selected` → `checkout_prepared`, y ahí se detiene (HP sigue a `awaiting_confirmation`) | HNP-05 |
 | UoW-2 | `checkout_prepared` → `completing` | 09a, con el hook de HNP-05 |
+| Despacho, justo antes del primer envío al PSP | Sigue `completing`; `operation_keys` anota `payment.delegate` con la clave `<operation_id>:payment` y su hora, como HP antes de delegar. La traza toma de ahí `payment_authorized`; un reintento conserva la primera hora y una petición que no coincide con su digest no la anota | 09b |
 | UoW-3 | `completing` → `completed` | 09b |
 | Tarea `uncertain` | `completing` → `uncertain` | 09b |
 | Deny de D1 o D1 no disponible dentro de `start` | Queda `received`: no hay checkout. El terminal de la tarea la pasa a `failed` con `failure_code` = `outcome_code`, o a `canceled` si escala (POL-11) | `start` (HNP-05); el terminal, 09a con el hook de HNP-05 |
@@ -687,6 +736,11 @@ puede dispararlas.
 | `POST /internal/hnp/kill-switch` | Operador | `{"enabled": bool}` | 200 `KillSwitchState {enabled, control_epoch, changed_at}`; el mismo valor no cambia el epoch | 401; 403; 422 `hnp_request_invalid` |
 
 El token de servicio no sirve para el kill switch ni el de operador para disparar tareas.
+
+**Cómo lo arma HNP-09b.** `run` hace el claim (`HnpExecutionService.claim`) dentro de la petición
+y, si obtuvo el lease, deja el resto de la corrida (`resume`) en una `BackgroundTask` del mismo
+proceso: responde 202 antes de seleccionar. Lo que escape de esa corrida se registra solo por su
+tipo; la tarea sigue `running` hasta que vence su lease y otro disparo la reanuda (§4.5).
 
 ### 5.3 Vistas (contrato de HNP-01)
 
@@ -825,7 +879,20 @@ Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP d
   `authentication_basis="service_and_grant"`, `owns_run` por el dueño del grant, y `permitted_actions`
   del grant (las tres acciones). `GrantFacts.agent_key_ref = agent_key_kid`. `authorization_profile`
   = `{status, profile_ref: {id: "profile:ap2-hnp-v1", version: 1, digest}}`, con el digest de las
-  constantes del perfil AP2 HNP (`PROFILE_DIGEST`, HNP-04).
+  constantes del perfil AP2 HNP (`PROFILE_DIGEST`, HNP-04). Los arma
+  `hnp_policy.executor_principal`, el mismo para D1, D2 y D3.
+- **Principal en D1-HNP, solo para atribución (§9.1).** La entrada D1-HNP lleva los mismos hechos
+  del executor en `SelectionPolicyInput.principal`. POL-01, 02 y 11 no los leen. `owns_run` sale de
+  `delegation_grants`: el dueño del grant es el dueño del run. Sin la fila del grant es `false`,
+  porque D1 no la exige; D2-HNP sí la exige y falla cerrado sin ella. El campo es opcional y solo
+  HNP:
+  - una entrada HP que lo traiga es inválida;
+  - ausente, no entra en la forma canónica (como `selected_unit_minor`), así que los bytes de la
+    entrada y de la evidencia D1-HP no cambian;
+  - la evidencia D1-HNP anterior, sin principal, se sigue leyendo y verificando.
+
+  Como todo cambio de `models.py`, cambia el digest del motor medido. El piloto v2 no lo nota: corre
+  desde `pilot-v2-base`.
 - **POL-03 y POL-04 en HNP:** POL-03 no exige `principal_ref == owner_ref` (el principal es el
   servicio; el dueño lo liga el grant con `owns_run`). POL-04 exige el allow de D1 de este episodio,
   como en HP, y que el grant, la `reservation_intent` y la operación sean del run y del dueño
@@ -876,6 +943,13 @@ Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP d
 - Recibo de error del comercio después del token del PSP: `uncertain(partial_verifier_failure)`,
   aunque el código AP2 sea de escalamiento; el fallo parcial entre verificadores es de reconciliación
   manual (fuera de alcance).
+- **Razones de `uncertain`. Decisión de 09b:** `dispatch_timeout` cuando no hay respuesta
+  clasificable (timeout, error de transporte o 5xx, incluido el 503 `mandates_not_supported` sin
+  recibo); `receipt_mismatch` cuando la respuesta no trae un recibo válido (4xx sin recibo, 409
+  `idempotency_conflict`, recibo que no verifica o que nombra otra cadena u otra orden) o cuando la
+  petición ya no coincide con su digest; `partial_verifier_failure` con el recibo de error válido
+  del comercio. Como el ledger solo pasa a `uncertain` desde un envío, un digest distinto con el
+  outbox en `committed` anota `payment_sent` sin enviar nada y termina `uncertain(receipt_mismatch)`.
 
 ### 8.2 Escalamiento
 
@@ -984,8 +1058,11 @@ Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autoriza
 | `task_finished` | `service` | `state`, `outcome_code`, `run_id` |
 
 Todos llevan `actor_kind`, `actor_ref`, `on_behalf_of`, `task_id` y `run_id` en la fila. Las
-decisiones D1/D2/D3 viven en `governance_evidence` y la frescura `close` en `hp_evidence`, con la
-atribución en su cabecera (`principal_ref`, `owner_ref`).
+decisiones D1/D2/D3 viven en `governance_evidence` y la frescura `close` en `hp_evidence`. La
+atribución de cada decisión va en su entrada (`canonical_input`): `owner_ref` en la cabecera y
+`principal.principal_ref = "service:hnp-executor"` en D1-HNP, D2-HNP y D3-HNP (§7). Así una
+ejecución B2-HNP completa puede dar el 100 % de `attribution_completeness` que pre-registra el
+piloto (`docs/design/hnp-pilot.md`).
 
 ### 9.2 Eslabones del verificador (HNP-V1, sobre `verify-evidence` de P2)
 
@@ -1066,11 +1143,16 @@ cualquier rastro suyo (fila de la compra, registros D1/D2/D3, `close`, reserva, 
   apagado.
 - `receipts` lee los JWT de los recibos con el perfil AP2 (`PaymentReceipt`/`CheckoutReceipt` del
   SDK, `status` solo `Success` o `Error`): `reference` = `link_hash` del cerrado, y emisor,
-  `order_id`/`payment_id`, `error` y estado iguales a su `receipt_recorded`. Con orden exige los
-  JWT de `completion_results`, que escribe la UoW-3 de HNP-09b: hasta entonces sale `missing`. El
-  rechazo del PSP lee el `error_receipt_jwt` del outbox; mientras el ledger guarde el estado como
-  `error` (fuera del perfil AP2, lo normaliza HNP-09b) sale `missing`, nunca `ok`. Un tipo de
-  recibo repetido en la cadena es `mismatch`.
+  `order_id`/`payment_id` y `error` iguales a su `receipt_recorded`. El estado del evento vale en
+  cualquiera de las dos formas del perfil, la del SDK (`Success`/`Error`) o la de la spec
+  (`success`/`error`), que es la que guarda el ledger desde HNP-09b (`RECEIPT_STATUSES`); el
+  verificador las normaliza con una tabla idéntica. Con orden, el JWT y el evento son un éxito y
+  exige los JWT de `completion_results`, que escribe la UoW-3 de HNP-09b: hasta entonces sale
+  `missing`. Un rechazo (del PSP o del comercio) lee el `error_receipt_jwt` del outbox y exige el
+  JWT en `Error`, el evento en `error`, el `payment_id` (PSP) o el `order_id` (comercio) del JWT
+  igual al del evento, y que en la cadena no haya otro recibo que el de quien rechazó. Un estado
+  fuera de esas cuatro formas o del resultado (una orden en `error`, un rechazo en `success`), un
+  recibo de otro tipo en un rechazo o un tipo de recibo repetido en la cadena son `mismatch`.
 - Salida: `purchase_mode: "HNP"`, `grant_id`, `task_id`, `task_state`, `outcome_code` y
   `h2_hnp` (`orders` = H2-HNP, `blocked` = tareas `escalated`, `failed` o `canceled`, `all_runs`,
   `by_link`) solo si hay ejecuciones HNP; `h2` cuenta solo compras HP. `blocked` incluye HN04: no es
@@ -1216,3 +1298,5 @@ archivo caliente, no global. La coordinación del día está en el contrato de c
 27. El destino se normaliza al proponer como lo hace el comercio; uno que el comercio rechazaría es
     422 `delegation_destination_unsupported`.
 28. Los montos de los textos HNP usan la notación de `formatMoney` de la UI (K16, §8.3).
+29. D1-HNP registra el principal del executor solo para atribución; sin la fila del grant,
+    `owns_run` es `false` (§7).
