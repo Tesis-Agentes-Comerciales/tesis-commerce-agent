@@ -120,7 +120,7 @@ Son tres piezas complementarias:
 
 El bloque lo arma un módulo nuevo, `evaluation/src/commerce_evaluation/flow_trace.py`.
 `build_flow_trace(agent_db, graph_db, secrets) -> dict` es una función pura de las dos bases en
-solo lectura (con `read_only` de `pilot_measures.py:43`). Así se puede volver a correr sobre un
+solo lectura (con `read_only` de `pilot_measures.py:42`). Así se puede volver a correr sobre un
 artefacto guardado. No reemplaza ninguna clave existente de la fila: solo agrega.
 
 | Campo | Fuente HP | Fuente HNP | Tamaño |
