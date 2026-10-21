@@ -2,10 +2,10 @@
 
 `hnp-pilot --dry-run` validates the manifest and its matrix, prints the registered plan, the
 environment of each condition (names only), the integration readiness and whether a live run would
-start; it never starts a service or calls a model. A live run refuses without the oracles'
-approval, without `HNP_PILOT_MAX_COST_USD` (or above the manifest's cap), off the registered agent
-commit or with a missing integration, and stops cleanly once the accumulated model cost reaches
-the cap.
+start; it never starts a service or calls a model. A live run refuses without `HNP_LIVE=1`,
+without the oracles' approval in the committed manifest, without `HNP_PILOT_MAX_COST_USD` (or
+above the manifest's cap), off the registered agent commit, on a dirty worktree or with a
+missing integration; it stops cleanly once the accumulated model cost reaches the cap.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -57,6 +58,8 @@ LAYERS = ("A", "B")
 BUYER_DETAILS = "synthetic_bogota_buyer"
 GENERATED = "generated_per_invocation_never_logged"
 COST_VARIABLE_DEFAULT = "HNP_PILOT_MAX_COST_USD"
+# A live run also needs this, as every paid evaluation run (docs/testing.md).
+LIVE_VARIABLE = "HNP_LIVE"
 STIMULI = frozenset(
     {"merchant_update_offer", "wait_until_grant_expired", "owner_revoke", "operator_kill_switch"}
 )
@@ -100,6 +103,14 @@ STARTUP_ADDITIONS: dict[str, dict[str, str]] = {
     },
 }
 _LITERAL = re.compile(r"^[A-Za-z0-9._:/-]+$")
+
+
+def startup_additions(condition: str) -> dict[str, str]:
+    """The variables the runner adds to a condition, with their values unless generated."""
+    return {
+        name: "generated_per_invocation" if value == GENERATED else value
+        for name, value in STARTUP_ADDITIONS[condition].items()
+    }
 
 
 @dataclass(frozen=True)
@@ -592,14 +603,17 @@ def live_guards(
     readiness: Mapping[str, Mapping[str, Any]],
     cost: CostCap,
     startup: Mapping[str, Mapping[str, Any]],
+    registration: Mapping[str, Any],
     worktree_dirty: bool,
-    allow_dirty: bool,
+    environ: Mapping[str, str],
 ) -> dict[str, dict[str, Any]]:
-    """Each reason a live run would refuse to start; all `ok` means it may start."""
+    """Each reason a live run would refuse to start; all `ok` means it may start. None of them
+    has an override: the approval counts only as committed, on a clean checkout."""
     approval = manifest["approval"]
     missing = [name for name in REQUIRED_READINESS if readiness[name]["ready"] is not True]
     failed_startups = [name for name, check in startup.items() if not check["ok"]]
     return {
+        "hnp_live": {"ok": environ.get(LIVE_VARIABLE) == "1", "variable": LIVE_VARIABLE},
         "approval": {
             "ok": approval.get("status") == "approved",
             "status": approval.get("status"),
@@ -607,14 +621,60 @@ def live_guards(
         },
         "cost_cap": {"ok": cost.error is None, "error": cost.error},
         "manifest_and_matrix": {"ok": not problems, "problems": list(problems)},
+        "registered_manifest": dict(registration),
         "integrations": {"ok": not missing, "missing": missing},
         "agent_startup": {"ok": not failed_startups, "failed": failed_startups},
-        "agent_worktree": {
-            "ok": not worktree_dirty or allow_dirty,
-            "dirty": worktree_dirty,
-            "allow_dirty": allow_dirty,
-        },
+        "agent_worktree": {"ok": not worktree_dirty, "dirty": worktree_dirty},
     }
+
+
+def manifest_registration(
+    manifest_path: Path,
+    matrix_path: Path,
+    *,
+    root: Path = ROOT,
+    registered: Path = MANIFEST,
+) -> dict[str, Any]:
+    """The run uses the registered manifest, and it and its matrix are tracked and equal to HEAD.
+
+    The approval is recorded "in the commit the run uses": an uncommitted edit of the manifest,
+    or an untracked copy passed with `--manifest`, must not pass for it.
+    """
+    problems: list[str] = []
+    if manifest_path.resolve() != registered.resolve():
+        problems.append(f"{manifest_path} is not the registered manifest")
+    problems += [
+        problem for path in (manifest_path, matrix_path) if (problem := _committed(root, path))
+    ]
+    return {"ok": not problems, "problems": problems}
+
+
+def _committed(root: Path, path: Path) -> str | None:
+    """Why `path` is not as committed in `root`'s HEAD; None when it is."""
+    try:
+        relative = str(path.resolve().relative_to(root.resolve()))
+    except ValueError:
+        return f"{path} is outside the agent checkout"
+    try:
+        tracked = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--error-unmatch", "--", relative],
+            capture_output=True,
+            check=False,
+        )
+        changed = subprocess.run(
+            ["git", "-C", str(root), "diff", "--quiet", "HEAD", "--", relative],
+            capture_output=True,
+            check=False,
+        )
+    except OSError as error:
+        return f"cannot read {relative} from git: {error}"
+    if tracked.returncode != 0:
+        return f"{relative} is not tracked"
+    if changed.returncode == 1:
+        return f"{relative} differs from HEAD"
+    if changed.returncode != 0:
+        return f"cannot compare {relative} with HEAD"
+    return None
 
 
 def require_guards(guards: Mapping[str, Mapping[str, Any]]) -> None:
@@ -648,7 +708,6 @@ def prepare(
     scenario_ids: Sequence[str] | None,
     smoke: bool,
     stack: Mapping[str, str],
-    allow_dirty: bool,
     environ: Mapping[str, str],
 ) -> Preparation:
     """Everything a dry run reports and a live run checks, without starting anything."""
@@ -694,8 +753,11 @@ def prepare(
         readiness=readiness,
         cost=cost,
         startup=startup,
+        registration=manifest_registration(
+            manifest_path, ROOT / str(manifest["scenario_manifest"])
+        ),
         worktree_dirty=provenance.worktree_dirty,
-        allow_dirty=allow_dirty,
+        environ=environ,
     )
     return Preparation(
         manifest=manifest,
@@ -751,7 +813,7 @@ def dry_run_document(preparation: Preparation) -> dict[str, Any]:
         }
         | {"P": {"runs": False, "reason": p_not_run_reason(preparation.readiness)}},
         "startup_additions": {
-            condition: sorted(additions) for condition, additions in STARTUP_ADDITIONS.items()
+            condition: startup_additions(condition) for condition in LEDGER_CONDITIONS
         },
         "agent_startup": preparation.startup,
         "layers": {
@@ -847,11 +909,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--agent-port", type=int, default=43125)
     parser.add_argument("--auth-port", type=int, default=4215)
     parser.add_argument("--skip-postgres-start", action="store_true")
-    parser.add_argument(
-        "--allow-dirty",
-        action="store_true",
-        help="run although tracked files of the agent, merchant or PSP differ from their commit",
-    )
     return parser
 
 
@@ -864,7 +921,6 @@ def _run(arguments: argparse.Namespace) -> int:
             merchant_origin=f"http://127.0.0.1:{arguments.merchant_port}",
             auth_origin=f"http://127.0.0.1:{arguments.auth_port}",
         ),
-        allow_dirty=arguments.allow_dirty,
         environ=os.environ,
     )
     if arguments.dry_run:

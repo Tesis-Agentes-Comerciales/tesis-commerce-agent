@@ -56,7 +56,6 @@ from commerce_evaluation.hnp_pilot_episode import (
 from commerce_evaluation.hnp_pilot_scoring import (
     UNPRICED_CALL_BOUND_USD,
     CostMeter,
-    TokenPrices,
     score_episode,
     summarize,
 )
@@ -183,7 +182,7 @@ def run_live(
         **preparation.provenance,
         **services_provenance(
             {"merchant": merchant_repo, "payment": payment_repo},
-            allow_dirty=arguments.allow_dirty,
+            allow_dirty=False,
         ),
     }
     environment = services_environment(
@@ -198,7 +197,7 @@ def run_live(
     )
     invocation = InvocationSecrets.generate()
     hidden = (*invocation.values(), *(environment[name] for name in SERVICE_SECRETS))
-    meter = CostMeter(TokenPrices.from_manifest(manifest))
+    meter = CostMeter.from_manifest(manifest)
     started_at = datetime.now(UTC).isoformat()
     prepare_services(
         ROOT,

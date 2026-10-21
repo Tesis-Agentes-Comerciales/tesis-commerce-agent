@@ -17,7 +17,7 @@ from commerce_evaluation import governance_pilot, hnp_pilot_live, verify_evidenc
 from commerce_evaluation.governance_pilot import RepositoryProvenance, services_environment
 from commerce_evaluation.hnp_pilot import prepare, stack_variables
 from commerce_evaluation.hnp_pilot_live import CliMerchant, summary_document, verify_task
-from commerce_evaluation.hnp_pilot_scoring import CostMeter, TokenPrices
+from commerce_evaluation.hnp_pilot_scoring import CostMeter
 from commerce_evaluation.paths import DATA
 
 # sha256 of each dry run, without the agent's commit and worktree state, taken before HNP-E2.
@@ -110,10 +110,9 @@ def test_the_summary_adds_up_the_cost_and_its_margin(tmp_path: Path) -> None:
         scenario_ids=["HN10"],
         smoke=True,
         stack=stack_variables(merchant_origin="http://m", auth_origin="http://a"),
-        allow_dirty=True,
         environ={"HNP_PILOT_MAX_COST_USD": "1"},
     )
-    meter = CostMeter(TokenPrices.from_manifest(preparation.manifest))
+    meter = CostMeter.from_manifest(preparation.manifest)
     rows = [
         {
             "scenario_id": "HN10",
@@ -136,8 +135,8 @@ def test_the_summary_adds_up_the_cost_and_its_margin(tmp_path: Path) -> None:
     )
     cost = summary["cost"]
     assert (cost["model_calls"], cost["unpriced_calls"], cost["rows_without_cost"]) == (2, 1, 1)
-    assert cost["margin_usd"] == 0.01 and cost["cap_usd"] == 1.0
-    assert cost["charged_usd"] == pytest.approx(0.01 + 0.003)
+    assert cost["margin_usd"] == 0.02 and cost["cap_usd"] == 1.0
+    assert cost["charged_usd"] == pytest.approx(0.02 + 0.003)
     assert summary["episodes_run"] == 2 and "E4" in summary["p_arm"]
     assert summary["summary"]["harness_errors"] == 1
 
