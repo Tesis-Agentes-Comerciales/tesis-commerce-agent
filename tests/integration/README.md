@@ -25,9 +25,10 @@ Hay cuatro grupos sobre el mismo PostgreSQL:
   Merchant después de exportar el feed, de modo que su 409 `out_of_stock` al único POST termina la
   compra en `failed` sin dejarla pendiente y la compra siguiente crea su checkout; la última arma
   el runtime como el piloto, llega a la orden con los recibos AP2 y corre el dispatcher del
-  comercio: el `order_create` firmado llega a `webhook_events` del runtime y a su traza.
-  `test_live_b2_pol02_allowlist.py` arma el Agent con `build_runtime` y las variables de la condición B2 del piloto en el entorno (las
-  mismas que exporta el lanzador de la demo) y corre el mismo turno de compra con dos listas
+  comercio: el `order_create` firmado llega a `webhook_events` del runtime y a su traza, y
+  `verify-evidence` (con la base del PSP) da la cadena de evidencia completa.
+  `test_live_b2_pol02_allowlist.py` arma el Agent con `build_runtime` y las variables de la
+  condición B2 del piloto en el entorno (las mismas que exporta el lanzador de la demo) y corre el mismo turno de compra con dos listas
   de comercios de POL-02: con otro comercio (modo `pol02-deny`) termina en `d1_denied`, POL-02
   queda en `fail` con `ACTION_OR_MERCHANT_NOT_ALLOWED` y el Merchant no recibe ningún POST de
   creación; con el comercio del carril llega a `awaiting_confirmation` con un solo POST.

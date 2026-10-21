@@ -20,6 +20,7 @@ hnp-review-demo = "commerce_evaluation.hnp_review_demo:main"
 governance-pilot = "commerce_evaluation.governance_pilot:main"
 evaluate-conversation = "commerce_evaluation.conversation:main"
 demo-stack = "commerce_evaluation.demo_stack:main"
+verify-evidence = "commerce_evaluation.verify_evidence:main"
 
 [tool.uv.sources]
 tesis-commerce-agent = { workspace = true }

@@ -35,6 +35,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | `src/commerce_evaluation/governance_pilot.py` | runner del piloto pareado B0/B2 |
 | `src/commerce_evaluation/conversation.py` | evaluación conversacional contra un agente local |
 | `src/commerce_evaluation/demo_stack.py` | `demo-stack`: stack local de la demo con las condiciones del piloto ([guion](../docs/demo/guion-2026-10-23.md)) |
+| `src/commerce_evaluation/verify_evidence.py` | `verify-evidence`: verificador de la cadena decisión–consentimiento–efecto y métrica H2 ([spec](../docs/design/hp-p2-evidence-chain.md)) |
 | `src/commerce_evaluation/hnp/` | arnés HNP-01 y validador LLM de HNP-02 ([`llm/`](src/commerce_evaluation/hnp/llm/README.md)) |
 | `src/commerce_evaluation/hnp_review_demo.py`, `hnp_matrix.py` | runners de HNP-01 y HNP-02 |
 | `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto lo ejecuta con el entorno del Merchant |
@@ -46,6 +47,7 @@ uv run governance-pilot --dry-run --condition B0prime --condition B2  # plan int
 uv run governance-pilot --dry-run --manifest evaluation/data/b2-pilot-v2.json --condition B0prime --condition B2  # piloto v2
 uv run evaluate-conversation                         # con agente y Merchant locales activos
 uv run demo-stack --dry-run                          # plan y requisitos de la demo local, sin arrancar nada
+uv run verify-evidence --agent-db agent.db --psp-db payments.db  # cadena de evidencia y H2
 uv run hnp-review-demo                               # HNP-01 offline, escribe en .local/hnp01/demo
 uv run hnp-matrix --dry-run --env-file .env.example  # HNP-02 con FakeTransport, escribe en .local/hnp02
 uv run --with nbformat python evaluation/scripts/build_b0_analysis_notebook.py
@@ -276,6 +278,30 @@ uv run governance-pilot --manifest evaluation/data/b2-pilot-v2.json --condition 
   etiqueta que registra el manifiesto (`execution.agent_ref`: `pilot-v2-base`, el último de HP
   antes de HNP). Una corrida en vivo se niega a arrancar, antes de levantar
   servicios, si alguna no está lista.
+
+### Cadena de evidencia y H2 (`verify-evidence`)
+
+`uv run verify-evidence --agent-db agent.db [--agent-db …] [--run RUN_ID] [--psp-db payments.db]
+[--output archivo.json]` abre cada base en solo lectura y, por cada compra de `purchases` (o solo
+la de `--run`), revisa nueve eslabones en el orden del contrato: `intent`, `d1_decision`,
+`checkout_created`, `freshness`, `d2_decision`, `approval`, `mandates`, `receipts` y
+`order_webhook`. Cada uno sale `ok`, `missing`, `mismatch` o `not_applicable` (la compra no llegó
+a ese paso), con un `detail` en español y `refs` (identificadores y digests; nunca tokens,
+mandatos, recibos ni datos del comprador). Un eslabón aplica según cualquier rastro de su paso
+(filas D1, `consent`, `effect`, un `order_create`), no solo según la fila de la compra. Una compra
+con orden o `effect` es `complete` solo si los nueve eslabones son `ok`; cualquier otra, si
+ningún eslabón es `missing` ni `mismatch`. Una base repetida en `--agent-db` cuenta una vez.
+`h2.effects` (compras con orden: `n`, `complete`, `rate`) es la métrica de H2;
+`h2.all_runs` usa todas las compras y `h2.by_link` cuenta los estados por eslabón. El código de
+salida es 0 si todas las cadenas verificadas están completas y 1 si no; 2 si los argumentos o las
+bases no sirven. Desde Python: `verify_database(path, run_id=…, psp_database=…)` y
+`h2_summary(runs)`.
+
+El verificador no espera webhooks: el `order_create` debe haber llegado antes de leer la base
+(el runner lo despacha con el agente arriba; ver `merchant_webhooks`). D2 es obligatorio en una
+compra aprobada con `b2-hp-v2` (sin registro, `missing`); un registro D2 sale `missing` con
+`content_verified: false` hasta que un PR posterior verifique su contenido, cuando D2-HP esté en
+`main`. Por eso, hoy ninguna compra con orden queda completa.
 
 ## Archivos
 
