@@ -5,6 +5,7 @@ and AGENT_HP_FLOW=governed: the gate comes from the production bootstrap, D1 all
 lane's Merchant and the checkout is created by the production dispatch ports. No model.
 """
 
+import json
 import secrets
 import sqlite3
 from contextlib import closing
@@ -23,6 +24,8 @@ from commerce_agent.domain import PurchaseIntent
 from commerce_agent.governance.bootstrap import build_enforce_gate
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.runtime import build_runtime
+from commerce_agent.trace import PurchaseTraces
+from commerce_agent.trace.models import OrderEventStep
 from tests.integration.live_purchase import PurchaseLane, buyer_details
 from tests.integration.test_live_purchase import APPROVED_AT, OTHER_PHONE, PHONE
 
@@ -125,8 +128,10 @@ def test_b2_merchant_refusal_fails_the_purchase_and_frees_the_buyer(b0, tmp_path
     b0.stack.record("b2:governed_refusal", creations=1, refused="out_of_stock")
 
 
-def test_b2_governed_purchase_completes_once_with_signed_receipts(b0, tmp_path: Path):
-    """S01 under B2: the pilot's runtime wiring from approval to a confirmed order."""
+def test_b2_governed_purchase_completes_once_with_receipts_and_its_order_webhook(
+    b0, tmp_path: Path
+):
+    """S01 under B2: the pilot's runtime wiring from approval to the Merchant's order event."""
     episode = b0.episode("b2-complete")
     settings = governed_settings(
         b0,
@@ -181,4 +186,20 @@ def test_b2_governed_purchase_completes_once_with_signed_receipts(b0, tmp_path: 
     assert b0.rpc("effects")["orders"] == before["orders"] + 1
     assert b0.proxy.count("POST", "/checkout_sessions") == 1
     assert b0.proxy.count("POST", f"/checkout_sessions/{completed.id}/ap2/complete") == 1
-    b0.stack.record("b2:governed_purchase", orders_created=1)
+
+    # The Merchant queued `order_create` with the order; its dispatcher (what demo-stack and the
+    # pilot runner run) signs it and posts it to this runtime's receiver.
+    with b0.receiver.delivering_to(SqliteAgentStore(settings.agent_database_path)):
+        delivered = b0.rpc("dispatch_webhooks", limit=50)
+    assert delivered and {item["outcome"] for item in delivered} == {"delivered"}
+    with closing(sqlite3.connect(settings.agent_database_path)) as connection:
+        events = connection.execute(
+            "SELECT event_type, payload FROM webhook_events WHERE order_id = ?",
+            (completed.order.id,),
+        ).fetchall()
+    assert [event_type for event_type, _ in events] == ["order_create"]
+    assert json.loads(events[0][1])["data"]["checkout_session_id"] == completed.id
+    trace = PurchaseTraces(settings).trace(run_id)
+    order_events = [step for step in trace.steps if isinstance(step, OrderEventStep)]
+    assert [step.event_type for step in order_events] == ["order_create"]
+    b0.stack.record("b2:governed_purchase", orders_created=1, order_events=len(order_events))

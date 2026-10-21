@@ -11,6 +11,8 @@ synthetic, created per run and never written to the evidence.
 import os
 import secrets
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -133,10 +135,9 @@ class WebhookReceiver:
     """The Agent's webhook app behind a loopback HTTP server the Merchant posts to."""
 
     def __init__(self, store: SqliteAgentStore, secret: str):
-        # Explicit store and secret; defaults only, so no developer .env or variable leaks in.
-        app = create_webhook_app(store=store, secret=secret, settings=Settings.model_construct())
-        self.client = TestClient(app)
-        client = self.client
+        self._secret = secret
+        self.client = self._client(store)
+        receiver = self
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, format: str, *args: Any) -> None:
@@ -144,7 +145,7 @@ class WebhookReceiver:
 
             def do_POST(self) -> None:
                 body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-                response = client.post(self.path, content=body, headers=dict(self.headers))
+                response = receiver.client.post(self.path, content=body, headers=dict(self.headers))
                 self.send_response(response.status_code)
                 self.send_header(
                     "Content-Type", response.headers.get("content-type", "application/json")
@@ -157,6 +158,22 @@ class WebhookReceiver:
         self.server.daemon_threads = True
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+
+    def _client(self, store: SqliteAgentStore) -> TestClient:
+        # Explicit store and secret; defaults only, so no developer .env or variable leaks in.
+        settings = Settings.model_construct()
+        return TestClient(create_webhook_app(store=store, secret=self._secret, settings=settings))
+
+    @contextmanager
+    def delivering_to(self, store: SqliteAgentStore) -> Iterator[None]:
+        """Webhooks go to another Agent store (a runtime's own database) inside the block."""
+        lane = self.client
+        self.client = self._client(store)
+        try:
+            yield
+        finally:
+            self.client.close()
+            self.client = lane
 
     @property
     def origin(self) -> str:

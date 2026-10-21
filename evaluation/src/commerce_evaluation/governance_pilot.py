@@ -305,6 +305,36 @@ def merchant_checkouts(
     }
 
 
+WEBHOOK_BATCH = 20
+WEBHOOK_MAX_BATCHES = 5
+
+
+def dispatch_merchant_webhooks(merchant: Path, environment: dict[str, str]) -> dict[str, Any]:
+    """Deliver the merchant's due order webhooks to the agent, while it is still up.
+
+    The merchant queues `order_create` with the order but only sends it when its dispatcher runs.
+    It does not filter by run: whatever is due in its database goes to `WEBHOOK_RECEIVER_URL`.
+    """
+    outcomes: Counter[str] = Counter()
+    for _ in range(WEBHOOK_MAX_BATCHES):
+        result = _run(
+            _merchant_db("webhook-dispatch", "--limit", str(WEBHOOK_BATCH)),
+            cwd=merchant,
+            env=environment,
+            capture=True,
+        )
+        try:
+            deliveries = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            raise PilotError("Merchant webhook-dispatch returned invalid JSON") from error
+        if not isinstance(deliveries, list):
+            raise PilotError("Merchant webhook-dispatch did not return a list of deliveries")
+        outcomes.update(str(item.get("outcome")) for item in deliveries)
+        if len(deliveries) < WEBHOOK_BATCH:
+            break
+    return {"count": sum(outcomes.values()), "by_outcome": dict(outcomes)}
+
+
 class _ReadOnlyHpEvidence(SqliteHpEvidenceStore):
     """The agent's own chain check, on a connection that cannot write."""
 
@@ -1114,6 +1144,16 @@ def _execute_repetition(
                             bearer=auth.token(),
                         )
                         runner_canceled = True
+                # The order's `order_create` reaches this agent only while it is still running.
+                merchant_webhooks = (
+                    _measured(
+                        measurement_errors,
+                        "merchant_webhooks",
+                        lambda: dispatch_merchant_webhooks(merchant, environment),
+                    )
+                    if final_status is not None and final_status.get("order_id") is not None
+                    else None
+                )
                 metrics, evidence, oracle_errors = score_result(
                     scenario,
                     response,
@@ -1157,6 +1197,7 @@ def _execute_repetition(
                     "final_purchase_status": final_status,
                     "merchant_checkouts": checkouts,
                     "psp_payments": payments,
+                    "merchant_webhooks": merchant_webhooks,
                     "runner_canceled": runner_canceled,
                     "evidence_presence": evidence,
                     "metrics": metrics,

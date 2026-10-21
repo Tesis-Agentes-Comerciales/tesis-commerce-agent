@@ -112,7 +112,7 @@ El runner le pasa al agente la condición como variables de proceso, que ganan s
 
 ### Evidencia gobernada, checkouts del comercio y latencia de política
 
-El oráculo (`score_result`) no cambia. Cada fila evaluada suma tres campos:
+El oráculo (`score_result`) no cambia. Cada fila evaluada suma cuatro campos:
 
 - `merchant_checkouts` (enmienda M3): después del turno (y, en S04, de la aprobación) y **antes**
   de que el runner cancele la compra que el agente haya dejado abierta, corre
@@ -135,6 +135,13 @@ El oráculo (`score_result`) no cambia. Cada fila evaluada suma tres campos:
   gobernada reutiliza el allow de D1). `d1_dispatch` busca un `decision_record` de D1 con
   `outcome: allow` (un deny no despacha), `offer_freshness` un `freshness_check` y
   `governed_recovery` un `governed_recovery`. Para B0' es `not_applicable`.
+
+- `merchant_webhooks`: si `GET /purchases/{run_id}` trae `order_id`, el runner corre
+  `python -m commerce_lab.db webhook-dispatch --limit 20` en el comercio, en lotes hasta vaciar
+  su outbox (máximo 5), con el agente de la repetición todavía arriba, y registra `count` y
+  `by_outcome`. Así el `order_create` firmado de la orden llega a `webhook_events` del agente y a
+  su traza. Sin orden no despacha y el campo es `null`; el piloto v1 nunca completa una compra.
+  El dispatcher del comercio no filtra por corrida: entrega todo lo vencido en su base.
 
 El resumen agrega, por condición y por condición × escenario: `http_5xx`; `merchant_checkouts`
 (corridas medidas, corridas en que canceló el runner, corridas con checkouts, total, `by_status` y
