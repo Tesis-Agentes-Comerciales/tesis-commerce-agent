@@ -92,6 +92,7 @@ def test_missing_database_reports_nothing_available(tmp_path: Path) -> None:
 
     assert read_governed_evidence(database) == {
         "d1_decisions": None,
+        "d2_decisions": None,
         "hp_evidence": None,
         "hp_evidence_chain_verified": None,
     }
@@ -107,6 +108,7 @@ def test_database_without_governed_tables_reports_them_as_unavailable(tmp_path: 
 
     assert evidence == {
         "d1_decisions": None,
+        "d2_decisions": None,
         "hp_evidence": None,
         "hp_evidence_chain_verified": None,
     }
@@ -173,7 +175,7 @@ def test_a_tampered_hp_chain_does_not_verify(tmp_path: Path) -> None:
 
 
 def test_rejected_d1_inputs_keep_their_reason_without_a_decision() -> None:
-    row = governance_pilot._d1_decision(
+    row = governance_pilot._policy_decision(
         "input_rejected",
         json.dumps({"record_kind": "input_rejected", "reason_code": "GOV_INPUT_INVALID"}),
     )
@@ -183,7 +185,9 @@ def test_rejected_d1_inputs_keep_their_reason_without_a_decision() -> None:
         "outcome": None,
         "origin": None,
         "reason_codes": ["GOV_INPUT_INVALID"],
+        "failed_policies": [],
         "latency_ms": None,
+        "policy_binding": None,
     }
 
 
@@ -628,6 +632,7 @@ def test_a_repetition_without_agent_evidence_says_it_is_unavailable(
 
     assert record["governed_evidence"] == {
         "d1_decisions": None,
+        "d2_decisions": None,
         "hp_evidence": None,
         "hp_evidence_chain_verified": None,
     }

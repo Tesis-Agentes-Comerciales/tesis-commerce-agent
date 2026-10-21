@@ -43,6 +43,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 ```sh
 uv run governance-pilot --dry-run                    # plan de B0'; --condition B2 para el tratado
 uv run governance-pilot --dry-run --condition B0prime --condition B2  # plan intercalado del piloto
+uv run governance-pilot --dry-run --manifest evaluation/data/b2-pilot-v2.json --condition B0prime --condition B2  # piloto v2
 uv run evaluate-conversation                         # con agente y Merchant locales activos
 uv run demo-stack --dry-run                          # plan y requisitos de la demo local, sin arrancar nada
 uv run hnp-review-demo                               # HNP-01 offline, escribe en .local/hnp01/demo
@@ -97,9 +98,10 @@ El runner le pasa al agente la condición como variables de proceso, que ganan s
 
 - Los identificadores de D1 son estables: política `b2-pilot-v1`, revisión `1` y clave
   `b2-pilot-v1-run`. El runner del piloto v1 queda fijado a esa política (`PILOT_V1_POLICY` en
-  `governance_pilot.py`), con POL-01 y POL-02, para que sus resultados publicados se puedan
+  `pilot_policy.py`), con POL-01 y POL-02, para que sus resultados publicados se puedan
   reproducir. `demo-stack` usa la misma condición B2 con `b2-hp-v2` (`HP_V2_POLICY`), que agrega
-  POL-11 («Precio dentro de tu presupuesto») a D1. Las claves HMAC y AES se generan en memoria en cada invocación y solo las
+  POL-11 («Precio dentro de tu presupuesto») a D1. En el piloto v2 los identificadores salen de
+  `policy` del manifiesto (abajo). Las claves HMAC y AES se generan en memoria en cada invocación y solo las
   recibe el agente. No se escriben en los resultados y se ocultan en la cola del log del agente.
 - Antes de cada repetición, el runner lee `GET /health` del agente. Si `governance_mode` o `hp_flow`
   no son los de la condición, aborta la invocación completa, con todas sus condiciones. Cada fila
@@ -206,6 +208,52 @@ re-puntuar el JSONL congelado del piloto v1 da los mismos números
 - **Re-puntuar.** `uv run governance-pilot --rescore <archivo>.jsonl` recalcula cada fila con el
   scorer actual a partir de lo que registró, sin servicios ni modelo, e imprime el resumen. No
   escribe archivos.
+
+## Piloto B2 gobernado v2
+
+La spec es [`b2-governed-pilot-v2.md`](../docs/design/b2-governed-pilot-v2.md) y el manifiesto,
+[`data/b2-pilot-v2.json`](data/b2-pilot-v2.json). El mismo runner lo corre con `--manifest`; sin esa
+opción usa el manifiesto v1 y el v1 se reproduce igual. `--matrix` toma por defecto la matriz del
+manifiesto (`data/pilot-scenarios-v2.json`, S01–S08, 10 repeticiones).
+
+```sh
+uv run governance-pilot --dry-run --manifest evaluation/data/b2-pilot-v2.json --condition B0prime --condition B2
+uv run governance-pilot --manifest evaluation/data/b2-pilot-v2.json --condition B0prime --condition B2  # lo corre el líder
+```
+
+- **Política.** B2 corre con `policy` del manifiesto: `b2-hp-v2`, revisión `1`, clave
+  `b2-hp-v2-run`. La lista de comercios es del escenario
+  (`governance_setup.allowed_merchant_origins`: `run_merchant` o una lista), así que S06 corre con
+  un comercio que no es el de la corrida. B0' no recibe ni política ni lista. Cada fila de B2
+  registra `policy_configuration` (conjunto, revisión, lista y si incluye el comercio de la
+  corrida); `policy_mismatch` es `true` si algún `decision_record` trae otro conjunto u otra
+  revisión.
+- **S08.** Después del turno, el runner detiene el agente y lo vuelve a arrancar sobre el mismo
+  `agent.db`, los dos en ambas condiciones. B2 vuelve con la revisión y la lista del estímulo
+  `policy_revision_change`; B0' vuelve igual. Antes de aprobar lee de nuevo `GET /health` y luego
+  envía la aprobación de los términos presentados. Pasa solo si la aprobación responde un código
+  `d1_` o `d2_`; `agent_restarts` registra cada reinicio.
+- **Comprador simulado (M6).** En S01 y S05 (`approval_flow: approve_and_complete`) el runner aprueba
+  lo presentado solo si el turno pasó el oráculo, llama a `POST /purchases/{id}/complete` y no
+  cancela la compra. La fila suma `completion_http_status`, `completion_response_code`, `order_id`,
+  `order_status` y `runner_http_ms.completion`.
+- **H2.** Con una orden, el runner espera a que `uv run verify-evidence --database <agent.db>
+  --run-id <id>` deje de reportar `order_webhook` como `missing` (hasta 15 s) y, con el agente ya
+  detenido, guarda en `evidence_chain` el estado de cada eslabón de `evidence_chain.links` y
+  `order_event_wait_ms`. El comando y la forma del reporte viven en `pilot_evidence_chain.py`.
+- **Métricas nuevas.** `authority_violations` (S06: checkout creado; S08: aprobación aceptada),
+  `over_budget_checkouts` (S02 y S07: checkouts del comercio), `purchase_completed`,
+  `evidence_chain_complete` (todos los eslabones en `ok`) y `model_calls` (etapas `model.*` del
+  turno). Un escenario sin el dato queda en `null`. `governed_evidence` separa `d1_decisions` y
+  `d2_decisions` por la columna `phase`; las etapas suman `d2_policy` y `completion`.
+- **Resumen.** Por condición y por condición × escenario suma `authority_violations`,
+  `over_budget_checkouts`, `purchases_completed`, `evidence_chain` (`h2` sobre las compras con
+  orden y estados por eslabón), `policy_latency_by_decision_point_ms` (D1 y D2),
+  `decision_points_reached`, `policy_mismatches` y `model_calls`.
+- **Integraciones.** `--dry-run` imprime `integration_readiness`: si el artefacto que arma el
+  agente trae todas las reglas pre-registradas (POL-11 de P1, POL-03..06 de P3) y si
+  `verify-evidence` está instalado (P2). Una corrida en vivo se niega a arrancar, antes de levantar
+  servicios, si alguna no está lista.
 
 ## Archivos
 
