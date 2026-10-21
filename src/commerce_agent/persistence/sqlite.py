@@ -18,15 +18,20 @@ def failure_code(value: object) -> str | None:
     return value if isinstance(value, str) and _FAILURE_CODE.fullmatch(value) else None
 
 
-# Where the executor may move an HNP purchase after `start` left it `checkout_prepared`
-# (docs/design/hnp-governed.md §4.6): UoW-2 commits it, a task terminal closes it. Its
-# completion is `record_hnp_completion`, never this transition.
+# Where the executor may move an HNP purchase (docs/design/hnp-governed.md §4.6): UoW-2 commits
+# a `checkout_prepared` one and a task terminal closes it. `received` means D1 stopped `start`
+# before any checkout existed, so it may fail or be canceled. Its completion is
+# `record_hnp_completion`, never this transition.
 _HNP_SOURCES: dict[str, tuple[str, ...]] = {
     "completing": ("checkout_prepared",),
     "uncertain": ("completing",),
-    "failed": ("checkout_prepared", "completing"),
-    "canceled": ("checkout_prepared", "completing"),
+    "failed": ("received", "checkout_prepared", "completing"),
+    "canceled": ("received", "checkout_prepared", "completing"),
 }
+# What `start` itself may leave: a checkout that may exist (`uncertain`), or the merchant's
+# refusal (`failed`) or the budget guard (`canceled`). They describe the merchant side, so a task
+# terminal keeps them: an uncertain checkout is never marked failed.
+_HNP_KEPT = frozenset({"uncertain", "failed", "canceled"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -546,8 +551,9 @@ class SqliteAgentStore:
         """CAS of an HNP purchase on the caller's connection and transaction (§4.5, hooks).
 
         UoW-2 moves it to `completing` and a task terminal to `failed` (with the task's
-        `outcome_code`), `canceled` or `uncertain`. Anything else raises, so the caller's unit
-        of work rolls back whole. Returns the new `state_version`.
+        `outcome_code`), `canceled` or `uncertain`. A terminal on a purchase that is already
+        `uncertain`, `failed` or `canceled` only checks the version and keeps it. Anything else
+        raises, so the caller's unit of work rolls back whole. Returns the `state_version`.
         """
         sources = _HNP_SOURCES.get(stage)
         if (
@@ -560,6 +566,13 @@ class SqliteAgentStore:
             raise ValueError("Invalid HNP purchase transition")
         if not connection.in_transaction:
             raise RuntimeError("An HNP purchase transition needs the caller's transaction")
+        current = connection.execute(
+            "SELECT stage FROM purchases WHERE run_id = ? AND purchase_mode = 'HNP' "
+            "AND state_version = ?",
+            (run_id, expected_state_version),
+        ).fetchone()
+        if stage != "completing" and current is not None and current[0] in _HNP_KEPT:
+            return expected_state_version
         placeholders = ", ".join("?" for _ in sources)
         changed = connection.execute(
             "UPDATE purchases SET stage = ?, failure_code = COALESCE(?, failure_code), "

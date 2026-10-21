@@ -9,6 +9,7 @@ import json
 import secrets
 import sqlite3
 from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -31,10 +32,13 @@ from commerce_agent.governance.hnp_policy import (
 )
 from commerce_agent.governance.models import HNP_POLICY_SET_ID
 from commerce_agent.governance.provenance import HP_POLICY_SET_ID, D1EnforceConfiguration
+from commerce_agent.governance.reconciliation import ReconciliationRequest
 from commerce_agent.governance.runtime_dispatch import (
     SingleAttemptCheckoutDispatch,
     SingleAttemptPostCreateDispatch,
 )
+from commerce_agent.persistence import SqliteAgentStore
+from commerce_agent.persistence.d1_reconciliation_sqlite import SqliteD1Reconciler
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.runtime import AgentRuntime
 from tests.governance.test_d1_budget_runtime import decision_records, rules
@@ -97,6 +101,26 @@ def purchase(path: Path) -> tuple[str, str | None, str, str | None]:
         return connection.execute(
             "SELECT purchase_mode,grant_id,stage,checkout_id FROM purchases WHERE run_id=?",
             (RUN,),
+        ).fetchone()
+
+
+def terminal(path: Path, stage: str, failure_code: str | None = None) -> tuple[str, str | None]:
+    """The executor's terminal hook (§4.5) on the purchase `start` left; its stage and code."""
+    with closing(sqlite3.connect(path)) as connection:
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            (version,) = connection.execute(
+                "SELECT state_version FROM purchases WHERE run_id=?", (RUN,)
+            ).fetchone()
+            SqliteAgentStore.transition_hnp_purchase(
+                connection,
+                RUN,
+                expected_state_version=version,
+                stage=stage,
+                failure_code=failure_code,
+            )
+        return connection.execute(
+            "SELECT stage,failure_code FROM purchases WHERE run_id=?", (RUN,)
         ).fetchone()
 
 
@@ -185,6 +209,11 @@ def test_a_selection_outside_the_grant_is_denied_by_pol01_before_any_post(
     assert record.application.disposition == "blocked"
     assert record.policy_input().eligible_variant_ids == ()
     assert purchase(settings.agent_database_path)[2:] == ("received", None)
+    # No checkout exists, so the task's terminal fails the purchase (§8.1, K14).
+    assert terminal(settings.agent_database_path, "failed", "selection_not_eligible") == (
+        "failed",
+        "selection_not_eligible",
+    )
 
 
 def test_a_price_over_the_authorized_total_is_denied_by_pol11(tmp_path: Path) -> None:
@@ -202,6 +231,8 @@ def test_a_price_over_the_authorized_total_is_denied_by_pol11(tmp_path: Path) ->
     (record,) = decision_records(settings.agent_database_path)
     assert record.decision.reason_codes == ("BUDGET_NOT_SATISFIABLE",)
     assert record.decision.policy_binding.policy_set_id == HNP_POLICY_SET_ID
+    # POL-11 escalates (§8.1): the task's terminal cancels the purchase.
+    assert terminal(settings.agent_database_path, "canceled") == ("canceled", None)
 
 
 def test_the_operator_merchant_list_that_leaves_the_merchant_out_denies_by_pol02(
@@ -223,6 +254,10 @@ def test_the_operator_merchant_list_that_leaves_the_merchant_out_denies_by_pol02
     assert record.decision.policy_binding.policy_set_id == HNP_POLICY_SET_ID
     assert rules(record) == [("POL-01", "pass"), ("POL-02", "fail"), ("POL-11", "pass")]
     assert record.decision.reason_codes == ("ACTION_OR_MERCHANT_NOT_ALLOWED",)
+    assert terminal(settings.agent_database_path, "failed", "merchant_not_allowed") == (
+        "failed",
+        "merchant_not_allowed",
+    )
     configured = configured_d1(settings, None)
     assert configured.policy_bytes is not None and configured.policy_binding is not None
     hp = verify_artifact(configured.policy_bytes, configured.policy_binding)
@@ -257,6 +292,61 @@ def test_the_merchant_list_is_an_hnp_gate_option(tmp_path: Path) -> None:
             configured.clocks,
             merchant_refs=("merchant:other",),
         )
+
+
+@pytest.mark.parametrize(
+    ("fault", "code"),
+    [("timeout", "d1_dispatch_uncertain"), ("details_error", "d1_post_create_uncertain")],
+)
+def test_a_checkout_that_may_exist_stays_uncertain_after_the_task_ends(
+    tmp_path: Path, fault: str, code: str
+) -> None:
+    settings = settings_for(tmp_path)
+    merchant = StoreMerchant(fault)
+    built = runtime(settings, merchant)
+    try:
+        with pytest.raises(PurchaseServiceError) as uncertain:
+            start(hnp_service(settings, built))
+    finally:
+        built.close()
+
+    assert uncertain.value.code == code
+    assert purchase(settings.agent_database_path)[2] == "uncertain"
+    # The task fails, but the purchase never says the checkout was not created (K14).
+    assert terminal(settings.agent_database_path, "failed", "checkout_failed") == (
+        "uncertain",
+        None,
+    )
+    if fault == "timeout":
+        # D1 reconciliation accepts the evidence of the purchase's own mode, HNP.
+        with closing(sqlite3.connect(settings.agent_database_path)) as connection:
+            connection.execute("PRAGMA foreign_keys=ON")
+            (operation_id,) = connection.execute(
+                "SELECT operation_id FROM d1_checkout_operations"
+            ).fetchone()
+            reconciler = SqliteD1Reconciler(
+                connection,
+                configured_d1(settings, None).keys,
+                clock=lambda: datetime(2026, 10, 21, 12, tzinfo=UTC),
+            )
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                reconciler.initialize()
+            inspection = ReconciliationRequest.model_validate(
+                {
+                    "schema_version": "commerce-d1-reconciliation/1",
+                    "request_id": "inspection:hnp",
+                    "operation_id": operation_id,
+                    "run_id": RUN,
+                    "owner_id": OWNER,
+                    "expected_projection_version": 0,
+                    "observation": None,
+                }
+            )
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                event = reconciler.reconcile(inspection)
+        assert "AUTHORIZATION_UNVERIFIABLE" not in event.reasons
 
 
 def test_enforce_without_the_hnp_gate_refuses_an_hnp_purchase(tmp_path: Path) -> None:
