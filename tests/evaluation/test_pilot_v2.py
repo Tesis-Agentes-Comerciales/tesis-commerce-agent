@@ -50,6 +50,7 @@ from commerce_evaluation.pilot_evidence_chain import (
     EvidenceChainError,
     chain_complete,
     link_statuses,
+    replay_summary,
     verifier_readiness,
 )
 from commerce_evaluation.pilot_measures import (
@@ -472,28 +473,43 @@ def test_decisions_are_split_by_decision_point(tmp_path: Path) -> None:
     }
 
 
-def verifier_run(order_id: str | None = "ord_1", **statuses: str) -> dict[str, Any]:
-    """One run document as P2's verify_database returns it."""
+def verifier_run(
+    order_id: str | None = "ord_1", *, replay: str = "reproduced", **statuses: str
+) -> dict[str, Any]:
+    """One run document as P2's verify_database returns it; an ok D1 or D2 carries its replay."""
     links = dict.fromkeys(LINKS, "ok") | statuses
+
+    def refs(name: str, status: str) -> dict[str, str]:
+        replayed = name in {"d1_decision", "d2_decision"} and status == "ok"
+        return {"id": "ref"} | ({"replay": replay} if replayed else {})
+
     return {
         "database": "agent.db",
         "run_id": "run-real",
         "stage": "completed" if order_id else "awaiting_confirmation",
         "order_id": order_id,
         "links": {
-            name: {"status": status, "detail": f"{name}: {status}", "refs": {"id": "ref"}}
+            name: {"status": status, "detail": f"{name}: {status}", "refs": refs(name, status)}
             for name, status in links.items()
         },
         "complete": all(status in {"ok", "not_applicable"} for status in links.values()),
     }
 
 
-def test_the_row_keeps_the_verifier_document_without_refs(tmp_path: Path) -> None:
+def recorded_chain(order_id: str | None = "ord_1", **run: Any) -> dict[str, Any]:
+    """The row's evidence_chain for a verifier run, as the runner records it."""
+    check = EvidenceChainCheck(LINKS, verify_run=lambda *_: [verifier_run(order_id, **run)])
+    return check.verify(Path("agent.db"), "run-real", None)
+
+
+def test_the_row_keeps_the_verifier_document_without_refs_but_the_replay(
+    tmp_path: Path,
+) -> None:
     asked: list[tuple[Path, str, Path | None]] = []
 
     def verify(database: Path, run_id: str, psp: Path | None) -> list[dict[str, Any]]:
         asked.append((database, run_id, psp))
-        return [verifier_run(mandates="mismatch")]
+        return [verifier_run(mandates="mismatch", replay="unavailable (GOV_FACTS_UNAVAILABLE)")]
 
     chain = EvidenceChainCheck(LINKS, verify_run=verify)
     document = chain.verify(tmp_path / "agent.db", "run-real", tmp_path / "payments.db")
@@ -501,7 +517,21 @@ def test_the_row_keeps_the_verifier_document_without_refs(tmp_path: Path) -> Non
     assert asked == [(tmp_path / "agent.db", "run-real", tmp_path / "payments.db")]
     assert document["required_links"] == list(LINKS)
     assert link_statuses(document)["mandates"] == "mismatch"
-    assert all(set(link) == {"status", "detail"} for link in document["links"].values())
+    links = document["links"]
+    # Only D1 and D2 keep one ref, their replay: an unavailable replay is still ok for H2.
+    assert links["d2_decision"] == {
+        "status": "ok",
+        "detail": "d2_decision: ok",
+        "replay": "unavailable (GOV_FACTS_UNAVAILABLE)",
+    }
+    assert links["d1_decision"]["replay"] == "unavailable (GOV_FACTS_UNAVAILABLE)"
+    assert all(
+        set(link) == {"status", "detail"}
+        for name, link in links.items()
+        if name not in {"d1_decision", "d2_decision"}
+    )
+    # A D1 or D2 link without a replayed decision records null.
+    assert recorded_chain(d2_decision="not_applicable")["links"]["d2_decision"]["replay"] is None
     with pytest.raises(EvidenceChainError, match="found 0 purchases"):
         EvidenceChainCheck(LINKS, verify_run=lambda *_: []).verify(tmp_path, "r", None)
     with pytest.raises(EvidenceChainError, match="unknown status"):
@@ -521,6 +551,36 @@ def test_h2_needs_the_nine_links_ok_for_a_purchase_with_an_order() -> None:
     assert chain_complete(recorded(order_webhook="missing")) == 0
     assert chain_complete(recorded(order_id=None)) is None
     assert chain_complete(None) is None
+
+
+def test_replays_are_counted_apart_from_h2_per_decision_point() -> None:
+    chains = [
+        recorded_chain("ord_1"),
+        recorded_chain("ord_2", replay="unavailable (GOV_FACTS_UNAVAILABLE)"),
+        # S08: no order, D2 denied and its replay reproduced the deny.
+        recorded_chain(None, approval="not_applicable"),
+        # B0': no D1 decision to replay and D2 is not required.
+        recorded_chain(
+            "ord_3", intent="missing", d1_decision="missing", d2_decision="not_applicable"
+        ),
+    ]
+
+    assert all(chain_complete(chain) == 1 for chain in chains[:2])
+    assert replay_summary(chains) == {
+        "effects": {
+            "d1_decision": {"ok": 2, "reproduced": 1, "unavailable": 1},
+            "d2_decision": {"ok": 2, "reproduced": 1, "unavailable": 1},
+        },
+        "all_runs": {
+            "d1_decision": {"ok": 3, "reproduced": 2, "unavailable": 1},
+            "d2_decision": {"ok": 3, "reproduced": 2, "unavailable": 1},
+        },
+    }
+    empty = {"ok": 0, "reproduced": 0, "unavailable": 0}
+    assert replay_summary([]) == {
+        "effects": {"d1_decision": empty, "d2_decision": empty},
+        "all_runs": {"d1_decision": empty, "d2_decision": empty},
+    }
 
 
 def test_readiness_needs_the_verifier_module_with_the_registered_links(
@@ -958,9 +1018,14 @@ def d_decisions(d1: list[int], d2: list[int]) -> dict[str, Any]:
 def test_summary_reports_authority_budget_h2_latency_by_point_and_model_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    chain = {"required_links": list(LINKS)} | verifier_run("ord_1")
-    partial = {"required_links": list(LINKS)} | verifier_run(
-        "ord_2", d1_decision="missing", freshness="missing", d2_decision="missing"
+    chain = recorded_chain("ord_1")
+    # B0' (amendment E1): intent, D1 and freshness missing; D2 not required, so not_applicable.
+    partial = recorded_chain(
+        "ord_2",
+        intent="missing",
+        d1_decision="missing",
+        freshness="missing",
+        d2_decision="not_applicable",
     )
     summarized: list[list[dict[str, Any]]] = []
 
@@ -1019,6 +1084,12 @@ def test_summary_reports_authority_budget_h2_latency_by_point_and_model_calls(
         "complete": 1,
         "h2": 0.5,
         "verifier": {"effects": {"n": 1}},
+        "replay": replay_summary([chain]),
+    }
+    assert b2["evidence_chain"]["replay"]["effects"]["d2_decision"] == {
+        "ok": 1,
+        "reproduced": 1,
+        "unavailable": 0,
     }
     assert b2["purchases_completed"] == {"approved_by_runner": 2, "completed": 2}
     assert b2["policy_latency_by_decision_point_ms"] == {
@@ -1034,6 +1105,11 @@ def test_summary_reports_authority_budget_h2_latency_by_point_and_model_calls(
         "by_stage": {"choose_candidate": 1, "route": 1},
     }
     assert b0["evidence_chain"]["h2"] == 0.0
+    assert b0["evidence_chain"]["replay"]["effects"]["d1_decision"] == {
+        "ok": 0,
+        "reproduced": 0,
+        "unavailable": 0,
+    }
     # P2's h2_summary receives the chains as the rows recorded them.
     assert b0["evidence_chain"]["verifier"] == {"effects": {"n": 1}}
     assert [partial] in summarized

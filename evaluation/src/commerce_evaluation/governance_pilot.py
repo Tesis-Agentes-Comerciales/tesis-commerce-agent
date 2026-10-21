@@ -36,6 +36,7 @@ from commerce_evaluation.pilot_evidence_chain import (
     chain_complete,
     evidence_chain_check,
     h2_summary,
+    replay_summary,
 )
 from commerce_evaluation.pilot_measures import (
     D1,
@@ -1706,7 +1707,8 @@ def _v2_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def _evidence_chain_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """H2 as registered: purchases with an order whose nine links are ok, over every purchase
     with an order (one the verifier could not read counts as incomplete). `verifier` is P2's
-    h2_summary of the same chains."""
+    h2_summary of the same chains, and `replay` how many D1 and D2 decisions replayed as
+    `reproduced` (an unavailable replay still counts as ok for H2)."""
     chains = [row["evidence_chain"] for row in rows if row.get("evidence_chain")]
     effects = [
         row
@@ -1725,6 +1727,7 @@ def _evidence_chain_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "complete": complete,
         "h2": _rate(complete, len(effects)),
         "verifier": verifier,
+        "replay": replay_summary(chains),
     }
 
 
