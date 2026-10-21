@@ -237,9 +237,11 @@ def test_stage_timings_split_the_turn_by_agent_stage_and_add_the_runner_calls() 
         "model": 29_000.75,
         "d1": 122.0,
         "d1_policy": 1,
+        "d2_policy": None,
         "checkout_create": 80.0,
         "checkout_cancel": 40.0,
         "approval": None,
+        "completion": None,
         "runner_cancel": 60,
     }
 
@@ -252,9 +254,11 @@ def test_rows_without_agent_timings_only_have_the_turn_and_the_policy() -> None:
         "model": None,
         "d1": None,
         "d1_policy": None,
+        "d2_policy": None,
         "checkout_create": None,
         "checkout_cancel": None,
         "approval": None,
+        "completion": None,
         "runner_cancel": None,
     }
     assert stage_timings_ms({**pilot_v1_row, "harness_error": "PilotError: down"}) is None
@@ -311,6 +315,7 @@ def test_a_b2_repetition_records_payments_timings_and_runner_calls(
     assert record["runner_http_ms"] == {
         "turn": 900,
         "approval": 30,
+        "completion": None,
         "purchase_status": 5,
         "cancel": 5,
     }

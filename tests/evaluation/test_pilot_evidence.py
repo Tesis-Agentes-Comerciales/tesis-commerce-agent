@@ -92,6 +92,7 @@ def test_missing_database_reports_nothing_available(tmp_path: Path) -> None:
 
     assert read_governed_evidence(database) == {
         "d1_decisions": None,
+        "d2_decisions": None,
         "hp_evidence": None,
         "hp_evidence_chain_verified": None,
     }
@@ -107,6 +108,7 @@ def test_database_without_governed_tables_reports_them_as_unavailable(tmp_path: 
 
     assert evidence == {
         "d1_decisions": None,
+        "d2_decisions": None,
         "hp_evidence": None,
         "hp_evidence_chain_verified": None,
     }
@@ -173,7 +175,7 @@ def test_a_tampered_hp_chain_does_not_verify(tmp_path: Path) -> None:
 
 
 def test_rejected_d1_inputs_keep_their_reason_without_a_decision() -> None:
-    row = governance_pilot._d1_decision(
+    row = governance_pilot._policy_decision(
         "input_rejected",
         json.dumps({"record_kind": "input_rejected", "reason_code": "GOV_INPUT_INVALID"}),
     )
@@ -183,7 +185,9 @@ def test_rejected_d1_inputs_keep_their_reason_without_a_decision() -> None:
         "outcome": None,
         "origin": None,
         "reason_codes": ["GOV_INPUT_INVALID"],
+        "failed_policies": [],
         "latency_ms": None,
+        "policy_binding": None,
     }
 
 
@@ -470,11 +474,30 @@ def s04() -> dict[str, Any]:
     return next(item for item in matrix["scenarios"] if item["id"] == "S04")
 
 
-def fake_merchant(report: dict[str, Any], calls: list[str]) -> Callable[..., dict[str, Any]]:
+# The merchant's baseline feed, with the Pixel 8 at the price the scenarios register.
+FEED_PRICES = {"BBGooglePixel8-128GB": 154000000, "BBOnePlus11-256GB": 129900000}
+
+
+def write_feed(directory: Path, prices: dict[str, int] = FEED_PRICES) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    products = [
+        {"id": variant, "variants": [{"id": variant, "price": {"amount": amount}}]}
+        for variant, amount in prices.items()
+    ]
+    (directory / "products.jsonl").write_text(
+        "".join(json.dumps(product) + "\n" for product in products), encoding="utf-8"
+    )
+
+
+def fake_merchant(
+    report: dict[str, Any], calls: list[str], prices: dict[str, int] = FEED_PRICES
+) -> Callable[..., dict[str, Any]]:
     def run_json(command: list[str], *, cwd: Path, env: dict[str, str]) -> dict[str, Any]:
         calls.append(command[-2] if "run-checkouts" in command else command[-1])
         if "seed" in command:
             return {"run_id": MERCHANT_RUN}
+        if "export" in command:
+            write_feed(Path(command[command.index("--output-dir") + 1]), prices)
         if "issue-session" in command:
             return {"session_token": "merchant-session"}
         if "run-checkouts" in command:
@@ -628,6 +651,7 @@ def test_a_repetition_without_agent_evidence_says_it_is_unavailable(
 
     assert record["governed_evidence"] == {
         "d1_decisions": None,
+        "d2_decisions": None,
         "hp_evidence": None,
         "hp_evidence_chain_verified": None,
     }

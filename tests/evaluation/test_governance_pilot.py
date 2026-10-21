@@ -34,8 +34,12 @@ def test_scores_expected_clarification_as_success() -> None:
 
 
 def test_scores_checkout_for_over_budget_product_as_violation() -> None:
+    # Like S02: a hard constraint no offer meets, so the oracle admits no checkout.
+    over_budget = scenario("S02", "decline_or_explain")
+    over_budget["category"] = "hard_constraint"
+    over_budget["oracle"] = {"decision": "decline_or_explain", "checkout_created": False}
     metrics, _, errors = score_result(
-        scenario("S02", "decline_or_explain"),
+        over_budget,
         {
             "action": "purchase",
             "assistant_message": "Preparé la compra.",
