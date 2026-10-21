@@ -25,6 +25,7 @@ from commerce_agent.persistence.hp_evidence_sqlite import HpEvidence
 from .models import (
     ApprovalStep,
     AuthorizationDecisionStep,
+    CanceledStep,
     DispatchDecisionStep,
     FailedStep,
     Money,
@@ -678,7 +679,19 @@ def numbered(kind: str, number: int) -> str:
     return kind if number == 1 else f"{kind}:{number}"
 
 
-def delegation_steps(delegation: Delegation, purchase_failure: TraceStep | None) -> list[TraceStep]:
+# A task failure the purchase's own cancellation already explains (the budget guard of `start`).
+CANCELED_CODES = {"budget": "budget_guard"}
+
+
+def explained(purchase_end: TraceStep | None) -> str | None:
+    if isinstance(purchase_end, FailedStep):
+        return purchase_end.code
+    if isinstance(purchase_end, CanceledStep):
+        return CANCELED_CODES.get(purchase_end.by)
+    return None
+
+
+def delegation_steps(delegation: Delegation, purchase_end: TraceStep | None) -> list[TraceStep]:
     """The ledger's events in their order (spec §9.1). A task failure the purchase already shows
     with the same code adds nothing; with another code (#93) both show."""
     found: list[TraceStep] = []
@@ -724,9 +737,8 @@ def delegation_steps(delegation: Delegation, purchase_failure: TraceStep | None)
                 add("escalated", at, "agent", state="blocked", reason=body["outcome_code"])
             case "task_finished" if body["state"] == "failed":
                 code = body["outcome_code"]
-                shown = purchase_failure.code if isinstance(purchase_failure, FailedStep) else None
-                if code != shown:
-                    step_id = "failed" if shown is None else "failed:task"
+                if code != explained(purchase_end):
+                    step_id = "failed:task" if isinstance(purchase_end, FailedStep) else "failed"
                     found.append(
                         step("failed", at, "agent", step_id=step_id, state="error", code=code)
                     )
@@ -795,7 +807,9 @@ def assemble_delegated(
     records: PurchaseRecords, delegation: Delegation, context: TraceContext
 ) -> PurchaseTrace:
     origins = context.origins
-    purchase_failure = failed_step(records)
+    # Only a cancellation the purchase records itself (the budget guard): an escalation or a
+    # revocation cancels it without an owner's or a guard's operation, and its terminal explains it.
+    purchase_end = failed_step(records) or canceled_step(records)
     found = (
         *(
             policy_step(item, index, records, origins)
@@ -808,12 +822,12 @@ def assemble_delegated(
         ),
         *(dispatch_decision_step(item, index) for index, item in enumerate(records.dispatches)),
         order_step(records),
-        purchase_failure,
+        purchase_end,
     )
     steps = by_time(
         [item for item in found if item is not None],
         [
-            *delegation_steps(delegation, purchase_failure),
+            *delegation_steps(delegation, purchase_end),
             *order_event_steps(records),
             *freshness_steps(records),
         ],
@@ -912,6 +926,7 @@ def unavailable_summary(purchase: dict[str, Any]) -> PurchaseSummary:
         approved_at=None,
         order_id=stored_text(purchase["order_id"]),
         duration_ms=None,
+        purchase_mode="HNP" if purchase.get("purchase_mode") == "HNP" else None,
     )
 
 
@@ -965,7 +980,7 @@ class PurchaseTraces:
                 if cursor is None:
                     return None
             query = connection.execute(
-                "SELECT run_id, request_text, order_id, created_at FROM purchases "
+                "SELECT run_id, request_text, order_id, created_at, purchase_mode FROM purchases "
                 "WHERE owner_id = ? AND (? IS NULL OR (created_at, run_id) < (?, ?)) "
                 "ORDER BY created_at DESC, run_id DESC LIMIT ?",
                 (owner_id, before, *cursor, limit + 1),

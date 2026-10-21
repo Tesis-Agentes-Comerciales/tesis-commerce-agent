@@ -201,20 +201,28 @@ def test_a_d2_deny_blocks_and_escalates_to_the_buyer(governed) -> None:
     assert summarize(trace).policy == PolicySummary(outcome="deny", failed_rules=("POL-08",))
 
 
-def test_an_offer_changed_at_close_shows_the_guard_and_ends_in_stale_terms(governed) -> None:
+def test_an_offer_changed_at_close_stops_before_d2_and_ends_in_stale_terms(governed) -> None:
     run = governed(freshness="changed")
-    d2 = run.flow.decide("D2")
-    assert run.flow.finish("escalated", "offer_changed", d2.hooks).status == "closed"
+    flow = run.flow
+    version = SqliteAgentStore(flow.path).purchase_state_version(RUN)
+    assert version is not None
+
+    def close(connection: sqlite3.Connection) -> None:  # The executor cancels it on escalation.
+        SqliteAgentStore.transition_hnp_purchase(
+            connection, RUN, expected_state_version=version, stage="canceled"
+        )
+
+    assert flow.finish("escalated", "offer_changed", (close,)).status == "closed"
 
     trace = run.trace()
 
     (freshness,) = of(trace, "freshness_check")
     assert (freshness.stage, freshness.outcome, freshness.state) == ("close", "changed", "blocked")
-    (d2_step,) = of(trace, "authorization_decision")
-    assert d2_step.decision.reason_codes == ("GOV_FRESHNESS_UNRESOLVED",)
-    assert {result for _, result in rules(d2_step)} == {"not_evaluated"}
-    assert [rule for rule, _ in rules(d2_step)] == [f"POL-0{number}" for number in range(3, 10)]
+    # The executor stops at the freshness check: D2 never decides.
+    assert not of(trace, "authorization_decision")
     assert of(trace, "escalated")[0].reason == "offer_changed"
+    # The escalation canceled the purchase: no step claims the buyer or a guard canceled it.
+    assert not of(trace, "canceled")
     assert trace.status == "stale_terms"
 
 
@@ -330,6 +338,10 @@ def test_a_broken_delegation_chain_makes_the_trace_unavailable(governed) -> None
 
     with pytest.raises(TraceUnavailable):
         run.trace()
+    history = PurchaseTraces(run.settings).history(OWNER, limit=5, before=None)
+    assert history is not None
+    ((row,),) = (history.purchases,)
+    assert (row.status, row.purchase_mode) == ("trace_unavailable", "HNP")
 
 
 # B0-HNP and the executor's terminals.
@@ -366,6 +378,20 @@ def test_k15_a_task_failed_with_the_purchase_selected_waits_for_d1(
     (failed,) = of(trace, "failed")
     assert (failed.id, failed.code, failed.state) == ("failed", "governance_unavailable", "error")
     assert trace.status == "uncertain"
+
+
+def test_the_budget_guard_shows_the_purchase_it_canceled(tmp_path: Path, ticking: Ticking) -> None:
+    bench = Bench(tmp_path, budget=80_000, merchant=Merchant(total=90_000))
+    bench.run()
+    assert (bench.ended(), bench.purchase()) == (("failed", "budget_guard"), ("canceled", None))
+
+    trace = bench_trace(bench)
+
+    (canceled,) = of(trace, "canceled")
+    assert (canceled.by, canceled.actor) == ("budget", "agent")
+    # The cancellation explains the task's `budget_guard`: no failed step repeats it.
+    assert not of(trace, "failed")
+    assert (kinds(trace)[-1], trace.status) == ("canceled", "canceled")
 
 
 def test_a_purchase_failure_keeps_its_code_next_to_the_task_failure(
