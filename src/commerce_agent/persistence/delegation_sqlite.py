@@ -504,7 +504,8 @@ class SqliteDelegationLedger:
             lapsed = task.lease_expires_at is not None and now >= utc_moment(task.lease_expires_at)
             if task.state != "scheduled" and not (task.state == "running" and lapsed):
                 return Step("not_runnable", ex)
-            outcome = None if ex.outbox else _blocking(ex, None, now)
+            switched = _switched_since_claim(connection, ex)
+            outcome = None if ex.outbox else _blocking(ex, None, now, switched=switched)
             if outcome is not None:
                 state = "failed" if outcome == "state_conflict" else "canceled"
                 _close_task(connection, ex, state, outcome, text, stage="claim")
@@ -1042,13 +1043,20 @@ def _execution(connection: sqlite3.Connection, task_id: str) -> Execution | None
 
 
 def _blocking(
-    ex: Execution, expected: Authority | None, now: datetime, margin_seconds: int = 0
+    ex: Execution,
+    expected: Authority | None,
+    now: datetime,
+    margin_seconds: int = 0,
+    *,
+    switched: bool = False,
 ) -> OutcomeCode | None:
-    """Why the grant no longer authorizes this step, in the order of spec §4.5, or None."""
+    """Why the grant no longer authorizes this step, in the order of spec §4.5, or None.
+    `switched`: the switch was on at some point since the task's last claim."""
     grant, control = ex.grant, ex.control
     if grant.revoked_reason == "owner":
         return "revoked_by_owner"
-    if control.enabled or (expected and expected.control_epoch != control.control_epoch):
+    stale_control = expected is not None and expected.control_epoch != control.control_epoch
+    if control.enabled or switched or stale_control:
         return "kill_switch"
     expires_at = utc_moment(grant.expires_at)
     if (
@@ -1064,6 +1072,19 @@ def _blocking(
     ):
         return "state_conflict"
     return None
+
+
+def _switched_since_claim(connection: sqlite3.Connection, ex: Execution) -> bool:
+    """Spec §8.4: switching it off does not revive old delegations. A switch turned on after the
+    last claim blocks the re-claim even if it is off again, as when a `blocked(kill_switch)` lost
+    its terminal to a crash, a failing hook or a lapsed lease."""
+    row = connection.execute(
+        "SELECT 1 FROM hnp_controls WHERE kill_switch = 1 AND changed_at >= ("
+        "SELECT MAX(recorded_at) FROM delegation_events "
+        "WHERE grant_id = ? AND event_type = 'task_claimed') LIMIT 1",
+        (ex.grant.grant_id,),
+    ).fetchone()
+    return row is not None
 
 
 def _close_task(

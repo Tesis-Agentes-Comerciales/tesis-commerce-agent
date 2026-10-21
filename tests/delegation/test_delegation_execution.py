@@ -245,6 +245,28 @@ def test_the_commitment_needs_the_closed_mandates_and_the_current_reservation_ve
     assert flow.commit().status == "applied"
 
 
+@pytest.mark.parametrize("field", ["state_version", "authority_epoch"])
+def test_the_commitment_compares_the_grant_it_read(flow: Flow, field: str) -> None:
+    """UoW-2's CAS: an `expected` read before the reservation (or another epoch) is stale."""
+    flow.claim()
+    before_reservation = flow.state().authority
+    flow.reserve()
+    flow.close()
+    current = flow.state().authority
+    expected = (
+        before_reservation
+        if field == "state_version"
+        else replace(current, authority_epoch=current.authority_epoch + 1)
+    )
+
+    step = flow.ledger.commit_dispatch(replace(flow.commitment(), expected=expected))
+
+    assert (step.status, step.outcome) == ("blocked", "state_conflict")
+    ex = flow.state()
+    assert ex.reservation is not None
+    assert (ex.outbox, ex.reservation.state) == (None, "reserved")
+
+
 # Revocation (HNP03, HNP04)
 
 
@@ -436,6 +458,59 @@ def test_the_kill_switch_blocks_the_commitment_even_if_already_off(
         e for e in flow.ledger.events(flow.grant_id) if e.event_type == "kill_switch_blocked"
     )
     assert blocked_event.body == {"control_epoch": 2, "stage": "uow2"}
+
+
+@pytest.mark.parametrize("lost", ["crash", "failing_hook"])
+def test_a_kill_switch_block_whose_terminal_was_lost_does_not_revive_once_off(
+    flow: Flow, clock: AuthorityClock, lost: str
+) -> None:
+    """§8.4: `blocked(kill_switch)` at UoW-2, the terminal is never written (a crash, or the
+    hook of `finish_task` raises), the switch goes off and the lease lapses: the re-claim
+    still closes the task as `kill_switch`, with no outbox and the reservation released."""
+
+    def failing(_: sqlite3.Connection) -> None:
+        raise RuntimeError("hook failed")
+
+    flow.claim()
+    flow.reserve()
+    flow.close()
+    flow.ledger.set_kill_switch(True)
+    assert flow.commit().outcome == "kill_switch"
+    if lost == "failing_hook":
+        with pytest.raises(RuntimeError):
+            flow.finish("canceled", "kill_switch", stage="uow2", hooks=[failing])
+    flow.ledger.set_kill_switch(False)
+    clock.advance(LEASE_SECONDS)
+
+    step = flow.claim()
+
+    assert (step.status, step.outcome) == ("closed", "kill_switch")
+    ex = step.execution
+    assert ex is not None and ex.reservation is not None
+    assert (ex.outbox, ex.reservation.state, ex.reservation.release_basis) == (
+        None,
+        "released",
+        "no_outbox",
+    )
+    assert (ex.task.state, ex.grant.state, ex.grant.revoked_reason) == (
+        "canceled",
+        "revoked",
+        "operator",
+    )
+    assert flow.commit().status == "lease_lost"
+    assert flow.state().outbox is None
+
+
+def test_a_switch_toggled_before_the_claim_does_not_block_it(
+    flow: Flow, clock: AuthorityClock
+) -> None:
+    flow.ledger.set_kill_switch(True)
+    flow.ledger.set_kill_switch(False)
+    clock.advance(1)
+
+    assert flow.claim().status == "applied"
+    clock.advance(LEASE_SECONDS)
+    assert flow.claim().status == "applied"
 
 
 def test_the_kill_switch_blocks_the_reservation(flow: Flow) -> None:
