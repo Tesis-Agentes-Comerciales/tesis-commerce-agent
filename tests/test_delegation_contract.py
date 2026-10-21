@@ -22,6 +22,7 @@ from commerce_agent.delegation.contract import (
     RevokeReceipt,
     escalation_message,
 )
+from commerce_agent.delegation.views import format_cop
 
 FIXTURES = Path(__file__).parents[1] / "ui" / "src" / "storybook" / "fixtures"
 VIEW_STATES = (
@@ -285,7 +286,7 @@ def test_fixture_messages_are_the_canonical_texts(name: str) -> None:
     key = f"task.{task.outcome_code if task.state == 'canceled' else task.state}"
     if task.state == "purchased":
         expected = HNP_MESSAGES[key].format(
-            title="Sony WH-1000XM6 negro", total="COP 1.924.000", order_id=task.order_id
+            title="Sony WH-1000XM6 negro", total=format_cop(192_400_000), order_id=task.order_id
         )
     else:
         expected = HNP_MESSAGES[key]
@@ -298,7 +299,7 @@ def test_the_escalation_fixture_carries_the_canonical_title_message_and_prefill(
     assert escalation.title == HNP_MESSAGES["escalation.title"]
     assert escalation.message == escalation_message(escalation.reason)
     assert escalation.prefill_request == HNP_MESSAGES["escalation.prefill_request"].format(
-        title="Sony WH-1000XM6 negro", total="COP 1.500.000"
+        title="Sony WH-1000XM6 negro", total=format_cop(150_000_000)
     )
 
 

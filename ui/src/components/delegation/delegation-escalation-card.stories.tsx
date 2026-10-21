@@ -7,6 +7,7 @@ import {
   expectFitsPhoneColumn,
   expectKeyboardFocus,
   PHONE_COLUMN,
+  plain,
 } from "@/components/delegation/story-helpers"
 import { DELEGATIONS } from "@/storybook/fixtures/delegation-fixtures"
 
@@ -40,8 +41,8 @@ export const BudgetNotSatisfiable: Story = {
     await expect(
       canvasElement.querySelector("[data-testid=delegation-escalation-card]"),
     ).toHaveAttribute("data-reason", "budget_not_satisfiable")
-    // El prellenado va al compositor, no a la tarjeta.
-    await expect(canvas.queryByText(ESCALATION.prefill_request)).toBeNull()
+    // El prellenado va al compositor, no a la tarjeta. Su monto lleva un espacio duro (K16).
+    await expect(canvas.queryByText(plain(ESCALATION.prefill_request))).toBeNull()
     await expect(canvas.getAllByRole("button").map((button) => button.textContent)).toEqual([
       "Comprar desde el chat",
     ])

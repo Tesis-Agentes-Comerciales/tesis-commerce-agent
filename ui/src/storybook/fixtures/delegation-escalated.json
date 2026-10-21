@@ -35,7 +35,7 @@
     "reason": "budget_not_satisfiable",
     "title": "Necesito tu decisión",
     "message": "El precio de catálogo de la opción disponible ya supera el total máximo que autorizaste. No firmé ni presenté ninguna autorización de pago, no se hizo ningún cobro y cerré la delegación. Si todavía quieres comprar, hazlo desde el chat y apruébala tú.",
-    "prefill_request": "Quiero comprar Sony WH-1000XM6 negro por hasta COP 1.500.000"
+    "prefill_request": "Quiero comprar Sony WH-1000XM6 negro por hasta $\u00a01.500.000,00 COP"
   },
   "last_activity_at": "2026-10-21T11:15:09.577Z"
 }
