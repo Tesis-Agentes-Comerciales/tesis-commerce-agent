@@ -410,6 +410,9 @@ HNP_PILOT_MAX_COST_USD=2 uv run hnp-pilot      # en vivo: lo corre el líder, co
 - `data/b2-pilot-v1.json`: manifiesto pre-registrado del piloto B0'/B2 v1 (congelado).
 - `data/b2-pilot-v2.json`, `data/pilot-scenarios-v2.json`: pre-registro del piloto v2 con la
   política `b2-hp-v2` y los escenarios S01–S08 ([spec](../docs/design/b2-governed-pilot-v2.md)).
+- `data/injection-pilot-v1.json`, `data/injection-scenarios-v1.json`: borrador (`status: "draft"`)
+  del piloto de inyección de instrucciones, con el control C0 y los escenarios I1–I3. No corre en
+  vivo hasta que el runner lo soporte y se pre-registre ([spec](../docs/design/injection-pilot.md)).
 - `data/hnp-pilot-v1.json`, `data/hnp-scenarios.json`: pre-registro del piloto HNP v1 (EC-HNP-03)
   con las condiciones B0-HNP, B2-HNP y P y los escenarios HN01–HN11; runner `hnp-pilot`
   ([spec](../docs/design/hnp-pilot.md)).
