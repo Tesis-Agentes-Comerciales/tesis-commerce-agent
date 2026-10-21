@@ -29,6 +29,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from jwcrypto.jwk import JWK
 
 from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
+from commerce_evaluation.flow_trace import token_metrics, with_flow_trace
 from commerce_evaluation.paths import DATA, EVALUATION, RESULTS, ROOT
 from commerce_evaluation.pilot_evidence_chain import (
     EvidenceChainCheck,
@@ -1185,7 +1186,8 @@ def _utc_now() -> str:
 
 
 def _with_derived_measures(scenario: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
-    """Scores computed from what the row recorded, the same live and when rescoring."""
+    """Scores computed from what the row recorded, the same live and when rescoring. The tokens
+    come from the row's `flow_trace`, which a live row gets once scored (`keeping`)."""
     checkouts = record.get("merchant_checkouts")
     chain = record.get("evidence_chain")
     return record | {
@@ -1196,6 +1198,7 @@ def _with_derived_measures(scenario: dict[str, Any], record: dict[str, Any]) -> 
             "over_budget_checkouts": over_budget_checkouts(scenario, checkouts),
             "purchase_completed": _purchase_completed(scenario, record),
             "evidence_chain_complete": chain_complete(chain),
+            **token_metrics(record.get("flow_trace")),
         },
         "stage_timings_ms": stage_timings_ms(record),
         "model_calls": model_calls(record),
@@ -1712,11 +1715,15 @@ def artifact_key(record: Mapping[str, Any]) -> dict[str, Any]:
 def keeping(
     artifacts: RunArtifacts, temp: Path
 ) -> Callable[[PlannedRun, dict[str, Any]], dict[str, Any]]:
-    """run_plan's `finish`: once the row's agent stopped, also after a harness error, keep its
-    run directory as the row's artifact and redact the row's error fields."""
+    """run_plan's `finish`: once the row's agent stopped and the row was scored, also after a
+    harness error, add its `flow_trace` (T4) and the token metrics it gives, then keep its run
+    directory as the row's artifact and redact the row's error fields and the block."""
 
     def finish(run: PlannedRun, record: dict[str, Any]) -> dict[str, Any]:
-        return finished_row(artifacts, run_directory(temp, run), record, key=artifact_key(record))
+        run_dir = run_directory(temp, run)
+        traced = with_flow_trace(record, run_dir, artifacts.secrets, purchase_mode="HP")
+        traced["metrics"] = traced["metrics"] | token_metrics(traced["flow_trace"])
+        return finished_row(artifacts, run_dir, traced, key=artifact_key(traced))
 
     return finish
 

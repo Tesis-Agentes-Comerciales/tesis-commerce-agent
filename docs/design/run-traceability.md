@@ -3,8 +3,9 @@
 Estado: **propuesta, pendiente de aprobación** · 21 de octubre de 2026 · pedido de Yair: «debemos
 saber o tener la trazabilidad de todo lo que hace el agente o piensa o sucede en el flujo».
 
-Construido: T1 (#128), T2 (#129) y T3 (bloque HNP). Las secciones 4.1 a 4.5 dicen lo que se
-construyó donde difiere de la propuesta original (sincronizadas el 21-oct-2026).
+Construido: T1 (#128), T2 (#129), T3 (#130, bloque HNP) y T4 (bloque HP). Las secciones 4.1 a
+4.5 dicen lo que se construyó donde difiere de la propuesta original (sincronizadas el
+21-oct-2026).
 
 ## 1. Problema
 
@@ -146,12 +147,65 @@ Lo construido no lleva `artifacts` ni `redactions`. El enlace y los digests del 
 `MANIFEST.json` (§4.3), así que el bloque no los repite. La redacción reemplaza la subcadena y no
 lleva lista de rutas (§4.2).
 
+**Construido (T4).** La fila HP la arma `build_hp_flow_trace(agent_db, graph_db, secrets)`, otra
+función del mismo módulo y con el mismo esquema `flow-trace/1` (modelo `HpFlowTrace`): no necesita
+el feed, y el bloque HNP no cambia (`build_flow_trace` da los mismos bytes que en T3). Reutiliza lo
+de T3: decisiones, `freshness`, orden, webhooks, errores, `model_requests`, barrido y `error_text`.
+Los dos runners pasan por `with_flow_trace(fila, run_dir, secretos, purchase_mode="HP" | "HNP")`.
+Lo que difiere de la tabla:
+
+- **`turns[]`.** Un turno por hilo, del último checkpoint, en el orden en que empezó cada hilo
+  (el piloto abre un hilo por turno). G se lee con el serializador de `trace/sources.py`
+  (`JsonPlusSerializer` sin módulos msgpack), pero sin `SqliteSaver`: su `setup` escribe, y no abre
+  en solo lectura la copia del artefacto, que ya no está en modo WAL. Cada turno suma `run_id`
+  (`turn_run_id`, el de sus `model_requests` y de su compra) y `lookup_catalog` {`query`,
+  `result_variant_ids`}: sale de la petición de `model.route` del turno cuyo `input_json` trae el
+  `function_call` y el `function_call_output`, y es `null` si el router no llamó a la herramienta.
+  `input_json` nunca se copia entero.
+- **`shortlist[]`** lleva `title` (el del producto) y además `variant_title`: el título de la
+  variante es lo que distingue 128 GB de 256 GB, y las inyecciones mutan los dos títulos.
+- **`choice`** sale de G: `purchase` con `selected_variant_id` y su `message` (el
+  `selection_message` del grafo), o `clarify` con el mensaje de `choose_candidate`. Es `null` si
+  el turno no eligió o si el flujo gobernado explicó una elección fuera de la lista. Esa elección
+  queda en `recovery[]`: su `variant_id` si la variante está en el catálogo, y si no
+  (`not_in_catalog`) solo `selected_variant_sha256`. El id que dio el modelo está en el `output`
+  de su petición `model.choose_candidate` (`model_requests[]`). `intent` es la intención ya
+  alineada con el catálogo; la del modelo, antes de alinearla, está en el `output` de la petición
+  de `model.route`.
+- **`checkout`** es el de T3 ({`checkout_id`, `purchase_stage`, `failure_code`}; el `status` de la
+  tabla es `purchase_stage`) más `total_minor` y `currency` de los términos presentados, leídos con
+  `json_extract`: el resto de los términos (comprador, JWT) nunca sale de SQLite. `currency` va como
+  la registró el comercio (`cop`).
+- **`approval`** {`fingerprint`, `approved_at`, `mandates` {`checkout`, `payment`}}: la presencia
+  de cada mandato se decide en SQLite (`IS NOT NULL`), así que nunca se leen mandatos, el JWT del
+  checkout ni la firma.
+- **`run_ids`** son los de cada turno, cada compra y cada registro de `hp_evidence`, sin repetir.
+  Una recuperación gobernada (`selection_outside_shortlist` o `no_candidate`) termina el turno
+  antes de crear la compra y queda bajo el `run_id` del turno. Sin `agent.graph.db`, solo
+  `hp_evidence` nombra ese run.
+- **`recovery[]`**: los cuerpos `governed_recovery` de `hp_evidence` de esos runs. **`webhooks[]`**
+  conserva `order_id`, como en HNP.
+- **`errors[]`** suma `purchases.failure_code` (etapa `purchase`). No lleva el HTTP del turno
+  (`turn_http` del ejemplo): el bloque es función de las bases, y el código ya está en
+  `http_status` y `error_response` de la fila.
+- Sin `agent.graph.db` (o sin su tabla `checkpoints`), `turns` es `null` y `agent.graph.db` va en
+  `unavailable`.
+
 Una fila HP crece unos 6–8 KB (hoy la mediana es 5,6 KB y el máximo 7,6 KB). Para 160 filas son
 ~1,1 MB más. **Medido en HNP (T3)** sobre corridas reales del executor en pruebas: una compra B2-HNP
 con selector `llm` suma ~19,6 KB, de los que 16 KB son las tres decisiones (las entradas de D2 y D3
 pesan 6–7 KB cada una, aun reducidas); un deny de D1, ~4,1 KB; B0-HNP o una selección fallida,
 ~2,1–2,4 KB. Las 133 filas suman alrededor de 1 MB, según cuántas compras B2-HNP haya. Con una tabla
 ausente, su campo sale `null` y su nombre va en `unavailable`.
+
+**Medido en HP (T4)**, en las corridas de las pruebas (turno real por la app, comercio doble):
+- un deny de D1 tipo S05 pesa ~4,0 KB con un router doble y ~6,3 KB con el router real, que hace
+  tres peticiones (con `lookup_catalog`) de ~0,7 KB cada una;
+- una compra B2 completa (D1, D2, tres frescuras, aprobación, orden y webhook) pesa ~10,9 KB, de
+  los que D1 son 2,1 KB y D2 5,2 KB.
+
+Con la lista corta completa (10 candidatos, ~2 KB) y dos o tres peticiones, una compra B2 queda en
+~14–15 KB, lejos de 25 KB, así que no se recorta nada (tampoco las entradas de D2).
 
 Un ejemplo de fila B2 con deny de D1. Los valores son ilustrativos, no los de la repetición 8:
 
@@ -295,7 +349,11 @@ tope de costo HNP la sigue leyendo.
   congelados y que el resumen se reproduzca, y siguen sin cambios.
 - **Prueba nueva:** una fila v2 con `flow_trace` añadido se puntúa igual que sin él.
 - **Tokens:** `metrics.model_input_tokens` sale de `flow_trace.model_requests` y queda `null` sin el
-  bloque, así que los resúmenes v1 y v2 no cambian.
+  bloque, así que los resúmenes v1 y v2 no cambian. Construido (T4): `token_metrics` suma también
+  `metrics.model_output_tokens`, y da `null` si alguna petición no trae su contador (una salida
+  inválida no trae `usage`), para no reportar una suma parcial. `keeping` los pone tras puntuar la
+  fila, y `--rescore` los recalcula del bloque si la fila lo trae. Una prueba fija que la fila v2
+  de lote2-S05 da el mismo resumen y las mismas métricas con y sin bloque, salvo esos dos campos.
 - **HNP** no tiene `--rescore`, y `score_episode` lee solo `observed`. El bloque va fuera de
   `observed`, y el manifiesto `hnp-pilot-v1.json` no cambia. El runner lo arma con el agente
   detenido y después de medir `score_episode` y C8; una prueba fija que `observed`, C8, el puntaje y
@@ -314,7 +372,7 @@ tope de costo HNP la sigue leyendo.
 | T1 | `feat(evaluation): keep each run's agent artifacts with checksums` | Runner HP y HNP: `run_artifacts.py`, `redaction.py` y `--artifacts-dir` (~150 líneas) | No | Copia con `backup` de bases reales en `tmp_path` y sha256; log redactado (con secretos sembrados); nada bajo `evaluation/results`; `--dry-run` igual | **Sí** |
 | T2 | `feat(agent): record each model request with its usage` | Producto: `persistence/model_requests_sqlite.py`, `llm/model_requests.py`, router, selector delegado, temporizadores y `runtime.py` (~300 líneas) | Sí: solo registra | `FakeOpenAI` con `usage` y razonamiento; `route` con herramienta escribe 2 filas; error con `outcome = error`; 429→200 con `httpx.MockTransport` da `retries = 1`; ningún secreto en `input_json`; las pruebas HP pasan sin editarse | **Sí** |
 | T3 | `feat(evaluation): add flow_trace to hnp-pilot rows` | Runner HNP: `flow_trace.py` (lo común: decisiones, errores, `model_requests`, barrido) y su cableado en `hnp_pilot_live.py`; rutas locales con etiqueta en `run_artifacts.py` y `redaction.py`; `measurement_errors` en el resumen HNP; una línea de enmienda de medición en `hnp-pilot.md` (~350 líneas; construido: ~550 con el esquema) | No | Base armada con los stores y el executor offline; esquema Pydantic `FlowTrace`; JWT sembrado → `[redacted]`; `score_episode` igual con y sin bloque | **Sí** |
-| T4 | `feat(evaluation): add flow_trace to governance-pilot rows` | Runner HP: `turns` desde `agent.graph.db`, tokens en `metrics` (~250 líneas) | No | `ConversationService` con router falso y deny de POL-11 tipo S05 → intención, lista corta, elección, entrada y reglas de D1; compatibilidad del rescore | No (no hay piloto HP agendado) |
+| T4 | `feat(evaluation): add flow_trace to governance-pilot rows` | Runner HP: `turns` desde `agent.graph.db`, tokens en `metrics` (~250 líneas; construido: ~330 añadidas y ~295 netas en `flow_trace.py` y `governance_pilot.py`) | No | `ConversationService` con router falso y deny de POL-11 tipo S05 → intención, lista corta, elección, entrada y reglas de D1; compatibilidad del rescore. Construido: además, router real con `lookup_catalog` sobre un servidor de modelo falso (consulta, resultados y tokens), compra B2 completa, secretos sembrados en las columnas leídas y prohibidas, sin `agent.graph.db`, y el runner con base rota y siembra fallida | No (no hay piloto HP agendado) |
 | T5 | `feat(agent): record reasoning summaries behind a flag` | Producto (~80 líneas) | Sí, apagado por defecto | Petición con `summary` solo con el flag; texto guardado | No |
 
 **Orden y dependencias:**
