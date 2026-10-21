@@ -138,8 +138,10 @@ class HnpChain:
             if mandate.reservation_id is not None
         }
 
-    def dispatch_with_order(self) -> None:
-        """The outbox steps to `completed` and UoW-3, as the ledger records them."""
+    def dispatch_with_order(self, status: str = "Success") -> None:
+        """The outbox steps to `completed` and UoW-3, as the ledger records them. `status` is the
+        form the receipts reach the ledger in (the SDK's `Success` or the spec's `success`); their
+        JWTs keep the SDK's."""
         lease = self.lease()
         for step in ("payment_sent", "payment_accepted", "complete_sent"):
             assert self.ledger.advance_dispatch(self.task_id, lease, step).status == "applied"
@@ -168,7 +170,7 @@ class HnpChain:
             "payment",
             self.receipts["payment"],
             PSP,
-            "Success",
+            status,
             links["closed_payment"],
             payment_id="pay_1",
         )
@@ -176,7 +178,7 @@ class HnpChain:
             "checkout",
             self.receipts["checkout"],
             merchant,
-            "Success",
+            status,
             links["closed_checkout"],
             order_id=ORDER_ID,
         )
@@ -236,7 +238,8 @@ class HnpChain:
             error_description="The payment mandate does not verify",
             payment_id="pay_1",
         )
-        # The ledger takes the status in lowercase until HNP-09b normalizes it.
+        # The ledger keeps the status lowercase, the form HNP-09b normalizes every receipt to; the
+        # JWT keeps the SDK's `Error`.
         receipt = Receipt("payment", token, PSP, "error", reference, error="invalid_mandate")
         step = self.ledger.reject_dispatch(self.task_id, lease, "invalid_mandate", receipt)
         assert step.status == "closed"

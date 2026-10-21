@@ -59,13 +59,13 @@ def _applied(directory: Path, then: Callable[[Any], None] | None = None) -> Path
     return chain.path
 
 
-def _completed(chain: Any) -> None:
-    chain.dispatch_with_order()
+def _completed(chain: Any, status: str = "Success") -> None:
+    chain.dispatch_with_order(status)
     chain.deliver_order_create()
 
 
-def _with_results(chain: Any) -> None:
-    _completed(chain)
+def _with_results(chain: Any, status: str = "Success") -> None:
+    _completed(chain, status)
     chain.record_results()
 
 
@@ -88,6 +88,10 @@ SCENARIOS: dict[str, Callable[[Path], Path]] = {
     "b2_hnp": _applied,
     "completed": lambda directory: _applied(directory, _completed),
     "completed_with_results": lambda directory: _applied(directory, _with_results),
+    # The receipts reach the ledger with the spec's `success`, the form it keeps from HNP-09b on.
+    "completed_lowercase": lambda directory: _applied(
+        directory, lambda chain: _with_results(chain, "success")
+    ),
     "psp_rejected": lambda directory: _applied(directory, lambda chain: chain.reject_by_psp()),
     "d2_deny": lambda directory: _ended(directory, street="Carrera 7 # 1-1"),
     "d1_escalated": lambda directory: _ended(directory, total_max_minor=71_999),
@@ -208,18 +212,23 @@ def test_an_order_without_the_09b_receipts_is_incomplete(scenario: Callable[[str
     assert document["h2"]["all_runs"]["n"] == 0
 
 
+@pytest.mark.parametrize("status", ["error", "Error"])
 def test_a_psp_rejection_ends_the_chain_at_its_error_receipt(
-    scenario: Callable[[str], Path],
+    scenario: Callable[[str], Path], status: str
 ) -> None:
-    """The AP2 error receipt binds the closed payment mandate; the ledger still keeps its status
-    as `error`, outside the AP2 profile, until HNP-09b: not `ok` yet."""
-    run = only_run(scenario("psp_rejected"))
+    """The AP2 error receipt binds the closed payment mandate, with the event's status in either
+    form of the profile: the ledger's `error` or the SDK's `Error`, which its JWT keeps."""
+    database = scenario("psp_rejected")
+    rechain(database, "receipt_recorded", status=status)
 
-    assert statuses(run) == expected(ok=UP_TO_D3, missing=("receipts",))
+    document = verify([database])
+    [run] = document["runs"]
+
+    assert statuses(run) == expected(ok=(*UP_TO_D3, "receipts"))
     assert run["links"]["receipts"]["refs"]["rejected_by"] == "psp"
-    assert "HNP-09b" in run["links"]["receipts"]["detail"]
     assert (run["task_state"], run["outcome_code"]) == ("failed", "verifier_invalid_mandate")
-    assert run["complete"] is False
+    assert run["complete"] is True
+    assert document["h2_hnp"]["blocked"] == {"n": 1, "complete": 1, "rate": 1.0}
 
 
 def test_an_error_receipt_of_another_mandate_is_a_mismatch(
@@ -244,14 +253,42 @@ def test_an_error_receipt_of_another_mandate_is_a_mismatch(
     assert run["complete"] is False
 
 
-def test_an_order_with_both_receipt_jwts_is_complete(scenario: Callable[[str], Path]) -> None:
-    """With the `completion_results` row HNP-09b is to write, the receipts verify."""
-    document = verify([scenario("completed_with_results")])
+@pytest.mark.parametrize("name", ["completed_with_results", "completed_lowercase"])
+def test_an_order_with_both_receipt_jwts_is_complete(
+    scenario: Callable[[str], Path], name: str
+) -> None:
+    """With the `completion_results` row HNP-09b is to write, the receipts verify whichever form
+    of the profile the ledger keeps their status in (`Success` or `success`)."""
+    document = verify([scenario(name)])
     [run] = document["runs"]
 
     assert statuses(run) == expected(ok=(*UP_TO_D3, "receipts", "order_webhook", "consumption"))
     assert run["complete"] is True
     assert document["h2_hnp"]["orders"] == {"n": 1, "complete": 1, "rate": 1.0}
+
+
+@pytest.mark.parametrize(
+    ("name", "where"),
+    [
+        ("completed", {"kind": "checkout"}),
+        ("completed", {"kind": "payment"}),
+        ("psp_rejected", {}),
+    ],
+    ids=["order-checkout", "order-payment", "psp_rejected"],
+)
+def test_a_receipt_status_outside_the_ap2_profile_is_a_mismatch(
+    scenario: Callable[[str], Path], name: str, where: dict[str, str]
+) -> None:
+    """Neither form of the profile (`Success`/`success`, `Error`/`error`), re-chained: the event
+    alone gives it away, before the receipt JWTs of `completion_results` are read."""
+    database = scenario(name)
+    rechain(database, "receipt_recorded", where=where, status="done")
+
+    run = only_run(database)
+
+    assert run["links"]["receipts"]["status"] == "mismatch"
+    assert not run["links"]["receipts"]["detail"].startswith("No se pudo interpretar")
+    assert run["complete"] is False
 
 
 def test_a_d2_deny_ends_the_chain_at_the_deny_and_its_escalation(

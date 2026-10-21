@@ -133,6 +133,16 @@ AFTER_D1 = frozenset(
 )
 # Of those, the ones a run past its checkout gives (D1's own deny never reaches it).
 AFTER_CHECKOUT = AFTER_D1 - {"merchant_not_allowed", "budget_not_satisfiable"}
+# Both forms of an AP2 receipt status the profile admits (docs/ap2-profile.md, Recibos): the SDK's,
+# which the JWTs carry, and the spec's, which the ledger keeps. Same table as `RECEIPT_STATUSES` of
+# `commerce_agent.delegation.models`, the ledger's normalization from HNP-09b on; kept here so a
+# `receipt_recorded` event verifies in either form, before and after that normalization.
+RECEIPT_STATUSES: Mapping[str, str] = {
+    "Success": "success",
+    "Error": "error",
+    "success": "success",
+    "error": "error",
+}
 
 
 def _thumbprint(jwk: Mapping[str, Any]) -> str:
@@ -921,11 +931,8 @@ class HnpRunVerification(RunVerification):
                 and claims["iss"] == event.body["issuer"]
             ):
                 return mismatch("El recibo de error no es el del mandato cerrado", **refs)
-            if event.body["status"] != claims["status"]:
-                # The ledger takes `error` until HNP-09b records the AP2 status.
-                return missing(
-                    "El estado del recibo en la cadena no es el del perfil AP2 (HNP-09b)", **refs
-                )
+            if _receipt_status(event.body.get("status")) != "error":
+                return mismatch("El estado del recibo en la cadena no es un error AP2", **refs)
             return ok("Recibo de error AP2 ligado al mandato cerrado", **refs)
         for kind, event in receipts.items():
             if not (
@@ -935,6 +942,8 @@ class HnpRunVerification(RunVerification):
                 and event.body["reference"] == links[kind]
             ):
                 return mismatch(f"El recibo {kind} no refiere a su mandato cerrado")
+            if _receipt_status(event.body.get("status")) != "success":
+                return mismatch(f"El estado del recibo {kind} en la cadena no es un éxito AP2")
         if set(receipts) != {"checkout", "payment"}:
             return missing("La orden no tiene sus dos recibos en la cadena")
         if receipts["checkout"].body.get("order_id") != outbox["order_id"]:
@@ -958,7 +967,7 @@ class HnpRunVerification(RunVerification):
             claims, body = _ap2_receipt(token, kind), receipts[kind].body
             name = identifiers[kind]
             if not (
-                claims["status"] == body["status"] == "Success"
+                _receipt_status(claims["status"]) == _receipt_status(body["status"]) == "success"
                 and claims["reference"] == links[kind]
                 and claims["iss"] == body["issuer"]
                 and claims[name] == body[name]
@@ -1108,6 +1117,11 @@ def _ap2_receipt(token: str, kind: str) -> dict[str, Any]:
     claims = jwt.decode(token, options={"verify_signature": False})
     model = PaymentReceipt if kind == "payment" else CheckoutReceipt
     return model.model_validate(claims).root.model_dump()
+
+
+def _receipt_status(status: Any) -> str | None:
+    """A receipt status in the ledger's form (`success`/`error`); None outside the profile."""
+    return RECEIPT_STATUSES.get(status) if isinstance(status, str) else None
 
 
 def _rows(connection: sqlite3.Connection, query: str, *values: Any) -> list[dict[str, Any]]:
