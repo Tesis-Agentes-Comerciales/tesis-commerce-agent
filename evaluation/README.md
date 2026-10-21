@@ -322,6 +322,9 @@ apunte a la autorización aplicada; una aprobación u orden sin una autorizació
 - `data/b2-pilot-v1.json`: manifiesto pre-registrado del piloto B0'/B2 v1 (congelado).
 - `data/b2-pilot-v2.json`, `data/pilot-scenarios-v2.json`: pre-registro del piloto v2 con la
   política `b2-hp-v2` y los escenarios S01–S08 ([spec](../docs/design/b2-governed-pilot-v2.md)).
+- `data/hnp-pilot-v1.json`, `data/hnp-scenarios.json`: pre-registro del piloto HNP v1 (EC-HNP-03)
+  con las condiciones B0-HNP, B2-HNP y P y los escenarios HN01–HN11; sin runner todavía (HNP-E2)
+  ([spec](../docs/design/hnp-pilot.md)).
 - `data/hnp/cases.json`, `data/hnp/oracle.json`: corpus HNP de 27 casos y su oráculo separado.
 - `results/b0-pilot-v1.jsonl`: las 25 ejecuciones del piloto B0.
 - `results/b0-pilot-v1.summary.json`: agregado generado por el runner.
