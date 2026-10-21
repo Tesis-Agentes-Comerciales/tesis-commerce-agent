@@ -11,6 +11,7 @@ import logging
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -42,6 +43,15 @@ def rows(built: Bench) -> dict[str, Any]:
         ).fetchone()
         grant = connection.execute("SELECT state, revoked_reason FROM delegation_grants").fetchone()
     return {"outbox": outbox, "reservation": reservation, "grant": grant}
+
+
+def payment_noted(built: Bench) -> list[tuple[str, str]]:
+    """The purchase's `payment.delegate` operation: the key and when the PSP send left (§4.6)."""
+    with closing(sqlite3.connect(built.path)) as connection:
+        return connection.execute(
+            "SELECT idempotency_key, created_at FROM operation_keys WHERE operation = ?",
+            ("payment.delegate",),
+        ).fetchall()
 
 
 def crash_when(
@@ -93,6 +103,16 @@ def test_a_dispatch_buys_with_both_receipts_in_completion_results_and_orders(
         ).fetchone()
     assert order == ("cs_1", "confirmed")
     assert (checkout_receipt, payment_receipt) == (merchant.issued[0], psp.issued[0])
+    # The trace's `payment_authorized`: HP's operation, with the outbox key, before the order.
+    with closing(sqlite3.connect(built.path)) as connection:
+        [(key, sent_at, completed_at)] = connection.execute(
+            "SELECT k.idempotency_key, k.created_at, c.completed_at FROM operation_keys k "
+            "JOIN completion_results c ON c.run_id = k.run_id "
+            "WHERE k.run_id = ? AND k.operation = 'payment.delegate'",
+            (run_id,),
+        ).fetchall()
+    assert key == PAYMENT_KEY
+    assert datetime.fromisoformat(sent_at) <= datetime.fromisoformat(completed_at)
     events = built.events()
     assert events[-4:] == ["receipt_recorded", "receipt_recorded", "consumed", "task_finished"]
     assert built.effects().signatures == 1
@@ -294,6 +314,8 @@ def test_a_crash_resumes_with_the_same_keys_and_one_close(
     assert (psp.keys(), merchant.keys()) == ({PAYMENT_KEY}, {COMPLETE_KEY})
     assert len({json_of(body) for _, body in psp.delegations}) == 1  # one request, replayed
     assert built.purchase() == ("completed", None)
+    [(key, _)] = payment_noted(built)
+    assert key == PAYMENT_KEY
 
 
 def json_of(body: dict[str, Any]) -> str:
@@ -334,6 +356,7 @@ def test_a_request_that_no_longer_matches_its_commitment_is_never_sent(
 
     assert_in_doubt(built, "receipt_mismatch")
     assert (psp.delegations, merchant.completions) == ([], [])
+    assert payment_noted(built) == []  # the trace shows no payment that never left
 
 
 def test_a_completed_dispatch_never_becomes_uncertain(

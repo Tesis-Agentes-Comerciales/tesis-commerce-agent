@@ -56,6 +56,7 @@ from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
 
 _UNANSWERED = frozenset({"timeout", "transport_error"})  # ACPClient codes without a response
+PAYMENT_OPERATION = "payment.delegate"  # HP's operation for the PSP delegation (completion.py)
 _log = logging.getLogger(__name__)
 
 
@@ -180,11 +181,15 @@ class HnpDispatcher:
     # The PSP
 
     def _pay(self, send: _Send, request: ClosedRequest, *, rejectable: bool) -> SandboxPaymentData:
-        """The token for the committed request; the PSP replays it under the same key."""
+        """The token for the committed request; the PSP replays it under the same key. Right
+        before the first send the purchase notes it as `payment.delegate`, with that key, as HP
+        notes its delegation: the trace's `payment_authorized` reads that time (§4.6)."""
+        key = f"{send.operation_id}:payment"
+        self._store.record_operation_key(send.run_id, PAYMENT_OPERATION, key)
         try:
             return self._payments.hnp_payment_data(
                 checkout=request.checkout,
-                idempotency_key=f"{send.operation_id}:payment",
+                idempotency_key=key,
                 checkout_jwt=request.checkout_jwt,
                 payment_mandate=request.closed.payment.token,
                 checkout_mandate=request.closed.checkout.token,

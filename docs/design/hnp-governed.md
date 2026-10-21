@@ -634,6 +634,7 @@ La compra HNP vive en las mismas tablas que HP, para que la traza, `/me/purchase
 | --- | --- | --- |
 | `PurchaseService.start` con `purchase_mode=HNP` | `received` → `selected` → `checkout_prepared`, y ahí se detiene (HP sigue a `awaiting_confirmation`) | HNP-05 |
 | UoW-2 | `checkout_prepared` → `completing` | 09a, con el hook de HNP-05 |
+| Despacho, justo antes del primer envío al PSP | Sigue `completing`; `operation_keys` anota `payment.delegate` con la clave `<operation_id>:payment` y su hora, como HP antes de delegar. La traza toma de ahí `payment_authorized`; un reintento conserva la primera hora y una petición que no coincide con su digest no la anota | 09b |
 | UoW-3 | `completing` → `completed` | 09b |
 | Tarea `uncertain` | `completing` → `uncertain` | 09b |
 | Deny de D1 o D1 no disponible dentro de `start` | Queda `received`: no hay checkout. El terminal de la tarea la pasa a `failed` con `failure_code` = `outcome_code`, o a `canceled` si escala (POL-11) | `start` (HNP-05); el terminal, 09a con el hook de HNP-05 |
