@@ -175,8 +175,9 @@ los pasos 1 a 10 y devuelve el `Step` que terminó la corrida: `applied` con UoW
 gateway ACP, el `AgentKeyCloser`, la compuerta (`NullHnpPolicyGate` en `off`, sin frescura ni D1) y
 el selector (`HnpSelector`; `DeterministicHnpSelector` toma la primera de la lista corta). Lee del
 ledger el grant, la intención y los datos de entrega; el selector solo ve la lista corta, la
-intención y `preference_text`. UoW-1 y UoW-2 esperan la `Authority` que devolvió su propio paso
-anterior (K10). `payment_request_digest` fija la petición al PSP del despacho (clave
+intención y `preference_text`. UoW-1 espera la `Authority` del claim; D3 y UoW-2, la que validó
+UoW-1 y no la que relee UoW-C, que no compara el kill switch ni el grant (K10). Una compra que
+`start` dejó `selected` termina `failed(governance_unavailable)` (K15). `payment_request_digest` fija la petición al PSP del despacho (clave
 `<operation_id>:payment`, `allowance` y los digests del checkout JWT y de los dos cerrados); 09b la
 reconstruye igual. Lo que §8.1 no nombra: un feed ilegible, un rechazo del comercio, una firma del
 checkout o un cierre que falla terminan `checkout_failed`; un selector que falla o elige fuera de la

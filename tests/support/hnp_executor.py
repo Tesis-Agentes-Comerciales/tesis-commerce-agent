@@ -82,6 +82,7 @@ class Merchant(FakeCheckoutGateway):
         super().__init__(total=total)
         self.refuse = refuse
         self.on_create: Hook | None = None
+        self.on_sign: Hook | None = None
         self.current = self._dated(self.current)
 
     @staticmethod
@@ -106,6 +107,8 @@ class Merchant(FakeCheckoutGateway):
         return self.current
 
     def signed_checkout(self, checkout: CheckoutSession) -> str:
+        if self.on_sign is not None:
+            self.on_sign()
         self.calls.append(("sign", checkout.id))
         return CHECKOUT_JWT
 
