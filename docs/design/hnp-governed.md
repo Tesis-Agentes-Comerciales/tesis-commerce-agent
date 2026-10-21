@@ -598,12 +598,11 @@ Revocar un grant que ya está `revoked(operator|escalated|failed)` no escribe na
 configurado o en otra moneda: `delegation_variant_unavailable`. Un total menor que todos los precios no
 se rechaza: D1 lo escalará con POL-11.
 
-**Cómo lo arma HNP-08** (`delegation_api.py`, `delegation/service.py`, `delegation/views.py`; la
-revocación, las rutas internas y `/health` van en un segundo PR apilado):
+**Cómo lo arma HNP-08** (`delegation_api.py`, `delegation/service.py`, `delegation/views.py`):
 
 - Los cuerpos se leen como JSON estricto (`parse_model`), así que un cuerpo inválido responde
-  `{code, message}` con `delegation_request_invalid` y no el 422 propio de FastAPI, que las rutas HP
-  conservan. Un `valid_for_seconds` menor que 60 es `delegation_request_invalid`; uno mayor que el
+  `{code, message}` con `delegation_request_invalid` (o `hnp_request_invalid` en las internas) y no
+  el 422 propio de FastAPI, que las rutas HP conservan. Un `valid_for_seconds` menor que 60 es `delegation_request_invalid`; uno mayor que el
   máximo, `delegation_validity_exceeded`.
 - En el alcance, `merchant_refs` es `merchant_pseudonym` de `MERCHANT_BASE_URL` y
   `destination_binding` sale de `governance/destination.py`, la misma función que usa D2 sobre los
@@ -663,7 +662,10 @@ los duplica. Las vistas nunca llevan mandatos, tokens, dirección completa ni `s
 ### 5.4 `/health` y `/me/purchases`
 
 `Health` agrega `hnp_enabled: bool`, `hnp_kill_switch: bool`, `hnp_active_grants: int`,
-`hnp_running_tasks: int` y `hnp_uncertain_tasks: int` (los conteos son 0 con el flag apagado).
+`hnp_running_tasks: int` y `hnp_uncertain_tasks: int`. **Ajuste de HNP-08:** con el flag apagado los
+cinco campos se omiten (`exclude_if`) en vez de valer `false` y 0, porque las pruebas HP y los
+runners de los pilotos fijan el cuerpo exacto de `/health`; ausente equivale a HNP apagado.
+`hnp_active_grants` no cuenta un grant `active` que ya venció (las vistas lo muestran `expired`).
 `PurchaseSummary` y `PurchaseTrace` agregan `purchase_mode: "HP" | "HNP"` (HNP-11) como campo
 **opcional**: ausente equivale a `"HP"`, el backend lo omite en las compras HP (como `authorization`
 en P3, `exclude_if`) y lo escribe solo con `"HNP"`. `parsePurchaseTrace` acepta su ausencia. Así las

@@ -35,6 +35,7 @@ from ..delegation.models import (
     GrantState,
     KillSwitchStage,
     KillSwitchState,
+    LedgerCounts,
     MandateKind,
     MandateRecord,
     OutboxRecord,
@@ -483,6 +484,21 @@ class SqliteDelegationLedger:
     def events(self, grant_id: str) -> tuple[DelegationEvent, ...]:
         with self._read() as connection:
             return read_events(connection, grant_id)
+
+    def counts(self) -> LedgerCounts:
+        """An `active` grant past `expires_at` is not counted: the views show it expired."""
+        with self._read() as connection:
+            (active,) = connection.execute(
+                "SELECT COUNT(*) FROM delegation_grants WHERE state = 'active' AND expires_at > ?",
+                (utc_text(self._clock()),),
+            ).fetchone()
+            tasks = dict(
+                connection.execute(
+                    "SELECT state, COUNT(*) FROM hnp_tasks "
+                    "WHERE state IN ('running', 'uncertain') GROUP BY state"
+                ).fetchall()
+            )
+        return LedgerCounts(active, tasks.get("running", 0), tasks.get("uncertain", 0))
 
     # Executor (spec §4.5). Every step after the claim is fenced by the task's lease: with a
     # foreign lease it writes nothing. A failed comparison writes nothing either and returns
