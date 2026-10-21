@@ -18,11 +18,12 @@ from .contract import (
     DelegationView,
     EscalationCode,
     EscalationView,
+    RevokeReceipt,
     ScopeView,
     TaskView,
     escalation_message,
 )
-from .models import Execution
+from .models import Execution, Revocation
 
 Purchase = Mapping[str, str | None]  # the `purchases` row of the task's run (§4.6)
 _ESCALATION = TypeAdapter[EscalationCode](EscalationCode)
@@ -60,6 +61,26 @@ def delegation_view(ex: Execution, purchase: Purchase | None, now: str) -> Deleg
             "task": _task_view(ex, consent, purchase, now),
             "escalation": escalation,
             "last_activity_at": max(grant.updated_at, task.updated_at),
+        }
+    )
+
+
+def task_view(ex: Execution, purchase: Purchase | None, now: str) -> TaskView:
+    return _task_view(ex, parse_consent_scope(ex.grant.scope_json.encode()), purchase, now)
+
+
+def revoke_receipt(revocation: Revocation) -> RevokeReceipt:
+    """§5.1: a grant closed by another cause is not touched and says so."""
+    grant = revocation.grant
+    text = "already_closed" if revocation.status == "already_closed" else revocation.effect
+    return RevokeReceipt.model_validate(
+        {
+            "grant_id": grant.grant_id,
+            "state": "revoked",
+            "revoked_reason": grant.revoked_reason,
+            "revoked_at": grant.closed_at,
+            "effect": revocation.effect,
+            "message": HNP_MESSAGES[f"revoke.{text}"],
         }
     )
 

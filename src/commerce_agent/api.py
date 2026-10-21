@@ -42,14 +42,27 @@ from commerce_agent.trace import PurchaseHistory, PurchaseTrace, PurchaseTraces,
 from commerce_agent.webhooks import register_webhook_receiver
 
 
+def _absent(value: object) -> bool:
+    return value is None
+
+
 class Health(BaseModel):
-    """The condition the Agent runs; evaluation runners compare it before each repetition."""
+    """The condition the Agent runs; evaluation runners compare it before each repetition.
+
+    The `hnp_*` fields exist only with AGENT_HNP_ENABLED (hnp-governed.md §5.4); with the flag off
+    they are omitted, so the HP body stays byte for byte what the runners already read.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     status: Literal["ok"]
     governance_mode: GovernanceMode
     hp_flow: Literal["blocked", "governed"]
+    hnp_enabled: bool | None = Field(default=None, exclude_if=_absent)
+    hnp_kill_switch: bool | None = Field(default=None, exclude_if=_absent)
+    hnp_active_grants: int | None = Field(default=None, ge=0, exclude_if=_absent)
+    hnp_running_tasks: int | None = Field(default=None, ge=0, exclude_if=_absent)
+    hnp_uncertain_tasks: int | None = Field(default=None, ge=0, exclude_if=_absent)
 
 
 class ApprovalRequest(BaseModel):
@@ -243,10 +256,22 @@ def create_app(
 
     @app.get("/health")
     def health() -> Health:
-        return Health(
+        condition = Health(
             status="ok",
             governance_mode=configuration.agent_governance_mode,
             hp_flow=configuration.agent_hp_flow,
+        )
+        if runtime.delegations is None:
+            return condition
+        kill_switch, counts = runtime.delegations.health()
+        return condition.model_copy(
+            update={
+                "hnp_enabled": True,
+                "hnp_kill_switch": kill_switch,
+                "hnp_active_grants": counts.active_grants,
+                "hnp_running_tasks": counts.running_tasks,
+                "hnp_uncertain_tasks": counts.uncertain_tasks,
+            }
         )
 
     @app.get("/.well-known/ap2/jwks.json")
@@ -273,7 +298,16 @@ def create_app(
         app, service=conversation, new_id=id_factory, current_buyer=current_buyer
     )
     if runtime.delegations is not None:
-        register_delegation_api(app, runtime.delegations, current_buyer=current_buyer)
+        # The bootstrap already required both tokens (delegation/bootstrap.py).
+        assert configuration.agent_hnp_service_token is not None
+        assert configuration.agent_hnp_operator_token is not None
+        register_delegation_api(
+            app,
+            runtime.delegations,
+            current_buyer=current_buyer,
+            service_token=configuration.agent_hnp_service_token,
+            operator_token=configuration.agent_hnp_operator_token,
+        )
 
     @app.post("/conversation/turn", response_model=ConversationTurnResponse)
     def conversation_turn(

@@ -1,4 +1,4 @@
-"""Delegation API: proposal, consent and views (docs/design/hnp-governed.md §5.1, §5.3, §6).
+"""Delegation API (docs/design/hnp-governed.md §5.1, §5.2 without `run`, §5.3, §5.4 and §6).
 
 The app runs on real SQLite in `tmp_path` with the fixture feed, a settable authority clock and
 two fake buyers; the task states the executor writes (HNP-09) are driven through the ledger.
@@ -33,6 +33,8 @@ from commerce_agent.delegation.contract import (
     DelegationList,
     DelegationProposal,
     DelegationView,
+    RevokeAllReceipt,
+    RevokeReceipt,
     escalation_message,
 )
 from commerce_agent.delegation.models import chain_is_valid
@@ -220,6 +222,10 @@ ROUTES = (
     ("POST", "/delegations"),
     ("GET", "/me/delegations"),
     ("GET", "/delegations/dg_1"),
+    ("POST", "/delegations/dg_1/revoke"),
+    ("POST", "/me/delegations/revoke-all"),
+    ("GET", "/internal/hnp/tasks/ht_1"),
+    ("POST", "/internal/hnp/kill-switch"),
 )
 
 
@@ -228,10 +234,12 @@ def test_without_the_flag_no_delegation_route_exists(
     tmp_path: Path, clock: AuthorityClock, method: str, path: str
 ) -> None:
     with TestClient(build(tmp_path, clock, agent_hnp_enabled=False)) as client:
-        response = client.request(method, path, json={}, headers=buyer())
+        response = client.request(method, path, json={}, headers=bearer(OPERATOR_TOKEN))
+        health = client.get("/health").json()
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Not Found"}
+    assert not any(name.startswith("hnp_") for name in health)
     with closing(sqlite3.connect(tmp_path / "agent.db")) as connection:
         tables = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE name = 'delegation_grants'"
@@ -344,7 +352,10 @@ def test_a_variant_priced_in_another_currency_is_unavailable(
         assert propose(client, variant_ids=["SON-01", "SON-07"]).status_code == 201
 
 
-@pytest.mark.parametrize(("method", "path"), ROUTES)
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [route for route in ROUTES if not route[1].startswith("/internal")],
+)
 def test_buyer_routes_require_the_buyer_jwt(client: TestClient, method: str, path: str) -> None:
     for headers in ({}, bearer(SERVICE_TOKEN), bearer(OPERATOR_TOKEN)):
         assert client.request(method, path, json={}, headers=headers).status_code == 401
@@ -455,7 +466,7 @@ def test_a_signer_failure_writes_nothing(
 # Ownership (§5.1): another owner's proposal or grant is not found.
 
 
-def test_another_owner_can_neither_consent_nor_see(client: TestClient) -> None:
+def test_another_owner_cannot_see_consent_or_revoke(client: TestClient) -> None:
     proposal = propose(client).json()
     error(consent(client, proposal, "buyer-b"), 404, "delegation_proposal_not_found")
     view = consent(client, proposal).json()
@@ -463,7 +474,11 @@ def test_another_owner_can_neither_consent_nor_see(client: TestClient) -> None:
 
     other = buyer("buyer-b")
     error(client.get(f"/delegations/{grant_id}", headers=other), 404, "delegation_not_found")
+    error(
+        client.post(f"/delegations/{grant_id}/revoke", headers=other), 404, "delegation_not_found"
+    )
     assert client.get("/me/delegations", headers=other).json() == {"delegations": []}
+    assert client.post("/me/delegations/revoke-all", headers=other).json() == {"receipts": []}
     assert view_of(client, grant_id).state == "active"
 
 
@@ -482,7 +497,88 @@ def test_my_delegations_are_listed_newest_first(client: TestClient, clock: Autho
     error(client.get("/delegations/dg_missing", headers=buyer()), 404, "delegation_not_found")
 
 
-def test_an_active_grant_past_its_expiry_shows_expired(
+# Revocation (§5.1, §8.4)
+
+
+def test_revocation_is_idempotent(client: TestClient, clock: AuthorityClock) -> None:
+    view = delegated(client)
+    clock.advance(5)
+    path = f"/delegations/{view['grant_id']}/revoke"
+
+    first = client.post(path, headers=buyer())
+    clock.advance(5)
+    again = client.post(path, headers=buyer())
+
+    assert (first.status_code, again.status_code) == (200, 200)
+    assert again.json() == first.json()
+    assert RevokeReceipt.model_validate_json(first.text).model_dump() == {
+        "grant_id": view["grant_id"],
+        "state": "revoked",
+        "revoked_reason": "owner",
+        "revoked_at": "2026-10-21T15:00:05.000Z",
+        "effect": "no_effect",
+        "message": HNP_MESSAGES["revoke.no_effect"],
+    }
+    revoked = view_of(client, view["grant_id"])
+    assert (revoked.state, revoked.revoked_reason) == ("revoked", "owner")
+    assert (revoked.task.state, revoked.task.outcome_code) == ("canceled", "revoked_by_owner")
+    assert revoked.task.message == HNP_MESSAGES["task.revoked_by_owner"]
+
+
+def test_revoke_all_reports_each_active_grant_with_its_effect(
+    client: TestClient, ledger: SqliteDelegationLedger, clock: AuthorityClock
+) -> None:
+    idle = delegated(client)
+    held = delegated(client)
+    in_flight = delegated(client)
+    closed = delegated(client)
+    client.post(f"/delegations/{closed['grant_id']}/revoke", headers=buyer())
+    held_flow = flow(ledger, clock, held)
+    assert held_flow.claim().status == "applied"
+    assert held_flow.reserve(2).status == "applied"
+    flow(ledger, clock, in_flight).committed()
+
+    response = client.post("/me/delegations/revoke-all", headers=buyer())
+
+    assert response.status_code == 200, response.text
+    receipts = RevokeAllReceipt.model_validate_json(response.text).receipts
+    effects = {receipt.grant_id: (receipt.effect, receipt.message) for receipt in receipts}
+    assert effects == {
+        idle["grant_id"]: ("no_effect", HNP_MESSAGES["revoke.no_effect"]),
+        held["grant_id"]: ("released", HNP_MESSAGES["revoke.released"]),
+        in_flight["grant_id"]: ("in_flight", HNP_MESSAGES["revoke.in_flight"]),
+    }
+    assert client.post("/me/delegations/revoke-all", headers=buyer()).json() == {"receipts": []}
+
+
+def test_revoking_a_grant_the_operator_closed_has_no_effect(
+    client: TestClient, ledger: SqliteDelegationLedger, clock: AuthorityClock
+) -> None:
+    view = delegated(client)
+    switch = client.post(
+        "/internal/hnp/kill-switch", json={"enabled": True}, headers=bearer(OPERATOR_TOKEN)
+    )
+    assert switch.status_code == 200
+    clock.advance(10)
+    assert ledger.claim(view["task"]["task_id"]).outcome == "kill_switch"
+
+    response = client.post(f"/delegations/{view['grant_id']}/revoke", headers=buyer())
+
+    assert response.status_code == 200, response.text
+    assert RevokeReceipt.model_validate_json(response.text).model_dump() == {
+        "grant_id": view["grant_id"],
+        "state": "revoked",
+        "revoked_reason": "operator",
+        "revoked_at": "2026-10-21T15:00:10.000Z",
+        "effect": "no_effect",
+        "message": HNP_MESSAGES["revoke.already_closed"],
+    }
+    closed = view_of(client, view["grant_id"])
+    assert (closed.state, closed.revoked_reason) == ("revoked", "operator")
+    assert closed.task.message == HNP_MESSAGES["task.kill_switch"]
+
+
+def test_an_expired_delegation_shows_expired_and_is_not_revocable(
     client: TestClient, clock: AuthorityClock
 ) -> None:
     view = delegated(client)
@@ -491,6 +587,9 @@ def test_an_active_grant_past_its_expiry_shows_expired(
     expired = view_of(client, view["grant_id"])
     assert (expired.state, expired.task.state) == ("expired", "scheduled")
     assert expired.task.message == HNP_MESSAGES["task.grant_expired"]
+    response = client.post(f"/delegations/{view['grant_id']}/revoke", headers=buyer())
+    body = error(response, 409, "delegation_not_revocable")
+    assert body["message"] == HNP_MESSAGES["revoke.not_revocable"]
 
 
 # The view follows the task the executor runs (§5.3, §8.1, §8.3).
@@ -594,6 +693,100 @@ def test_a_canceled_task_says_who_closed_it(
     stopped = view_of(client, by_operator["grant_id"])
     assert (stopped.state, stopped.revoked_reason) == ("revoked", "operator")
     assert stopped.task.message == HNP_MESSAGES["task.kill_switch"]
+
+
+# Internal routes (§5.2): tokens, no browser origin.
+
+
+def test_the_kill_switch_needs_the_operator_token(client: TestClient) -> None:
+    path = "/internal/hnp/kill-switch"
+    for headers in ({}, bearer(SERVICE_TOKEN), buyer(), bearer(OPERATOR_TOKEN[:-1])):
+        error(client.post(path, json={"enabled": True}, headers=headers), 401, "hnp_unauthorized")
+    origin = bearer(OPERATOR_TOKEN) | {"Origin": "http://127.0.0.1:5173"}
+    response = client.post(path, json={"enabled": True}, headers=origin)
+    error(response, 403, "hnp_origin_forbidden")
+    for body in ({}, {"enabled": "true"}, {"enabled": True, "actor": "x"}):
+        response = client.post(path, json=body, headers=bearer(OPERATOR_TOKEN))
+        error(response, 422, "hnp_request_invalid")
+    assert client.get("/health").json()["hnp_kill_switch"] is False
+
+
+def test_the_kill_switch_adds_an_epoch_only_when_it_changes(
+    client: TestClient, clock: AuthorityClock
+) -> None:
+    def switch(enabled: bool) -> dict[str, Any]:
+        response = client.post(
+            "/internal/hnp/kill-switch",
+            json={"enabled": enabled},
+            headers=bearer(OPERATOR_TOKEN),
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    clock.advance(1)
+    on = switch(True)
+    clock.advance(1)
+    assert on == {"enabled": True, "control_epoch": 2, "changed_at": "2026-10-21T15:00:01.000Z"}
+    assert switch(True) == on
+    assert switch(False) == {
+        "enabled": False,
+        "control_epoch": 3,
+        "changed_at": "2026-10-21T15:00:02.000Z",
+    }
+
+
+def test_a_task_is_read_with_the_service_token(client: TestClient) -> None:
+    view = delegated(client)
+    path = f"/internal/hnp/tasks/{view['task']['task_id']}"
+
+    for headers in ({}, bearer(OPERATOR_TOKEN), buyer()):
+        error(client.get(path, headers=headers), 401, "hnp_unauthorized")
+    response = client.get(path, headers=bearer(SERVICE_TOKEN))
+    assert response.status_code == 200 and response.json() == view["task"]
+    missing = client.get("/internal/hnp/tasks/ht_missing", headers=bearer(SERVICE_TOKEN))
+    error(missing, 404, "hnp_task_not_found")
+    origin = bearer(SERVICE_TOKEN) | {"Origin": "https://evil.example"}
+    error(client.get(path, headers=origin), 403, "hnp_origin_forbidden")
+
+
+def test_there_is_no_run_route_yet(client: TestClient) -> None:
+    view = delegated(client)
+    path = f"/internal/hnp/tasks/{view['task']['task_id']}/run"
+    assert client.post(path, headers=bearer(SERVICE_TOKEN)).status_code == 404
+
+
+# /health (§5.4)
+
+
+def test_health_counts_delegations_and_reports_the_switch(
+    client: TestClient, ledger: SqliteDelegationLedger, clock: AuthorityClock
+) -> None:
+    base = {"status": "ok", "governance_mode": "off", "hp_flow": "blocked"}
+    assert client.get("/health").json() == base | {
+        "hnp_enabled": True,
+        "hnp_kill_switch": False,
+        "hnp_active_grants": 0,
+        "hnp_running_tasks": 0,
+        "hnp_uncertain_tasks": 0,
+    }
+    flow(ledger, clock, delegated(client)).claim()
+    delegated(client)
+    uncertain = flow(ledger, clock, delegated(client))
+    uncertain.committed()
+    uncertain.advance("payment_sent")
+    ledger.mark_uncertain(uncertain.task_id, uncertain.lease_id, "dispatch_timeout")
+    client.post("/internal/hnp/kill-switch", json={"enabled": True}, headers=bearer(OPERATOR_TOKEN))
+
+    health = client.get("/health").json()
+    assert {name: value for name, value in health.items() if name.startswith("hnp_")} == {
+        "hnp_enabled": True,
+        "hnp_kill_switch": True,
+        "hnp_active_grants": 3,
+        "hnp_running_tasks": 1,
+        "hnp_uncertain_tasks": 1,
+    }
+    clock.advance(3_600)
+    assert client.get("/health").json()["hnp_active_grants"] == 0
 
 
 # Startup (§6): any other combination fails, without echoing secrets.

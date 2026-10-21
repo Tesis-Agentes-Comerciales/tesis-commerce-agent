@@ -1,4 +1,4 @@
-"""Proposal, consent and views of delegations (docs/design/hnp-governed.md §3.2, §5.1, §5.3).
+"""Proposal, consent, views and revocation of delegations (docs/design/hnp-governed.md §3.2, §5).
 
 The buyer proposes a typed scope and consents to its exact digest. Only then does the provider
 key sign the open mandates (HNP-04), and the ledger (HNP-02) creates the grant, the mandates and
@@ -40,9 +40,25 @@ from commerce_agent.governance.models import SCHEMA, Digest, Id
 from commerce_agent.governance.provenance import ProvenanceKeys, merchant_pseudonym, pseudonym
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger, utc_text
 
-from .contract import DelegationList, DelegationProposal, DelegationView, ProposalId
-from .models import ConsentRequest, Execution, ProposalDraft, ProposalRecord, SignedMandate
-from .views import Purchase, delegation_view, scope_view
+from .contract import (
+    DelegationList,
+    DelegationProposal,
+    DelegationView,
+    ProposalId,
+    RevokeAllReceipt,
+    RevokeReceipt,
+    TaskView,
+)
+from .models import (
+    ConsentRequest,
+    Execution,
+    KillSwitchState,
+    LedgerCounts,
+    ProposalDraft,
+    ProposalRecord,
+    SignedMandate,
+)
+from .views import Purchase, delegation_view, revoke_receipt, scope_view, task_view
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +71,7 @@ _CONSENT_ERRORS = {
 
 
 class DelegationError(Exception):
-    """An expected refusal; `code` is one of §5.1 and never carries internal detail."""
+    """An expected refusal; `code` is one of §5.1/§5.2 and never carries internal detail."""
 
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -290,6 +306,12 @@ class DelegationService:
             raise DelegationError("delegation_not_found")
         return self._view(grant_id)
 
+    def task(self, task_id: str) -> TaskView:
+        execution = self._ledger.execution(task_id)
+        if execution is None:
+            raise DelegationError("hnp_task_not_found")
+        return task_view(execution, self._run_purchase(execution), utc_text(self._clock()))
+
     def _view(self, grant_id: str) -> DelegationView:
         task = self._ledger.task_for_grant(grant_id)
         execution = self._ledger.execution(task.task_id) if task is not None else None
@@ -300,6 +322,35 @@ class DelegationService:
     def _run_purchase(self, execution: Execution) -> Purchase | None:
         run_id = execution.task.run_id
         return self._purchase(run_id) if run_id is not None else None
+
+    # Revocation (§8.4)
+
+    def revoke(self, owner_id: str, grant_id: str) -> RevokeReceipt:
+        revocation = self._ledger.revoke(owner_id, grant_id)
+        if revocation is None:
+            raise DelegationError("delegation_not_found")
+        if revocation.status == "not_revocable":
+            raise DelegationError("delegation_not_revocable")
+        return revoke_receipt(revocation)
+
+    def revoke_all(self, owner_id: str) -> RevokeAllReceipt:
+        """One receipt per grant that was active; any other grant is left as it is."""
+        receipts = []
+        for grant in self._ledger.grants(owner_id):
+            if grant.state != "active":
+                continue
+            revocation = self._ledger.revoke(owner_id, grant.grant_id)
+            if revocation is not None and revocation.status == "revoked":
+                receipts.append(revoke_receipt(revocation))
+        return RevokeAllReceipt(receipts=tuple(receipts))
+
+    # Operator (§5.2, §5.4)
+
+    def set_kill_switch(self, enabled: bool) -> KillSwitchState:
+        return self._ledger.set_kill_switch(enabled)
+
+    def health(self) -> tuple[bool, LedgerCounts]:
+        return self._ledger.kill_switch().enabled, self._ledger.counts()
 
     def _owner_ref(self, owner_id: str) -> str:
         """§4.2: the D1/D2 pseudonym of the owner, never the JWT `sub` itself."""
