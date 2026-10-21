@@ -3,6 +3,11 @@
 El runner (`uv run governance-pilot`) crea aquí un archivo JSONL y un resumen JSON por lote. Cada
 línea corresponde a una repetición y no contiene bearer tokens, claves privadas ni tokens de pago.
 
+El artefacto completo de cada corrida (bases del agente, feed, log redactado y `MANIFEST.json`)
+nunca se guarda aquí: queda en `.local/runs/`, fuera de Git, porque lleva JWT y mandatos del
+sandbox. Cada fila lo nombra en `run_artifact` con su ruta relativa y sus sha256
+([`../README.md`](../README.md#artefacto-de-cada-corrida-governance-pilot-y-hnp-pilot)).
+
 Los resultados del piloto se conservan aunque incumplan el oráculo: una desviación es evidencia
 experimental, no un error que deba borrarse o reejecutarse silenciosamente.
 

@@ -71,6 +71,8 @@ from commerce_evaluation.pilot_policy import (
     scenario_allowlist,
     scenario_environment,
 )
+from commerce_evaluation.redaction import redact, secret_values
+from commerce_evaluation.run_artifacts import RunArtifacts, artifacts_root, finished_row
 
 DEFAULT_RESULTS = RESULTS
 # Default pre-registered B0'/B2 pilot (v1): its matrix, conditions, order and criteria. The v2
@@ -667,7 +669,11 @@ def _run(
         check=False,
     )
     if result.returncode != 0:
-        detail = result.stderr.strip() if capture else "see command output above"
+        detail = (
+            redact(result.stderr.strip(), secret_values(env, INVOCATION_SECRETS))
+            if capture
+            else "see command output above"
+        )
         raise PilotError(f"Command failed ({command[0]}): {detail}")
     return result
 
@@ -1088,6 +1094,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run although tracked files of the agent, merchant or PSP differ from their commit",
     )
+    parser.add_argument(
+        "--artifacts-dir",
+        type=Path,
+        help="where each row's run artifact is kept (default: .local/runs); never a versioned path",
+    )
     return parser
 
 
@@ -1105,11 +1116,7 @@ def _tail(path: Path, secrets_to_hide: tuple[str, ...]) -> str:
     if not path.is_file():
         return ""
     # Redact before cutting: a cut through a secret would leave part of it behind.
-    value = path.read_text(encoding="utf-8", errors="replace")
-    for secret in secrets_to_hide:
-        if secret:
-            value = value.replace(secret, "[redacted]")
-    return value[-4000:]
+    return redact(path.read_text(encoding="utf-8", errors="replace"), secrets_to_hide)[-4000:]
 
 
 def agent_log_tail(path: Path, agent_variables: Mapping[str, str]) -> str:
@@ -1249,8 +1256,13 @@ def _execute_repetition(
     chain: EvidenceChainCheck | None = None,
     digests: PolicyDigests | None = None,
     turn_timeout: float = DEFAULT_TURN_TIMEOUT_SECONDS,
+    hide: Callable[..., None] = lambda *_: None,
 ) -> dict[str, Any]:
-    """One repetition. `digests` spans the invocation, so one list keeps one artifact digest."""
+    """One repetition. `digests` spans the invocation, so one list keeps one artifact digest.
+
+    `hide` receives each secret the agent starts with (its merchant session is issued per run),
+    so the row's artifact and error fields are redacted of it.
+    """
     scenario, repetition, condition = run.scenario, run.repetition, run.condition
     label = run_dir.name
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1339,6 +1351,7 @@ def _execute_repetition(
 
             def start_agent(variables: dict[str, str]) -> dict[str, str]:
                 """Start the agent and return the condition its /health reports."""
+                hide(*secret_values(variables, AGENT_SECRETS))
                 processes.append(
                     subprocess.Popen(
                         [
@@ -1660,8 +1673,12 @@ def run_plan(
     matrix: dict[str, Any],
     run_metadata: dict[str, Any],
     result_file: TextIO,
+    finish: Callable[[PlannedRun, dict[str, Any]], dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Execute and write each run; a harness error is a row, a condition mismatch stops all."""
+    """Execute and write each run; a harness error is a row, a condition mismatch stops all.
+
+    `finish` completes every row before it is written, a harness error's too (`keeping`).
+    """
     records: list[dict[str, Any]] = []
     for index, run in enumerate(plan, start=1):
         print(
@@ -1675,11 +1692,33 @@ def run_plan(
             raise
         except Exception as error:
             record = _harness_error_record(matrix, run, error)
+        if finish is not None:
+            record = finish(run, record)
         record = run_metadata | record
         records.append(record)
         result_file.write(json.dumps(record, ensure_ascii=False) + "\n")
         result_file.flush()
     return records
+
+
+# What identifies an HP row in its artifact's MANIFEST.json.
+ARTIFACT_KEY = ("scenario_id", "condition", "repetition", "purchase_run_id", "merchant_run_id")
+
+
+def artifact_key(record: Mapping[str, Any]) -> dict[str, Any]:
+    return {name: record.get(name) for name in ARTIFACT_KEY}
+
+
+def keeping(
+    artifacts: RunArtifacts, temp: Path
+) -> Callable[[PlannedRun, dict[str, Any]], dict[str, Any]]:
+    """run_plan's `finish`: once the row's agent stopped, also after a harness error, keep its
+    run directory as the row's artifact and redact the row's error fields."""
+
+    def finish(run: PlannedRun, record: dict[str, Any]) -> dict[str, Any]:
+        return finished_row(artifacts, run_directory(temp, run), record, key=artifact_key(record))
+
+    return finish
 
 
 def _rate(count: int, total: int) -> float | None:
@@ -2028,6 +2067,14 @@ def require_integrations(readiness: Mapping[str, Mapping[str, Any]]) -> None:
         )
 
 
+def run_artifacts_root(path: Path | None) -> Path:
+    """`--artifacts-dir`, checked before any service starts: never a versioned directory."""
+    try:
+        return artifacts_root(path)
+    except ValueError as error:
+        raise PilotError(str(error)) from error
+
+
 def is_smoke(
     manifest: Mapping[str, Any],
     matrix: Mapping[str, Any],
@@ -2064,6 +2111,11 @@ SERVICE_SECRETS = (
     "AGENT_AP2_PRIVATE_KEY_PEM",
     "MERCHANT_AP2_PRIVATE_KEY_PEM",
     "PAYMENT_AP2_PRIVATE_KEY_PEM",
+)
+# Every secret an invocation's processes may print (run-traceability.md §4.2): the agent's and the
+# services', auth's own and the model key the agent may read from the process environment.
+INVOCATION_SECRETS = tuple(
+    dict.fromkeys((*AGENT_SECRETS, *SERVICE_SECRETS, "BETTER_AUTH_SECRET", "OPENAI_API_KEY"))
 )
 
 
@@ -2224,7 +2276,7 @@ def running_services(
         ):
             for log in logs:
                 log.flush()
-            tail = _tail(log_path, tuple(environment[secret] for secret in SERVICE_SECRETS))
+            tail = _tail(log_path, secret_values(environment, INVOCATION_SECRETS))
             if tail:
                 print(f"{name} log tail:\n{tail}", file=sys.stderr)
         raise
@@ -2333,6 +2385,7 @@ def _run_pilot() -> int:
             {"merchant": merchant, "payment": payment}, allow_dirty=arguments.allow_dirty
         ),
     }
+    runs_root = run_artifacts_root(arguments.artifacts_dir)
     output = arguments.output
     if output is None:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -2356,6 +2409,15 @@ def _run_pilot() -> int:
         policy,
         openai_timeout_seconds=run_metadata["openai_timeout_seconds"],
     )
+    artifacts = RunArtifacts(
+        root=runs_root,
+        invocation_id=f"governance-pilot-{uuid4().hex[:12]}",
+        runner="governance-pilot",
+        provenance=run_metadata,
+    )
+    artifacts.hide(*secret_values(environment, INVOCATION_SECRETS))
+    for variables in environments.values():
+        artifacts.hide(*secret_values(variables, AGENT_SECRETS))
     chain = evidence_chain_check(manifest)
     digests = PolicyDigests()
     mechanisms = mechanisms_by_scenario(manifest_path)
@@ -2398,6 +2460,7 @@ def _run_pilot() -> int:
                     chain=chain,
                     digests=digests,
                     turn_timeout=turn_timeout_seconds(run_metadata["openai_timeout_seconds"]),
+                    hide=artifacts.hide,
                 )
 
             with output.open("w", encoding="utf-8") as result_file:
@@ -2407,6 +2470,7 @@ def _run_pilot() -> int:
                     matrix=matrix,
                     run_metadata=run_metadata,
                     result_file=result_file,
+                    finish=keeping(artifacts, temp),
                 )
             summary = summary_document(
                 records,
@@ -2429,7 +2493,7 @@ def main() -> int:
     try:
         return _run_pilot()
     except PilotError as error:
-        print(f"governance pilot failed: {error}", file=sys.stderr)
+        print(f"governance pilot failed: {redact(str(error))}", file=sys.stderr)
         return 1
 
 
