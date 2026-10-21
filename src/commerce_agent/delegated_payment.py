@@ -5,7 +5,6 @@ from typing import Any
 import httpx
 import jwt
 from ap2.sdk.generated.payment_receipt import PaymentReceiptError
-from ap2.sdk.sdjwt import common
 from pydantic import SecretStr, ValidationError
 
 from commerce_agent.acp.models import (
@@ -15,12 +14,9 @@ from commerce_agent.acp.models import (
     SandboxPaymentData,
     SandboxPaymentInstrument,
 )
+from commerce_agent.ap2_receipt import AP2_ERRORS, chain_reference
 from commerce_agent.config import validate_service_base_url
 
-# The AP2 error codes a Human Not Present error receipt may carry (docs/ap2-profile.md, Errores).
-AP2_ERRORS = frozenset(
-    {"invalid_credential", "invalid_mandate", "unresolved_constraint", "mandates_not_supported"}
-)
 RECEIPT_ISSUER = "tesis_payment_provider"
 
 
@@ -35,12 +31,6 @@ class DelegationError(RuntimeError):
         self.code = code
         self.status_code = status_code
         self.receipt = receipt
-
-
-def chain_reference(mandate: str) -> str:
-    """The `reference` of a receipt: `sd_hash` of the mandate, or of the last segment of an
-    `open~~closed` chain (docs/ap2-profile.md, Recibos)."""
-    return common.compute_sd_hash(common.parse_token(mandate.rsplit("~~", 1)[-1]))
 
 
 class DelegatedPaymentClient:

@@ -23,9 +23,17 @@ from commerce_agent.acp.models import (
     SandboxPaymentInstrument,
 )
 from commerce_agent.ap2_hnp import closed_checkout_jwt, closed_issued_at
+from commerce_agent.ap2_receipt import chain_reference
 from commerce_agent.delegated_payment import DelegatedPaymentClient, DelegationError
 from tests.support.ap2_hnp_fixtures import MERCHANT_ISSUER
-from tests.support.ap2_receipts import PSP_ISSUER, Chains, Signer, chains, psp_payment_id
+from tests.support.ap2_receipts import (
+    PSP_ISSUER,
+    Chains,
+    Signer,
+    chain_hash,
+    chains,
+    psp_payment_id,
+)
 from tests.test_completion_client import completed_checkout
 
 CLOSED_AT = datetime(2026, 10, 21, 15, 0, tzinfo=UTC)
@@ -395,6 +403,13 @@ def test_a_merchant_timeout_has_no_status_and_no_receipt(chain: Chains) -> None:
 
 
 # The closed chain itself
+
+
+def test_a_receipt_references_the_link_hash_the_ledger_keeps(chain: Chains) -> None:
+    # The doubles sign with `chain_hash` and the clients verify with `chain_reference`, one formula
+    # twice; the closer's `link_hash`, which the ledger keeps and V1 compares, anchors both.
+    for closed in (chain.closed.checkout, chain.closed.payment):
+        assert chain_reference(closed.token) == chain_hash(closed.token) == closed.link_hash
 
 
 def test_a_closed_chain_names_its_checkout_jwt_and_when_it_was_closed(chain: Chains) -> None:

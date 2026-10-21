@@ -276,10 +276,11 @@ El despacho del agente (spec HNP, §3.3) usa los clientes de HP con la cadena en
   trae `ACPClientError.receipt` (el `checkout_receipt_jwt` del 422, sin verificar), y
   `verify_checkout_error_receipt(recibo, mandate=<cadena de checkout>)` lo valida como
   `CheckoutReceiptError` contra la JWKS del comercio (por `kid`), con las mismas reglas.
-- `chain_reference(mandate)` (`delegated_payment.py`) es la `reference` de [Recibos](#recibos): el
-  `sd_hash` del último segmento, que con un mandato HP sin `~~` da el valor de siempre. Los
-  verificadores de éxito y de error la comparan con ella. `closed_checkout_jwt` y `closed_issued_at`
-  (`ap2_hnp.py`) leen el Checkout JWT y el `iat` del cerrado de una cadena.
+- `chain_reference(mandate)` es la `reference` de [Recibos](#recibos): el `sd_hash` del último
+  segmento, que con un mandato HP sin `~~` da el valor de siempre. Los verificadores de éxito y de
+  error la comparan con ella. Vive con `AP2_ERRORS` en `ap2_receipt.py`, un módulo hoja (solo el SDK
+  de AP2) que importan los dos clientes, para que ninguno dependa del otro. `closed_checkout_jwt` y
+  `closed_issued_at` (`ap2_hnp.py`) leen el Checkout JWT y el `iat` del cerrado de una cadena.
 - Pruebas: `tests/test_hnp_receipts.py`, con cadenas reales del producto y recibos firmados con
   claves de prueba (`tests/support/ap2_receipts.py`).
 

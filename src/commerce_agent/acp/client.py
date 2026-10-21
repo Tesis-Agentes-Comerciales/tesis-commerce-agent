@@ -21,8 +21,8 @@ from commerce_agent.acp.models import (
 )
 from commerce_agent.acp.offer_snapshot import DeliveryContext, MerchantOffer, OfferResponse
 from commerce_agent.acp.schema import ACPContractError, validate_acp
+from commerce_agent.ap2_receipt import AP2_ERRORS, chain_reference
 from commerce_agent.config import validate_service_base_url
-from commerce_agent.delegated_payment import AP2_ERRORS, chain_reference
 
 
 class ACPClientError(RuntimeError):
