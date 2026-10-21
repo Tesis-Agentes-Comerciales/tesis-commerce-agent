@@ -6,7 +6,7 @@ import {
   DelegationRevokeReceipt,
   type DelegationRevokeReceiptProps,
 } from "@/components/delegation/delegation-revoke-receipt"
-import { expectFitsPhoneColumn, PHONE_COLUMN, plain } from "@/components/delegation/story-helpers"
+import { expectFitsPhoneColumn, PHONE_DIALOG_COLUMN, plain } from "@/components/delegation/story-helpers"
 import { REVOKE_RECEIPTS } from "@/storybook/fixtures/delegation-fixtures"
 
 const [NO_EFFECT, RELEASED, IN_FLIGHT] = REVOKE_RECEIPTS.receipts
@@ -74,7 +74,7 @@ export const RevokeAll: Story = {
 export const Phone320: Story = {
   args: { receipt: IN_FLIGHT },
   render: (args) => (
-    <div className={PHONE_COLUMN} data-testid="phone-column">
+    <div className={PHONE_DIALOG_COLUMN} data-testid="phone-column">
       <DelegationRevokeReceipt {...args} />
     </div>
   ),

@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, within } from "storybook/test"
 
 import { DelegationList, type DelegationRevocation } from "@/components/delegation/delegation-list"
-import { expectFitsPhoneColumn, PHONE_COLUMN } from "@/components/delegation/story-helpers"
+import { expectFitsPhoneColumn, PHONE_DIALOG_COLUMN } from "@/components/delegation/story-helpers"
 import {
   parseDelegationList,
   parseDelegationRevokeAllReceipt,
@@ -131,7 +131,7 @@ export const LoadFailed: Story = {
 export const Phone320: Story = {
   args: { delegations: [...BEFORE, ...AFTER.slice(0, 1)], revocations: RECEIPTS },
   render: (args) => (
-    <div className={PHONE_COLUMN} data-testid="phone-column">
+    <div className={PHONE_DIALOG_COLUMN} data-testid="phone-column">
       <DelegationList {...args} />
     </div>
   ),

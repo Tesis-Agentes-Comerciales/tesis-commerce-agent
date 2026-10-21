@@ -6,7 +6,7 @@ import {
   escalationOf,
   expectFitsPhoneColumn,
   expectKeyboardFocus,
-  PHONE_COLUMN,
+  PHONE_DIALOG_COLUMN,
   plain,
 } from "@/components/delegation/story-helpers"
 import { DELEGATIONS } from "@/storybook/fixtures/delegation-fixtures"
@@ -64,7 +64,7 @@ export const KeyboardBuyFromChat: Story = {
 /** A 320 px el texto canónico completo y el CTA caben sin desbordar. */
 export const Phone320: Story = {
   render: (args) => (
-    <div className={PHONE_COLUMN} data-testid="phone-column">
+    <div className={PHONE_DIALOG_COLUMN} data-testid="phone-column">
       <DelegationEscalationCard {...args} />
     </div>
   ),

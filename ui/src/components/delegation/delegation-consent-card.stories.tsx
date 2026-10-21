@@ -6,7 +6,7 @@ import { DelegationConsentCard } from "@/components/delegation/delegation-consen
 import {
   expectFitsPhoneColumn,
   expectKeyboardFocus,
-  PHONE_COLUMN,
+  PHONE_DIALOG_COLUMN,
   plain,
 } from "@/components/delegation/story-helpers"
 import { parseDelegationProposal } from "@/lib/delegation-contract"
@@ -209,7 +209,7 @@ export const MouseAuthorize: Story = {
 /** A 320 px el total, las variantes, el vencimiento y los botones caben sin desbordar. */
 export const Phone320: Story = {
   render: (args) => (
-    <div className={PHONE_COLUMN} data-testid="phone-column">
+    <div className={PHONE_DIALOG_COLUMN} data-testid="phone-column">
       <DelegationConsentCard {...args} />
     </div>
   ),
