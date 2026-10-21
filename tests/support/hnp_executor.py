@@ -1,7 +1,9 @@
 """A bench for the HNP executor: the ledger, the store and the purchase on one real SQLite file.
 
 The merchant, the Agent Key, the freshness check and D2/D3-HNP are scripted doubles that count
-what each step reached, so a test can say which effects a deny or a lost CAS let through.
+what each step reached, so a test can say which effects a deny or a lost CAS let through. With
+`real_chains` the mandates are the product's (`OpenMandateIssuer`, `AgentKeyCloser`) over a Checkout
+JWT the merchant double signs, so a re-claim or a dispatch can read them back.
 """
 
 import json
@@ -13,15 +15,22 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
 
+import jwt
 from pydantic import SecretStr
 
 from commerce_agent.acp import load_product_feed
 from commerce_agent.acp.client import ACPClientError
 from commerce_agent.acp.models import CheckoutSession
-from commerce_agent.ap2_hnp import MandatePair
+from commerce_agent.ap2_hnp import (
+    AcceptableItem,
+    AgentKeyCloser,
+    MandatePair,
+    OpenMandateIssuer,
+)
 from commerce_agent.ap2_hnp import SignedMandate as Ap2Mandate
 from commerce_agent.application import PurchaseService
 from commerce_agent.application.hnp_execution import (
+    Dispatcher,
     HnpExecutionService,
     NullHnpPolicyGate,
     PurchaseStarter,
@@ -30,7 +39,7 @@ from commerce_agent.application.hnp_selection import DeterministicHnpSelector, H
 from commerce_agent.application.offer_freshness import FreshnessStage
 from commerce_agent.application.purchase import CheckoutGateway
 from commerce_agent.approval import ApprovalError, ApprovalService
-from commerce_agent.delegation.models import Execution, ProposalDraft, Step
+from commerce_agent.delegation.models import Execution, ProposalDraft, SignedMandate, Step
 from commerce_agent.domain import HardConstraints, PurchaseIntent
 from commerce_agent.governance.canonical import canonical_bytes, parse_model, sha256_digest
 from commerce_agent.governance.hnp_models import ConsentScope, consent_scope_bytes
@@ -38,6 +47,7 @@ from commerce_agent.governance.hnp_ports import HnpGateDecision, HnpPolicyGate
 from commerce_agent.governance.models import PolicyDecision
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger, utc_text
+from tests.support.ap2_hnp_fixtures import MERCHANT_ISSUER, checkout_jwt, private_key_pem
 from tests.support.delegation import START, AuthorityClock, Ids, consent_request
 from tests.test_purchase_service import FIXTURE, FakeCheckoutGateway, details
 
@@ -119,6 +129,25 @@ class Merchant(FakeCheckoutGateway):
         return sum(1 for call in self.calls if call[0] == kind)
 
 
+class SigningMerchant(Merchant):
+    """Signs the Checkout JWT of the current checkout, as the merchant's `/ap2/checkout-jwt`."""
+
+    def __init__(self, **changes: Any) -> None:
+        super().__init__(**changes)
+        self.pem = private_key_pem()
+
+    def signed_checkout(self, checkout: CheckoutSession) -> str:
+        if self.on_sign is not None:
+            self.on_sign()
+        self.calls.append(("sign", checkout.id))
+        jti = f"jti_{self.count('sign')}"
+        return checkout_jwt(self.pem, checkout.model_dump(mode="json"), jti=jti)
+
+    def verify_signed_checkout(self, token: str, checkout: CheckoutSession) -> None:
+        signed = jwt.decode(token, options={"verify_signature": False})["checkout"]
+        assert CheckoutSession.model_validate(signed) == checkout
+
+
 class Crash(BaseException):
     """The process dies mid-run: nothing below the executor catches it."""
 
@@ -146,6 +175,42 @@ class AgentKey:
             Ap2Mandate(f"{open_payment}~closed", "sd-hash-p", jwk),
         )
         return self.pair
+
+
+class RealAgentKey(AgentKey):
+    """The product's Agent Key, counting its closes like the double."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.key = AgentKeyCloser(private_key_pem(), merchant_issuer=MERCHANT_ISSUER)
+
+    def close(
+        self, open_checkout: str, open_payment: str, *, checkout_jwt, checkout, closed_at
+    ) -> MandatePair:
+        if self.before is not None:
+            self.before()
+        self.signatures += 1
+        self.pair = self.key.close(
+            open_checkout,
+            open_payment,
+            checkout_jwt=checkout_jwt,
+            checkout=checkout,
+            closed_at=closed_at,
+        )
+        return self.pair
+
+
+def real_opens(closer: RealAgentKey, variant_ids: tuple[str, ...], valid_for: int) -> MandatePair:
+    issuer = OpenMandateIssuer(
+        private_key_pem(), agent_public_jwk=closer.key.public_jwk, merchant_issuer=MERCHANT_ISSUER
+    )
+    items = [AcceptableItem(variant, f"Audifonos Sonora {variant}") for variant in variant_ids]
+    expires = START + timedelta(seconds=valid_for)
+    return issuer.issue(items, total_max_minor=150_000, consented_at=START, expires_at=expires)
+
+
+def _ledger_mandate(mandate: Ap2Mandate) -> SignedMandate:
+    return SignedMandate(mandate.token, mandate.link_hash, json.dumps(mandate.public_jwk))
 
 
 class Freshness:
@@ -276,8 +341,11 @@ class Bench:
         d1_reasons: tuple[str, ...] = (),
         d1_denials: Callable[[str], tuple[str, ...]] | None = None,
         checkout: CheckoutGateway | None = None,
+        real_chains: bool = False,
+        dispatcher: Callable[["Bench"], Dispatcher] | None = None,
     ) -> None:
         self.path = tmp_path / "agent.db"
+        self.mode: Literal["off", "enforce"] = mode
         self.clock = AuthorityClock()
         self.ledger = SqliteDelegationLedger(self.path, clock=self.clock, id_factory=Ids())
         self.ledger.initialize()
@@ -287,6 +355,17 @@ class Bench:
         self.ledger.create_proposal(proposal)
         intent = PurchaseIntent(hard=HardConstraints(currency="COP", max_total_amount_minor=budget))
         consent = replace(consent_request(proposal), intent_json=intent.model_dump_json())
+        if real_chains:
+            closer = closer or RealAgentKey()
+            merchant = merchant or SigningMerchant()
+            assert isinstance(closer, RealAgentKey)
+            opens = real_opens(closer, variant_ids, valid_for)
+            consent = replace(
+                consent,
+                agent_key_kid=closer.key.kid,
+                open_checkout=_ledger_mandate(opens.checkout),
+                open_payment=_ledger_mandate(opens.payment),
+            )
         result = self.ledger.consent(consent)
         assert result.task is not None and result.grant is not None, result
         self.task_id, self.grant_id = result.task.task_id, result.grant.grant_id
@@ -316,6 +395,7 @@ class Bench:
             id_factory=Ids(),
             freshness=self.freshness,
             d1_denials=None if mode == "off" else d1_denials or (lambda run_id: d1_reasons),
+            dispatcher=dispatcher(self) if dispatcher else None,
         )
 
     def run(self) -> Step:

@@ -270,6 +270,13 @@ export const TERMS_MULTIPLE_LINES: ApprovalTerms = {
 
 export const TERMS_NO_ADDRESS: ApprovalTerms = { ...TERMS, fulfillment_details: null }
 
+/** Un precio real en pesos, «$ 1.924.000,00 COP»: el total más ancho que ve la tarjeta. */
+export const TERMS_MILLIONS: ApprovalTerms = {
+  ...TERMS,
+  total_minor: 192400000,
+  lines: [{ ...TERMS.lines[0]!, unit_amount_minor: 190000000 }],
+}
+
 export const ORDER = COMPLETED.order
 
 export const PURCHASE_COMPLETED: PurchaseUpdateResult = {

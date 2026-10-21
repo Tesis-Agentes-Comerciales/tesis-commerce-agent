@@ -3,8 +3,8 @@
 `AGENT_HNP_SELECTOR=llm` (docs/design/hnp-governed.md §3.1, §6). Nobody is there to clarify, so the
 response model is P5b's `CandidateChoice` with its JSON schema restricted to the shortlist ids.
 The model sees catalog observations, the derived intent and the buyer's own preference text, and
-answers a variant id: never a mandate, key, token, amount or anything the executor signs. The
-executor re-checks the id against the shortlist (K12).
+answers a variant id: never a mandate, key, token, amount or anything the executor signs. The id
+is re-checked against the shortlist (K12): by the executor in B0-HNP, by D1-HNP in B2-HNP.
 """
 
 import json
@@ -105,7 +105,7 @@ class OpenAIDelegatedChooser:
             raise IntentInterpretationError("The delegated choice model returned no decision")
         usage = getattr(response, "usage", None)
         return DelegatedChoice(
-            # An id from outside the shortlist still reaches the executor's guard (K12).
+            # An id from outside the shortlist still meets K12 (executor guard or D1's POL-01).
             variant_id=parsed.selected_variant_id,
             input_tokens=getattr(usage, "input_tokens", None),
             output_tokens=getattr(usage, "output_tokens", None),
