@@ -8,7 +8,6 @@ the reservation (UoW-1) or the outbox row (UoW-2) it names, a deny with the task
 an allow whose unit of work lost its CAS as `blocked` plus `GOV_STATE_CONFLICT`.
 """
 
-import base64
 import hmac
 import json
 import logging
@@ -24,7 +23,6 @@ from typing import Any, Literal
 from uuid import uuid4
 
 import jwt
-from ap2.sdk.sdjwt import common
 from jwcrypto.jwk import JWK
 
 from commerce_agent.acp.models import CheckoutSession
@@ -32,6 +30,7 @@ from commerce_agent.ap2_hnp import (
     PROFILE_DIGEST,
     PROFILE_VERSION,
     MandateTrust,
+    closed_checkout_jwt,
     verify_closed_proof,
     verify_open_proof,
 )
@@ -580,7 +579,7 @@ class SqliteHnpPolicyGate:
                 closed = [mandates[kind] for kind in ("closed_checkout", "closed_payment")]
                 if any(mandate[1] != reservation_id for mandate in closed):
                     raise GovernanceError("GOV_FACTS_UNAVAILABLE")
-                signed_jwt = _checkout_jwt(closed[0][2])
+                signed_jwt = closed_checkout_jwt(closed[0][2])
                 proof = verify_closed_proof(
                     closed[0][2],
                     closed[1][2],
@@ -706,18 +705,6 @@ def _blocked(record: DecisionRecord) -> DecisionRecord:
 def _mandate_ref(mandate: tuple[Any, ...]) -> dict[str, Any]:
     """An opaque reference to a stored mandate: its id and token digest, never the token."""
     return {"schema_version": SCHEMA, "id": mandate[0], "version": 1, "digest": mandate[3]}
-
-
-def _checkout_jwt(closed_checkout: str) -> str:
-    """The Checkout JWT the closed checkout mandate discloses, or "" (its proof then fails)."""
-    try:
-        for disclosure in common.parse_token(closed_checkout.split("~~")[1]).disclosures:
-            claim = json.loads(base64.urlsafe_b64decode(disclosure + "=" * (-len(disclosure) % 4)))
-            if len(claim) == 3 and claim[1] == "checkout_jwt" and isinstance(claim[2], str):
-                return claim[2]
-    except Exception:
-        pass
-    return ""
 
 
 def _signed_terms(
