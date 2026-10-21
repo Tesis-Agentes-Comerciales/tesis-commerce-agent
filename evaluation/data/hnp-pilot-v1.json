@@ -27,7 +27,7 @@
   },
   "policy": {
     "policy_set_id": "b2-hnp-v1",
-    "revision": "1",
+    "revision": "2",
     "key_id": "hnp-pilot-v1-run",
     "built_by": "build_hnp_policy (HNP-05, HNP-06), in code, without an environment variable (spec section 7)",
     "rules": {
