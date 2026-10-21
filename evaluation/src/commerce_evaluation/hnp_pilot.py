@@ -4,8 +4,9 @@
 environment of each condition (names only), the integration readiness and whether a live run would
 start; it never starts a service or calls a model. A live run refuses without `HNP_LIVE=1`,
 without the oracles' approval in the committed manifest, without `HNP_PILOT_MAX_COST_USD` (or
-above the manifest's cap), off the registered agent commit, on a dirty worktree or with a
-missing integration; it stops cleanly once the accumulated model cost reaches the cap.
+above the manifest's cap), off the registered agent commit, on a dirty worktree, with a missing
+integration, under pytest or with a port of the stack in use; it stops cleanly once the
+accumulated model cost reaches the cap.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import subprocess
 import sys
 import tempfile
@@ -853,23 +855,24 @@ def run_plan(
     execute: Execute,
     *,
     cap_usd: float,
+    spent: Callable[[], float],
     result_file: TextIO,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Run the plan in order and write each row as it ends. After every episode the accumulated
-    model cost is compared with the cap; reaching it stops the invocation with the rows so far
-    (the cap can be passed by at most one episode's cost)."""
+    """Run the plan in order and write each row as it ends. After every episode `spent` gives the
+    invocation's model cost, every row re-valued (`CostMeter.total_usd`); reaching the cap stops
+    the invocation with the rows so far. Before that episode the total was under the cap, so the
+    cap is passed by at most what that episode added."""
     rows: list[dict[str, Any]] = []
-    accumulated = 0.0
     stop: dict[str, Any] = {"stopped_by": None, "accumulated_cost_usd": 0.0, "cap_usd": cap_usd}
     for index, episode in enumerate(plan):
         if not episode.runs:
             continue
         row = execute(episode, index)
+        accumulated = spent()
+        row["accumulated_cost_usd"] = stop["accumulated_cost_usd"] = round(accumulated, 6)
         rows.append(row)
         result_file.write(json.dumps(row, ensure_ascii=False) + "\n")
         result_file.flush()
-        accumulated += float((row.get("cost") or {}).get("charged_usd") or 0.0)
-        stop["accumulated_cost_usd"] = round(accumulated, 6)
         if accumulated >= cap_usd:
             stop |= {
                 "stopped_by": "cost_cap",
@@ -878,6 +881,37 @@ def run_plan(
             }
             break
     return rows, stop
+
+
+def busy_ports(ports: Iterable[int]) -> list[int]:
+    """Ports of the loopback stack that something already holds. The runner waits for a 200 on
+    each port, so another stack there (a demo-stack) would stand in for the pilot's merchant and
+    PSP, with other AP2 keys."""
+    busy: list[int] = []
+    for port in ports:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.settimeout(0.5)
+            listening = probe.connect_ex(("127.0.0.1", port)) == 0
+        if not listening:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                try:
+                    probe.bind(("127.0.0.1", port))
+                except OSError:
+                    listening = True
+        if listening:
+            busy.append(port)
+    return busy
+
+
+def require_live_start(ports: Iterable[int], environ: Mapping[str, str]) -> None:
+    """Past the guards: never under pytest, and only on free ports."""
+    if "PYTEST_CURRENT_TEST" in environ:
+        raise PilotError("A live HNP pilot run never starts under pytest")
+    busy = busy_ports(ports)
+    if busy:
+        raise PilotError(
+            f"Ports already in use: {busy}; stop the other stack before a live HNP pilot run"
+        )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -927,6 +961,15 @@ def _run(arguments: argparse.Namespace) -> int:
         print(json.dumps(dry_run_document(preparation), ensure_ascii=False))
         return 0
     require_guards(preparation.guards)
+    require_live_start(
+        (
+            arguments.merchant_port,
+            arguments.payment_port,
+            arguments.agent_port,
+            arguments.auth_port,
+        ),
+        os.environ,
+    )
     assert preparation.cost.cap_usd is not None
     from commerce_evaluation.hnp_pilot_live import run_live
 

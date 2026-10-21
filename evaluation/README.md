@@ -385,12 +385,19 @@ HNP_PILOT_MAX_COST_USD=2 uv run hnp-pilot      # en vivo: lo corre el líder, co
   (300 s; después es error del arnés); webhooks del comercio si hay orden; la vista del comprador
   con otra sesión; detener el agente, leer `agent.db` en solo lectura y verificar la cadena
   de la tarea con `verify_database(..., grant_id=...)` (perfil HNP de HNP-V1).
-- **Costo.** Suma todas las filas `model.*` de `stage_timings`. Una fila sin tokens (las de error:
-  NULL es desconocido, no 0) se cobra con un margen de max(USD 0,01, la llamada más cara de la
-  invocación); toda la entrada al precio de entrada. La invocación se detiene cuando el acumulado
-  llega al tope y el resumen dice qué episodios no corrieron.
+- **Costo.** Suma todas las filas `model.*` de `stage_timings`; toda la entrada al precio de
+  entrada. El cliente reintenta una vez con 90 s por intento, así que un intento sin tokens
+  conocidos es una unidad de margen, max(USD 0,01, la llamada más cara de la invocación): una fila
+  sin tokens (NULL es desconocido, no 0) son dos, una con tokens que pasa de 90 s suma una y un uso
+  que no se pudo leer son dos. Después de cada episodio el acumulado se recalcula para todas las
+  filas con la unidad vigente; al llegar al tope la invocación se detiene y el resumen dice qué
+  episodios no corrieron.
+- **Arranque en vivo.** Además de las guardas, se niega bajo pytest (`PYTEST_CURRENT_TEST`) y si
+  algún puerto del stack (4120, 4130, 43125, 4215 por defecto) ya está ocupado, por ejemplo por un
+  `demo-stack`: el runner usaría el comercio y el PSP de otro stack, con otras claves AP2.
 - **Salida.** `results/hnp-pilot-<fecha>.jsonl` con una fila por episodio (condición, `/health`,
-  modelo, efectos, gobernanza, costo, oráculo y métricas) y `<archivo>.summary.json` por condición y
+  modelo, variables agregadas al arranque con sus valores no secretos, efectos, gobernanza, costo y
+  acumulado, oráculo y métricas) y `<archivo>.summary.json` por condición y
   por condición × escenario.
 
 ## Archivos

@@ -373,7 +373,9 @@ modelo. Lo que el manifiesto no fija y el runner decide:
   cambios contra `HEAD`, porque la aprobación vale «en el commit que se corre» (una edición sin
   commit o una copia con `--manifest` no pasan); `HNP_PILOT_MAX_COST_USD`; el commit de
   `hnp-pilot-v1-base`; el worktree limpio y las integraciones. Ninguna guarda tiene un flag que la
-  relaje.
+  relaje, tampoco para el comercio ni el PSP. Pasadas las guardas, se niega bajo pytest
+  (`PYTEST_CURRENT_TEST`) y si algún puerto del stack está ocupado: otro stack (un `demo-stack`)
+  respondería por el comercio y el PSP del piloto, con otras claves AP2.
 - **Variables de arranque.** El arranque HNP del agente exige dos cosas que el manifiesto omite y
   que no cambian una decisión HNP: `AGENT_D1_AES_KEY_HEX` en B0-HNP (la clave del vault de
   seudónimos, `load_hnp_trust`; se genera por invocación) y `AGENT_D1_POLICY_SET_ID` y

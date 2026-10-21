@@ -6,6 +6,7 @@ Nothing here starts a service or calls a model: the live run is refused before i
 import copy
 import io
 import json
+import socket
 import subprocess
 import sys
 import types
@@ -14,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from commerce_evaluation import hnp_pilot, hnp_pilot_agent, verify_evidence
+from commerce_evaluation import hnp_pilot, hnp_pilot_agent, hnp_pilot_live, verify_evidence
 from commerce_evaluation.governance_pilot import _ap2_private_key
 from commerce_evaluation.hnp_pilot import (
     CONDITIONS,
@@ -33,6 +34,7 @@ from commerce_evaluation.hnp_pilot import (
     startup_check,
     validate_pilot,
 )
+from commerce_evaluation.hnp_pilot_scoring import CostMeter
 
 MERCHANT_ORIGIN = "http://127.0.0.1:4120"
 STACK = stack_variables(merchant_origin=MERCHANT_ORIGIN, auth_origin="http://127.0.0.1:4215")
@@ -64,6 +66,17 @@ def nothing_starts(monkeypatch: pytest.MonkeyPatch) -> None:
         return popen(command, *args, **kwargs)
 
     monkeypatch.setattr(subprocess, "Popen", only_git)
+
+
+@pytest.fixture(autouse=True)
+def no_live_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Whatever the guards say on this commit (approved, HNP-09b merged, HNP_LIVE=1 in the
+    shell), a test never reaches the live run: 133 episodes with the paid model."""
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("a test reached hnp_pilot_live.run_live")
+
+    monkeypatch.setattr(hnp_pilot_live, "run_live", refuse)
 
 
 def scenario(matrix: dict[str, Any], scenario_id: str) -> dict[str, Any]:
@@ -527,15 +540,41 @@ def test_the_cost_cap_stops_the_invocation_after_the_episode_that_reaches_it(
 
     def execute(episode: PlannedEpisode, index: int) -> dict[str, Any]:
         executed.append(episode)
-        return episode.key() | {"cost": {"charged_usd": 0.6}}
+        return episode.key()
 
     file = io.StringIO()
-    rows, stop = run_plan(plan, execute, cap_usd=2.0, result_file=file)
+    rows, stop = run_plan(
+        plan, execute, cap_usd=2.0, spent=lambda: 0.6 * len(executed), result_file=file
+    )
     assert len(rows) == len(executed) == 4
     assert [json.loads(line) for line in file.getvalue().splitlines()] == rows
+    assert [row["accumulated_cost_usd"] for row in rows] == [0.6, 1.2, 1.8, 2.4]
     assert stop["stopped_by"] == "cost_cap" and stop["accumulated_cost_usd"] == 2.4
     assert stop["after_episode"] == executed[-1].key()
     assert len(stop["not_run"]) == len(plan) - 4
+
+
+def test_each_check_re_values_the_earlier_rows(pilot: tuple[dict, dict]) -> None:
+    """A costlier call raises the margin of every earlier unpriced row at the next check."""
+    manifest, matrix = pilot
+    plan = build_plan(manifest, matrix, p_available=False, scenario_ids=["HN10"])
+    meter = CostMeter.from_manifest(manifest)
+    calls = [(None, None, 1000.0), (100_000, 10_000, 1000.0), (4000, 1000, 1000.0)]
+
+    def execute(episode: PlannedEpisode, index: int) -> dict[str, Any]:
+        tin, tout, elapsed = calls[len(rows_seen)]
+        row = {"input_tokens": tin, "output_tokens": tout, "elapsed_ms": elapsed}
+        rows_seen.append(row)
+        return episode.key() | {"cost": meter.charge({"rows": [row]})}
+
+    rows_seen: list[dict[str, Any]] = []
+    rows, stop = run_plan(
+        plan, execute, cap_usd=0.1, spent=meter.total_usd, result_file=io.StringIO()
+    )
+    # 0.02 for the error row; then 0.045 for the costly call and its two units re-valued at 0.045.
+    assert [row["accumulated_cost_usd"] for row in rows] == [0.02, 0.135]
+    assert rows[0]["cost"]["charged_usd"] == 0.02  # at the unit of its own time
+    assert stop["stopped_by"] == "cost_cap" and len(rows) == 2
 
 
 def test_the_plan_runs_to_the_end_under_the_cap_and_skips_p(pilot: tuple[dict, dict]) -> None:
@@ -543,12 +582,35 @@ def test_the_plan_runs_to_the_end_under_the_cap_and_skips_p(pilot: tuple[dict, d
     plan = build_plan(manifest, matrix, p_available=False, scenario_ids=["HN05"])
     rows, stop = run_plan(
         plan,
-        lambda episode, index: episode.key() | {"cost": {"charged_usd": 0.0}},
+        lambda episode, index: episode.key(),
         cap_usd=2.0,
+        spent=lambda: 0.0,
         result_file=io.StringIO(),
     )
     assert len(rows) == 6 and {row["condition"] for row in rows} == set(LEDGER_CONDITIONS)
     assert stop["stopped_by"] is None
+
+
+def test_past_every_guard_a_live_run_never_starts_under_pytest(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(hnp_pilot, "require_guards", lambda guards: None)
+    monkeypatch.setenv("HNP_PILOT_MAX_COST_USD", "2")
+    assert hnp_pilot.main([]) == 1
+    assert "never starts under pytest" in capsys.readouterr().err
+
+
+def test_a_live_run_needs_the_stack_s_ports_free() -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as other_stack:
+        other_stack.bind(("127.0.0.1", 0))
+        other_stack.listen()
+        port = other_stack.getsockname()[1]
+        assert hnp_pilot.busy_ports([port]) == [port]
+        with pytest.raises(hnp_pilot.PilotError, match=rf"Ports already in use: \[{port}\]"):
+            hnp_pilot.require_live_start([port], {})
+    with pytest.raises(hnp_pilot.PilotError, match="never starts under pytest"):
+        hnp_pilot.require_live_start([], {"PYTEST_CURRENT_TEST": "x"})
+    hnp_pilot.require_live_start([], {})
 
 
 # HN11's scripted selector ------------------------------------------------------------------------

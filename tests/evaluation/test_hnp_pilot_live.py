@@ -16,7 +16,12 @@ import pytest
 from commerce_evaluation import governance_pilot, hnp_pilot_live, verify_evidence
 from commerce_evaluation.governance_pilot import RepositoryProvenance, services_environment
 from commerce_evaluation.hnp_pilot import prepare, stack_variables
-from commerce_evaluation.hnp_pilot_live import CliMerchant, summary_document, verify_task
+from commerce_evaluation.hnp_pilot_live import (
+    CliMerchant,
+    UvicornAgent,
+    summary_document,
+    verify_task,
+)
 from commerce_evaluation.hnp_pilot_scoring import CostMeter
 from commerce_evaluation.paths import DATA
 
@@ -135,7 +140,8 @@ def test_the_summary_adds_up_the_cost_and_its_margin(tmp_path: Path) -> None:
     )
     cost = summary["cost"]
     assert (cost["model_calls"], cost["unpriced_calls"], cost["rows_without_cost"]) == (2, 1, 1)
-    assert cost["margin_usd"] == 0.02 and cost["cap_usd"] == 1.0
+    # The row without tokens is the call and its retry: two units of USD 0.01.
+    assert (cost["margin_units"], cost["margin_usd"], cost["cap_usd"]) == (2, 0.02, 1.0)
     assert cost["charged_usd"] == pytest.approx(0.02 + 0.003)
     assert summary["episodes_run"] == 2 and "E4" in summary["p_arm"]
     assert summary["summary"]["harness_errors"] == 1
@@ -160,3 +166,24 @@ def test_the_episode_s_chain_is_hnp_v1_s_document_of_its_task(
     assert document == {"purchase_mode": "HNP", "task_id": "ht_1", "links": {}}
     assert calls == [{"database": agent_db, "psp_database": psp_db, "grant_id": "dg_1"}]
     assert verify_task(agent_db, grant_id="dg_1", task_id="ht_9", psp_database=psp_db) is None
+
+
+def test_the_agent_s_log_tail_hides_what_it_was_started_with(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """HP's AGENT_SECRETS, the merchant session among them (it is issued per episode)."""
+    monkeypatch.setattr(hnp_pilot_live.subprocess, "Popen", lambda *args, **kwargs: object())
+    monkeypatch.setattr(hnp_pilot_live, "_wait_http", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        hnp_pilot_live,
+        "_request_json",
+        lambda *args, **kwargs: governance_pilot.HttpResult(200, {"status": "ok"}, 1),
+    )
+    with (tmp_path / "agent.log").open("w", encoding="utf-8") as log:
+        agent = UvicornAgent(port=1, log=log, factory="f")
+        agent.start({"MERCHANT_BEARER_TOKEN": "session-1", "PATH": "/bin"})
+        agent.start({"MERCHANT_BEARER_TOKEN": "session-1", "AGENT_D1_HMAC_KEY_HEX": "ab"})
+    assert agent.secrets == {"session-1", "ab"}
+    (tmp_path / "agent.log").write_text("token session-1 in a traceback\n", encoding="utf-8")
+    tail = governance_pilot._tail(tmp_path / "agent.log", tuple(agent.secrets))
+    assert "session-1" not in tail

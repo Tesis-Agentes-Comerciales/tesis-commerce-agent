@@ -18,6 +18,7 @@ from typing import Any, TextIO
 
 from commerce_evaluation import hnp_pilot_agent, verify_evidence
 from commerce_evaluation.governance_pilot import (
+    AGENT_SECRETS,
     MUTATE_OFFER,
     SERVICE_SECRETS,
     ConditionMismatchError,
@@ -44,6 +45,7 @@ from commerce_evaluation.hnp_pilot import (
     p_not_run_reason,
     run_plan,
     stack_variables,
+    startup_additions,
 )
 from commerce_evaluation.hnp_pilot_episode import (
     AgentApi,
@@ -53,12 +55,7 @@ from commerce_evaluation.hnp_pilot_episode import (
     observe,
     run_episode,
 )
-from commerce_evaluation.hnp_pilot_scoring import (
-    UNPRICED_CALL_BOUND_USD,
-    CostMeter,
-    score_episode,
-    summarize,
-)
+from commerce_evaluation.hnp_pilot_scoring import CostMeter, score_episode, summarize
 from commerce_evaluation.paths import ROOT
 
 AGENT_FACTORY = "commerce_agent.api:app_factory"
@@ -122,8 +119,12 @@ class UvicornAgent:
         self.log = log
         self.factory = factory
         self.process: subprocess.Popen[str] | None = None
+        # What the agent was started with that its log tail must never show (HP's AGENT_SECRETS,
+        # the merchant session among them).
+        self.secrets: set[str] = set()
 
     def start(self, variables: Mapping[str, str]) -> dict[str, Any]:
+        self.secrets |= {variables[name] for name in AGENT_SECRETS if variables.get(name)}
         self.process = subprocess.Popen(
             [
                 str(ROOT / ".venv" / "bin" / "python"),
@@ -149,9 +150,9 @@ def verify_task(
     database: Path, *, grant_id: str, task_id: str | None, psp_database: Path
 ) -> dict[str, Any] | None:
     """HNP-V1's document of the episode's task: verify-evidence by grant, HNP profile."""
-    # `grant_id` arrives with HNP-V1; a live run starts only once it is ready.
-    verify_database: Any = verify_evidence.verify_database
-    documents = verify_database(database, psp_database=psp_database, grant_id=grant_id)
+    documents = verify_evidence.verify_database(
+        database, psp_database=psp_database, grant_id=grant_id
+    )
     return next(
         (
             document
@@ -243,6 +244,7 @@ def run_live(
                 "plan_index": index,
                 "model": manifest["layers"]["B"]["model"] if episode.layer == "B" else None,
                 "agent_factory": hnp_pilot_agent.FACTORY if scripted else AGENT_FACTORY,
+                "startup_additions": startup_additions(condition),
                 "recorded_at": datetime.now(UTC).isoformat(),
             }
             with (run_dir / "agent.log").open("w", encoding="utf-8") as log:
@@ -277,7 +279,7 @@ def run_live(
                 except Exception as error:
                     row["harness_error"] = f"{type(error).__name__}: {error}"
             if "harness_error" in row:
-                tail = _tail(run_dir / "agent.log", hidden)
+                tail = _tail(run_dir / "agent.log", (*hidden, *agent.secrets))
                 if tail:
                     print(f"Agent log tail for {run_dir.name}:\n{tail}", file=sys.stderr)
             if run is None:
@@ -314,7 +316,11 @@ def run_live(
 
         with output.open("w", encoding="utf-8") as result_file:
             rows, stop = run_plan(
-                preparation.plan, execute, cap_usd=preparation.cost.cap_usd, result_file=result_file
+                preparation.plan,
+                execute,
+                cap_usd=preparation.cost.cap_usd,
+                spent=meter.total_usd,
+                result_file=result_file,
             )
     summary = summary_document(
         rows,
@@ -347,19 +353,15 @@ def summary_document(
         "episodes_planned": episode_counts(preparation.plan),
         "episodes_run": len(rows),
         "p_arm": p_not_run_reason(preparation.readiness),
-        "cost": {
-            "model": meter.prices.model,
+        # Re-valued at the invocation's last unit; each row's `charged_usd` is at the unit of its
+        # own time.
+        "cost": meter.describe()
+        | {
             "cap_usd": preparation.cost.cap_usd,
-            "charged_usd": round(sum(item["charged_usd"] for item in costs), 6),
-            "priced_usd": round(sum(item["priced_usd"] for item in costs), 6),
-            "margin_usd": round(sum(item["margin_usd"] for item in costs), 6),
-            "model_calls": sum(item["calls"] for item in costs),
+            "model_calls": sum(item["calls"] or 0 for item in costs),
             "unpriced_calls": sum(item["unpriced_calls"] for item in costs),
-            "margin_rule": (
-                "each model call without tokens (NULL is unknown, not 0) is charged "
-                f"max(USD {UNPRICED_CALL_BOUND_USD:g}, the costliest priced call of the "
-                "invocation); every input token at the input price (no cached tokens)"
-            ),
+            "timed_out_calls": sum(item["timed_out_calls"] for item in costs),
+            "usage_unmeasured": sum(item["usage_unmeasured"] for item in costs),
             "rows_without_cost": sum("cost" not in row for row in rows),
         },
         "stop": dict(stop),
