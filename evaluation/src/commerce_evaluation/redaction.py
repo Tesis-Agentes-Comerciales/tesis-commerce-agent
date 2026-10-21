@@ -14,6 +14,8 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from pydantic import ValidationError
+
 REDACTED = "[redacted]"
 # Lines of a multi-line secret (a PEM key) shorter than this are not secrets by themselves.
 MIN_SECRET_LINE = 16
@@ -81,6 +83,19 @@ def sweep_fields(
     return dict(row) | {
         name: _redacted(row[name], secrets, labels) for name in names if name in row
     }
+
+
+def error_text(error: BaseException) -> str:
+    """`Type: message` for a row's error field. A Pydantic validation error names only where and
+    why each input failed: its message quotes the input cut to a few characters at each end, a
+    fragment of a secret that no sweep recognizes, by value or by shape."""
+    if isinstance(error, ValidationError):
+        failures = "; ".join(
+            f"{'.'.join(str(part) for part in item['loc'])}: {item['type']}"
+            for item in error.errors(include_input=False, include_url=False)
+        )
+        return f"{type(error).__name__}: {failures}"
+    return f"{type(error).__name__}: {error}"
 
 
 def secret_values(environment: Mapping[str, str], names: Iterable[str]) -> tuple[str, ...]:

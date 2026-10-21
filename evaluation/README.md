@@ -103,7 +103,9 @@ su directorio temporal:
   lista blanca: nunca JWT, mandatos, llaves de idempotencia, datos del comprador, ciphertext ni
   llaves D1. `build_flow_trace(agent_db, graph_db, secrets, feed=...)` da el mismo bloque sobre el
   artefacto guardado. Si falla, la fila queda con `flow_trace: null` y la causa en
-  `measurement_errors.flow_trace`. Pesa de ~2 KB (B0-HNP) a ~20 KB (compra B2-HNP con D1, D2 y D3).
+  `measurement_errors.flow_trace`, sin citar ningún valor de la corrida (solo tipo y, en un error
+  de validación, dónde y por qué). Sin `agent.db` (el agente no arrancó), el bloque es `null` sin
+  error de medición. Pesa de ~2 KB (B0-HNP) a ~20 KB (compra B2-HNP con D1, D2 y D3).
 - **Nunca va a Git.** El artefacto contiene JWT, mandatos y llaves de idempotencia del sandbox.
   `.local/` está en `.gitignore` y el runner rechaza un `--artifacts-dir` dentro del checkout que Git
   no ignore. Nunca guarda `auth.db` ni `payments.db`, que comparten todas las filas y llevan

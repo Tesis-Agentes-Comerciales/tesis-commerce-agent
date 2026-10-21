@@ -11,7 +11,8 @@ The block is a whitelist by construction: it reads named columns only, never a m
 JWT, an idempotency key, the buyer's checkout details, an AP2 envelope, the encrypted D1
 provenance or a key. A final sweep redacts the invocation's secrets and the secret shapes in every
 value, and fails closed: a secret it cannot remove (in a key) raises, and the runner writes
-`flow_trace: null` with the cause in `measurement_errors.flow_trace`.
+`flow_trace: null` with the cause in `measurement_errors.flow_trace`. The cause never quotes a
+value read from the run: only its type and, for an error that cannot carry one, its message.
 """
 
 from __future__ import annotations
@@ -23,18 +24,22 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from commerce_agent.acp.feed import load_product_feed
 from commerce_agent.application.hnp_selection import MODEL_STAGE
 from commerce_agent.domain import PurchaseIntent, rank_candidates
 from commerce_agent.llm.prices import format_minor_amount
 from commerce_evaluation.pilot_measures import read_only
-from commerce_evaluation.redaction import redact, sweep_fields
+from commerce_evaluation.redaction import error_text, redact, sweep_fields
 
 SCHEMA = "flow-trace/1"
 # An ObjectRef of a canonical input: the block keeps its id, and `input_digest` binds the rest.
 REFERENCE_KEYS = frozenset({"id", "digest", "schema_version", "version"})
+
+
+class FlowTraceError(ValueError):
+    """A run the block cannot explain, or a block that would keep a secret."""
 
 
 class _Block(BaseModel):
@@ -271,16 +276,31 @@ def with_flow_trace(
 ) -> dict[str, Any]:
     """The row plus its `flow_trace`. The runner calls it once the agent stopped and the row was
     scored (C8 included), and it only adds keys: a block that cannot be built is null, its cause
-    goes to `measurement_errors.flow_trace`, and the row stands."""
+    goes to `measurement_errors.flow_trace`, and the row stands. A row whose agent never started
+    (the seed failed) has nothing to explain: its block is null and no reading failed."""
+    if not (run_dir / "agent.db").exists():
+        return dict(row) | {"flow_trace": None}
+    hidden = tuple(secrets)
     try:
         trace = build_flow_trace(
-            run_dir / "agent.db", run_dir / "agent.graph.db", secrets, feed=run_dir / "feed"
+            run_dir / "agent.db", run_dir / "agent.graph.db", hidden, feed=run_dir / "feed"
         )
     except Exception as error:
         errors = dict(row.get("measurement_errors") or {})
-        errors["flow_trace"] = f"{type(error).__name__}: {error}"
+        errors["flow_trace"] = redact(_cause(error), hidden)
         return dict(row) | {"flow_trace": None, "measurement_errors": errors}
     return dict(row) | {"flow_trace": trace}
+
+
+# Errors whose message never quotes a value read from the run; any other keeps its type only (a
+# builtin's message may quote a value cut short, e.g. `int()` at 200 characters).
+TOLD_ERRORS = (sqlite3.Error, json.JSONDecodeError, FlowTraceError, ValidationError)
+
+
+def _cause(error: Exception) -> str:
+    """What `measurement_errors.flow_trace` says: a validation error names where and why each
+    input failed, never the input (redaction.error_text)."""
+    return error_text(error) if isinstance(error, TOLD_ERRORS) else type(error).__name__
 
 
 def _last(rows: list[dict[str, Any]] | None) -> dict[str, Any] | None:
@@ -327,7 +347,7 @@ def _delegation(
     if not grants:
         return None
     if len(grants) > 1:
-        raise ValueError(f"An HNP run holds one grant, this one holds {len(grants)}")
+        raise FlowTraceError(f"An HNP run holds one grant, this one holds {len(grants)}")
     [grant] = grants
     consent = json.loads(grant["scope_json"])
     task = next((item for item in tasks if item["grant_id"] == grant["grant_id"]), {})
@@ -544,5 +564,7 @@ def _swept(block: dict[str, Any], secrets: list[str]) -> dict[str, Any]:
     """Every value redacted (redaction.py); a secret the sweep cannot remove fails closed."""
     clean = sweep_fields({"flow_trace": block}, ("flow_trace",), secrets)["flow_trace"]
     if any(redact(text, secrets) != text for text in _strings(clean)):
-        raise ValueError("The flow_trace keeps a secret or a secret shape the sweep cannot remove")
+        raise FlowTraceError(
+            "The flow_trace keeps a secret or a secret shape the sweep cannot remove"
+        )
     return clean

@@ -171,8 +171,7 @@ Un ejemplo de fila B2 con deny de D1. Los valores son ilustrativos, no los de la
       "intent": {"max_total_minor": 130000000, "max_unit_minor": null, "quantity": 1}}}],
   "errors": [{"stage": "d1.create_checkout", "code": "d1_denied", "source": "turn_http"}],
   "model_requests": [{"stage": "model.route", "request_index": 1, "input_tokens": 3120,
-    "reasoning_tokens": 512, "output_tokens": 690, "retries": 0}],
-  "artifacts": {"dir": "B2-S05-08", "sha256": {"agent.db": "…", "agent.graph.db": "…"}}}
+    "reasoning_tokens": 512, "output_tokens": 690, "retries": 0}]}
 ```
 
 ### 4.2 Reglas de redacción
@@ -198,7 +197,12 @@ Un ejemplo de fila B2 con deny de D1. Los valores son ilustrativos, no los de la
    ruta absoluta local. El bloque se barre también al construirse, y ahí falla cerrado: si un
    secreto o una forma de secreto sobrevive (por ejemplo, en una clave de un objeto, que el barrido
    no toca), el constructor lanza, la fila lleva `flow_trace: null` y la causa va a
-   `measurement_errors.flow_trace`.
+   `measurement_errors.flow_trace`. La causa nunca cita un valor leído de la corrida: un error de
+   validación de Pydantic cita su entrada recortada, un fragmento que ningún barrido reconoce, así
+   que solo se guardan su ubicación y su tipo (`error_text`, que usan también las lecturas de
+   `measurement_errors` del runner HNP), y otro error que no sea de SQLite, de JSON o del propio
+   constructor guarda solo su tipo. Si el agente nunca arrancó (falló la siembra) y no hay
+   `agent.db`, el bloque es `null` sin error de medición.
 3. **Los resultados versionados solo llevan la fila.** El artefacto contiene JWT, mandatos y llaves
    de idempotencia del sandbox, así que nunca entra al repositorio.
 

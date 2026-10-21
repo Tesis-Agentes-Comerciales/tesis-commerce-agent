@@ -300,7 +300,32 @@ def test_a_secret_the_sweep_cannot_reach_fails_closed(run_dir: Callable[[str], P
         trace_of(directory, (secret,))
     row = with_flow_trace({"observed": {}}, directory, (secret,))
     assert row["flow_trace"] is None
-    assert secret not in json.dumps(row) and "ValueError" in row["measurement_errors"]["flow_trace"]
+    assert secret not in json.dumps(row)
+    assert row["measurement_errors"]["flow_trace"].startswith("FlowTraceError: ")
+
+
+def test_a_block_that_breaks_its_schema_keeps_no_fragment_of_a_secret(
+    run_dir: Callable[[str], Path],
+) -> None:
+    """A validation error quotes its input cut to a few characters at each end, which neither the
+    value nor the shape sweep recognizes: the cause names where and why, never the input."""
+    directory = run_dir("b2_llm")
+    d1_key = "9f3c" + "7a1e5b2d" * 7 + "c4e6"
+    execute(
+        directory,
+        "UPDATE delegation_grants SET scope_json = json_set(scope_json, '$.scope', ?)",
+        f"pre {d1_key} mid {JWT} post",
+    )
+
+    row = with_flow_trace({"observed": {}}, directory, (d1_key,))
+
+    text = json.dumps(row)
+    for secret in (d1_key, JWT):
+        assert not any(secret[start : start + 8] in text for start in range(len(secret) - 7))
+    assert row["flow_trace"] is None
+    assert row["measurement_errors"] == {
+        "flow_trace": "ValidationError: delegation.scope: dict_type"
+    }
 
 
 def test_without_model_requests_the_field_is_null_and_named(
@@ -454,16 +479,28 @@ def test_the_block_changes_no_measure_of_the_row(
 
 def test_a_block_that_cannot_be_built_is_null_and_the_row_stands(tmp_path: Path) -> None:
     row = {"scenario_id": "HN01", "metrics": {"oracle_match": 1}, "measurement_errors": {"x": "y"}}
+    (tmp_path / "agent.db").write_bytes(b"not a database")
 
-    traced = with_flow_trace(row, tmp_path / "never-started", ())
+    traced = with_flow_trace(row, tmp_path, ())
 
     assert traced["flow_trace"] is None
     assert traced["measurement_errors"]["x"] == "y"
-    assert traced["measurement_errors"]["flow_trace"].startswith("OperationalError")
+    assert traced["measurement_errors"]["flow_trace"] == "DatabaseError: file is not a database"
     assert {key: traced[key] for key in ("scenario_id", "metrics")} == {
         "scenario_id": "HN01",
         "metrics": {"oracle_match": 1},
     }
+
+
+def test_a_row_whose_agent_never_started_has_no_block_and_no_failed_reading(
+    tmp_path: Path,
+) -> None:
+    """A seed failure leaves no agent.db: the summary must not count it as a failed builder."""
+    row = {"scenario_id": "HN01", "harness_error": "RuntimeError: seed failed"}
+
+    traced = with_flow_trace(row, tmp_path / "never-started", ())
+
+    assert traced == row | {"flow_trace": None}
 
 
 def test_the_runner_writes_the_block_its_kept_artifact_gives_again(
@@ -485,4 +522,4 @@ def test_the_runner_writes_the_block_its_kept_artifact_gives_again(
 
     failed = finished_episode(kept, tmp_path / "never-started", row)
     assert failed["flow_trace"] is None and failed["run_artifact"] is not None
-    assert failed["measurement_errors"]["flow_trace"].startswith("OperationalError")
+    assert "flow_trace" not in (failed.get("measurement_errors") or {})
