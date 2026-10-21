@@ -300,7 +300,10 @@ export const ApproveInvalidStage: Story = {
   },
 }
 
-/** Cancelar: el comercio no canceló el checkout esperado (409 `checkout_mismatch`). */
+/**
+ * Cancelar: el comercio devolvió otro checkout, o el mismo sin quedar cancelado; el backend responde
+ * 409 `checkout_mismatch` en los dos casos. El texto es cierto para ambos.
+ */
 export const CancelCheckoutMismatch: Story = {
   parameters: {
     agentApi: {
@@ -315,7 +318,7 @@ export const CancelCheckoutMismatch: Story = {
     const card = await approvalCard(context)
     await context.userEvent.click(within(card).getByRole("button", { name: "Cancelar" }))
     await expect(await within(card).findByRole("alert", {}, STREAM_TIMEOUT)).toHaveTextContent(
-      "El comercio respondió con un checkout que no coincide con esta compra, así que me detuve.",
+      "La respuesta del comercio no coincide con esta compra, así que me detuve.",
     )
     await expect(context.canvas.queryByText(/Merchant|expected checkout/)).toBeNull()
   },

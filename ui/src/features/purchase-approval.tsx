@@ -39,8 +39,8 @@ const KNOWN_ERRORS: Record<string, string> = {
   // 409 del agente; su `message` es interno y en inglés. Solo dicen qué pasó, sin prometer nada.
   invalid_stage: "Esta compra cambió de estado y ya no admite esta acción.",
   completion_in_progress: "La compra ya se está completando con el comercio.",
-  checkout_mismatch:
-    "El comercio respondió con un checkout que no coincide con esta compra, así que me detuve.",
+  // Lo lanza un checkout de otra compra y también uno que no quedó cancelado al cancelar.
+  checkout_mismatch: "La respuesta del comercio no coincide con esta compra, así que me detuve.",
 }
 
 const TERMINAL_ERRORS = new Set(["payment_declined", "out_of_stock"])
