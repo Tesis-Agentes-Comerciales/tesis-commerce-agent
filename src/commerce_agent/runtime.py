@@ -31,10 +31,12 @@ from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 
 if TYPE_CHECKING:
+    from commerce_agent.application.hnp_execution import HnpExecutionService
     from commerce_agent.delegation.service import DelegationService
     from commerce_agent.governance.authorization import SqliteD2AuthorizationGate
     from commerce_agent.governance.enforce import SqliteD1EnforceGate
     from commerce_agent.governance.shadow import ShadowD1Observer, UnavailableShadowObserver
+    from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
 
 
 @dataclass
@@ -53,6 +55,9 @@ class AgentRuntime:
     d2_gate: "SqliteD2AuthorizationGate | None" = None
     # Human Not Present delegations; None unless AGENT_HNP_ENABLED (hnp-governed.md §6).
     delegations: "DelegationService | None" = None
+    # Its executor (§3.3) and, with AGENT_HNP_SELECTOR=llm, the model client it owns.
+    hnp_executor: "HnpExecutionService | None" = None
+    owned_hnp_chooser: "OpenAIDelegatedChooser | None" = None
     # Display name of each merchant origin, from the seller its feed declares at startup.
     merchant_names: dict[str, str] = field(default_factory=dict)
 
@@ -61,6 +66,8 @@ class AgentRuntime:
         self.payments.close()
         if self.owned_router is not None:
             self.owned_router.close()
+        if self.owned_hnp_chooser is not None:
+            self.owned_hnp_chooser.close()
         if self.published_feed is not None:
             self.published_feed.close()
         self.checkpoint_connection.close()
@@ -95,11 +102,19 @@ def build_runtime(
 
         # Before any store or client exists: invalid enforce settings stop startup.
         d1_gate = build_enforce_gate(configuration, clock)
+    hnp_d1_gate = None
+    if hnp_trust is not None and d1_gate is not None:
+        from commerce_agent.governance.bootstrap import build_hnp_d1_gate
+
+        hnp_d1_gate = build_hnp_d1_gate(configuration, clock)
 
     store = SqliteAgentStore(configuration.agent_database_path)
     store.initialize()
     timings = SqliteStageTimings(configuration.agent_database_path)
     timings.initialize()
+    if hnp_trust is not None:
+        # The HNP model selector reports its tokens; HP keeps the table's shape.
+        timings.initialize_model_tokens()
     checkpoint_path = configuration.agent_database_path.with_name(
         f"{configuration.agent_database_path.stem}.graph.db"
     )
@@ -175,17 +190,20 @@ def build_runtime(
         from commerce_agent.governance.shadow import build_shadow_observer
 
         d1_shadow = build_shadow_observer(configuration, clock)
+    checkout = TimedCheckoutGateway(client, timings)
+    offer_freshness = build_offer_freshness(configuration, client, clock)
     purchases = PurchaseService(
         feed=feed,
-        checkout=TimedCheckoutGateway(client, timings),
+        checkout=checkout,
         store=store,
         approvals=approvals,
-        offer_freshness=build_offer_freshness(configuration, client, clock),
+        offer_freshness=offer_freshness,
         d1_observer=d1_shadow,
         d1_gate=TimedD1Gate(d1_gate, timings) if d1_gate is not None else None,
         d1_continuation=d1_continuation,
         d2_gate=d2_gate,
         ap2_evidence=ap2_evidence,
+        hnp_d1_gate=hnp_d1_gate,
     )
     owned_router = None
     router_factory: Callable[[ProductFeed], ConversationRouter] | None = None
@@ -232,15 +250,35 @@ def build_runtime(
         router_factory=router_factory,
         recovery=build_governed_recovery(configuration),
     )
-    delegations = None
+    delegations = hnp_executor = owned_hnp_chooser = None
     if hnp_trust is not None:
-        from commerce_agent.delegation.bootstrap import build_delegation_service
+        from commerce_agent.delegation.bootstrap import (
+            build_delegation_service,
+            build_hnp_executor,
+            build_hnp_selector,
+        )
 
+        delegation_feed = published_feed.get if published_feed is not None else lambda: feed
         delegations = build_delegation_service(
+            configuration, hnp_trust, store=store, feed=delegation_feed, clock=authority_clock
+        )
+        hnp_gate = None
+        if d1_gate is not None:
+            from commerce_agent.governance.bootstrap import build_hnp_policy_gate
+
+            # After the ledger exists: D2-HNP and D3-HNP write their evidence inside its UoWs.
+            hnp_gate = build_hnp_policy_gate(configuration, clock, trust=hnp_trust.mandates)
+        selector, owned_hnp_chooser = build_hnp_selector(configuration, timings)
+        hnp_executor = build_hnp_executor(
             configuration,
             hnp_trust,
             store=store,
-            feed=published_feed.get if published_feed is not None else lambda: feed,
+            purchases=purchases,
+            checkout=checkout,
+            gate=hnp_gate,
+            freshness=offer_freshness,
+            selector=selector,
+            feed=delegation_feed,
             clock=authority_clock,
         )
     return AgentRuntime(
@@ -257,6 +295,8 @@ def build_runtime(
         d1_gate=d1_gate,
         d2_gate=d2_gate,
         delegations=delegations,
+        hnp_executor=hnp_executor,
+        owned_hnp_chooser=owned_hnp_chooser,
         merchant_names=(
             {configuration.merchant_base_url: feed.seller_name} if feed.seller_name else {}
         ),

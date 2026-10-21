@@ -7,17 +7,37 @@ import hmac
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from pydantic import SecretBytes, SecretStr
 
 from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.ap2_hnp import AgentKeyCloser, OpenMandateIssuer
+from commerce_agent.application.hnp_execution import (
+    FreshnessCheck,
+    HnpExecutionService,
+    NullHnpPolicyGate,
+    PurchaseStarter,
+    sqlite_d1_denials,
+)
+from commerce_agent.application.hnp_selection import (
+    DeterministicHnpSelector,
+    HnpSelector,
+    ModelHnpSelector,
+)
+from commerce_agent.application.purchase import CheckoutGateway
 from commerce_agent.config import Settings
+from commerce_agent.governance.hnp_ports import HnpPolicyGate
 from commerce_agent.governance.provenance import ProvenanceKeys
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
+from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 
 from .service import DelegationService, HnpTrust
+
+if TYPE_CHECKING:
+    from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
 
 TOKEN_MIN_LENGTH = 32
 
@@ -78,6 +98,76 @@ def build_delegation_service(
     )
 
 
+def build_hnp_selector(
+    settings: Settings, timings: SqliteStageTimings
+) -> "tuple[HnpSelector, OpenAIDelegatedChooser | None]":
+    """`AGENT_HNP_SELECTOR`: the selector, and the model client the runtime must close."""
+    if settings.agent_hnp_selector == "deterministic":
+        return DeterministicHnpSelector(), None
+    from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+
+    if settings.openai_api_key is None or settings.openai_model is None:
+        raise RuntimeError("AGENT_HNP_SELECTOR=llm requires OPENAI_API_KEY and OPENAI_MODEL")
+    chooser = OpenAIDelegatedChooser(
+        api_key=settings.openai_api_key,
+        model=settings.openai_model,
+        timeout_seconds=settings.openai_timeout_seconds,
+        reasoning_effort=settings.openai_reasoning_effort,
+    )
+    return ModelHnpSelector(chooser, timings), chooser
+
+
+def build_hnp_executor(
+    settings: Settings,
+    trust: HnpTrust,
+    *,
+    store: SqliteAgentStore,
+    purchases: PurchaseStarter,
+    checkout: CheckoutGateway,
+    gate: HnpPolicyGate | None,
+    freshness: FreshnessCheck | None,
+    selector: HnpSelector,
+    feed: Callable[[], ProductFeed],
+    clock: Callable[[], datetime] | None,
+) -> HnpExecutionService:
+    """The executor of a task, steps 1 to 10 of hnp-governed.md §3.3: the one place that
+    assembles it, and where the dispatch (steps 11 to 13, HNP-09b) plugs in.
+
+    `off` is B0-HNP: `NullHnpPolicyGate`, no freshness and no D1. `enforce` is B2-HNP and never
+    starts without D2-HNP/D3-HNP and the `close` freshness guard. Only this service holds the
+    Agent Key; `clock` is the authority clock, as for the delegation service.
+    """
+    enforce = settings.agent_governance_mode == "enforce"
+    if enforce and (gate is None or freshness is None):
+        raise RuntimeError(
+            "AGENT_HNP_ENABLED in enforce requires D2-HNP, D3-HNP and the offer freshness guard"
+        )
+    try:
+        closer = AgentKeyCloser(
+            _secret(settings.agent_hnp_agent_key_pem), merchant_issuer=settings.merchant_base_url
+        )
+    except ValueError:
+        raise RuntimeError("AGENT_HNP_AGENT_KEY_PEM must be an ES256 private key") from None
+    if closer.kid != trust.agent_key_kid:
+        raise RuntimeError("AGENT_HNP_AGENT_KEY_PEM is not the Agent Key startup verified")
+    authority = clock or _utc_now
+    return HnpExecutionService(
+        mode="enforce" if enforce else "off",
+        ledger=SqliteDelegationLedger(settings.agent_database_path, clock=authority),
+        store=store,
+        purchases=purchases,
+        checkout=checkout,
+        closer=closer,
+        gate=gate if enforce and gate is not None else NullHnpPolicyGate(),
+        selector=selector,
+        feed=feed,
+        clock=authority,
+        id_factory=_new_id,
+        freshness=freshness if enforce else None,
+        d1_denials=sqlite_d1_denials(settings.agent_database_path) if enforce else None,
+    )
+
+
 def _check_condition(settings: Settings) -> None:
     if settings.agent_auth_mode != "jwt" or not settings.agent_ap2_required:
         raise RuntimeError(
@@ -89,6 +179,10 @@ def _check_condition(settings: Settings) -> None:
             "AGENT_HNP_ENABLED runs with AGENT_GOVERNANCE_MODE=off, or enforce with "
             "AGENT_HP_FLOW=governed"
         )
+    if settings.agent_hnp_selector == "llm" and (
+        settings.openai_api_key is None or settings.openai_model is None
+    ):
+        raise RuntimeError("AGENT_HNP_SELECTOR=llm requires OPENAI_API_KEY and OPENAI_MODEL")
     service = _secret(settings.agent_hnp_service_token).encode()
     operator = _secret(settings.agent_hnp_operator_token).encode()
     if min(len(service), len(operator)) < TOKEN_MIN_LENGTH or hmac.compare_digest(
@@ -102,6 +196,10 @@ def _check_condition(settings: Settings) -> None:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _new_id(prefix: str) -> str:
+    return f"{prefix}_{uuid4().hex}"
 
 
 def _secret(value: SecretStr | None) -> str:
