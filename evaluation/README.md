@@ -357,19 +357,22 @@ uv run hnp-pilot --dry-run --scenario HN11     # un escenario: es un smoke
   cada valor), si el agente arrancaría con él, la preparación de cada integración
   (`integration_dependencies`), si el selector guionado de HN11 se puede inyectar y cada guarda que
   impediría correr en vivo.
-- **Guardas en vivo.** Se niega sin la aprobación de los oráculos (`approval.status` distinto de
-  `approved`), sin `HNP_PILOT_MAX_COST_USD` o con más que `cost.cap_usd`, fuera del commit de
-  `execution.agent_ref`, con el worktree sucio (salvo `--allow-dirty`), con una integración
-  requerida ausente (HNP-05, 06, 08, 09a, 09b, V1 y E2) o si el agente no arrancaría. HNP-V1
-  está listo cuando `verify_evidence_hnp.HNP_LINKS` son los 17 eslabones del manifiesto y
-  `verify_database` acepta `grant_id`.
+- **Guardas en vivo.** Se niega sin `HNP_LIVE=1`, sin la aprobación de los oráculos
+  (`approval.status` distinto de `approved`) en el manifiesto registrado tal como está en `HEAD`
+  (él y su matriz bajo seguimiento y sin cambios: una edición sin commit o una copia con
+  `--manifest` no pasan), sin `HNP_PILOT_MAX_COST_USD` o con más que `cost.cap_usd`, fuera del
+  commit de `execution.agent_ref`, con el worktree sucio, con una integración requerida ausente
+  (HNP-05, 06, 08, 09a, 09b, V1 y E2) o si el agente no arrancaría. Ninguna guarda tiene un flag
+  que la relaje. HNP-V1 está listo cuando `verify_evidence_hnp.HNP_LINKS` son los 17 eslabones del
+  manifiesto y `verify_database` acepta `grant_id`.
 - **Sin HNP-E3**, P conserva su lugar en el plan pero no corre (enmienda E4).
 - **Entorno.** Los secretos (`AGENT_HNP_AGENT_KEY_PEM`, los tokens de servicio y de operador y las
   claves D1) se generan por invocación y solo los recibe el agente. El runner agrega dos variables
   que el manifiesto omite y el arranque exige: `AGENT_D1_AES_KEY_HEX` en B0-HNP
   (`load_hnp_trust`) y `AGENT_D1_POLICY_SET_ID`/`AGENT_D1_POLICY_REVISION` (`b2-hp-v2`, `1`, la
-  compuerta D1 de HP) en B2-HNP; la compra HNP se evalúa con `b2-hnp-v1`, armada en código. La capa
-  B fija `OPENAI_MODEL` del manifiesto y `OPENAI_TIMEOUT_SECONDS=90`.
+  compuerta D1 de HP) en B2-HNP; la compra HNP se evalúa con `b2-hnp-v1`, armada en código. El
+  dry-run imprime sus valores no secretos (`startup_additions`). La capa B fija `OPENAI_MODEL` del
+  manifiesto y `OPENAI_TIMEOUT_SECONDS=90`.
 
 ## Archivos
 
