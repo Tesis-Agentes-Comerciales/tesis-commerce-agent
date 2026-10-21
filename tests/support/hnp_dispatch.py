@@ -4,26 +4,32 @@ The dispatcher talks to them through the product's clients (`DelegatedPaymentCli
 over `httpx.MockTransport`. Both replay a request under the same `Idempotency-Key`; the PSP answers
 409 `idempotency_conflict` to the same key with another body, before verifying anything, as the
 real one does. Each request takes the next scripted answer, `ok` once the script runs out.
+`HnpMerchant` is the HP tests' AP2 merchant (`Ap2Merchant`) plus `/ap2/complete`, for the runtime
+end to end.
 """
 
 import hashlib
 import json
+import time
 from collections.abc import Callable
 from typing import Any
 
 import httpx
+import jwt
 from pydantic import SecretStr
 
 from commerce_agent.acp import ACPClient
 from commerce_agent.application.hnp_dispatch import HnpDispatcher
 from commerce_agent.delegated_payment import DelegatedPaymentClient
+from tests.governance.test_stale_terms_pending import MERCHANT_KEY_ID, Ap2Merchant
 from tests.support.ap2_hnp_fixtures import MERCHANT_ISSUER
-from tests.support.ap2_receipts import PSP_ISSUER, Signer, psp_payment_id
+from tests.support.ap2_receipts import PSP_ISSUER, Signer, chain_hash, psp_payment_id
 from tests.support.hnp_executor import Bench
 from tests.test_completion_client import completed_checkout
 
 AP2_ERRORS = ("invalid_credential", "invalid_mandate", "unresolved_constraint")
 ORDER_ID = "ord_1"
+HNP_ORDER_ID = "ord_hnp_1"
 
 
 def _next(script: list[str]) -> str:
@@ -163,6 +169,39 @@ class MerchantApi:
 
     def keys(self) -> set[str]:
         return {key for key, _ in self.completions}
+
+
+class HnpMerchant(Ap2Merchant):
+    """The AP2 merchant double, completing a Human Not Present chain with a signed receipt."""
+
+    def __init__(self, base_url: str) -> None:
+        super().__init__(base_url)
+        self.completions: list[tuple[str, str]] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if not path.endswith("/ap2/complete"):
+            return super().__call__(request)
+        session_id = path.removeprefix("/checkout_sessions/").partition("/")[0]
+        chain = json.loads(request.read())["checkout_mandate"]
+        self.completions.append((request.headers["Idempotency-Key"], chain))
+        order = {
+            "type": "order",
+            "id": HNP_ORDER_ID,
+            "checkout_session_id": session_id,
+            "permalink_url": f"{self.base_url}/orders/{HNP_ORDER_ID}",
+            "status": "confirmed",
+        }
+        completed = {**self.sessions[session_id], "status": "completed", "order": order}
+        claims = {
+            "iss": self.base_url,
+            "iat": int(time.time()),
+            "status": "Success",
+            "reference": chain_hash(chain),
+            "order_id": HNP_ORDER_ID,
+        }
+        receipt = jwt.encode(claims, self._key, algorithm="ES256", headers={"kid": MERCHANT_KEY_ID})
+        return httpx.Response(200, json={"checkout": completed, "checkout_receipt_jwt": receipt})
 
 
 def dispatching(psp: Psp, merchant: MerchantApi) -> Callable[[Bench], HnpDispatcher]:

@@ -1,8 +1,9 @@
 """The HNP executor as the runtime assembles it (docs/design/hnp-governed.md §3.3, §6).
 
 With AGENT_HNP_ENABLED off nothing changes. On, `off` runs B0-HNP and `enforce` runs B2-HNP with
-D1-HNP, D2/D3-HNP and the `close` freshness guard. Real keys, real SQLite and the AP2 merchant
-double; the `llm` selector is only assembled here, never called.
+D1-HNP, D2/D3-HNP and the `close` freshness guard, both through the dispatch (HNP-09b). Real keys,
+real SQLite and the AP2 merchant and PSP doubles; the `llm` selector is only assembled here, never
+called.
 """
 
 import json
@@ -16,6 +17,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from commerce_agent.application.hnp_dispatch import HnpDispatcher
 from commerce_agent.application.hnp_execution import HnpExecutionService, NullHnpPolicyGate
 from commerce_agent.application.hnp_selection import DeterministicHnpSelector, ModelHnpSelector
 from commerce_agent.config import Settings
@@ -28,6 +30,7 @@ from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenc
 from commerce_agent.runtime import AgentRuntime, build_runtime
 from tests.governance.test_shadow_integration import configuration
 from tests.governance.test_stale_terms_pending import Ap2Merchant
+from tests.support.hnp_dispatch import HNP_ORDER_ID, HnpMerchant, Psp
 from tests.test_delegation_api import (
     AGENT_PEM,
     FEED,
@@ -60,11 +63,11 @@ def governed_hnp(tmp_path: Path) -> Settings:
     )
 
 
-def runtime(settings: Settings, merchant: Any) -> AgentRuntime:
+def runtime(settings: Settings, merchant: Any, psp: Psp | None = None) -> AgentRuntime:
     return build_runtime(
         settings,
         transport=httpx.MockTransport(merchant),
-        payment_transport=httpx.MockTransport(merchant),
+        payment_transport=httpx.MockTransport(psp or merchant),
     )
 
 
@@ -86,10 +89,12 @@ def columns(path: Path) -> list[str]:
         return [row[1] for row in connection.execute("PRAGMA table_info(stage_timings)")]
 
 
-def committed(path: Path, task_id: str) -> tuple[str, str, int]:
+def committed(path: Path, task_id: str) -> tuple[str, str, str | None, str | None]:
+    """Task and purchase, the outbox's order and the order the purchase completed with."""
     with closing(sqlite3.connect(path)) as connection:
         return connection.execute(
-            "SELECT t.state, p.stage, (SELECT COUNT(*) FROM dispatch_outbox) FROM hnp_tasks t "
+            "SELECT t.state, p.stage, (SELECT order_id FROM dispatch_outbox), "
+            "(SELECT order_id FROM completion_results WHERE run_id = t.run_id) FROM hnp_tasks t "
             "JOIN purchases p ON p.run_id = t.run_id WHERE t.task_id = ?",
             (task_id,),
         ).fetchone()
@@ -115,12 +120,13 @@ def test_without_the_flag_nothing_is_assembled(tmp_path: Path) -> None:
     assert columns(tmp_path / "agent.db") == HP_COLUMNS
 
 
-def test_b0_hnp_runs_a_consented_task_to_the_commitment(tmp_path: Path) -> None:
-    merchant = Ap2Merchant(MERCHANT)
-    built = runtime(hnp_settings(tmp_path), merchant)
+def test_b0_hnp_runs_a_consented_task_to_its_purchase(tmp_path: Path) -> None:
+    merchant, psp = HnpMerchant(MERCHANT), Psp()
+    built = runtime(hnp_settings(tmp_path), merchant, psp)
     try:
         executor = built.hnp_executor
         assert isinstance(executor, HnpExecutionService)
+        assert isinstance(executor._dispatcher, HnpDispatcher)
         assert isinstance(executor._gate, NullHnpPolicyGate)
         assert isinstance(executor._selector, DeterministicHnpSelector)
         assert built.owned_hnp_chooser is None and built.purchases._hnp_d1_gate is None
@@ -128,20 +134,21 @@ def test_b0_hnp_runs_a_consented_task_to_the_commitment(tmp_path: Path) -> None:
     finally:
         built.close()
 
-    assert step.status == "applied", step
+    assert step.status == "closed", step
     assert step.execution is not None
     assert committed(tmp_path / "agent.db", step.execution.task.task_id) == (
-        "running",
-        "completing",
-        1,
+        "purchased",
+        "completed",
+        HNP_ORDER_ID,
+        HNP_ORDER_ID,
     )
-    assert merchant.creations() == 1
+    assert merchant.creations() == 1 and len(psp.delegations) == len(merchant.completions) == 1
     assert columns(tmp_path / "agent.db") == [*HP_COLUMNS, "input_tokens", "output_tokens"]
 
 
-def test_b2_hnp_runs_a_consented_task_to_the_commitment(tmp_path: Path) -> None:
-    merchant = Ap2Merchant(MERCHANT)
-    built = runtime(governed_hnp(tmp_path), merchant)
+def test_b2_hnp_runs_a_consented_task_to_its_purchase(tmp_path: Path) -> None:
+    merchant, psp = HnpMerchant(MERCHANT), Psp()
+    built = runtime(governed_hnp(tmp_path), merchant, psp)
     try:
         executor = built.hnp_executor
         assert isinstance(executor, HnpExecutionService)
@@ -152,14 +159,15 @@ def test_b2_hnp_runs_a_consented_task_to_the_commitment(tmp_path: Path) -> None:
     finally:
         built.close()
 
-    assert step.status == "applied", step
+    assert step.status == "closed", step
     assert step.execution is not None and step.execution.task.run_id is not None
     assert committed(tmp_path / "agent.db", step.execution.task.task_id) == (
-        "running",
-        "completing",
-        1,
+        "purchased",
+        "completed",
+        HNP_ORDER_ID,
+        HNP_ORDER_ID,
     )
-    assert merchant.creations() == 1
+    assert merchant.creations() == 1 and len(psp.delegations) == len(merchant.completions) == 1
     assert decisions(tmp_path / "agent.db", step.execution.task.run_id) == [
         ("D1", "HNP", "allow"),
         ("D2", "HNP", "allow"),
