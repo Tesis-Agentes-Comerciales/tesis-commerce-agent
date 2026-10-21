@@ -32,6 +32,7 @@ from commerce_agent.persistence.provenance_sqlite import SqliteD1ProvenanceStore
 from commerce_agent.persistence.sqlite import write_approval
 
 from .canonical import canonical_bytes, parse_model, sha256_digest
+from .destination import destination_binding
 from .enforce import _committed_transition
 from .evaluator import (
     AuthorizationEvaluator,
@@ -450,16 +451,12 @@ class SqliteD2AuthorizationGate:
                 "fulfillment-service",
                 canonical_bytes(snapshot.get("selected_fulfillment_options")),
             ),
-            "destination_binding": {
-                "schema_version": SCHEMA,
-                "binding_id": "destination:"
+            "destination_binding": destination_binding(
+                self._keys,
+                "destination:"
                 + pseudonym(self._keys, "destination-id", canonical_bytes([run_id, checkout.id])),
-                "scheme": "hmac-sha256/v1",
-                "key_id": self._keys.key_id,
-                "value": pseudonym(
-                    self._keys, "destination", canonical_bytes(snapshot.get("fulfillment_details"))
-                ),
-            },
+                snapshot.get("fulfillment_details"),
+            ),
             "commercial_expires_at": _utc(checkout.expires_at),
         }
         snapshot_ref = vault.register_authorization_source(

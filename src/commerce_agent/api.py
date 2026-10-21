@@ -34,6 +34,7 @@ from commerce_agent.buyer_auth import (
 )
 from commerce_agent.completion import CompletionError
 from commerce_agent.config import Settings, get_settings
+from commerce_agent.delegation_api import register_delegation_api
 from commerce_agent.governance.models import GovernanceMode
 from commerce_agent.llm import ConversationRouter, IntentInterpretationError
 from commerce_agent.runtime import build_runtime
@@ -184,6 +185,7 @@ def create_app(
     conversation_router: ConversationRouter | None = None,
     id_factory: IdFactory = default_id_factory,
     buyer_authenticator: BuyerAuthenticator | None = None,
+    authority_clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     configuration = settings or get_settings()
     if configuration.agent_auth_mode == "local" and (
@@ -202,6 +204,7 @@ def create_app(
         payment_transport=payment_transport,
         clock=clock,
         conversation_router=conversation_router,
+        authority_clock=authority_clock,
     )
     store = runtime.store
     purchase_service = runtime.purchases
@@ -269,6 +272,8 @@ def create_app(
     app.state.assistant_transport = register_assistant_transport(
         app, service=conversation, new_id=id_factory, current_buyer=current_buyer
     )
+    if runtime.delegations is not None:
+        register_delegation_api(app, runtime.delegations, current_buyer=current_buyer)
 
     @app.post("/conversation/turn", response_model=ConversationTurnResponse)
     def conversation_turn(
