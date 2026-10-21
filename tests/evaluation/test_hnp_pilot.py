@@ -1,26 +1,31 @@
-"""`hnp_pilot`: manifest, plan, environment and startup (docs/design/hnp-pilot.md, HNP-E2).
+"""`hnp-pilot`: plan, environment, guards and dry run (docs/design/hnp-pilot.md, HNP-E2).
 
-Nothing here starts a service or calls a model.
+Nothing here starts a service or calls a model: the live run is refused before it could.
 """
 
 import copy
+import json
 import subprocess
+import sys
+import types
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from commerce_evaluation import hnp_pilot
+from commerce_evaluation import hnp_pilot, hnp_pilot_agent, verify_evidence
 from commerce_evaluation.governance_pilot import _ap2_private_key
 from commerce_evaluation.hnp_pilot import (
     CONDITIONS,
     LEDGER_CONDITIONS,
+    CostCap,
     InvocationSecrets,
     PlannedEpisode,
     build_plan,
     condition_environment,
     condition_order,
     episode_counts,
+    live_guards,
     load_pilot,
     stack_variables,
     startup_check,
@@ -279,6 +284,251 @@ def test_a_refused_startup_never_echoes_a_value(
     assert result["ok"] is False and "AGENT_AUTH_ISSUER" in result["error"]
     for secret in (*invocation.values(), provider_key, "BEGIN PRIVATE KEY"):
         assert secret not in result["error"]
+
+
+# Guards ------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "cap"),
+    [
+        (None, None),
+        ("abc", None),
+        ("0", None),
+        ("-1", None),
+        ("2.01", None),
+        ("2", 2.0),
+        ("0.5", 0.5),
+    ],
+)
+def test_the_cost_cap_comes_from_its_variable_and_never_exceeds_the_manifest(
+    pilot: tuple[dict, dict], value: str | None, cap: float | None
+) -> None:
+    manifest, _ = pilot
+    environ = {} if value is None else {"HNP_PILOT_MAX_COST_USD": value}
+    read = CostCap.read(manifest, environ)
+    assert read.cap_usd == cap
+    assert (read.error is None) == (cap is not None)
+
+
+def guards(manifest: dict[str, Any], **changes: Any) -> dict[str, dict[str, Any]]:
+    ready = {name: {"ready": True} for name in hnp_pilot.REQUIRED_READINESS}
+    options: dict[str, Any] = {
+        "problems": [],
+        "readiness": ready,
+        "cost": CostCap.read(manifest, {"HNP_PILOT_MAX_COST_USD": "2"}),
+        "startup": {"B0-HNP/A": {"ok": True}},
+        "registration": {"ok": True, "problems": []},
+        "worktree_dirty": False,
+        "environ": {"HNP_LIVE": "1"},
+    }
+    return live_guards(manifest, **(options | changes))
+
+
+def test_a_live_run_needs_every_guard(pilot: tuple[dict, dict]) -> None:
+    manifest, _ = pilot
+    approved = copy.deepcopy(manifest)
+    approved["approval"]["status"] = "approved"
+    assert all(guard["ok"] for guard in guards(approved).values())
+    # The registered manifest is still pending Yair's approval: a live run refuses.
+    assert manifest["approval"]["status"] == "pending"
+    assert guards(manifest)["approval"]["ok"] is False
+    assert guards(approved, cost=CostCap.read(manifest, {}))["cost_cap"]["ok"] is False
+    missing = {name: {"ready": name != "HNP-09b"} for name in hnp_pilot.REQUIRED_READINESS}
+    assert guards(approved, readiness=missing)["integrations"]["missing"] == ["HNP-09b"]
+    assert guards(approved, worktree_dirty=True)["agent_worktree"]["ok"] is False
+    assert guards(approved, environ={})["hnp_live"]["ok"] is False
+    assert guards(approved, environ={"HNP_LIVE": "true"})["hnp_live"]["ok"] is False
+    unregistered = {"ok": False, "problems": ["a copy"]}
+    assert guards(approved, registration=unregistered)["registered_manifest"]["ok"] is False
+    assert guards(approved, startup={"B2-HNP/B": {"ok": False}})["agent_startup"]["ok"] is False
+    assert guards(approved, problems=["x"])["manifest_and_matrix"]["ok"] is False
+
+
+def test_the_live_run_refuses_and_starts_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("HNP_PILOT_MAX_COST_USD", "2")
+    monkeypatch.delenv("HNP_LIVE", raising=False)
+    assert hnp_pilot.main([]) == 1
+    error = capsys.readouterr().err
+    assert "refuses to start" in error and '"approval"' in error and '"hnp_live"' in error
+
+
+def test_no_flag_relaxes_a_guard() -> None:
+    with pytest.raises(SystemExit):
+        hnp_pilot.main(["--dry-run", "--allow-dirty"])
+
+
+def git(root: Path, *arguments: str) -> None:
+    subprocess.run(
+        [
+            *("git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@example.invalid"),
+            *("-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", *arguments),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+def approve(manifest_path: Path) -> None:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["approval"] |= {"status": "approved", "approved_at": "2026-10-22"}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_an_uncommitted_approval_does_not_pass(tmp_path: Path) -> None:
+    """Path (a): edit `approval` in the registered manifest without a commit."""
+    data = tmp_path / "evaluation" / "data"
+    data.mkdir(parents=True)
+    manifest, matrix = data / "hnp-pilot-v1.json", data / "hnp-scenarios.json"
+    manifest.write_bytes(hnp_pilot.MANIFEST.read_bytes())
+    matrix.write_bytes((hnp_pilot.MANIFEST.parent / "hnp-scenarios.json").read_bytes())
+    git(tmp_path, "init", "-q")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "-q", "-m", "registered")
+
+    def registration(path: Path = manifest) -> dict[str, Any]:
+        return hnp_pilot.manifest_registration(path, matrix, root=tmp_path, registered=manifest)
+
+    assert registration() == {"ok": True, "problems": []}
+    approve(manifest)
+    assert registration()["problems"] == ["evaluation/data/hnp-pilot-v1.json differs from HEAD"]
+    git(tmp_path, "add", ".")  # staged is not committed either
+    assert registration()["ok"] is False
+    git(tmp_path, "commit", "-q", "-m", "approved")
+    assert registration()["ok"] is True
+    copy_path = data / "approved-copy.json"
+    copy_path.write_bytes(manifest.read_bytes())
+    assert registration(copy_path)["problems"] == [
+        f"{copy_path} is not the registered manifest",
+        "evaluation/data/approved-copy.json is not tracked",
+    ]
+
+
+def test_an_untracked_copy_of_the_manifest_does_not_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Path (b): an approved copy of the manifest and its matrix, passed with `--manifest`."""
+    manifest_copy, matrix_copy = tmp_path / "manifest.json", tmp_path / "matrix.json"
+    manifest = json.loads(hnp_pilot.MANIFEST.read_text(encoding="utf-8"))
+    manifest["scenario_manifest"] = str(matrix_copy)
+    manifest_copy.write_text(json.dumps(manifest), encoding="utf-8")
+    approve(manifest_copy)
+    matrix = json.loads((hnp_pilot.MANIFEST.parent / "hnp-scenarios.json").read_text("utf-8"))
+    matrix["manifest"] = str(manifest_copy)
+    matrix_copy.write_text(json.dumps(matrix), encoding="utf-8")
+    monkeypatch.setenv("HNP_PILOT_MAX_COST_USD", "2")
+    monkeypatch.setenv("HNP_LIVE", "1")
+
+    assert hnp_pilot.main(["--manifest", str(manifest_copy)]) == 1
+    error = capsys.readouterr().err
+    assert '"registered_manifest"' in error and '"approval"' not in error
+    problems = hnp_pilot.manifest_registration(manifest_copy, matrix_copy)["problems"]
+    assert problems == [
+        f"{manifest_copy} is not the registered manifest",
+        f"{manifest_copy} is outside the agent checkout",
+        f"{matrix_copy} is outside the agent checkout",
+    ]
+
+
+def test_the_readiness_follows_the_run_route_and_the_verifier(
+    pilot: tuple[dict, dict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest, _ = pilot
+    links = manifest["evidence_chain"]["links"]
+    monkeypatch.setattr(
+        hnp_pilot, "_route_source", lambda: '@router.post("/internal/hnp/tasks/{task_id}/run")'
+    )
+    profile = types.ModuleType(hnp_pilot.VERIFIER_MODULE)
+    profile.HNP_LINKS = tuple(links)  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, hnp_pilot.VERIFIER_MODULE, profile)
+
+    def verify_database(database: Path, *, psp_database: Path, grant_id: str) -> list[Any]:
+        return []
+
+    monkeypatch.setattr(verify_evidence, "verify_database", verify_database)
+    readiness = hnp_pilot.integration_readiness(manifest, agent_base={"ready": True})
+    for name in ("HNP-05", "HNP-06", "HNP-08", "HNP-09a", "HNP-09b", "HNP-V1", "HNP-E2"):
+        assert readiness[name]["ready"] is True, name
+    assert readiness["HNP-E3"]["optional"] is True
+
+    profile.HNP_LINKS = tuple(links[:-1])  # type: ignore[attr-defined]
+    assert hnp_pilot.verifier_readiness(links)["ready"] is False
+
+
+def test_without_the_hnp_profile_the_verifier_is_not_ready(
+    pilot: tuple[dict, dict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest, _ = pilot
+    monkeypatch.setitem(sys.modules, hnp_pilot.VERIFIER_MODULE, None)
+    readiness = hnp_pilot.verifier_readiness(manifest["evidence_chain"]["links"])
+    assert readiness["ready"] is False and readiness["error"].startswith("ModuleNotFoundError")
+
+
+# Dry run -----------------------------------------------------------------------------------------
+
+
+def test_the_dry_run_prints_the_plan_and_the_readiness_without_secrets(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("HNP_PILOT_MAX_COST_USD", raising=False)
+    monkeypatch.delenv("HNP_LIVE", raising=False)
+    assert hnp_pilot.main(["--dry-run"]) == 0
+    output = capsys.readouterr().out
+    document = json.loads(output)
+    assert document["manifest_id"] == "HNP-PILOT-v1"
+    assert document["manifest_and_matrix_valid"] is True
+    assert document["destination_accepted"] is True
+    assert document["episodes_planned"]["total"] == 133
+    assert document["episodes_runnable"]["by_condition"]["P"] == 0
+    assert len(document["plan"]) == 133
+    assert document["scripted_selector"]["variant_id"] == "BBOnePlus11-256GB"
+    assert document["scripted_selector"]["ready"] is True
+    assert set(document["agent_startup"]) == {"B0-HNP/A", "B0-HNP/B", "B2-HNP/A", "B2-HNP/B"}
+    assert document["live_guards"]["cost_cap"]["ok"] is False
+    assert document["live_guards"]["hnp_live"] == {"ok": False, "variable": "HNP_LIVE"}
+    assert "registered_manifest" in document["live_guards"]
+    assert document["live_run_would_start"] is False
+    assert document["startup_additions"] == {
+        "B0-HNP": {"AGENT_D1_AES_KEY_HEX": "generated_per_invocation"},
+        "B2-HNP": {"AGENT_D1_POLICY_SET_ID": "b2-hp-v2", "AGENT_D1_POLICY_REVISION": "1"},
+    }
+    assert set(document["integration_readiness"]) >= {"HNP-09b", "HNP-V1", "HNP-E2", "HNP-E3"}
+    for name in ("BEGIN PRIVATE KEY", "sk-", "dry-run-placeholder"):
+        assert name not in output
+    names = {row["name"] for row in document["conditions"]["B2-HNP"]["environment"]}
+    assert {"AGENT_HNP_SERVICE_TOKEN", "AGENT_D1_POLICY_SET_ID"} <= names
+
+
+def test_the_dry_run_of_one_scenario_is_a_smoke(capsys: pytest.CaptureFixture[str]) -> None:
+    assert hnp_pilot.main(["--dry-run", "--scenario", "HN11"]) == 0
+    document = json.loads(capsys.readouterr().out)
+    assert document["smoke"] is True
+    assert {row["scenario_id"] for row in document["plan"]} == {"HN11"}
+
+
+def test_an_unknown_scenario_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
+    assert hnp_pilot.main(["--dry-run", "--scenario", "HN99"]) == 1
+    assert "Unknown scenarios: HN99" in capsys.readouterr().err
+
+
+# HN11's scripted selector ------------------------------------------------------------------------
+
+
+def test_hn11_registers_the_scripted_variant(pilot: tuple[dict, dict]) -> None:
+    _, matrix = pilot
+    assert hnp_pilot_agent.scripted_variant(matrix) == "BBOnePlus11-256GB"
+    assert hnp_pilot_agent.scripted_variant() == "BBOnePlus11-256GB"
+
+
+def test_the_scripted_selector_can_be_injected_on_this_runtime() -> None:
+    readiness = hnp_pilot_agent.injection_readiness()
+    assert readiness == {
+        "ready": True,
+        "factory": "commerce_evaluation.hnp_pilot_agent:app_factory",
+        "seam": "commerce_agent.delegation.bootstrap.build_hnp_selector",
+    }
 
 
 def test_paths_stay_in_the_scratch_area(tmp_path: Path) -> None:

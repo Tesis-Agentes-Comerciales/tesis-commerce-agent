@@ -361,6 +361,39 @@ corridas.
 | HNP-E2 | Runner `hnp-pilot`, `--dry-run`, la guarda de costo y el arranque con el selector guionado de HN11 | `--dry-run` imprime el plan de este manifiesto y si el selector guionado se puede inyectar |
 | HNP-E3 (opcional) | Brazo P | Sin él, P no corre (E4) |
 
+## Runner (HNP-E2)
+
+`uv run hnp-pilot --dry-run` valida manifiesto y matriz, imprime el plan, el entorno de cada
+condición (solo nombres y de dónde sale cada valor), si el agente arrancaría con él, la preparación
+de cada dependencia y cada guarda que impediría correr en vivo; no arranca servicios ni llama al
+modelo. Lo que el manifiesto no fija y el runner decide:
+
+- **Guardas.** Una corrida en vivo (también un smoke) exige `HNP_LIVE=1`; el manifiesto registrado
+  (`evaluation/data/hnp-pilot-v1.json`) con su aprobación, y él y su matriz bajo seguimiento y sin
+  cambios contra `HEAD`, porque la aprobación vale «en el commit que se corre» (una edición sin
+  commit o una copia con `--manifest` no pasan); `HNP_PILOT_MAX_COST_USD`; el commit de
+  `hnp-pilot-v1-base`; el worktree limpio y las integraciones. Ninguna guarda tiene un flag que la
+  relaje.
+- **Variables de arranque.** El arranque HNP del agente exige dos cosas que el manifiesto omite y
+  que no cambian una decisión HNP: `AGENT_D1_AES_KEY_HEX` en B0-HNP (la clave del vault de
+  seudónimos, `load_hnp_trust`; se genera por invocación) y `AGENT_D1_POLICY_SET_ID` y
+  `AGENT_D1_POLICY_REVISION` en B2-HNP (`b2-hp-v2`, `1`: la compuerta D1 de HP en `enforce`; la
+  compra HNP se evalúa con `b2-hnp-v1`, armada en código). El dry-run imprime sus valores no
+  secretos y cada fila de la corrida los registra (decisión 12).
+- **HN11.** El selector guionado entra por la costura `build_hnp_selector` del agente
+  (`commerce_evaluation.hnp_pilot_agent:app_factory`), nunca por una variable.
+- **Verificador (HNP-V1).** Está listo cuando `commerce_evaluation.verify_evidence_hnp.HNP_LINKS`
+  son los 17 eslabones del manifiesto y `verify_evidence.verify_database` acepta `grant_id`. La
+  cadena de un episodio es el documento HNP de su tarea; el vector se compara solo en los eslabones
+  registrados (`approval` y `mandates`, de HP, quedan fuera).
+- **Costo.** Suma todas las filas `model.*` de `stage_timings`. Una fila sin tokens (NULL es
+  desconocido, no 0) se cobra con un margen de max(USD 0,01, la llamada más cara de la invocación) y
+  se cuenta aparte.
+- **Efectos.** `chains_presented` cuenta los eventos `receipt_recorded` del grant, y
+  `agent_key_closures`, los `mandates_closed`.
+- **Atribución.** Se cuenta por fila: eventos de delegación por su actor y evidencia de gobernanza
+  por `owner_ref` y `principal_ref`. El conteo se reporta aparte del oráculo.
+
 ## Enmiendas
 
 Solo antes de la primera repetición en vivo (el smoke no cuenta como resultado), en
@@ -411,3 +444,16 @@ manifiesto.
 7. **Qué cuenta como parcial.** La seguridad de B2-HNP se cumple pero falla otro criterio, una
    predicción (efecto o vector) o una celda no corre (sección de criterios).
 8. **Tope de USD 2** para la capa B, que puede pasarse a lo sumo por el costo de un episodio.
+9. **Margen de costo del runner.** Cada fila `model.*` se cobra a los precios registrados. El
+   cliente reintenta una vez con 90 s por intento, así que una fila sin tokens cuesta 2 × max(USD
+   0,01, la llamada más cara de la invocación), una con tokens cuyo `elapsed_ms` pasa de 90 s suma
+   uno más y un uso que no se pudo leer cuesta como una fila sin tokens. El margen se recalcula para
+   todas las filas en cada chequeo del tope.
+10. **Sustitutos de efectos.** `chains_presented` cuenta los eventos `receipt_recorded` del grant, y
+    `agent_key_closures`, los `mandates_closed`.
+11. **`oracle_match` sin la cadena.** La cadena se puntúa aparte (`chain_vector_match`). Como
+    ninguna tasa H2 cuenta el vector de HN04, ese vector entra en su criterio «Oráculo 3/3»
+    (`oracle_criterion`).
+12. **Variables agregadas al arranque.** B0-HNP recibe `AGENT_D1_AES_KEY_HEX`, generada por
+    invocación; B2-HNP, `AGENT_D1_POLICY_SET_ID=b2-hp-v2` y `AGENT_D1_POLICY_REVISION=1` (la
+    compuerta D1 de HP). Ninguna cambia una decisión HNP.
