@@ -1021,6 +1021,30 @@ B2-HNP.
 - **H2-HNP-bloqueo:** ejecuciones bloqueadas con cadena completa hasta la decisión que bloqueó /
   ejecuciones bloqueadas.
 
+**Implementación (HNP-V1).** `commerce_evaluation/verify_evidence_hnp.py`, llamado por
+`verify_database`: un documento por tarea de `hnp_tasks`, encontrada por su grant (`--grant`)
+o su `run_id`, así que HN04–HN06 se verifican sin fila en `purchases`. Que un paso aplique se lee de
+cualquier rastro suyo (fila de la compra, registros D1/D2/D3, `close`, reserva, outbox,
+`kill_switch_blocked` en `uow1`/`uow2`), no de la etapa de la compra. Va en dos partes: esta
+verifica los eslabones 1 a 6, `order_webhook` y los terminales; `freshness`, `d2_decision`,
+`reservation`, `closed_mandates`, `d3_decision`, `receipts` y `consumption` llegan con la segunda
+y, mientras tanto, una ejecución que pasó del checkout los tiene `missing` (nunca `ok`), así que su
+cadena no es completa. Precisiones de lo construido:
+
+- `intent` compara `intent_json` del grant con la intención derivada del alcance (moneda y
+  `total_max_minor`) y recalcula el digest de la fuente D1 como P2; la fuente D1 es un enlace HMAC,
+  así que el vínculo con el grant lo cierra `d1_decision` (`IntentFacts` = alcance, política
+  `b2-hnp-v1`, variante elegida dentro del grant).
+- `open_mandates` verifica las firmas con `public_jwk_json` y su huella = `issuer_kid`, a la hora
+  `consented_at` del grant (el `iat` del abierto puede ir hasta 1 s antes: no se compara por
+  igualdad). El comercio de confianza sale del propio mandato abierto: los pseudónimos
+  `merchant_refs` y `owner_ref` no se recalculan (requieren la clave del vault).
+- Ningún eslabón lee `observed_state_version` de `application_failure`: se lee después de las
+  escrituras del terminal.
+- Salida: `purchase_mode: "HNP"`, `grant_id`, `task_id`, `task_state`, `outcome_code` y
+  `h2_hnp` (`orders` = H2-HNP, `blocked` = tareas `escalated`, `failed` o `canceled`, `all_runs`,
+  `by_link`) solo si hay ejecuciones HNP; `h2` cuenta solo compras HP.
+
 ## 10. Traza (HNP-11)
 
 UI y backend en el mismo commit: Pydantic (`trace/models.py`), `parsePurchaseTrace`, fixtures e
