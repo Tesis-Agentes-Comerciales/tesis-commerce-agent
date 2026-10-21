@@ -148,13 +148,12 @@ class PolicyBinding(ContractModel):
 
 
 class PolicyHeader(ContractModel):
-    """Common header of every policy input; each phase fixes its own `phase` and `action`."""
+    """Common header of every policy input; each phase fixes `phase`, `action` and its modes."""
 
     decision_id: Id
     run_id: Id
     trace_id: Id
     owner_ref: Id
-    purchase_mode: PurchaseMode
     governance_mode: GovernanceMode
     context_version: Version
     expected_local_state_version: Version
@@ -167,6 +166,7 @@ class PolicyHeader(ContractModel):
 
 
 class InputHeader(PolicyHeader):
+    purchase_mode: PurchaseMode
     phase: Literal["D1"]
     action: Literal["prepare_checkout"]
 
@@ -322,9 +322,10 @@ def _constraint_set(values: tuple["ConstraintMatch", ...]) -> tuple["ConstraintM
     return tuple(sorted(values, key=lambda match: match.constraint_ref))
 
 
-class AuthorizationPolicyInput(PolicyHeader):
-    """D2 input. Only the HP branch exists: HNP (POL-07..09) is not implemented."""
+class HpAuthorizationPolicyInput(PolicyHeader):
+    """HP branch of the D2 input, selected by `purchase_mode`."""
 
+    purchase_mode: Literal["HP"]
     phase: Literal["D2"]
     action: Literal["complete_purchase"]
     principal: PrincipalFacts
@@ -339,11 +340,11 @@ class AuthorizationPolicyInput(PolicyHeader):
     authorization_profile: AuthorizationProfile
     hp: HpAuthorizationFacts
 
-    @model_validator(mode="after")
-    def human_present(self) -> Self:
-        if self.purchase_mode != "HP":
-            raise ValueError("Only the HP branch of D2 exists")
-        return self
+
+# D2 input: a union discriminated by `purchase_mode`. Only the HP branch exists; the HNP branch
+# (POL-07..09) joins as `HpAuthorizationPolicyInput | HnpAuthorizationPolicyInput` with
+# `Field(discriminator="purchase_mode")`, without changing the bytes of HP evidence.
+AuthorizationPolicyInput = HpAuthorizationPolicyInput
 
 
 class RuleResult(ContractModel):

@@ -64,8 +64,11 @@ patrón de *boundary* fail-closed.
 
 ## Hechos y fuente autoritativa
 
-La entrada sigue `AuthorizationPolicyInput` (rama HP) del contrato formal. Todos los hechos salen
-del backend; el cuerpo de la petición solo aporta la huella que se compara.
+La entrada sigue `AuthorizationPolicyInput` (rama HP) del contrato formal. En código es una unión
+discriminada por `purchase_mode` con una sola rama, `HpAuthorizationPolicyInput`
+(`purchase_mode: "HP"`); la rama HNP se agrega como segundo miembro sin cambiar los bytes de la
+evidencia HP. Todos los hechos salen del backend; el cuerpo de la petición solo aporta la huella
+que se compara.
 
 | Hecho | Fuente autoritativa |
 | --- | --- |
