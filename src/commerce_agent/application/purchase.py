@@ -14,6 +14,7 @@ from commerce_agent.acp.models import (
     FulfillmentDetails,
     SelectedFulfillmentOption,
 )
+from commerce_agent.application.ap2_evidence import Ap2EvidenceRecorder
 from commerce_agent.application.offer_freshness import FreshnessStage, OfferFreshnessGuard
 from commerce_agent.approval import ApprovalError, ApprovalService, ApprovalTerms
 from commerce_agent.domain import PurchaseIntent, SelectionResult, rank_candidates
@@ -155,6 +156,7 @@ class PurchaseService:
         d1_observer: D1SelectionObserver | None = None,
         d1_gate: D1EnforceGate | None = None,
         d1_continuation: D1Continuation | None = None,
+        ap2_evidence: Ap2EvidenceRecorder | None = None,
     ) -> None:
         self._feed = feed
         self._checkout = checkout
@@ -168,6 +170,7 @@ class PurchaseService:
         if d1_continuation is not None and d1_gate is None:
             raise ValueError("Governed continuation requires the D1 enforce gate")
         self._d1_continuation = d1_continuation
+        self._ap2_evidence = ap2_evidence
 
     def start(
         self,
@@ -348,6 +351,8 @@ class PurchaseService:
             before_signing=lambda: self._check_offer(run_id, checkout, "approve"),
         )
         self._store.update_purchase(run_id, stage=PurchaseStage.APPROVED)
+        if self._ap2_evidence is not None:
+            self._ap2_evidence.consent(record)
         return record
 
     def cancel(self, *, run_id: str) -> None:
