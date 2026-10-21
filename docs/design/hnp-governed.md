@@ -1028,6 +1028,54 @@ B2-HNP.
 - **H2-HNP-bloqueo:** ejecuciones bloqueadas con cadena completa hasta la decisión que bloqueó /
   ejecuciones bloqueadas.
 
+**Implementación (HNP-V1).** `commerce_evaluation/verify_evidence_hnp.py`, llamado por
+`verify_database`: un documento por tarea de `hnp_tasks`, encontrada por su grant (`--grant`)
+o su `run_id`, así que HN04–HN06 se verifican sin fila en `purchases`. Que un paso aplique se lee de
+cualquier rastro suyo (fila de la compra, registros D1/D2/D3, `close`, reserva, outbox,
+`kill_switch_blocked` en `uow1`/`uow2`), no de la etapa de la compra. Precisiones de lo construido:
+
+- `ledger_chain` (fuera de los 17): la cadena `delegation_events` entera verifica, `hnp_tasks`
+  coincide con la tarea que dejan sus eventos (último `task_finished`, o el `task_claimed`, o la
+  revocación del dueño antes del claim) y el grant con su cierre (el primer `revoked`, `expired` o
+  `consumed` fija estado, motivo y época 2; sin cierre, `active` y época 1). `complete` la exige
+  `ok`, y `task_state`, `outcome_code` y `run_id` del documento salen de los eventos encadenados,
+  no de la tabla.
+- D1 aplica también cuando el rastro encadenado lo implica: la fila de la compra que deja `start`,
+  un evento posterior a D1 (reserva, cierre, outbox, recibo, consumo), `kill_switch_blocked` en
+  `uow1`/`uow2`, o un `task_claimed` con la tarea en curso o terminada con un código de D1 o de un
+  paso posterior. Sin su evidencia, D1 es `missing`. `selection_not_eligible`, `checkout_failed`,
+  `state_conflict`, `governance_unavailable`, `no_candidate_in_scope`, `budget_guard` y las
+  cancelaciones pueden terminar la ejecución antes de D1 (K12 en HN11): no lo implican.
+- `intent` compara `intent_json` del grant con la intención derivada del alcance (moneda y
+  `total_max_minor`) y recalcula el digest de la fuente D1 como P2; la fuente D1 es un enlace HMAC,
+  así que el vínculo con el grant lo cierra `d1_decision` (`IntentFacts` = alcance, política
+  `b2-hnp-v1`, variante elegida dentro del grant).
+- `open_mandates` verifica las firmas con `public_jwk_json` y su huella = `issuer_kid`, a la hora
+  `consented_at` del grant (el `iat` del abierto puede ir hasta 1 s antes: no se compara por
+  igualdad); `closed_mandates`, a la hora `iat` del cerrado. El comercio de confianza sale del
+  propio mandato abierto: los pseudónimos `merchant_refs` y `owner_ref` no se recalculan (requieren
+  la clave del vault; `open_mandates` los lista en `not_verified`), ni la firma del Checkout JWT
+  del comercio (su JWKS no se guarda).
+- `d2_decision` y `d3_decision` reejecutan la política y siguen las referencias de su entrada (D1,
+  grant, consentimiento, mandatos, reserva, frescura `close`, outbox). No leen
+  `observed_state_version` de `application_failure`: se lee después de las escrituras del terminal.
+- `d3_decision` ancla además la fila del outbox: grant, `run_id`, checkout, operación, monto,
+  moneda y época de la reserva; `checkout_expires_at` = `expires_at` del checkout JWT del cerrado;
+  `payment_request_digest` = el que recalcula `hnp_execution.payment_request_digest` con ese
+  checkout, su JWT y los dos cerrados; y `control_epoch` existe en `hnp_controls` con el kill switch
+  apagado.
+- `receipts` lee los JWT de los recibos con el perfil AP2 (`PaymentReceipt`/`CheckoutReceipt` del
+  SDK, `status` solo `Success` o `Error`): `reference` = `link_hash` del cerrado, y emisor,
+  `order_id`/`payment_id`, `error` y estado iguales a su `receipt_recorded`. Con orden exige los
+  JWT de `completion_results`, que escribe la UoW-3 de HNP-09b: hasta entonces sale `missing`. El
+  rechazo del PSP lee el `error_receipt_jwt` del outbox; mientras el ledger guarde el estado como
+  `error` (fuera del perfil AP2, lo normaliza HNP-09b) sale `missing`, nunca `ok`. Un tipo de
+  recibo repetido en la cadena es `mismatch`.
+- Salida: `purchase_mode: "HNP"`, `grant_id`, `task_id`, `task_state`, `outcome_code` y
+  `h2_hnp` (`orders` = H2-HNP, `blocked` = tareas `escalated`, `failed` o `canceled`, `all_runs`,
+  `by_link`) solo si hay ejecuciones HNP; `h2` cuenta solo compras HP. `blocked` incluye HN04: no es
+  el `h2_hnp_block` del piloto, que E2 calcula desde los vectores sin HN04.
+
 ## 10. Traza (HNP-11)
 
 UI y backend en el mismo commit: Pydantic (`trace/models.py`), `parsePurchaseTrace`, fixtures e
@@ -1052,6 +1100,13 @@ historias.
   `orders`), igual que HP.
 - En HNP no aparecen `approval` ni `authorization_signed`; `payment_authorized`, `order_confirmed`,
   `order_event` y `failed` se reutilizan. `PolicyRef` muestra `b2-hnp-v1`, revisión 2.
+- **Lo que fijó HNP-11:** tampoco hay pasos `request` ni `selection` (el campo `request` es el texto
+  del ejecutor, «Compra delegada»). `canceled.by` agrega `"expiry"` (`grant_expired`). Si la tarea
+  falla con otro código que la compra (#93), su fallo es un segundo `failed` con id `failed:task`.
+  `escalated` va con `state: "blocked"`. `payment_authorized` HNP queda para 09b y solo sale con
+  la prueba del token, el recibo de pago `success` (`completion_results` o `receipt_recorded` del
+  pago); nunca de la etapa (`completing` desde UoW-2) ni de `payment.delegate`, que se anota antes
+  del primer envío al PSP. Fuentes y estados: `docs/design/trace-panel.md`, «Compra delegada».
 
 ## 11. Condiciones
 

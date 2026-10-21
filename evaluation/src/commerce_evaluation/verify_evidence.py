@@ -949,24 +949,47 @@ def _operation(operation: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def verify_database(
-    database: Path, *, run_id: str | None = None, psp_database: Path | None = None
+    database: Path,
+    *,
+    run_id: str | None = None,
+    psp_database: Path | None = None,
+    grant_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Every purchase of one agent database (or only `run_id`), with its links and `complete`."""
+    """Every purchase of one agent database (or only `run_id`), with its links and `complete`;
+    then every HNP task (or the one of `run_id` or `grant_id`) with its HNP profile."""
+    # The HNP profile builds on this module.
+    from .verify_evidence_hnp import hnp_runs
+
     with closing(read_only(database)) as connection:
         psp = read_only(psp_database) if psp_database is not None else None
         try:
-            if not _table(connection, "purchases"):
-                return []
-            query = "SELECT * FROM purchases" + (" WHERE run_id = ?" if run_id else "")
-            cursor = connection.execute(
-                f"{query} ORDER BY created_at, run_id", (run_id,) if run_id else ()
-            )
-            columns = [col[0] for col in cursor.description]
-            purchases = [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
-            return [_run_document(database, connection, purchase, psp) for purchase in purchases]
+            return [
+                *_hp_runs(database, connection, psp, run_id, grant_id),
+                *hnp_runs(database, connection, psp, run_id=run_id, grant_id=grant_id),
+            ]
         finally:
             if psp is not None:
                 psp.close()
+
+
+def _hp_runs(
+    database: Path,
+    connection: sqlite3.Connection,
+    psp: sqlite3.Connection | None,
+    run_id: str | None,
+    grant_id: str | None,
+) -> list[dict[str, Any]]:
+    if grant_id is not None or not _table(connection, "purchases"):
+        return []
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(purchases)")}
+    filters = ["run_id = ?"] if run_id else []
+    if "purchase_mode" in columns:
+        filters.append("purchase_mode IS NOT 'HNP'")  # verified by its task, in the HNP profile
+    query = "SELECT * FROM purchases" + (f" WHERE {' AND '.join(filters)}" if filters else "")
+    cursor = connection.execute(f"{query} ORDER BY created_at, run_id", (run_id,) if run_id else ())
+    names = [col[0] for col in cursor.description]
+    purchases = [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
+    return [_run_document(database, connection, purchase, psp) for purchase in purchases]
 
 
 def _run_document(
@@ -996,18 +1019,18 @@ def is_complete(links: Mapping[str, Link], *, effect: bool) -> bool:
     return all(link.status in accepted for link in links.values())
 
 
+def share(selected: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    complete = sum(bool(row["complete"]) for row in selected)
+    return {
+        "n": len(selected),
+        "complete": complete,
+        "rate": round(complete / len(selected), 4) if selected else None,
+    }
+
+
 def h2_summary(runs: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     """H2: among purchases that reached an order, the share whose chain verified complete."""
     rows = list(runs)
-
-    def share(selected: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-        complete = sum(bool(row["complete"]) for row in selected)
-        return {
-            "n": len(selected),
-            "complete": complete,
-            "rate": round(complete / len(selected), 4) if selected else None,
-        }
-
     by_link = {
         name: dict.fromkeys(STATUSES, 0)
         | Counter(str(row["links"][name]["status"]) for row in rows)
@@ -1021,8 +1044,14 @@ def h2_summary(runs: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def verify(
-    databases: Sequence[Path], *, run_id: str | None = None, psp_database: Path | None = None
+    databases: Sequence[Path],
+    *,
+    run_id: str | None = None,
+    psp_database: Path | None = None,
+    grant_id: str | None = None,
 ) -> dict[str, Any]:
+    from .verify_evidence_hnp import h2_hnp_summary
+
     unique: dict[Path, Path] = {}
     for database in databases:
         # The same database named twice (another spelling, a symlink) counts once.
@@ -1030,9 +1059,15 @@ def verify(
     runs = [
         run
         for database in unique.values()
-        for run in verify_database(database, run_id=run_id, psp_database=psp_database)
+        for run in verify_database(
+            database, run_id=run_id, psp_database=psp_database, grant_id=grant_id
+        )
     ]
-    return {"schema_version": SCHEMA_VERSION, "runs": runs, "h2": h2_summary(runs)}
+    hnp = [run for run in runs if run.get("purchase_mode") == "HNP"]
+    hp = [run for run in runs if run.get("purchase_mode") != "HNP"]
+    document = {"schema_version": SCHEMA_VERSION, "runs": runs, "h2": h2_summary(hp)}
+    # Only with HNP runs: the output of an HP-only database does not change.
+    return document | ({"h2_hnp": h2_hnp_summary(hnp)} if hnp else {})
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1044,15 +1079,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--agent-db", type=Path, action="append", required=True, help="Agent SQLite (repeatable)"
     )
     parser.add_argument("--run", help="Verify only this purchase run_id")
+    parser.add_argument("--grant", help="Verify only the HNP task of this grant_id")
     parser.add_argument("--psp-db", type=Path, help="Payment provider SQLite, for the payment")
     parser.add_argument("--output", type=Path, help="Write the JSON here instead of stdout")
     arguments = parser.parse_args(argv)
     for path in [*arguments.agent_db, *([arguments.psp_db] if arguments.psp_db else [])]:
         if not path.is_file():
             parser.error(f"no such database: {path}")
-    document = verify(arguments.agent_db, run_id=arguments.run, psp_database=arguments.psp_db)
+    document = verify(
+        arguments.agent_db,
+        run_id=arguments.run,
+        psp_database=arguments.psp_db,
+        grant_id=arguments.grant,
+    )
     if arguments.run is not None and not document["runs"]:
         parser.error(f"no purchase {arguments.run} in the given databases")
+    if arguments.grant is not None and not document["runs"]:
+        parser.error(f"no HNP task for grant {arguments.grant} in the given databases")
     text = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
     if arguments.output is None:
         sys.stdout.write(text)
