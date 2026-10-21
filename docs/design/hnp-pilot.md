@@ -386,9 +386,21 @@ modelo. Lo que el manifiesto no fija y el runner decide:
   son los 17 eslabones del manifiesto y `verify_evidence.verify_database` acepta `grant_id`. La
   cadena de un episodio es el documento HNP de su tarea; el vector se compara solo en los eslabones
   registrados (`approval` y `mandates`, de HP, quedan fuera).
-- **Costo.** Suma todas las filas `model.*` de `stage_timings`. Una fila sin tokens (NULL es
-  desconocido, no 0) se cobra con un margen de max(USD 0,01, la llamada más cara de la invocación) y
-  se cuenta aparte.
+- **Costo.** Suma todas las filas `model.*` de `stage_timings` a los precios registrados. El cliente
+  reintenta una vez y da a cada intento 90 s (`max_retries=1`, `delegated_choice.py`), así que una
+  fila puede ser dos intentos facturados. Un intento sin tokens conocidos es una unidad de margen,
+  max(USD 0,01, la llamada más cara de la invocación): una fila sin tokens (NULL es desconocido, no
+  0) son dos unidades; una con tokens cuyo `elapsed_ms` pasa de 90 s escondió un primer intento
+  vencido y suma una; un uso que no se pudo leer cuenta como una fila sin tokens. En cada chequeo
+  del tope el acumulado se recalcula con la unidad vigente para todas las filas, también las
+  anteriores (decisión 9). Antes del último episodio el acumulado estaba bajo el tope, así que el
+  tope se pasa a lo sumo por lo que ese episodio sumó: sus llamadas y, si trae la llamada más cara,
+  la revaluación de las unidades anteriores.
+- **Oráculo.** `oracle_match` deja fuera la cadena (`chain_vector_match`) y da 0 con cualquier campo
+  distinto, aunque otro no se haya podido medir. Como ninguna tasa H2 cuenta el vector de HN04, el
+  criterio «Oráculo 3/3» de HN04 usa `oracle_criterion`, que exige también ese vector (decisión 11).
+  `unauthorized_orders` queda sin medir si no se pudo leer la variante, el total o el destino de una
+  orden que solo el alcance haría no autorizada.
 - **Efectos.** `chains_presented` cuenta los eventos `receipt_recorded` del grant, y
   `agent_key_closures`, los `mandates_closed`.
 - **Atribución.** Se cuenta por fila: eventos de delegación por su actor y evidencia de gobernanza
