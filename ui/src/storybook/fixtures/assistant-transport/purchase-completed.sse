@@ -8,7 +8,7 @@ data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages
 
 data: {"type": "update-state", "operations": [{"type": "set", "path": ["messages", "2", "content", "1"], "value": {"type": "text", "text": ""}}]}
 
-data: {"type": "update-state", "operations": [{"type": "append-text", "path": ["messages", "2", "content", "1", "text"], "value": "La compra qued\u00f3 completada. El comercio registr\u00f3 la orden ord_storybook_1."}]}
+data: {"type": "update-state", "operations": [{"type": "append-text", "path": ["messages", "2", "content", "1", "text"], "value": "La compra qued\u00f3 completada. El comercio registr\u00f3 la orden STORYBOOK-001."}]}
 
 data: {"type": "update-state", "operations": [{"type": "set", "path": ["purchase"], "value": {"run_id": "run_52df74bfc304253c74087d9927446bb3", "stage": "completed", "order_id": "ord_storybook_1"}}]}
 

@@ -325,12 +325,13 @@ def model_history(messages: list[dict[str, Any]], latest: str) -> tuple[Conversa
     return tuple(history[-MAX_HISTORY_MESSAGES:])
 
 
-def purchase_update_text(view: dict[str, Any]) -> str:
+def purchase_update_text(view: dict[str, Any], order_number: str | None = None) -> str:
+    """`order_number` is what the receipt shows; the view's internal order ID is the fallback."""
     stage = view["stage"]
     if stage == "completed":
-        order_id = view.get("order_id")
-        if isinstance(order_id, str) and order_id:
-            return f"La compra quedó completada. El comercio registró la orden {order_id}."
+        order = order_number or view.get("order_id")
+        if isinstance(order, str) and order:
+            return f"La compra quedó completada. El comercio registró la orden {order}."
         return "La compra quedó completada."
     return PURCHASE_UPDATE_TEXT.get(stage, "Actualicé el estado de la compra.")
 
@@ -626,7 +627,12 @@ class AssistantTransport:
             recorder.fail("purchase_not_found")
             return
         recorder.step_finished("purchase_update", view)
-        recorder.text(purchase_update_text(view))
+        order_number = (
+            await asyncio.to_thread(self._service.order_number, run_id, owner_id)
+            if view["stage"] == "completed"
+            else None
+        )
+        recorder.text(purchase_update_text(view, order_number))
         recorder.set_purchase(view)
         recorder.complete()
 

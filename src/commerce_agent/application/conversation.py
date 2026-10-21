@@ -277,6 +277,19 @@ class ConversationService:
             "order_id": purchase["order_id"],
         }
 
+    def order_number(self, run_id: str, owner_id: str = LOCAL_OWNER_ID) -> str | None:
+        """El número de orden que muestra el recibo: `order_number` del comercio o, si falta, su id.
+
+        Sale del resultado de `/complete` guardado, la misma fuente que la tarjeta.
+        """
+        if self.purchase_view(run_id, owner_id) is None:
+            return None
+        completion = self._store.completion_result(run_id)
+        if completion is None:
+            return None
+        order = CheckoutSessionWithOrder.model_validate_json(json.dumps(completion)).order
+        return order.order_number or order.id
+
     def pending_purchase_view(self, owner_id: str = LOCAL_OWNER_ID) -> dict[str, Any] | None:
         """Compra pendiente según SQLite. No depende de ningún `run_id` que declare el cliente."""
         purchase = self._store.pending_purchase(PENDING_STAGES, owner_id)

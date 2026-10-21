@@ -18,6 +18,7 @@ from assistant_support import (
     NO_CANDIDATE_REPLY,
     NO_CANDIDATE_REQUEST,
     ORDER_ID,
+    ORDER_NUMBER,
     PENDING_REQUEST,
     PURCHASE_REPLY,
     PURCHASE_REQUEST,
@@ -494,12 +495,45 @@ def test_purchase_updated_reports_the_stage_from_sqlite(tmp_path: Path, outcome:
     assert update["result"] == view
     assert state["purchase"] == view
     expected = (
-        f"La compra quedó completada. El comercio registró la orden {ORDER_ID}."
+        f"La compra quedó completada. El comercio registró la orden {ORDER_NUMBER}."
         if outcome == "completed"
         else "Cancelé la compra pendiente. No se realizó ningún cobro."
     )
     assert texts(message) == [expected]
     assert len(router.calls) == calls_before
+
+
+@pytest.mark.parametrize(
+    ("order_number", "shown"),
+    [("TST-1A2B3C4D", "TST-1A2B3C4D"), (None, ORDER_ID)],
+    ids=["order-number", "order-id-without-number"],
+)
+def test_the_completed_update_names_the_order_as_the_receipt_does(
+    tmp_path: Path, order_number: str | None, shown: str
+) -> None:
+    # The receipt shows `order.order_number ?? order.id` from /complete; the chat says the same.
+    merchant = Merchant(order_number=order_number)
+    with assistant_client(
+        tmp_path / "agent.db", router=ScriptedRouter(), merchant=merchant
+    ) as client:
+        prepared = prepare_purchase(client)
+        run_id = prepared["purchase"]["run_id"]
+        terms = client.get(f"/purchases/{run_id}/approval").json()
+        client.post(
+            f"/purchases/{run_id}/approval", json={"expected_fingerprint": terms["fingerprint"]}
+        ).raise_for_status()
+        receipt = client.post(f"/purchases/{run_id}/complete").json()["order"]
+        _, state = post_assistant(
+            client,
+            assistant_body([purchase_updated(run_id)], turn_id="turn-update", state=prepared),
+        )
+
+    assert (receipt.get("order_number") or receipt["id"]) == shown
+    assert texts(assistant_message(state)) == [
+        f"La compra quedó completada. El comercio registró la orden {shown}."
+    ]
+    # The purchase view keeps its contract: the internal order ID, no new field.
+    assert state["purchase"] == {"run_id": run_id, "stage": "completed", "order_id": ORDER_ID}
 
 
 def test_purchase_updated_for_unknown_run_is_a_sanitized_error(tmp_path: Path) -> None:
