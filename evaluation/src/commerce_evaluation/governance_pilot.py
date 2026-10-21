@@ -157,6 +157,10 @@ class ConditionMismatchError(PilotError):
     """The agent runs another condition: the pilot stops instead of recording the row."""
 
 
+class CatalogMismatchError(ConditionMismatchError):
+    """The run's catalog is not the registered one (a held-constant control): the pilot stops."""
+
+
 @dataclass(frozen=True)
 class HttpResult:
     status: int
@@ -736,6 +740,37 @@ def _decode_jwt_subject(token: str) -> str:
     return subject
 
 
+def feed_item_prices(feed: Path) -> dict[str, int]:
+    """Unit price of each variant in the exported feed: the price POL-11 reads."""
+    prices: dict[str, int] = {}
+    for line in (feed / "products.jsonl").read_text(encoding="utf-8").splitlines():
+        for variant in json.loads(line).get("variants", []):
+            prices[str(variant["id"])] = int(variant["price"]["amount"])
+    return prices
+
+
+def require_registered_price(scenario: Mapping[str, Any], prices: Mapping[str, int]) -> int | None:
+    """The feed's price of the scenario's target, which must be the one it pre-registers.
+
+    The agent reads the feed file at the start of the turn (AGENT_FEED_SOURCE=file) and POL-11
+    compares that unit price with the budget; the merchant prices the checkout from the same
+    run's catalog the feed was exported from. Another price would make POL-11 deny or allow on
+    a catalog the pilot did not register, so the invocation stops before any turn.
+    """
+    setup = scenario["catalog_setup"]
+    variant = setup.get("target_variant_id")
+    registered = setup.get("target_item_price_minor", setup.get("initial_item_price_minor"))
+    if variant is None or registered is None:
+        return None
+    observed = prices.get(str(variant))
+    if observed != registered:
+        raise CatalogMismatchError(
+            f"{scenario['id']}: the feed prices {variant} at {observed}, "
+            f"the scenario registers {registered}"
+        )
+    return observed
+
+
 def mutate_feed_description(feed: Path, variant_id: str, value: str) -> None:
     products_path = feed / "products.jsonl"
     products = [json.loads(line) for line in products_path.read_text(encoding="utf-8").splitlines()]
@@ -1174,6 +1209,7 @@ def _execute_repetition(
             cwd=merchant,
             env=environment,
         )
+        feed_price = require_registered_price(scenario, feed_item_prices(feed))
         setup = scenario["catalog_setup"]
         if setup.get("mode") == "baseline_with_mutation":
             mutate_feed_description(
@@ -1419,6 +1455,7 @@ def _execute_repetition(
                     ),
                     "order_id": order.get("id") if isinstance(order, dict) else None,
                     "order_status": order.get("status") if isinstance(order, dict) else None,
+                    "feed_target_item_price_minor": feed_price,
                     "catalog_mutation": after.mutation,
                     "authoritative_total_minor": (
                         terms.get("total_minor") if isinstance(terms, dict) else None

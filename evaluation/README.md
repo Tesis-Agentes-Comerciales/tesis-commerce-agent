@@ -253,6 +253,12 @@ uv run governance-pilot --manifest evaluation/data/b2-pilot-v2.json --condition 
   `over_budget_checkouts`, `purchases_completed`, `evidence_chain` (`h2` sobre las compras con
   orden y estados por eslabón), `policy_latency_by_decision_point_ms` (D1 y D2),
   `decision_points_reached`, `policy_mismatches` y `model_calls`.
+- **Catálogo de la corrida.** El agente lee el feed exportado del catálogo de la corrida del
+  comercio (`AGENT_FEED_SOURCE=file`) y POL-11 compara ese precio unitario con el presupuesto.
+  Antes de arrancar el agente, el runner comprueba que el feed tenga para la variante objetivo el
+  precio que registra el escenario (`target_item_price_minor` o `initial_item_price_minor`) y lo
+  guarda en `feed_target_item_price_minor`; con otro precio detiene la invocación completa, como
+  ante otra condición.
 - **Corrida registrada y smoke.** Una corrida en vivo usa la matriz del manifiesto y, si el
   manifiesto trae `policy`, exactamente sus condiciones (`manifest_id` no nulo); si no, se niega
   antes de levantar servicios. Con menos repeticiones o escenarios que los registrados, las filas y

@@ -23,18 +23,21 @@ from commerce_evaluation.governance_pilot import (
     CONDITIONS,
     PILOT_MANIFEST,
     PILOT_V2_MANIFEST,
+    CatalogMismatchError,
     D1RunKeys,
     HttpResult,
     PilotError,
     PlannedRun,
     RepositoryProvenance,
     agent_environment,
+    feed_item_prices,
     load_manifest,
     mechanism_evidence,
     mechanisms_by_scenario,
     pilot_manifest_id,
     read_governed_evidence,
     require_integrations,
+    require_registered_price,
     require_registered_run,
     rescore_record,
     score_result,
@@ -67,12 +70,14 @@ from commerce_evaluation.pilot_policy import (
     scenario_environment,
 )
 from tests.evaluation.test_pilot_evidence import (
+    FEED_PRICES,
     FakeAgentProcess,
     FakeAuth,
     checkout_report,
     fake_merchant,
     psp_database,
     row,
+    write_feed,
 )
 from tests.governance.test_shadow_integration import configuration, observer, service, start
 
@@ -534,6 +539,61 @@ def test_a_link_left_out_of_the_report_is_not_the_webhook(tmp_path: Path) -> Non
     assert len(calls) == 3
 
 
+# --- The catalog POL-11 reads -------------------------------------------------------------------
+
+
+def test_the_scenarios_register_one_catalog_that_makes_pol11_decisive() -> None:
+    """Every target is the same Pixel 8 at the same unit price; S07's budget is under it."""
+    setups = [scenario["catalog_setup"] for scenario in SCENARIOS.values()]
+    targets = [setup for setup in setups if "target_variant_id" in setup]
+    prices = {
+        setup.get("target_item_price_minor", setup.get("initial_item_price_minor"))
+        for setup in targets
+    }
+
+    assert {setup["target_variant_id"] for setup in targets} == {"BBGooglePixel8-128GB"}
+    assert prices - {None} == {FEED_PRICES["BBGooglePixel8-128GB"]}
+    s07 = SCENARIOS["S07"]["catalog_setup"]
+    assert s07["maximum_total_minor"] < s07["target_item_price_minor"]
+
+
+def test_the_feed_must_price_the_target_as_the_scenario_registers(tmp_path: Path) -> None:
+    write_feed(tmp_path / "feed")
+    prices = feed_item_prices(tmp_path / "feed")
+
+    assert prices == FEED_PRICES
+    for scenario_id in ("S01", "S04", "S06", "S07", "S08"):
+        assert require_registered_price(SCENARIOS[scenario_id], prices) == 154000000
+    assert require_registered_price(SCENARIOS["S03"], prices) is None
+    cheaper = prices | {"BBGooglePixel8-128GB": 149000000}
+    with pytest.raises(CatalogMismatchError, match="S07: the feed prices"):
+        require_registered_price(SCENARIOS["S07"], cheaper)
+    with pytest.raises(CatalogMismatchError):
+        require_registered_price(SCENARIOS["S07"], {})
+
+
+def test_a_feed_with_another_price_stops_the_pilot_before_the_agent_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    starts: list[dict[str, str]] = []
+
+    with pytest.raises(CatalogMismatchError):
+        execute(
+            tmp_path,
+            monkeypatch,
+            PlannedRun(SCENARIOS["S07"], 1, B2),
+            agent_responses(HEALTH["B2"]),
+            calls=calls,
+            starts=starts,
+            report_checkouts=checkout_report(),
+            prices=FEED_PRICES | {"BBGooglePixel8-128GB": 149000000},
+        )
+
+    assert starts == []
+    assert "/conversation/turn" not in calls
+
+
 # --- One repetition with doubles ----------------------------------------------------------------
 
 
@@ -578,13 +638,16 @@ def execute(
     report_checkouts: dict[str, Any],
     chain: EvidenceChainCheck | None = None,
     write: Callable[[Path], None] = lambda _: None,
+    prices: dict[str, int] = FEED_PRICES,
 ) -> dict[str, Any]:
     def popen(command: list[str], *, env: dict[str, str], **_: Any) -> FakeAgentProcess:
         starts.append(env)
         return FakeAgentProcess(write, env)
 
     monkeypatch.setattr(governance_pilot.subprocess, "Popen", popen)
-    monkeypatch.setattr(governance_pilot, "_run_json", fake_merchant(report_checkouts, calls))
+    monkeypatch.setattr(
+        governance_pilot, "_run_json", fake_merchant(report_checkouts, calls, prices)
+    )
     monkeypatch.setattr(governance_pilot, "_request_json", fake_agent(responses, calls))
     monkeypatch.setattr(governance_pilot, "_wait_http", lambda *_, **__: None)
     environment = (
@@ -647,6 +710,7 @@ def test_s08_restarts_b2_with_the_revised_policy_and_sends_the_presented_approva
     assert [item["revision"] for item in record["policy_configuration"]] == ["1", "2"]
     assert record["policy_configuration"][1]["includes_run_merchant"] is False
     assert record["approval_response_code"] == "d2_denied"
+    assert record["feed_target_item_price_minor"] == 154000000
     assert record["metrics"]["valid_task_success"] == 1
     assert record["metrics"]["authority_violations"] == 0
     assert record["matrix_id"] == "governance-pilot-v2"
@@ -773,7 +837,6 @@ def test_the_simulated_buyer_never_approves_the_injected_variant(
     responses = agent_responses(HEALTH["B2"])
     responses["/conversation/turn"] = HttpResult(200, injected, 900)
     responses["/purchases/run-real"] = HttpResult(200, {"stage": "awaiting_confirmation"}, 5)
-    monkeypatch.setattr(governance_pilot, "mutate_feed_description", lambda *_: None)
 
     record = execute(
         tmp_path,
