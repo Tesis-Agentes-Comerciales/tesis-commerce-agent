@@ -275,6 +275,9 @@ class FakeLauncher(Launcher):
         self.spawned: dict[str, FakeProcess] = {}
         self.fake_health = health
         self.failing = failing
+        # What each `webhook-dispatch` answers, in order; then nothing is due.
+        self.due: list[list[dict[str, Any]]] = []
+        self.dispatched: list[tuple[Path, dict[str, str]]] = []
         super().__init__(plan, io.StringIO())
 
     def _run(
@@ -283,8 +286,12 @@ class FakeLauncher(Launcher):
         self.calls.append(tuple(command))
         # Merchant steps that echo secrets or the DSN on stderr: the launcher must not repeat them.
         stderr = f"warning {self.plan.secrets.merchant_webhook} at {MERCHANT_DSN}"
+        if "webhook-dispatch" in command:
+            self.dispatched.append((cwd, dict(env)))
         if self.failing is not None and self.failing in command:
             return 1, "", stderr
+        if "webhook-dispatch" in command:
+            return 0, json.dumps(self.due.pop(0) if self.due else []), stderr
         if "import-current" in command:
             return 0, json.dumps({"status": "already_imported", "run_id": "run-1"}), stderr
         if "update-offer" in command:
@@ -380,6 +387,101 @@ def test_the_launch_stops_if_the_agent_reports_another_condition(tmp_path: Path)
 
     assert "ui" not in launcher.spawned
     assert launcher.spawned["agent"].signals
+
+
+def delivery(outcome: str = "delivered", error: str | None = None) -> dict[str, Any]:
+    """One item of `webhook-dispatch`'s answer (commerce_lab.webhook_delivery)."""
+    status = 200 if outcome == "delivered" else 401
+    return {
+        "delivery_id": "whd_" + "a" * 32,
+        "attempt_no": 1,
+        "outcome": outcome,
+        "http_status": status,
+        "error_code": error,
+    }
+
+
+def test_the_merchant_dispatcher_gets_only_the_agent_origin_and_the_shared_secret(
+    tmp_path: Path,
+) -> None:
+    plan = plan_for("b2", tmp_path)
+
+    dispatcher = plan.webhook_env()
+
+    # The merchant signs with the secret the agent verifies, and posts to the agent's origin.
+    assert dispatcher["WEBHOOK_RECEIVER_URL"] == "http://127.0.0.1:45125"
+    assert dispatcher["WEBHOOK_RECEIVER_URL"] == plan.merchant_env()["WEBHOOK_RECEIVER_URL"]
+    assert (
+        dispatcher["MERCHANT_WEBHOOK_SECRET"]
+        == plan.agent_env(MERCHANT_TOKEN)["MERCHANT_WEBHOOK_SECRET"]
+    )
+    others = set(plan.secret_values(MERCHANT_TOKEN)) - {plan.secrets.merchant_webhook}
+    assert not others & set(dispatcher.values())
+    assert set(dispatcher) - set(plan.base) == {"WEBHOOK_RECEIVER_URL", "MERCHANT_WEBHOOK_SECRET"}
+    assert plan.dispatch_webhooks() == (
+        *demo_stack.MERCHANT_CLI,
+        "commerce_lab.db",
+        "webhook-dispatch",
+        "--limit",
+        str(demo_stack.WEBHOOK_BATCH),
+    )
+
+
+def test_watch_relays_merchant_webhooks_to_the_agent_until_a_service_stops(
+    tmp_path: Path,
+) -> None:
+    plan = plan_for("b2", tmp_path)
+    launcher = FakeLauncher(plan, health={"governance_mode": "enforce", "hp_flow": "governed"})
+    launcher.start()
+    launcher.due = [[delivery()], [], [delivery(), delivery("terminal", "HTTP_401")]]
+    agent = launcher.spawned["agent"]
+    polls = 0
+
+    def stops_after_three_rounds() -> int | None:
+        # The agent stops on the fourth round of the watch, whether or not anything was relayed.
+        nonlocal polls
+        polls += 1
+        return 1 if polls > 3 else None
+
+    agent.poll = stops_after_three_rounds  # type: ignore[method-assign]
+
+    with pytest.raises(DemoError, match="Agente se detuvo"):
+        launcher.watch(interval=0)
+    launcher.stop()
+    launcher.close()
+
+    assert [cwd for cwd, _ in launcher.dispatched] == [plan.merchant_repo] * 3
+    assert all(env == plan.webhook_env() for _, env in launcher.dispatched)
+    output = shown(launcher)
+    log = (plan.run_dir / "webhooks.log").read_text("utf-8")
+    assert_no_secret(output + log, plan)
+    assert "Webhooks del comercio: 1 entregado al agente" in output
+    assert "Webhooks del comercio: 1 entregado al agente, 1 sin entregar (HTTP_401)" in output
+    assert log.count("delivered") == 2 and "terminal http=401 error=HTTP_401" in log
+    assert "cada 2 s" in output
+
+
+def test_a_failing_relay_is_announced_once_and_the_demo_goes_on(tmp_path: Path) -> None:
+    plan = plan_for("b2", tmp_path)
+    launcher = FakeLauncher(plan, health={"governance_mode": "enforce", "hp_flow": "governed"})
+    launcher.start()
+    launcher.failing = "webhook-dispatch"
+
+    assert launcher.relay_webhooks() == []
+    assert launcher.relay_webhooks() == []
+    launcher.failing = None
+    launcher.due = [[delivery()]]
+    assert launcher.relay_webhooks() == [delivery()]
+    # A relay failure never stops a service.
+    assert all(process.code is None for process in launcher.spawned.values())
+    launcher.stop()
+    launcher.close()
+
+    output = shown(launcher) + (plan.run_dir / "webhooks.log").read_text("utf-8")
+    assert_no_secret(output, plan)
+    printed = launcher.out.getvalue()  # type: ignore[attr-defined]
+    assert printed.count("Aviso: el comercio no pudo entregar sus webhooks al agente") == 1
+    assert "Webhooks del comercio: entrega restablecida" in printed
 
 
 def test_dry_run_names_variables_but_shows_no_value(tmp_path: Path) -> None:

@@ -4,8 +4,9 @@
 imports the managed catalog, resets the scripted offer, issues the agent's merchant session and
 starts every service with secrets and AP2/D1 keys generated for this launch. The agent runs one of
 the pilot's conditions (governance_pilot.CONDITIONS); unlike the pilot, it buys from the managed
-catalog with the real clock. `uv run demo-stack s04` changes the scripted offer's price during the
-demo.
+catalog with the real clock. While the stack runs, the merchant's CLI delivers its signed order
+webhooks to the agent every few seconds: the merchant has no worker of its own. `uv run demo-stack
+s04` changes the scripted offer's price during the demo.
 
 Secrets live only in this process and in the children that need them: they are never printed and
 never written. Each launch gets its own directory under .local/demo/ with a new agent database,
@@ -108,6 +109,10 @@ DATABASE_URL = re.compile(r"postgres(?:ql)?(?:\+\w+)?://\S+")
 # What python-dotenv (and so Settings) drops from an unquoted value: whitespace, then a comment.
 INLINE_COMMENT = re.compile(r"\s+#.*")
 READY_TIMEOUT_SECONDS = 90.0
+# The merchant's outbox (order_create, order_update) has no worker: `webhook-dispatch` delivers
+# what is due, signed with MERCHANT_WEBHOOK_SECRET, to WEBHOOK_RECEIVER_URL (merchant README).
+WEBHOOK_RELAY_SECONDS = 2.0
+WEBHOOK_BATCH = 20
 STOP_TIMEOUT_SECONDS = 10.0
 GROUP_POLL_SECONDS = 0.05
 # Closing the terminal (SIGHUP) or `kill` (SIGTERM) shut the stack down like Ctrl-C.
@@ -378,12 +383,21 @@ class DemoPlan:
             "PAYMENT_AP2_PRIVATE_KEY_PEM": keys.payment_ap2_pem,
         }
 
+    def webhook_env(self) -> dict[str, str]:
+        """Only what the merchant's dispatcher reads: the agent's origin, without the webhook
+        path, and the secret the agent verifies."""
+        return dict(self.base) | {
+            "WEBHOOK_RECEIVER_URL": self.ports.origin("agent"),
+            "MERCHANT_WEBHOOK_SECRET": self.secrets.merchant_webhook,
+        }
+
+    def dispatch_webhooks(self) -> tuple[str, ...]:
+        return merchant_cli("commerce_lab.db", "webhook-dispatch", "--limit", str(WEBHOOK_BATCH))
+
     def merchant_env(self) -> dict[str, str]:
         keys = self.secrets
-        return dict(self.base) | {
+        return self.webhook_env() | {
             "ACP_API_BASE_URL": self.merchant_origin,
-            "WEBHOOK_RECEIVER_URL": self.ports.origin("agent"),
-            "MERCHANT_WEBHOOK_SECRET": keys.merchant_webhook,
             "PAYMENT_PROVIDER_URL": self.ports.origin("payment"),
             "PAYMENT_MERCHANT_BEARER_TOKEN": keys.payment_merchant_token,
             "MERCHANT_AP2_REQUIRED": "true",
@@ -613,6 +627,7 @@ class Launcher:
         self.out = out or sys.stdout
         self.running: list[tuple[Service, Process]] = []
         self.health: dict[str, str] | None = None
+        self._relay_down = False
         self._secrets = list(plan.secret_values())
         plan.run_dir.mkdir(parents=True, exist_ok=True)
         self._log = (plan.run_dir / "launcher.log").open("a", encoding="utf-8")
@@ -793,10 +808,14 @@ class Launcher:
         self.say(f"UI:    {plan.ui_origin}")
         self.say(f"Auth:  {plan.ports.origin('auth')}")
         self.say(f"Logs:  {plan.run_dir}")
+        self.say(
+            f"Webhooks del comercio: se entregan al agente cada {WEBHOOK_RELAY_SECONDS:.0f} s "
+            "(webhooks.log)"
+        )
         self.say("Ctrl-C apaga todo. PostgreSQL sigue corriendo con sus datos.")
 
-    def watch(self, interval: float = 1.0) -> NoReturn:
-        """Until Ctrl-C, or until a service stops on its own."""
+    def watch(self, interval: float = WEBHOOK_RELAY_SECONDS) -> NoReturn:
+        """Until Ctrl-C, or until a service stops on its own; relays webhooks meanwhile."""
         while True:
             for service, process in self.running:
                 code = process.poll()
@@ -805,7 +824,41 @@ class Launcher:
                         f"{service.label} se detuvo (código {code}). Log: "
                         f"{self.plan.run_dir / service.log}\n{self.service_tail(service)}"
                     )
+            self.relay_webhooks()
             time.sleep(interval)
+
+    def relay_webhooks(self) -> list[dict[str, Any]]:
+        """One pass of the merchant's dispatcher. A failure is announced once, never fatal: the
+        purchase does not depend on it, only the trace's «El comercio registró la orden»."""
+        plan = self.plan
+        code, stdout, stderr = self._run(
+            plan.dispatch_webhooks(), plan.merchant_repo, plan.webhook_env()
+        )
+        deliveries = _deliveries(stdout) if code == 0 else None
+        log = plan.run_dir / "webhooks.log"
+        with log.open("a", encoding="utf-8") as output:
+            if deliveries is None:
+                output.write(f"$ webhook-dispatch (código {code})\n{self._tail(stderr)}\n")
+            for item in deliveries or []:
+                output.write(
+                    f"{datetime.now(UTC).isoformat()} {item.get('delivery_id')} "
+                    f"{item.get('outcome')} http={item.get('http_status')} "
+                    f"error={item.get('error_code')}\n"
+                )
+        if deliveries is None:
+            if not self._relay_down:
+                self.say(
+                    f"Aviso: el comercio no pudo entregar sus webhooks al agente (código {code}). "
+                    f"La compra sigue; detalle en {log}"
+                )
+            self._relay_down = True
+            return []
+        if self._relay_down:
+            self.say("· Webhooks del comercio: entrega restablecida")
+            self._relay_down = False
+        if deliveries:
+            self.say(f"· Webhooks del comercio: {_delivery_summary(deliveries)}")
+        return deliveries
 
     def stop(self) -> None:
         """SIGTERM to every group first; when every group is gone or the deadline passes,
@@ -843,6 +896,29 @@ class Launcher:
 
     def close(self) -> None:
         self._log.close()
+
+
+def _deliveries(stdout: str) -> list[dict[str, Any]] | None:
+    """`webhook-dispatch` prints one JSON list of delivery results; anything else is a failure."""
+    try:
+        value = json.loads(stdout.strip().splitlines()[-1])
+    except (IndexError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        return None
+    return value
+
+
+def _delivery_summary(deliveries: Sequence[Mapping[str, Any]]) -> str:
+    delivered = sum(item.get("outcome") == "delivered" for item in deliveries)
+    failed = [item for item in deliveries if item.get("outcome") != "delivered"]
+    summary = f"{delivered} entregado{'s' if delivered != 1 else ''} al agente"
+    if failed:
+        codes = ", ".join(
+            sorted({str(item.get("error_code") or item.get("outcome")) for item in failed})
+        )
+        summary += f", {len(failed)} sin entregar ({codes})"
+    return summary
 
 
 def _exited(process: Process, timeout: float) -> bool:

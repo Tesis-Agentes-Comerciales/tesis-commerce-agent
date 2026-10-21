@@ -25,6 +25,7 @@ from commerce_evaluation.governance_pilot import (
     PilotError,
     PlannedRun,
     RepositoryProvenance,
+    dispatch_merchant_webhooks,
     mechanism_evidence,
     mechanisms_by_scenario,
     merchant_checkouts,
@@ -287,6 +288,48 @@ def test_merchant_checkouts_count_the_run_by_status(monkeypatch: pytest.MonkeyPa
     assert [item["status"] for item in result["checkouts"]] == ["canceled", "completed", "canceled"]
 
 
+def dispatch_answers(*batches: list[dict[str, Any]], calls: list[list[str]]) -> Callable[..., Any]:
+    """`webhook-dispatch` printing one JSON list per call, as the merchant's CLI does."""
+    answers = list(batches)
+
+    def run(command: list[str], *, cwd: Path, env: dict[str, str], capture: bool = False) -> Any:
+        assert capture and cwd == Path("merchant") and env == {"WEBHOOK_RECEIVER_URL": "agent"}
+        calls.append(command)
+        stdout = json.dumps(answers.pop(0)) + "\n"
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    return run
+
+
+def test_the_runner_drains_the_merchant_webhook_outbox_in_batches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    full = [{"delivery_id": f"whd_{index}", "outcome": "delivered"} for index in range(20)]
+    last = [{"delivery_id": "whd_x", "outcome": "terminal", "error_code": "HTTP_401"}]
+    calls: list[list[str]] = []
+    monkeypatch.setattr(governance_pilot, "_run", dispatch_answers(full, last, calls=calls))
+
+    result = dispatch_merchant_webhooks(Path("merchant"), {"WEBHOOK_RECEIVER_URL": "agent"})
+
+    command = ["uv", "run", "python", "-m", "commerce_lab.db", "webhook-dispatch", "--limit", "20"]
+    assert calls == [command, command]
+    assert result == {"count": 21, "by_outcome": {"delivered": 20, "terminal": 1}}
+
+
+def test_an_unexpected_webhook_dispatch_answer_is_a_pilot_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        governance_pilot,
+        "_run",
+        dispatch_answers({"ok": True}, calls=calls),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(PilotError, match="webhook-dispatch"):
+        dispatch_merchant_webhooks(Path("merchant"), {"WEBHOOK_RECEIVER_URL": "agent"})
+
+
 def test_a_report_for_another_run_is_a_pilot_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         governance_pilot, "_run_json", lambda *_, **__: checkout_report() | {"run_id": "other"}
@@ -447,6 +490,7 @@ def fake_agent_http(
     final_stage: str,
     calls: list[str],
     on_request: Callable[[str], None] = lambda _: None,
+    order_id: str | None = None,
 ) -> Callable[..., HttpResult]:
     terms = {"fingerprint": "f" * 64, "checkout_jwt": "jwt", "total_minor": 1}
     responses = {
@@ -462,7 +506,7 @@ def fake_agent_http(
             900,
         ),
         "/purchases/run-real/approval": HttpResult(409, {"code": "checkout_terms_changed"}, 30),
-        "/purchases/run-real": HttpResult(200, {"stage": final_stage}, 5),
+        "/purchases/run-real": HttpResult(200, {"stage": final_stage, "order_id": order_id}, 5),
         "/purchases/run-real/cancel": HttpResult(200, {"stage": "canceled"}, 5),
     }
 
@@ -485,6 +529,7 @@ def execute_s04(
     calls: list[str] | None = None,
     on_request: Callable[[str], None] = lambda _: None,
     payment_database: Path | None = None,
+    order_id: str | None = None,
 ) -> dict[str, Any]:
     processes: list[FakeAgentProcess] = []
     calls = [] if calls is None else calls
@@ -505,7 +550,11 @@ def execute_s04(
         governance_pilot,
         "_request_json",
         fake_agent_http(
-            {"governance_mode": "enforce", "hp_flow": "governed"}, final_stage, calls, on_request
+            {"governance_mode": "enforce", "hp_flow": "governed"},
+            final_stage,
+            calls,
+            on_request,
+            order_id,
         ),
     )
     monkeypatch.setattr(governance_pilot, "_wait_http", lambda *_, **__: None)
@@ -587,6 +636,81 @@ def test_a_repetition_without_agent_evidence_says_it_is_unavailable(
     # The agent already closed the purchase, so the runner did not cancel anything.
     assert record["runner_canceled"] is False
     assert "/purchases/run-real/cancel" not in calls
+
+
+def recording_dispatch(
+    monkeypatch: pytest.MonkeyPatch, calls: list[str], *, fails: bool = False
+) -> None:
+    """Replaces the merchant's dispatcher and notes when the agent is stopped, in `calls`."""
+    terminate = governance_pilot._terminate
+
+    def dispatch(merchant: Path, environment: dict[str, str]) -> dict[str, Any]:
+        calls.append("webhook-dispatch")
+        assert merchant.name == "merchant-repo"
+        if fails:
+            raise PilotError("Command failed (uv): webhook receiver unreachable")
+        return {"count": 1, "by_outcome": {"delivered": 1}}
+
+    def stop(process: Any) -> None:
+        calls.append("terminate")
+        terminate(process)
+
+    monkeypatch.setattr(governance_pilot, "dispatch_merchant_webhooks", dispatch)
+    monkeypatch.setattr(governance_pilot, "_terminate", stop)
+
+
+def test_a_repetition_with_an_order_delivers_its_webhook_before_the_agent_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    recording_dispatch(monkeypatch, calls)
+
+    record = execute_s04(
+        tmp_path,
+        monkeypatch,
+        lambda _: None,
+        checkout_report("completed"),
+        final_stage="completed",
+        calls=calls,
+        order_id="ord_1",
+    )
+
+    assert calls.index("/purchases/run-real") < calls.index("webhook-dispatch")
+    assert calls.index("webhook-dispatch") < calls.index("terminate")
+    assert record["merchant_webhooks"] == {"count": 1, "by_outcome": {"delivered": 1}}
+    assert "merchant_webhooks" not in record["measurement_errors"]
+
+
+def test_a_repetition_without_an_order_does_not_dispatch_webhooks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    recording_dispatch(monkeypatch, calls)
+
+    record = execute_s04(tmp_path, monkeypatch, lambda _: None, checkout_report(), calls=calls)
+
+    assert "webhook-dispatch" not in calls
+    assert record["merchant_webhooks"] is None
+
+
+def test_a_failed_webhook_dispatch_is_a_measurement_error_and_keeps_the_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    recording_dispatch(monkeypatch, calls, fails=True)
+
+    record = execute_s04(
+        tmp_path,
+        monkeypatch,
+        lambda _: None,
+        checkout_report("completed"),
+        final_stage="completed",
+        calls=calls,
+        order_id="ord_1",
+    )
+
+    assert record["merchant_webhooks"] is None
+    assert "webhook receiver unreachable" in record["measurement_errors"]["merchant_webhooks"]
 
 
 def row(condition: str, scenario_id: str, **fields: Any) -> dict[str, Any]:
