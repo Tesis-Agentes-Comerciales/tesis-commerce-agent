@@ -58,6 +58,7 @@ La UI no muestra códigos internos. El código queda en el detalle técnico para
 | Pago delegado | «Pago autorizado» |
 | Frescura de la oferta (`freshness_check`) | «Condiciones confirmadas con el comercio», «Las condiciones del comercio cambiaron» |
 | Recuperación gobernada (`governed_recovery`) | «El agente explicó por qué no siguió» |
+| Compra delegada (HNP): consentimiento, claim, reserva, cierre, D2/D3, revocación, escalamiento | «Delegación autorizada», «Compra delegada en marcha», «Uso único reservado», «Autorización cerrada por el agente», «Autorización delegada verificada», «Despacho autorizado», «Delegación revocada», «Necesito tu decisión» (ver «Compra delegada») |
 
 La frescura y la recuperación son **controles de la aplicación** del flujo HP gobernado
 (`docs/design/b2-governed-pilot.md`), no decisiones de la política de compra (D1). La UI nunca los
@@ -381,6 +382,26 @@ Una compra en `stale_terms` dice en la fila de actividad «Detenida: cambiaron l
 «Detenida: condiciones sin confirmar», según la última comprobación; en la etiqueta de estado,
 «Detenida: condiciones del comercio». Son cortas para no recortarse en un teléfono de 375 px. La tarjeta de términos que ya no valen
 (`StaleTermsCard`) sigue fuera del plegable con su único botón, «Cancelar compra».
+
+#### Compra delegada
+
+`ControlTimeline` usa otro orden de controles para una compra con `purchase_mode: "HNP"`
+(delegación, claim, política, checkout, reserva, cierre, pago y orden); el de HP no cambia. D2, D3,
+la frescura, la revocación y el escalamiento solo aparecen si la traza los trae.
+
+| Paso | Título | Detalle |
+| --- | --- | --- |
+| `delegation_consented` | «Delegación autorizada» | «Hasta $ 2.000.000 COP · vence …» |
+| `task_activated` | «Compra delegada en marcha»; el segundo, «Compra delegada reanudada» | «Sin tu intervención» |
+| Frescura `fresh` al cerrar | «Oferta vigente al cerrar» | «Antes de cerrar la compra delegada»; bloqueada: «No se reservó el uso único. No se hizo ningún cobro.» |
+| `authorization_decision` (D2-HNP) | «Autorización delegada verificada» o los títulos de D2 | «Antes de reservar el uso único» o, detenida, lo que no pasó |
+| `reservation` | «Uso único reservado», «… liberado», «… consumido», «… por confirmar» | El monto |
+| `mandates_closed` | «Autorización cerrada por el agente» | «Dentro de lo que autorizaste» |
+| `dispatch_decision` (D3) | «Despacho autorizado», «La política no autorizó el despacho», «No se pudo verificar el despacho» | «Antes de enviar el pago» |
+| `revoked` | «Delegación revocada» | Quién (tú o el operador) y su efecto, con las frases de §8.3 |
+| `escalated` | «Necesito tu decisión» | La causa de §8.3 y «No se hizo ningún cobro.» |
+| `canceled` por vencimiento | «La delegación venció» | «Venció antes de que el agente comprara. No se hizo ningún cobro.» |
+| `failed:task` | «La compra delegada se detuvo» | El código de la tarea y «No se hizo ningún cobro.» |
 
 ### Chat en vivo (`ui/src/components/agent/`)
 

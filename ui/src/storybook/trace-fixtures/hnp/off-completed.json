@@ -1,0 +1,96 @@
+{
+  "run_id": "run_6b0e2c8a4f1d4935a7c9e1b3d5f70a2c",
+  "status": "completed",
+  "policy_mode": "off",
+  "request": "Compra delegada",
+  "merchant": "http://127.0.0.1:4120",
+  "merchant_name": "Synthetic Commerce Merchant",
+  "total": {
+    "minor": 192400000,
+    "currency": "COP"
+  },
+  "started_at": "2026-10-21T14:58:10.204Z",
+  "updated_at": "2026-10-21T15:00:04.912Z",
+  "steps": [
+    {
+      "id": "delegation_consented",
+      "at": "2026-10-21T14:58:10.204Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "delegation_consented",
+      "grant_id": "dg_7c1e5a9b3d0f4e2a",
+      "total_max": {
+        "minor": 200000000,
+        "currency": "COP"
+      },
+      "expires_at": "2026-10-22T23:00:00.000Z"
+    },
+    {
+      "id": "task_activated",
+      "at": "2026-10-21T15:00:00.118Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "task_activated",
+      "trigger": "service"
+    },
+    {
+      "id": "checkout_created",
+      "at": "2026-10-21T15:00:01.407Z",
+      "duration_ms": null,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "checkout_created",
+      "checkout_id": "cs_e41d7b2a90c6"
+    },
+    {
+      "id": "reservation",
+      "at": "2026-10-21T15:00:02.849Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "reservation",
+      "outcome": "reserved",
+      "amount": {
+        "minor": 192400000,
+        "currency": "COP"
+      }
+    },
+    {
+      "id": "mandates_closed",
+      "at": "2026-10-21T15:00:03.274Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "mandates_closed"
+    },
+    {
+      "id": "order_confirmed",
+      "at": "2026-10-21T15:00:04.912Z",
+      "duration_ms": null,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "order_confirmed",
+      "order_id": "ord_9d3f1b7c25",
+      "receipts": [
+        "checkout",
+        "payment"
+      ]
+    },
+    {
+      "id": "reservation:2",
+      "at": "2026-10-21T15:00:04.912Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "reservation",
+      "outcome": "consumed",
+      "amount": {
+        "minor": 192400000,
+        "currency": "COP"
+      }
+    }
+  ],
+  "purchase_mode": "HNP"
+}

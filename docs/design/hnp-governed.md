@@ -1045,6 +1045,11 @@ historias.
   `orders`), igual que HP.
 - En HNP no aparecen `approval` ni `authorization_signed`; `payment_authorized`, `order_confirmed`,
   `order_event` y `failed` se reutilizan. `PolicyRef` muestra `b2-hnp-v1`, revisión 2.
+- **Lo que fijó HNP-11:** tampoco hay pasos `request` ni `selection` (el campo `request` es el texto
+  del ejecutor, «Compra delegada»). `canceled.by` agrega `"expiry"` (`grant_expired`). Si la tarea
+  falla con otro código que la compra (#93), su fallo es un segundo `failed` con id `failed:task`.
+  `escalated` va con `state: "blocked"`. `payment_authorized` HNP queda para 09b, que escribe la
+  hora del envío al PSP. Fuentes y estados: `docs/design/trace-panel.md`, «Compra delegada».
 
 ## 11. Condiciones
 
