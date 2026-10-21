@@ -23,6 +23,7 @@ from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent
 from commerce_agent.governance.bootstrap import build_enforce_gate
 from commerce_agent.persistence import SqliteAgentStore
+from commerce_agent.persistence.ap2_evidence_sqlite import SqliteAp2EvidenceStore
 from commerce_agent.runtime import build_runtime
 from commerce_agent.trace import PurchaseTraces
 from commerce_agent.trace.models import OrderEventStep
@@ -183,6 +184,16 @@ def test_b2_governed_purchase_completes_once_with_receipts_and_its_order_webhook
             (run_id,),
         ).fetchone()
     assert stored is not None and all(stored)
+    # Consent and effect link the mandates to what the real Merchant and provider signed.
+    consent, effect = SqliteAp2EvidenceStore(settings.agent_database_path).for_run(run_id)
+    receipts = effect.body["checkout_receipt"], effect.body["payment_receipt"]
+    assert [receipt["status"] for receipt in receipts] == ["Success", "Success"]
+    assert [receipt["reference"] for receipt in receipts] == [
+        consent.body["checkout_mandate_sd_hash"],
+        consent.body["payment_mandate_sd_hash"],
+    ]
+    assert receipts[0]["order_id"] == effect.body["order_id"] == completed.order.id
+    assert receipts[1]["issuer"] == "tesis_payment_provider" and receipts[1]["payment_id"]
     assert b0.rpc("effects")["orders"] == before["orders"] + 1
     assert b0.proxy.count("POST", "/checkout_sessions") == 1
     assert b0.proxy.count("POST", f"/checkout_sessions/{completed.id}/ap2/complete") == 1

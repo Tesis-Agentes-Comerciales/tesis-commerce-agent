@@ -13,6 +13,7 @@ from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.acp.published_feed import PublishedFeedClient
 from commerce_agent.ap2 import AgentMandateSigner
 from commerce_agent.application import PurchaseService
+from commerce_agent.application.ap2_evidence import build_ap2_evidence
 from commerce_agent.application.conversation import ConversationService
 from commerce_agent.application.governed_recovery import build_governed_recovery
 from commerce_agent.application.offer_freshness import build_offer_freshness
@@ -147,7 +148,10 @@ def build_runtime(
         from commerce_agent.governance.hp_continuation import governed_continuation
 
         d1_continuation = governed_continuation(configuration, d1_gate, store)
-    completion = CompletionService(client, approvals, payments, store, d1_continuation)
+    ap2_evidence = build_ap2_evidence(configuration)
+    completion = CompletionService(
+        client, approvals, payments, store, d1_continuation, ap2_evidence=ap2_evidence
+    )
     d1_shadow = None
     if configuration.agent_governance_mode == "shadow":
         from commerce_agent.governance.shadow import build_shadow_observer
@@ -162,6 +166,7 @@ def build_runtime(
         d1_observer=d1_shadow,
         d1_gate=TimedD1Gate(d1_gate, timings) if d1_gate is not None else None,
         d1_continuation=d1_continuation,
+        ap2_evidence=ap2_evidence,
     )
     owned_router = None
     router_factory: Callable[[ProductFeed], ConversationRouter] | None = None

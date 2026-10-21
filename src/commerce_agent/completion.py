@@ -8,6 +8,7 @@ from commerce_agent.acp.models import (
     CheckoutSessionWithOrder,
     SandboxPaymentData,
 )
+from commerce_agent.application.ap2_evidence import Ap2EvidenceRecorder
 from commerce_agent.application.purchase import D1Continuation
 from commerce_agent.approval import ApprovalService
 from commerce_agent.delegated_payment import DelegatedPaymentClient, DelegationError
@@ -49,12 +50,14 @@ class CompletionService:
         payments: DelegatedPaymentClient,
         store: SqliteAgentStore,
         d1_continuation: D1Continuation | None = None,
+        ap2_evidence: Ap2EvidenceRecorder | None = None,
     ) -> None:
         self._gateway = gateway
         self._approvals = approvals
         self._payments = payments
         self._store = store
         self._d1_continuation = d1_continuation
+        self._ap2_evidence = ap2_evidence
 
     def complete(self, *, run_id: str) -> CheckoutSessionWithOrder:
         if self._store.has_d1_operation(run_id) and not self._continues(run_id):
@@ -191,6 +194,8 @@ class CompletionService:
         except Exception:
             self._store.release_completion(run_id, stage="uncertain")
             raise
+        if self._ap2_evidence is not None:
+            self._ap2_evidence.effect(run_id, completed, checkout_receipt, payment_receipt)
         return completed
 
     def _continues(self, run_id: str) -> bool:
