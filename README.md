@@ -64,8 +64,10 @@ y `tests/` es la verificación de ambos.
   [docs/b2-governance](docs/b2-governance/README.md) y en la
   [guía de enforce](docs/b2-governance/d1-enforce-runtime-optin.md);
 - Human Not Present en construcción detrás de `AGENT_HNP_ENABLED` (`false` por defecto): con el
-  flag, rutas de propuesta, consentimiento, «Mis delegaciones» y revocación para el comprador, y
-  kill switch del operador en `/internal/hnp/*` ([spec](docs/design/hnp-governed.md));
+  flag, rutas de propuesta, consentimiento, «Mis delegaciones» y revocación para el comprador,
+  disparo de la compra delegada (`POST /internal/hnp/tasks/{id}/run`, con despacho al PSP y al
+  comercio y sus recibos AP2) y kill switch del operador en `/internal/hnp/*`
+  ([spec](docs/design/hnp-governed.md));
 - suite de sistema contra el Merchant y el proveedor de pagos reales como procesos y repositorios
   separados ([tests/integration](tests/integration/README.md)).
 

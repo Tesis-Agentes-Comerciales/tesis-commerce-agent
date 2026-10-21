@@ -195,6 +195,14 @@ class IntentFacts(ContractModel):
     normalization_version: Id
 
 
+class PrincipalFacts(ContractModel):
+    principal_ref: Id
+    authentication_basis: Literal["user_jwt", "service_and_grant"]
+    authentication_verified: bool
+    owns_run: bool
+    permitted_actions: Actions
+
+
 class SelectionPolicyInput(InputHeader):
     intent: IntentFacts
     feed_snapshot_ref: ObjectRef
@@ -205,20 +213,31 @@ class SelectionPolicyInput(InputHeader):
     # POL-11: catalog unit price of the selected variant in the registered feed snapshot, in COP
     # minor units. Absent when not observed in COP, and in inputs recorded before POL-11.
     selected_unit_minor: Minor | None = None
+    # D1-HNP only: the executor acting under the grant, for attribution (hnp-governed.md §7, §9.1).
+    # No D1 rule reads it. Absent in HP and in D1-HNP inputs recorded before it.
+    principal: PrincipalFacts | None = None
 
     @field_validator("eligible_variant_ids")
     @classmethod
     def ordered_eligible_set(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(sorted(value))
 
+    @model_validator(mode="after")
+    def principal_only_in_hnp(self) -> Self:
+        if self.principal is not None and self.purchase_mode != "HNP":
+            raise ValueError("Only a D1-HNP input names its principal")
+        return self
+
     @model_serializer(mode="wrap")
-    def canonical_without_absent_price(
+    def canonical_without_absent_facts(
         self, handler: SerializerFunctionWrapHandler
     ) -> dict[str, object]:
-        # Evidence stored before POL-11 has no price: omitting an absent one keeps its digest.
+        # Evidence stored before POL-11 has no price, and HP has no principal: omitting an absent
+        # one keeps their digests.
         data = handler(self)
-        if data.get("selected_unit_minor") is None:
-            data.pop("selected_unit_minor", None)
+        for name in ("selected_unit_minor", "principal"):
+            if data.get(name) is None:
+                data.pop(name, None)
         return data
 
 
@@ -229,14 +248,6 @@ class PrivateBinding(ContractModel):
     scheme: Literal["hmac-sha256/v1"]
     key_id: Id
     value: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-
-
-class PrincipalFacts(ContractModel):
-    principal_ref: Id
-    authentication_basis: Literal["user_jwt", "service_and_grant"]
-    authentication_verified: bool
-    owns_run: bool
-    permitted_actions: Actions
 
 
 class MaterialTerms(ContractModel):

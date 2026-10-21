@@ -280,6 +280,8 @@ def build_runtime(
             selector=selector,
             feed=delegation_feed,
             clock=authority_clock,
+            payments=payments,
+            merchant=client,
         )
     return AgentRuntime(
         store=store,

@@ -222,13 +222,36 @@ def test_an_empty_shortlist_ends_before_start(tmp_path: Path, mode: str) -> None
     assert bench.effects() == NOTHING
 
 
-@pytest.mark.parametrize("mode", ["off", "enforce"])
 @pytest.mark.parametrize("choice", ["SON-07", "SON-99", None], ids=["unavailable", "foreign", "x"])
-def test_a_choice_outside_the_shortlist_is_never_bought(
-    tmp_path: Path, mode: str, choice: str | None
+def test_in_b0_a_choice_outside_the_shortlist_never_reaches_start(
+    tmp_path: Path, choice: str | None
 ) -> None:
-    """K12: in B0-HNP too, the selector cannot widen the grant."""
-    bench = Bench(tmp_path, mode=mode, selector=Choose(choice))  # type: ignore[arg-type]
+    """K12: B0-HNP has no D1, so the executor's own guard keeps the grant."""
+    bench = Bench(tmp_path, selector=Choose(choice))
+
+    assert bench.run().status == "closed"
+
+    assert bench.ended() == ("failed", "selection_not_eligible")
+    assert bench.purchase() is None
+    assert bench.effects() == NOTHING
+
+
+@pytest.mark.parametrize("choice", ["SON-07", "SON-99"], ids=["unavailable", "foreign"])
+def test_in_b2_a_choice_outside_the_shortlist_goes_to_start(tmp_path: Path, choice: str) -> None:
+    """K12 in B2-HNP: no guard before `start`, whose D1-HNP denies a candidate outside the grant
+    with POL-01 (test_hnp_runtime, real D1). These two are not even candidates, so `start` itself
+    refuses them; either way nothing is created."""
+    bench = Bench(tmp_path, mode="enforce", selector=Choose(choice))
+
+    assert bench.run().status == "closed"
+
+    assert bench.ended() == ("failed", "selection_not_eligible")
+    assert bench.purchase() == ("failed", "invalid_candidate")
+    assert bench.effects() == NOTHING
+
+
+def test_in_b2_a_selector_without_a_choice_ends_before_start(tmp_path: Path) -> None:
+    bench = Bench(tmp_path, mode="enforce", selector=Choose(None))
 
     assert bench.run().status == "closed"
 
