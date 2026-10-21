@@ -17,6 +17,11 @@ function moneyFormatter(currency: string) {
       style: "currency",
       currency: currency.toUpperCase(),
       currencyDisplay: "narrowSymbol",
+      // Los montos llegan en centavos: siempre dos decimales. Los datos de CLDR recientes (Node 26,
+      // el Chromium de Playwright) dan 0 decimales a COP, y 999,99 se leería "$ 1.000". El backend
+      // escribe la misma cadena en los mensajes HNP (K16, fixtures/money-notation.json).
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     })
   } catch {
     // Moneda inválida en datos no confiables: se muestra el número sin símbolo.

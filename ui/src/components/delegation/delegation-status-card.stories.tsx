@@ -52,7 +52,8 @@ type PlayContext = StoryContext<DelegationStatusCardProps>
 async function expectStatus({ args, canvas }: PlayContext, title: string, revocable: boolean) {
   const { delegation } = args
   await expect(canvas.getByRole("heading", { name: title })).toBeVisible()
-  if (delegation.task.message) await expect(canvas.getByText(delegation.task.message)).toBeVisible()
+  const { message } = delegation.task
+  if (message) await expect(canvas.getByText(plain(message))).toBeVisible()
   await expect(canvas.queryAllByRole("button", { name: REVOKE })).toHaveLength(revocable ? 1 : 0)
   await expect(canvas.queryByRole("button", { name: "Comprar desde el chat" })).toBeNull()
 }
@@ -85,11 +86,12 @@ export const Running: Story = {
   play: (context) => expectStatus(context, "Compra en curso", true),
 }
 
-/** El mensaje del backend trae el producto, el total y la orden. */
+/** El mensaje del backend trae el producto, el total con la notación de la tarjeta (K16) y la orden. */
 export const Purchased: Story = {
   args: { delegation: DELEGATIONS.purchased },
   play: async (context) => {
     await expectStatus(context, "Compra completada", false)
+    await expect(DELEGATIONS.purchased.task.message).toContain(formatMoney(192_400_000, "COP"))
     await expect(context.canvas.getByText(/ord_7d2c9a1e44/)).toBeVisible()
   },
 }

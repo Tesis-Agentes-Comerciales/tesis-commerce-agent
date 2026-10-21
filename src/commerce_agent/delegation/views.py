@@ -2,8 +2,9 @@
 
 The task's result drives the view and, while it runs, the grant's state does. An `active` grant
 past `expires_at` shows `expired` before any unit of work writes it (§4.4). Texts come from
-`HNP_MESSAGES` and amounts from `format_minor_amount` (K13). Times are `UtcTime` text, whose order
-is time order. The strict views are built from JSON-shaped values, as they cross the API.
+`HNP_MESSAGES` and amounts from `format_cop`, the UI's notation (K16). Times are `UtcTime` text,
+whose order is time order. The strict views are built from JSON-shaped values, as they cross the
+API.
 """
 
 from collections.abc import Mapping
@@ -11,7 +12,6 @@ from collections.abc import Mapping
 from pydantic import TypeAdapter
 
 from commerce_agent.governance.hnp_models import ConsentScope, parse_consent_scope
-from commerce_agent.llm.prices import format_minor_amount
 
 from .contract import (
     HNP_MESSAGES,
@@ -46,7 +46,7 @@ def delegation_view(ex: Execution, purchase: Purchase | None, now: str) -> Deleg
                 "title": HNP_MESSAGES["escalation.title"],
                 "message": escalation_message(reason),
                 "prefill_request": HNP_MESSAGES["escalation.prefill_request"].format(
-                    title=_title(consent, purchase), total=_money(consent.scope.total_max_minor)
+                    title=_title(consent, purchase), total=format_cop(consent.scope.total_max_minor)
                 ),
             }
         )
@@ -119,7 +119,7 @@ def _task_message(
                 raise LookupError("A purchased task without its reservation")
             return HNP_MESSAGES["task.purchased"].format(
                 title=_title(consent, purchase),
-                total=_money(ex.reservation.amount_minor),
+                total=format_cop(ex.reservation.amount_minor),
                 order_id=_order_id(ex),
             )
         case _:
@@ -144,5 +144,14 @@ def _order_id(ex: Execution) -> str:
     return ex.outbox.order_id
 
 
-def _money(minor: int) -> str:
-    return format_minor_amount(minor, "COP")
+def format_cop(amount_minor: int) -> str:
+    """`formatMoney(amount_minor, "COP")` of the UI, byte for byte (K16).
+
+    es-CO: "$", a no-break space, the pesos grouped by "." and two decimals after ",", then the ISO
+    code. ui/src/storybook/fixtures/money-notation.json holds the cases both sides check.
+    """
+    if amount_minor < 0:
+        raise ValueError("A negative amount has no HNP message")
+    pesos, cents = divmod(amount_minor, 100)
+    grouped = f"{pesos:,}".replace(",", ".")
+    return f"$\N{NO-BREAK SPACE}{grouped},{cents:02d} COP"
