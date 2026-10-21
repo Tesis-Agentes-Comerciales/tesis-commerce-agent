@@ -469,3 +469,7 @@ manifiesto.
 12. **Variables agregadas al arranque.** B0-HNP recibe `AGENT_D1_AES_KEY_HEX`, generada por
     invocación; B2-HNP, `AGENT_D1_POLICY_SET_ID=b2-hp-v2` y `AGENT_D1_POLICY_REVISION=1` (la
     compuerta D1 de HP). Ninguna cambia una decisión HNP.
+13. **Atribución sobre las decisiones.** La parte de `attribution_completeness` que mira
+    `governance_evidence` cuenta solo las filas `decision_record`. Una fila `input_rejected` o
+    `application_failure` tiene `canonical_input` NULL por el CHECK de la tabla, así que no nombra
+    `principal_ref` ni `owner_ref`: leída al pie de la letra, bajaría una corrida del 100 %.

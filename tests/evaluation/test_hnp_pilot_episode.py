@@ -16,6 +16,8 @@ from typing import Any
 
 import pytest
 
+from commerce_agent.governance.evidence import ApplicationFailure, DecisionRecord
+from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.persistence.stage_timings_sqlite import ModelUsage, SqliteStageTimings
 from commerce_evaluation import verify_evidence
 from commerce_evaluation.governance_pilot import ConditionMismatchError, HttpResult
@@ -440,6 +442,47 @@ def test_the_ledger_and_the_decisions_of_a_b2_run(purchased_b2: tuple[Path, str,
         "complete": 3,
     }
     assert read_governance(database, None)["governance"]["D1"] == "not_reached"
+
+
+def test_a_failure_row_leaves_the_attribution_of_the_decisions(
+    purchased_b2: tuple[Path, str, str],
+) -> None:
+    """Outside a decision_record, governance_evidence keeps canonical_input NULL (its CHECK): the
+    attribution counts the decision records only (manifest decisions_pending 13)."""
+    database, _, run_id = purchased_b2
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        store = SqliteGovernanceEvidenceStore(connection)
+        *_, d3 = store.for_run(run_id)
+        assert isinstance(d3, DecisionRecord)
+        data, version = d3.any_input(), d3.application.expected_state_version
+        failure = ApplicationFailure(
+            schema_version=d3.schema_version,
+            record_kind="application_failure",
+            evidence_id="application-failed",
+            sequence=d3.sequence + 1,
+            recorded_at=d3.recorded_at,
+            run_id=run_id,
+            trace_id=data.trace_id,
+            decision_id=data.decision_id,
+            reason_code="GOV_STATE_CONFLICT",
+            expected_state_version=version,
+            observed_state_version=None,
+            replayability="not_evaluable",
+        )
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            store.record_decision(failure, expected_state_version=version)
+        kinds = "SELECT record_kind, canonical_input FROM governance_evidence ORDER BY sequence"
+        assert connection.execute(kinds).fetchall()[-1] == ("application_failure", None)
+    governance = read_governance(database, run_id)
+    assert governance["governance"]["D3"] == "application_failure"
+    assert governance["attribution"] == {
+        "rows": 3,
+        "owner_ref": 3,
+        "principal_ref": 3,
+        "complete": 3,
+    }
 
 
 # HN11 (K12, spec §3.3): the scripted variant is in the feed and inside the total but outside the

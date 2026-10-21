@@ -571,7 +571,9 @@ def _contains_key(value: Any, key: str) -> bool:
 def read_governance(database: Path, run_id: str | None) -> dict[str, Any]:
     """B2-HNP's decisions per point, the close freshness, the first deny, the policy latency
     (`decision.latency_ms` of each decision_record: D1-HNP does not pass through TimedD1Gate)
-    and the attribution of its rows."""
+    and the attribution of its decision records: an `input_rejected` or `application_failure`
+    row has no canonical input (the table's CHECK), so it names no principal and is not counted
+    (manifest decisions_pending 13)."""
     outcome: dict[str, Any] = {point: "not_reached" for point in DECISION_POINTS}
     outcome |= {"freshness_close": "not_reached", "deny": None}
     latency: dict[str, list[int]] = {point: [] for point in DECISION_POINTS}
