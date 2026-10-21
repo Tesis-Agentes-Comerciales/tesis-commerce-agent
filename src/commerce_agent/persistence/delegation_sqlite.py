@@ -954,6 +954,8 @@ class SqliteDelegationLedger:
         with closing(sqlite3.connect(self._path, timeout=5)) as connection:
             connection.execute("PRAGMA busy_timeout = 5000")
             connection.execute("PRAGMA journal_mode = WAL")
+            # The hooks write evidence and purchases, whose tables declare foreign keys.
+            connection.execute("PRAGMA foreign_keys = ON")
             yield connection
 
 

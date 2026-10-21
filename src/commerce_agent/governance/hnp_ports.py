@@ -29,12 +29,20 @@ class HnpGateDecision:
     - `hooks` run inside the ledger unit of work that applies the decision (§4.5): UoW-1 for a
       D2 allow, UoW-2 for a D3 allow, the terminal one for a deny. A hook that raises rolls the
       whole unit back.
+    - `conflict_hooks` replace `hooks` when that UoW-1 or UoW-2 comes back `blocked` (a lost
+      CAS): they run in the terminal unit of work and keep the allow as `blocked` plus its
+      `GOV_STATE_CONFLICT` application failure (§4.5, «En B2 el perdedor deja evidencia»).
+    - `transition_ref` is what the allow names as its transition: the `outbox_id` of the D3
+      outbox row, which the executor must commit under that id; `None` in D2 (the
+      `reservation_id` it was given) and in `off`.
     """
 
     decision: PolicyDecision | None
     proof: ProofStatus | None
     evidence_id: str | None
     hooks: tuple[Callable[[sqlite3.Connection], None], ...] = ()
+    conflict_hooks: tuple[Callable[[sqlite3.Connection], None], ...] = ()
+    transition_ref: str | None = None
 
 
 class HnpPolicyGate(Protocol):
