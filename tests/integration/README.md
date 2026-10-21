@@ -36,6 +36,14 @@ Hay cuatro grupos sobre el mismo PostgreSQL:
   de la demo, y pide el teléfono con un presupuesto total menor que su precio de catálogo:
   termina en `d1_denied`, POL-11 queda en `fail` con `BUDGET_NOT_SATISFIABLE` y los dos montos,
   y el Merchant no recibe ningún POST de creación.
+  `test_live_b2_d2_authorization.py` arma el Agent igual (`b2-hp-v2`, enforce, flujo gobernado,
+  AP2) y cubre D2-HP al aprobar: en S01 la aprobación pasa por la frescura, D2 (POL-03..06 en
+  `allow`) y la firma del mandato; la fila D2 de `governance_evidence` y
+  `approvals.authorization_evidence_id` son la misma evidencia, la orden queda confirmada y la
+  evidencia AP2 guarda `consent` y luego `effect`. En S04 el Merchant cambia el envío de la
+  oferta después de mostrar los términos: la relectura y una aprobación enviada igual terminan en
+  `checkout_terms_changed` antes de D2, sin ninguna fila D2, y una segunda compra del mismo
+  comprador pasa D2 y llega a la orden.
 - Navegador (`test_live_browser.py`): sobre el carril `b0`, Chromium se registra en `auth/`,
   pide la compra en la UI servida por Vite, la aprueba en la tarjeta y ve la orden confirmada;
   el Agent atiende en este mismo proceso con el router guionado y guarda ambos recibos AP2.
@@ -85,13 +93,13 @@ uv run pytest tests/integration -rs
 
 Un módulo o un escenario: pase su archivo, o filtre por el identificador que llevan los nombres
 (`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`, `-k b0`, `-k b2`, `-k pol02`, `-k pol11`,
-`-k acp`, `-k browser`). Con `--basetemp=<dir>` la evidencia queda en un lugar conocido.
+`-k d2`, `-k acp`, `-k browser`). Con `--basetemp=<dir>` la evidencia queda en un lugar conocido.
 
-La suite completa (66 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B
+La suite completa (70 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B
 (marker `slow`): cada escenario hace una selección nueva sobre el catálogo completo del Merchant
 (cientos de lecturas de Offer por fase) y el Merchant reconstruye el catálogo en cada lectura.
-`-m "not slow"` deja 55 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
-las cuatro gobernadas B2 y la del navegador) en unos 2 minutos.
+`-m "not slow"` deja 59 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
+las ocho gobernadas B2 y la del navegador) en unos 2 minutos.
 
 ## Evidencia y limpieza
 
