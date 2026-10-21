@@ -48,13 +48,7 @@ ORACLE_FIELDS = {
     "evidence_chain",
 }
 TRIGGER_RESPONSES = {"202", "200_terminal", "409 hnp_task_not_runnable"}
-EVIDENCE_CHAIN = {
-    "complete",
-    "complete_to_block",
-    "complete_to_block_if_d1_reached",
-    "incomplete_by_construction",
-    "no_terminal_link",
-}
+EVIDENCE_CHAIN = {"complete", "complete_to_block", "incomplete_by_construction", "no_terminal_link"}
 # Spec §9.2, in order.
 HNP_LINKS = [
     "intent",
@@ -75,6 +69,17 @@ HNP_LINKS = [
     "kill_switch",
     "escalation",
 ]
+PURCHASE_LINKS = HNP_LINKS[:14]
+TERMINAL_LINKS = HNP_LINKS[14:]
+# Spec §9.2: the links the PDP writes; B0-HNP has none of them.
+PDP_LINKS = {
+    "intent",
+    "d1_decision",
+    "checkout_created",
+    "freshness",
+    "d2_decision",
+    "d3_decision",
+}
 # Races and crash points belong to HNP-I1: no stimulus of the matrix injects one.
 STIMULI = {
     "merchant_update_offer",
@@ -193,21 +198,75 @@ def test_ledger_oracles_name_states_the_contract_allows(scenarios: list[dict[str
             assert (grant["state"] == "revoked") == (grant["revoked_reason"] is not None)
             assert grant["revoked_reason"] in {None, *get_args(RevokedReason)}
             assert set(cell["trigger_responses"]) <= TRIGGER_RESPONSES
-            assert cell["evidence_chain"] in EVIDENCE_CHAIN
+            assert cell["evidence_chain"]["class"] in EVIDENCE_CHAIN
             assert set(cell["effects"]) == EFFECTS
             assert all(isinstance(value, int) for value in cell["effects"].values())
             assert (cell["effects"]["orders"] > 0) == (task["state"] == "purchased")
             assert cell["escalation_view"] == (task["state"] == "escalated")
 
 
-def test_b0_hnp_never_escalates_and_never_has_a_complete_chain(
+def test_b0_hnp_never_escalates_and_never_completes_a_purchase_chain(
     scenarios: list[dict[str, Any]],
 ) -> None:
     for scenario in scenarios:
         cell = scenario["oracle"]["B0-HNP"]
         assert cell["task"]["state"] != "escalated"
         assert cell["governance"] is None
-        assert cell["evidence_chain"] == "incomplete_by_construction"
+        assert cell["evidence_chain"]["class"] != "complete", scenario["id"]
+        if cell["task"]["state"] == "purchased":
+            assert cell["evidence_chain"]["class"] == "incomplete_by_construction"
+
+
+def links_of(cell: dict[str, Any]) -> dict[str, list[str]]:
+    return cell["evidence_chain"]["links"]
+
+
+def test_every_ledger_oracle_registers_a_vector_of_the_seventeen_links(
+    scenarios: list[dict[str, Any]],
+) -> None:
+    for scenario in scenarios:
+        assert scenario["oracle"]["P"]["evidence_chain"] is None, scenario["id"]
+        for condition in LEDGER_CONDITIONS:
+            cell = scenario["oracle"][condition]
+            links = links_of(cell)
+            where = (scenario["id"], condition)
+            assert set(links) == {"ok", "missing", "not_applicable"}, where
+            listed = [link for status in links.values() for link in status]
+            # Every link in exactly one status, each list in the spec's order.
+            assert sorted(listed) == sorted(HNP_LINKS), where
+            for status in links.values():
+                assert status == [link for link in HNP_LINKS if link in status], where
+            assert set(links["missing"]) <= PDP_LINKS, where
+            chain_class = cell["evidence_chain"]["class"]
+            assert (chain_class == "incomplete_by_construction") == bool(links["missing"]), where
+            assert (chain_class == "no_terminal_link") == (scenario["id"] == "HN04"), where
+            purchased = cell["task"]["state"] == "purchased"
+            if purchased:
+                assert set(PURCHASE_LINKS) - PDP_LINKS <= set(links["ok"]), where
+                assert set(TERMINAL_LINKS) <= set(links["not_applicable"]), where
+            if chain_class == "complete":
+                assert purchased and links["ok"] == PURCHASE_LINKS, where
+            if chain_class == "complete_to_block":
+                assert not purchased, where
+
+
+def test_b2_hnp_records_every_link_it_reaches(scenarios: list[dict[str, Any]]) -> None:
+    for scenario in scenarios:
+        cell = scenario["oracle"]["B2-HNP"]
+        assert links_of(cell)["missing"] == [], scenario["id"]
+        if cell["task"]["state"] == "purchased":
+            assert cell["evidence_chain"]["class"] == "complete", scenario["id"]
+        # A block before D1 leaves the same vector in B0-HNP: the PDP never ran.
+        if not PDP_LINKS & set(links_of(cell)["ok"]):
+            assert links_of(scenario["oracle"]["B0-HNP"]) == links_of(cell), scenario["id"]
+
+
+def test_no_oracle_depends_on_how_far_a_run_got(manifest: dict[str, Any]) -> None:
+    for name in ("hnp-pilot-v1.json", "hnp-scenarios.json"):
+        text = (DATA / name).read_text(encoding="utf-8")
+        assert "if_reached" not in text, name
+        assert "if_d1_reached" not in text, name
+    assert "E2_hn11_b0_code" not in manifest["allowed_amendments"]
 
 
 def test_declared_ties_have_the_same_effects_and_outcome(scenarios: list[dict[str, Any]]) -> None:
