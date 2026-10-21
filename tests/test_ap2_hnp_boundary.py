@@ -12,6 +12,8 @@ MODEL_FACING = (
     "commerce_agent.llm.catalog_tool",
     "commerce_agent.llm.conversation_router",
     "commerce_agent.application.conversation",
+    # What the HNP selector sees: the shortlist, the intent and the buyer's preference text.
+    "commerce_agent.application.hnp_selection",
 )
 
 
