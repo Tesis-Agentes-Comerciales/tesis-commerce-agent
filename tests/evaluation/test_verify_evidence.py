@@ -235,6 +235,18 @@ def test_an_approved_b2_hp_v2_purchase_without_d2_misses_it(tmp_path: Path) -> N
         run_id = shop.buy()
         shop.deliver_order_create(run_id)
 
+    # b2-hp-v2 carries the D2 rules: approving left a D2 record, present but not yet verified.
+    run = only_run(database)
+    assert statuses(run) == OK_B2 | {"d2_decision": "missing"}
+    assert run["links"]["d2_decision"]["refs"] == {
+        "records": 1,
+        "content_verified": False,
+        "policy_set_id": "b2-hp-v2",
+        "d2_required": True,
+    }
+
+    # Without that record (someone with the file deleted it) the approved purchase misses D2.
+    edit(database, "governance_evidence", "DELETE FROM governance_evidence WHERE phase = 'D2'")
     run = only_run(database)
 
     assert statuses(run) == OK_B2 | {"d2_decision": "missing"}
