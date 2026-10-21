@@ -1,0 +1,376 @@
+[
+  {
+    "method": "GET",
+    "path": "/me/delegations",
+    "request": null,
+    "status": 200,
+    "body": {
+      "delegations": [
+        {
+          "grant_id": "dg_aed65dbcab5b4ad58e86298154371107",
+          "state": "revoked",
+          "revoked_reason": "owner",
+          "scope": {
+            "merchant_name": "Synthetic Commerce Merchant",
+            "variants": [
+              {
+                "variant_id": "BOS-QCU-BLK",
+                "title": "Bose QuietComfort Ultra negro"
+              },
+              {
+                "variant_id": "SON-XM6-BLK",
+                "title": "Sony WH-1000XM6 negro"
+              }
+            ],
+            "total_max": {
+              "minor": 200000000,
+              "currency": "COP"
+            },
+            "expires_at": "2026-10-21T16:00:03.000Z",
+            "destination_label": "Bogota, DC",
+            "instrument_label": "Tarjeta de prueba del sandbox",
+            "uses": 1,
+            "preference_text": "Si los dos están disponibles, prefiero los Sony."
+          },
+          "consented_at": "2026-10-21T15:00:03.000Z",
+          "expires_at": "2026-10-21T16:00:03.000Z",
+          "task": {
+            "task_id": "ht_c6364605ba8341b6a4c301964458ed43",
+            "state": "canceled",
+            "outcome_code": "revoked_by_owner",
+            "run_id": null,
+            "order_id": null,
+            "message": "Revocaste la delegación antes de la compra. No se hizo ningún cobro.",
+            "updated_at": "2026-10-21T15:00:04.000Z"
+          },
+          "escalation": null,
+          "last_activity_at": "2026-10-21T15:00:04.000Z"
+        },
+        {
+          "grant_id": "dg_b4ca34161d404fe28e1cfd4ea6edda33",
+          "state": "active",
+          "revoked_reason": null,
+          "scope": {
+            "merchant_name": "Synthetic Commerce Merchant",
+            "variants": [
+              {
+                "variant_id": "BOS-QCU-BLK",
+                "title": "Bose QuietComfort Ultra negro"
+              },
+              {
+                "variant_id": "SON-XM6-BLK",
+                "title": "Sony WH-1000XM6 negro"
+              }
+            ],
+            "total_max": {
+              "minor": 200000000,
+              "currency": "COP"
+            },
+            "expires_at": "2026-10-21T16:00:02.000Z",
+            "destination_label": "Bogota, DC",
+            "instrument_label": "Tarjeta de prueba del sandbox",
+            "uses": 1,
+            "preference_text": "Si los dos están disponibles, prefiero los Sony."
+          },
+          "consented_at": "2026-10-21T15:00:02.000Z",
+          "expires_at": "2026-10-21T16:00:02.000Z",
+          "task": {
+            "task_id": "ht_40d1b0f8e86240a6bc1d7c1f0cd247fc",
+            "state": "running",
+            "outcome_code": null,
+            "run_id": "run_f74aec91db264d3095ff02227604e779",
+            "order_id": null,
+            "message": "Estoy haciendo la compra que delegaste.",
+            "updated_at": "2026-10-21T15:00:03.000Z"
+          },
+          "escalation": null,
+          "last_activity_at": "2026-10-21T15:00:03.000Z"
+        },
+        {
+          "grant_id": "dg_1ec3deed0fd94473a115a0a4962bbddf",
+          "state": "active",
+          "revoked_reason": null,
+          "scope": {
+            "merchant_name": "Synthetic Commerce Merchant",
+            "variants": [
+              {
+                "variant_id": "BOS-QCU-BLK",
+                "title": "Bose QuietComfort Ultra negro"
+              },
+              {
+                "variant_id": "SON-XM6-BLK",
+                "title": "Sony WH-1000XM6 negro"
+              }
+            ],
+            "total_max": {
+              "minor": 200000000,
+              "currency": "COP"
+            },
+            "expires_at": "2026-10-21T16:00:01.000Z",
+            "destination_label": "Bogota, DC",
+            "instrument_label": "Tarjeta de prueba del sandbox",
+            "uses": 1,
+            "preference_text": "Si los dos están disponibles, prefiero los Sony."
+          },
+          "consented_at": "2026-10-21T15:00:01.000Z",
+          "expires_at": "2026-10-21T16:00:01.000Z",
+          "task": {
+            "task_id": "ht_1bed86b3172b4107a8976f277633bd04",
+            "state": "running",
+            "outcome_code": null,
+            "run_id": "run_1b1b8c6c87554b6d879c1c435db93a83",
+            "order_id": null,
+            "message": "Estoy haciendo la compra que delegaste.",
+            "updated_at": "2026-10-21T15:00:03.000Z"
+          },
+          "escalation": null,
+          "last_activity_at": "2026-10-21T15:00:03.000Z"
+        },
+        {
+          "grant_id": "dg_fae0f66102c54aa5b899fad0da0e88ca",
+          "state": "active",
+          "revoked_reason": null,
+          "scope": {
+            "merchant_name": "Synthetic Commerce Merchant",
+            "variants": [
+              {
+                "variant_id": "BOS-QCU-BLK",
+                "title": "Bose QuietComfort Ultra negro"
+              },
+              {
+                "variant_id": "SON-XM6-BLK",
+                "title": "Sony WH-1000XM6 negro"
+              }
+            ],
+            "total_max": {
+              "minor": 200000000,
+              "currency": "COP"
+            },
+            "expires_at": "2026-10-21T16:00:00.000Z",
+            "destination_label": "Bogota, DC",
+            "instrument_label": "Tarjeta de prueba del sandbox",
+            "uses": 1,
+            "preference_text": "Si los dos están disponibles, prefiero los Sony."
+          },
+          "consented_at": "2026-10-21T15:00:00.000Z",
+          "expires_at": "2026-10-21T16:00:00.000Z",
+          "task": {
+            "task_id": "ht_a35f4b54506a4c03a785a1bb6194674c",
+            "state": "scheduled",
+            "outcome_code": null,
+            "run_id": null,
+            "order_id": null,
+            "message": "Tu delegación está activa y lista para que el agente compre.",
+            "updated_at": "2026-10-21T15:00:00.000Z"
+          },
+          "escalation": null,
+          "last_activity_at": "2026-10-21T15:00:00.000Z"
+        }
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/me/delegations/revoke-all",
+    "request": null,
+    "status": 200,
+    "body": {
+      "receipts": [
+        {
+          "grant_id": "dg_b4ca34161d404fe28e1cfd4ea6edda33",
+          "state": "revoked",
+          "revoked_reason": "owner",
+          "revoked_at": "2026-10-21T15:00:09.000Z",
+          "effect": "in_flight",
+          "message": "Revocaste la delegación, pero el agente ya había comprometido el pago. Esa compra sigue en curso y aquí verás cómo termina; no puedo prometer que se cancele."
+        },
+        {
+          "grant_id": "dg_1ec3deed0fd94473a115a0a4962bbddf",
+          "state": "revoked",
+          "revoked_reason": "owner",
+          "revoked_at": "2026-10-21T15:00:09.000Z",
+          "effect": "released",
+          "message": "Revocaste la delegación antes de que el agente comprometiera el pago. No se presentó ninguna autorización ni se hizo ningún cobro."
+        },
+        {
+          "grant_id": "dg_fae0f66102c54aa5b899fad0da0e88ca",
+          "state": "revoked",
+          "revoked_reason": "owner",
+          "revoked_at": "2026-10-21T15:00:09.000Z",
+          "effect": "no_effect",
+          "message": "Revocaste la delegación. El agente ya no puede comprar con ella."
+        }
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/me/delegations",
+    "request": null,
+    "status": 200,
+    "body": {
+      "delegations": [
+        {
+          "grant_id": "dg_aed65dbcab5b4ad58e86298154371107",
+          "state": "revoked",
+          "revoked_reason": "owner",
+          "scope": {
+            "merchant_name": "Synthetic Commerce Merchant",
+            "variants": [
+              {
+                "variant_id": "BOS-QCU-BLK",
+                "title": "Bose QuietComfort Ultra negro"
+              },
+              {
+                "variant_id": "SON-XM6-BLK",
+                "title": "Sony WH-1000XM6 negro"
+              }
+            ],
+            "total_max": {
+              "minor": 200000000,
+              "currency": "COP"
+            },
+            "expires_at": "2026-10-21T16:00:03.000Z",
+            "destination_label": "Bogota, DC",
+            "instrument_label": "Tarjeta de prueba del sandbox",
+            "uses": 1,
+            "preference_text": "Si los dos están disponibles, prefiero los Sony."
+          },
+          "consented_at": "2026-10-21T15:00:03.000Z",
+          "expires_at": "2026-10-21T16:00:03.000Z",
+          "task": {
+            "task_id": "ht_c6364605ba8341b6a4c301964458ed43",
+            "state": "canceled",
+            "outcome_code": "revoked_by_owner",
+            "run_id": null,
+            "order_id": null,
+            "message": "Revocaste la delegación antes de la compra. No se hizo ningún cobro.",
+            "updated_at": "2026-10-21T15:00:04.000Z"
+          },
+          "escalation": null,
+          "last_activity_at": "2026-10-21T15:00:04.000Z"
+        },
+        {
+          "grant_id": "dg_b4ca34161d404fe28e1cfd4ea6edda33",
+          "state": "revoked",
+          "revoked_reason": "owner",
+          "scope": {
+            "merchant_name": "Synthetic Commerce Merchant",
+            "variants": [
+              {
+                "variant_id": "BOS-QCU-BLK",
+                "title": "Bose QuietComfort Ultra negro"
+              },
+              {
+                "variant_id": "SON-XM6-BLK",
+                "title": "Sony WH-1000XM6 negro"
+              }
+            ],
+            "total_max": {
+              "minor": 200000000,
+              "currency": "COP"
+            },
+            "expires_at": "2026-10-21T16:00:02.000Z",
+            "destination_label": "Bogota, DC",
+            "instrument_label": "Tarjeta de prueba del sandbox",
+            "uses": 1,
+            "preference_text": "Si los dos están disponibles, prefiero los Sony."
+          },
+          "consented_at": "2026-10-21T15:00:02.000Z",
+          "expires_at": "2026-10-21T16:00:02.000Z",
+          "task": {
+            "task_id": "ht_40d1b0f8e86240a6bc1d7c1f0cd247fc",
+            "state": "running",
+            "outcome_code": null,
+            "run_id": "run_f74aec91db264d3095ff02227604e779",
+            "order_id": null,
+            "message": "Estoy haciendo la compra que delegaste.",
+            "updated_at": "2026-10-21T15:00:03.000Z"
+          },
+          "escalation": null,
+          "last_activity_at": "2026-10-21T15:00:09.000Z"
+        },
+        {
+          "grant_id": "dg_1ec3deed0fd94473a115a0a4962bbddf",
+          "state": "revoked",
+          "revoked_reason": "owner",
+          "scope": {
+            "merchant_name": "Synthetic Commerce Merchant",
+            "variants": [
+              {
+                "variant_id": "BOS-QCU-BLK",
+                "title": "Bose QuietComfort Ultra negro"
+              },
+              {
+                "variant_id": "SON-XM6-BLK",
+                "title": "Sony WH-1000XM6 negro"
+              }
+            ],
+            "total_max": {
+              "minor": 200000000,
+              "currency": "COP"
+            },
+            "expires_at": "2026-10-21T16:00:01.000Z",
+            "destination_label": "Bogota, DC",
+            "instrument_label": "Tarjeta de prueba del sandbox",
+            "uses": 1,
+            "preference_text": "Si los dos están disponibles, prefiero los Sony."
+          },
+          "consented_at": "2026-10-21T15:00:01.000Z",
+          "expires_at": "2026-10-21T16:00:01.000Z",
+          "task": {
+            "task_id": "ht_1bed86b3172b4107a8976f277633bd04",
+            "state": "running",
+            "outcome_code": null,
+            "run_id": "run_1b1b8c6c87554b6d879c1c435db93a83",
+            "order_id": null,
+            "message": "Estoy haciendo la compra que delegaste.",
+            "updated_at": "2026-10-21T15:00:03.000Z"
+          },
+          "escalation": null,
+          "last_activity_at": "2026-10-21T15:00:09.000Z"
+        },
+        {
+          "grant_id": "dg_fae0f66102c54aa5b899fad0da0e88ca",
+          "state": "revoked",
+          "revoked_reason": "owner",
+          "scope": {
+            "merchant_name": "Synthetic Commerce Merchant",
+            "variants": [
+              {
+                "variant_id": "BOS-QCU-BLK",
+                "title": "Bose QuietComfort Ultra negro"
+              },
+              {
+                "variant_id": "SON-XM6-BLK",
+                "title": "Sony WH-1000XM6 negro"
+              }
+            ],
+            "total_max": {
+              "minor": 200000000,
+              "currency": "COP"
+            },
+            "expires_at": "2026-10-21T16:00:00.000Z",
+            "destination_label": "Bogota, DC",
+            "instrument_label": "Tarjeta de prueba del sandbox",
+            "uses": 1,
+            "preference_text": "Si los dos están disponibles, prefiero los Sony."
+          },
+          "consented_at": "2026-10-21T15:00:00.000Z",
+          "expires_at": "2026-10-21T16:00:00.000Z",
+          "task": {
+            "task_id": "ht_a35f4b54506a4c03a785a1bb6194674c",
+            "state": "canceled",
+            "outcome_code": "revoked_by_owner",
+            "run_id": null,
+            "order_id": null,
+            "message": "Revocaste la delegación antes de la compra. No se hizo ningún cobro.",
+            "updated_at": "2026-10-21T15:00:09.000Z"
+          },
+          "escalation": null,
+          "last_activity_at": "2026-10-21T15:00:09.000Z"
+        }
+      ]
+    }
+  }
+]

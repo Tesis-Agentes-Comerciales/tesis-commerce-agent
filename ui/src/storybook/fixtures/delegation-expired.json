@@ -15,7 +15,7 @@
       "currency": "COP"
     },
     "expires_at": "2026-10-21T10:00:00.000Z",
-    "destination_label": "Bogotá, Cundinamarca",
+    "destination_label": "Bogota, DC",
     "instrument_label": "Tarjeta de prueba del sandbox",
     "uses": 1,
     "preference_text": null

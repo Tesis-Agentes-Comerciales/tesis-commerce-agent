@@ -1,0 +1,50 @@
+[
+  {
+    "method": "GET",
+    "path": "/me/delegations",
+    "request": null,
+    "status": 200,
+    "body": {
+      "delegations": []
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/delegations/proposals",
+    "request": {
+      "variant_ids": [
+        "BOS-QCU-BLK",
+        "SON-XM6-BLK"
+      ],
+      "total_max_minor": 200000000,
+      "currency": "COP",
+      "valid_for_seconds": 3600,
+      "details": {
+        "buyer": {
+          "email": "ana@example.test",
+          "first_name": "Ana",
+          "last_name": "Demo"
+        },
+        "fulfillment": {
+          "name": "Ana Demo",
+          "email": "ana@example.test",
+          "phone_number": "+573000000000",
+          "address": {
+            "name": "Ana Demo",
+            "line_one": "Calle 100 # 10-20",
+            "city": "Medellín",
+            "state": "DC",
+            "country": "CO",
+            "postal_code": "110111"
+          }
+        }
+      },
+      "preference_text": "Si los dos están disponibles, prefiero los Sony."
+    },
+    "status": 422,
+    "body": {
+      "code": "delegation_destination_unsupported",
+      "message": "El comercio solo entrega en Bogotá, DC, Colombia, con código postal 110111."
+    }
+  }
+]
