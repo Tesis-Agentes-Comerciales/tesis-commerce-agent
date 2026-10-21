@@ -29,7 +29,17 @@ class EvidenceChainError(RuntimeError):
 
 
 def verifier_command(database: Path, run_id: str) -> list[str]:
-    return ["uv", "run", "verify-evidence", "--database", str(database), "--run-id", run_id]
+    # --no-sync: the runner already synced the workspace; polling must not re-resolve it.
+    return [
+        "uv",
+        "run",
+        "--no-sync",
+        "verify-evidence",
+        "--database",
+        str(database),
+        "--run-id",
+        run_id,
+    ]
 
 
 def link_statuses(report: Mapping[str, Any]) -> dict[str, str]:
@@ -82,17 +92,22 @@ class EvidenceChainCheck:
         return link_statuses(report)
 
     def await_order_event(self, database: Path, run_id: str) -> int:
-        """Milliseconds until the webhook link stops being missing, bounded by the timeout."""
+        """Milliseconds until the verifier reports the webhook link, bounded by the timeout.
+
+        A link the report leaves out has not arrived. A verifier that prints no report will not
+        print one later, so the wait ends there instead of at the timeout.
+        """
         started = time.monotonic()
         deadline = started + self.order_event_timeout_seconds
         while True:
             try:
-                arrived = self.verify(database, run_id).get(ORDER_EVENT_LINK) != "missing"
+                status = self.verify(database, run_id).get(ORDER_EVENT_LINK)
             except EvidenceChainError:
-                arrived = False
-            if arrived or time.monotonic() >= deadline:
-                return round((time.monotonic() - started) * 1000)
+                break
+            if status not in (None, "missing") or time.monotonic() >= deadline:
+                break
             time.sleep(self.poll_seconds)
+        return round((time.monotonic() - started) * 1000)
 
 
 def evidence_chain_check(manifest: Mapping[str, Any]) -> EvidenceChainCheck | None:

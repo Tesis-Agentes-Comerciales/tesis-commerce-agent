@@ -11,13 +11,14 @@ import importlib.metadata
 import re
 import secrets
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import SecretStr
 
 from commerce_agent.config import Settings
 from commerce_agent.governance.bootstrap import configured_d1
+from commerce_evaluation.pilot_measures import D1, D2, DECISIONS
 
 ALLOWLIST = "AGENT_D1_ALLOWED_MERCHANT_ORIGINS"
 REVISION = "AGENT_D1_POLICY_REVISION"
@@ -101,21 +102,56 @@ def policy_configuration(
     }
 
 
+type DigestKey = tuple[str, str, str, tuple[str, ...]]
+
+
+@dataclass
+class PolicyDigests:
+    """Within one invocation, each allowlist maps to one artifact digest per decision point."""
+
+    seen: dict[DigestKey, str | None] = field(default_factory=dict)
+
+    def consistent(self, phase: str, configuration: Mapping[str, Any], digest: str | None) -> bool:
+        """The first digest of a list is the reference; any other one is a mismatch."""
+        key = (
+            phase,
+            str(configuration["policy_set_id"]),
+            str(configuration["revision"]),
+            tuple(configuration["allowed_merchant_origins"]),
+        )
+        return self.seen.setdefault(key, digest) == digest
+
+
 def policy_mismatch(
-    configurations: Sequence[Mapping[str, Any]], decisions: Sequence[Mapping[str, Any]] | None
+    configurations: Sequence[Mapping[str, Any]],
+    evidence: Mapping[str, Any] | None,
+    digests: PolicyDigests,
 ) -> bool | None:
-    """Whether a decision carries a policy the row was not configured with; null without both."""
-    bindings = [
-        decision["policy_binding"]
-        for decision in decisions or []
-        if decision.get("policy_binding") is not None
-    ]
-    if not configurations or not bindings:
+    """Whether a decision ran under another policy than the one in force at its decision point.
+
+    D1 decides under the first configuration and D2 under the last: S08 revises the policy in
+    between. Each decision must carry that configuration's set and revision, and its list one
+    digest within the invocation. Null without a configuration (B0') or a bound decision.
+    """
+    if not configurations or evidence is None:
         return None
-    configured = {(item["policy_set_id"], int(item["revision"])) for item in configurations}
-    return any(
-        (binding["policy_set_id"], binding["version"]) not in configured for binding in bindings
-    )
+    expected = {D1: configurations[0], D2: configurations[-1]}
+    checked, mismatch = False, False
+    for phase, key in DECISIONS.items():
+        configuration = expected[phase]
+        for decision in evidence.get(key) or []:
+            binding = decision.get("policy_binding")
+            if binding is None:
+                continue
+            checked = True
+            configured = (configuration["policy_set_id"], int(configuration["revision"]))
+            # Only a decision under the configured policy may set the reference digest.
+            same_policy = (binding["policy_set_id"], int(binding["version"])) == configured
+            consistent = same_policy and digests.consistent(
+                phase, configuration, binding.get("artifact_digest")
+            )
+            mismatch = mismatch or not consistent
+    return mismatch if checked else None
 
 
 def _built_rules(policy: D1Policy) -> set[str]:

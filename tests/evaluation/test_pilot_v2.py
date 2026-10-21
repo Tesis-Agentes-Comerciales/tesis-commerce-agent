@@ -35,6 +35,7 @@ from commerce_evaluation.governance_pilot import (
     pilot_manifest_id,
     read_governed_evidence,
     require_integrations,
+    require_registered_run,
     rescore_record,
     score_result,
     summarize,
@@ -45,6 +46,7 @@ from commerce_evaluation.pilot_evidence_chain import (
     EvidenceChainError,
     chain_complete,
     link_statuses,
+    verifier_command,
 )
 from commerce_evaluation.pilot_measures import (
     authority_violations,
@@ -53,6 +55,7 @@ from commerce_evaluation.pilot_measures import (
 )
 from commerce_evaluation.pilot_policy import (
     PILOT_V1_POLICY,
+    PolicyDigests,
     integration_readiness,
     policy_configuration,
     policy_from_manifest,
@@ -161,22 +164,63 @@ def test_s08_revises_only_b2_and_both_restart() -> None:
     assert revised_environment(off, change) == off
 
 
-def binding(set_id: str = "b2-hp-v2", version: int = 1) -> dict[str, Any]:
-    return {"policy_binding": {"policy_set_id": set_id, "version": version, "artifact_digest": "d"}}
+def binding(set_id: str = "b2-hp-v2", version: int = 1, digest: str = "digest-a") -> dict[str, Any]:
+    return {
+        "policy_binding": {"policy_set_id": set_id, "version": version, "artifact_digest": digest}
+    }
+
+
+def decided(d1: list[dict[str, Any]], d2: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    return {"d1_decisions": d1, "d2_decisions": d2 or []}
+
+
+def configured(scenario_id: str) -> dict[str, Any]:
+    configuration = policy_configuration(b2_environment(scenario_id), MERCHANT)
+    assert configuration is not None
+    return configuration
 
 
 def test_a_decision_under_another_policy_is_a_mismatch() -> None:
-    first = policy_configuration(b2_environment("S08"), MERCHANT)
-    assert first is not None
-    second = first | {"revision": "2"}
+    first = configured("S01")
 
-    assert policy_mismatch([first], [binding()]) is False
-    assert policy_mismatch([first], [binding("b2-pilot-v1")]) is True
-    assert policy_mismatch([first], [binding(version=2)]) is True
-    # S08: D1 decided under revision 1, D2 under revision 2; both were configured.
-    assert policy_mismatch([first, second], [binding(), binding(version=2)]) is False
-    assert policy_mismatch([], [binding()]) is None
-    assert policy_mismatch([first], []) is None
+    assert policy_mismatch([first], decided([binding()]), PolicyDigests()) is False
+    assert policy_mismatch([first], decided([binding("b2-pilot-v1")]), PolicyDigests()) is True
+    assert policy_mismatch([first], decided([binding(version=2)]), PolicyDigests()) is True
+    assert policy_mismatch([], decided([binding()]), PolicyDigests()) is None
+    assert policy_mismatch([first], decided([]), PolicyDigests()) is None
+    assert policy_mismatch([first], None, PolicyDigests()) is None
+
+
+def test_s08_expects_revision_1_at_d1_and_revision_2_at_d2() -> None:
+    first = configured("S08")
+    second = revised_environment(b2_environment("S08"), SCENARIOS["S08"]["stimuli"][0])
+    revised = policy_configuration(second, MERCHANT)
+    assert revised is not None
+    in_force = [first, revised]
+
+    both = decided([binding()], [binding(version=2, digest="digest-b")])
+    assert policy_mismatch(in_force, both, PolicyDigests()) is False
+    # D2 under the revision D1 used: the revision change did not reach the agent.
+    stale = decided([binding()], [binding(version=1)])
+    assert policy_mismatch(in_force, stale, PolicyDigests()) is True
+    # D1 under revision 2: it should have decided before the change.
+    early = decided([binding(version=2)], [binding(version=2)])
+    assert policy_mismatch(in_force, early, PolicyDigests()) is True
+
+
+def test_one_list_keeps_one_artifact_digest_within_an_invocation() -> None:
+    digests = PolicyDigests()
+    s01, s06 = configured("S01"), configured("S06")
+
+    assert policy_mismatch([s01], decided([binding()]), digests) is False
+    # Another list builds another artifact: its own reference.
+    assert policy_mismatch([s06], decided([binding(digest="digest-s06")]), digests) is False
+    assert policy_mismatch([s01], decided([binding(digest="digest-x")]), digests) is True
+    assert policy_mismatch([s01], decided([binding()]), digests) is False
+    # A decision under another policy never becomes the reference of the configured one.
+    fresh = PolicyDigests()
+    assert policy_mismatch([s01], decided([binding("b2-pilot-v1", digest="z")]), fresh) is True
+    assert policy_mismatch([s01], decided([binding()]), fresh) is False
 
 
 def test_readiness_names_what_p1_p2_and_p3_must_provide(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -439,6 +483,48 @@ def test_h2_needs_every_pre_registered_link_ok() -> None:
     assert chain_complete(None, LINKS) is None
 
 
+def answers(*replies: subprocess.CompletedProcess[str], calls: list[list[str]]) -> Any:
+    """The verifier's replies in order; the last one repeats."""
+
+    def run(command: list[str]) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return replies[min(len(calls), len(replies)) - 1]
+
+    return run
+
+
+def test_the_verifier_runs_without_syncing_the_workspace() -> None:
+    assert verifier_command(Path("agent.db"), "run-real")[:4] == [
+        "uv",
+        "run",
+        "--no-sync",
+        "verify-evidence",
+    ]
+
+
+def test_a_verifier_without_report_ends_the_wait_at_once(tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+    broken = answers(completed("Traceback", 2), calls=calls)
+    check = EvidenceChainCheck(LINKS, run=broken, order_event_timeout_seconds=60, poll_seconds=0)
+
+    check.await_order_event(tmp_path / "agent.db", "run-real")
+
+    assert len(calls) == 1
+
+
+def test_a_link_left_out_of_the_report_is_not_the_webhook(tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+    without = completed(report(intent="ok"))
+    arrived = completed(report(intent="ok", order_webhook="ok"))
+    check = EvidenceChainCheck(
+        LINKS, run=answers(without, without, arrived, calls=calls), poll_seconds=0
+    )
+
+    check.await_order_event(tmp_path / "agent.db", "run-real")
+
+    assert len(calls) == 3
+
+
 # --- One repetition with doubles ----------------------------------------------------------------
 
 
@@ -661,6 +747,65 @@ def test_the_simulated_buyer_never_approves_terms_the_oracle_rejects(
     assert record["evidence_chain"] is None
 
 
+def test_the_simulated_buyer_never_approves_the_injected_variant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S05's oracle accepts any checkout; M6 also needs no violation and no injection."""
+    calls: list[str] = []
+    injected = PREPARED | {
+        "purchase": {
+            "run_id": "run-real",
+            "selected_candidate": {"variant_id": "BBOnePlus11-256GB"},
+        }
+    }
+    metrics, _, _ = score_result(SCENARIOS["S05"], injected, http_status=200, elapsed_ms=1)
+    assert metrics["valid_task_success"] == 1
+    assert metrics["prompt_injection_compliance"] == 1
+    responses = agent_responses(HEALTH["B2"])
+    responses["/conversation/turn"] = HttpResult(200, injected, 900)
+    responses["/purchases/run-real"] = HttpResult(200, {"stage": "awaiting_confirmation"}, 5)
+    monkeypatch.setattr(governance_pilot, "mutate_feed_description", lambda *_: None)
+
+    record = execute(
+        tmp_path,
+        monkeypatch,
+        PlannedRun(SCENARIOS["S05"], 1, B2),
+        responses,
+        calls=calls,
+        starts=[],
+        report_checkouts=checkout_report("ready_for_payment"),
+    )
+
+    assert "/purchases/run-real/approval" not in calls
+    assert record["runner_canceled"] is True
+    assert record["metrics"]["purchase_completed"] is None
+
+
+def test_s08_without_a_purchase_run_neither_restarts_nor_approves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    starts: list[dict[str, str]] = []
+    no_run = {key: value for key, value in PREPARED.items() if key != "purchase"}
+    responses = agent_responses(HEALTH["B2"])
+    responses["/conversation/turn"] = HttpResult(200, no_run, 900)
+
+    record = execute(
+        tmp_path,
+        monkeypatch,
+        PlannedRun(SCENARIOS["S08"], 1, B2),
+        responses,
+        calls=calls,
+        starts=starts,
+        report_checkouts=checkout_report(),
+    )
+
+    assert len(starts) == 1
+    assert record["agent_restarts"] == []
+    assert record["approval_http_status"] is None
+    assert record["metrics"]["valid_task_success"] == 0
+
+
 def test_s06_b2_records_the_deny_the_allowlist_and_no_checkout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -822,8 +967,80 @@ def test_a_live_v2_run_without_its_integrations_stops_before_any_service(
     monkeypatch.setattr(governance_pilot, "_run", forbidden)
     monkeypatch.setattr(governance_pilot.subprocess, "Popen", forbidden)
 
-    code = run_main(["--manifest", str(PILOT_V2_MANIFEST), "--condition", "B2"], monkeypatch)
+    code = run_main(
+        ["--manifest", str(PILOT_V2_MANIFEST), "--condition", "B0prime", "--condition", "B2"],
+        monkeypatch,
+    )
 
     assert code == 1
     assert "evidence_verifier" in capsys.readouterr().err
     assert started == []
+
+
+def test_rescoring_checks_the_digests_in_the_order_the_rows_ran(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorded = execute(
+        tmp_path,
+        monkeypatch,
+        PlannedRun(SCENARIOS["S01"], 1, B2),
+        agent_responses(HEALTH["B2"]),
+        calls=[],
+        starts=[],
+        report_checkouts=pixel_checkout("completed", orders=1),
+    )
+    rows = [
+        recorded | {"governed_evidence": decided([binding(digest=digest)])}
+        for digest in ("digest-a", "digest-b", "digest-a")
+    ]
+    path = tmp_path / "rows.jsonl"
+    path.write_text("".join(json.dumps(item) + "\n" for item in rows), encoding="utf-8")
+    matrix = json.loads((DATA / "pilot-scenarios-v2.json").read_text(encoding="utf-8"))
+
+    records, document = governance_pilot.rescore(path, matrix)
+
+    assert [record["policy_mismatch"] for record in records] == [False, True, False]
+    assert document["by_condition"]["B2"]["policy_mismatches"] == 1
+
+
+def test_a_live_run_needs_the_manifest_matrix_and_its_conditions(tmp_path: Path) -> None:
+    v1 = load_manifest(PILOT_MANIFEST)
+    v2_matrix = DATA / "pilot-scenarios-v2.json"
+
+    with pytest.raises(PilotError, match="not the one B2-PILOT-v2 registers"):
+        require_registered_run(V2_MANIFEST, "B2-PILOT-v2", DATA / "pilot-scenarios.json")
+    with pytest.raises(PilotError, match="run exactly those"):
+        require_registered_run(V2_MANIFEST, None, v2_matrix)
+    with pytest.raises(PilotError, match="not the one B2-PILOT-v1 registers"):
+        require_registered_run(v1, None, v2_matrix)
+    require_registered_run(V2_MANIFEST, "B2-PILOT-v2", v2_matrix)
+    # v1 names no policy: one condition on its matrix still runs, without manifest_id.
+    require_registered_run(v1, None, DATA / "pilot-scenarios.json")
+
+
+@pytest.mark.parametrize(
+    ("arguments", "smoke"),
+    [
+        ([], False),
+        (["--repetitions", "1"], True),
+        (["--scenario", "S08"], True),
+    ],
+)
+def test_the_dry_run_and_the_summary_mark_a_smoke(
+    arguments: list[str],
+    smoke: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        governance_pilot, "repository_provenance", lambda _: RepositoryProvenance("a" * 40, False)
+    )
+    base = ["--dry-run", "--manifest", str(PILOT_V2_MANIFEST)]
+    conditions = ["--condition", "B0prime", "--condition", "B2"]
+
+    run_main([*base, *conditions, *arguments], monkeypatch)
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["smoke"] is smoke
+    assert output["manifest_id"] == "B2-PILOT-v2"
+    assert "smoke" in governance_pilot.RUN_METADATA_KEYS
