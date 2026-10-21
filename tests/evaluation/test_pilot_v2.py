@@ -54,12 +54,15 @@ from commerce_evaluation.pilot_measures import (
     over_budget_checkouts,
 )
 from commerce_evaluation.pilot_policy import (
+    HP_V2_POLICY,
     PILOT_V1_POLICY,
+    D1Policy,
     PolicyDigests,
     integration_readiness,
     policy_configuration,
     policy_from_manifest,
     policy_mismatch,
+    registered_rules,
     revised_environment,
     scenario_environment,
 )
@@ -97,14 +100,20 @@ def b2_environment(scenario_id: str) -> dict[str, str]:
 
 
 def test_the_v2_manifest_gives_b2_policy_b2_hp_v2_and_v1_keeps_its_own() -> None:
-    rules = ("POL-01", "POL-02", "POL-11", "POL-03", "POL-04", "POL-05", "POL-06")
-    assert (V2_POLICY.policy_set_id, V2_POLICY.revision, V2_POLICY.key_id) == (
-        "b2-hp-v2",
-        "1",
-        "b2-hp-v2-run",
+    # One policy definition: the manifest's is the one demo-stack runs (P1).
+    assert V2_POLICY == HP_V2_POLICY == D1Policy("b2-hp-v2", "1", "b2-hp-v2-run")
+    assert registered_rules(V2_MANIFEST) == (
+        "POL-01",
+        "POL-02",
+        "POL-11",
+        "POL-03",
+        "POL-04",
+        "POL-05",
+        "POL-06",
     )
-    assert V2_POLICY.rules == rules
-    assert policy_from_manifest(load_manifest(PILOT_MANIFEST)) == PILOT_V1_POLICY
+    v1_manifest = load_manifest(PILOT_MANIFEST)
+    assert policy_from_manifest(v1_manifest) == PILOT_V1_POLICY
+    assert registered_rules(v1_manifest) == ("POL-01", "POL-02")
     environment = agent_environment(B2, MERCHANT, KEYS, V2_POLICY)
     declared = V2_MANIFEST["conditions"]["B2"]["agent_environment"]
     assert set(declared) <= set(environment)
@@ -238,7 +247,7 @@ def test_readiness_names_what_p1_p2_and_p3_must_provide(monkeypatch: pytest.Monk
     with pytest.raises(PilotError, match="policy_rules"):
         require_integrations(readiness)
 
-    monkeypatch.setattr(pilot_policy, "_built_rules", lambda _: set(V2_POLICY.rules))
+    monkeypatch.setattr(pilot_policy, "_built_rules", lambda _: set(registered_rules(V2_MANIFEST)))
     monkeypatch.setattr(pilot_policy, "_verifier_installed", lambda: True)
     ready = integration_readiness(V2_MANIFEST)
     assert all(check["ready"] for check in ready.values())

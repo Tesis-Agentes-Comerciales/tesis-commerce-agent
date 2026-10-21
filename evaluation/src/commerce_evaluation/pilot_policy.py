@@ -31,24 +31,34 @@ PROBE_ORIGIN = "http://127.0.0.1:4120"
 
 @dataclass(frozen=True)
 class D1Policy:
-    """The stable D1 identifiers of a pilot; only the keys change per invocation."""
+    """Stable D1 identifiers of a policy set; only the keys change per run."""
 
-    policy_set_id: str
+    set_id: str
     revision: str
     key_id: str
-    rules: tuple[str, ...] = ()
 
 
-# B2-PILOT-v1 ran with these and must stay reproducible; its manifest names no policy.
-PILOT_V1_POLICY = D1Policy("b2-pilot-v1", "1", "b2-pilot-v1-run", ("POL-01", "POL-02"))
+# B2-PILOT-v1 was published with this policy (evaluation/README.md): the runner stays pinned to
+# it so the pilot reproduces; its manifest names no policy. demo-stack and B2-PILOT-v2 use
+# b2-hp-v2 (docs/design/hp-p1-budget-d1.md).
+PILOT_V1_POLICY = D1Policy("b2-pilot-v1", "1", "b2-pilot-v1-run")
+PILOT_V1_RULES = ("POL-01", "POL-02")
+HP_V2_POLICY = D1Policy("b2-hp-v2", "1", "b2-hp-v2-run")
 
 
 def policy_from_manifest(manifest: Mapping[str, Any]) -> D1Policy:
     policy = manifest.get("policy")
     if policy is None:
         return PILOT_V1_POLICY
-    rules = tuple(rule for phase in policy["rules"].values() for rule in phase)
-    return D1Policy(policy["policy_set_id"], policy["revision"], policy["key_id"], rules)
+    return D1Policy(policy["policy_set_id"], policy["revision"], policy["key_id"])
+
+
+def registered_rules(manifest: Mapping[str, Any]) -> tuple[str, ...]:
+    """The rules the manifest pre-registers, D1 first; the v1 ones for a manifest without policy."""
+    policy = manifest.get("policy")
+    if policy is None:
+        return PILOT_V1_RULES
+    return tuple(rule for phase in policy["rules"].values() for rule in phase)
 
 
 def scenario_allowlist(scenario: Mapping[str, Any], merchant_origin: str) -> tuple[str, ...]:
@@ -160,7 +170,7 @@ def _built_rules(policy: D1Policy) -> set[str]:
     settings = Settings.model_construct(
         agent_governance_mode="enforce",
         agent_hp_flow="governed",
-        agent_d1_policy_set_id=policy.policy_set_id,
+        agent_d1_policy_set_id=policy.set_id,
         agent_d1_policy_revision=policy.revision,
         agent_d1_policy_path=None,
         agent_d1_policy_digest=None,
@@ -186,7 +196,7 @@ def integration_readiness(manifest: Mapping[str, Any]) -> dict[str, dict[str, An
     readiness: dict[str, dict[str, Any]] = {}
     policy = policy_from_manifest(manifest)
     if "policy" in manifest:
-        missing = sorted(set(policy.rules) - _built_rules(policy))
+        missing = sorted(set(registered_rules(manifest)) - _built_rules(policy))
         readiness["policy_rules"] = {"ready": not missing, "missing": missing}
     if "evidence_chain" in manifest:
         readiness["evidence_verifier"] = {

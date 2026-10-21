@@ -63,6 +63,7 @@ from commerce_evaluation.pilot_policy import (
     policy_from_manifest,
     policy_mismatch,
     policy_revision_change,
+    registered_rules,
     revised_environment,
     scenario_allowlist,
     scenario_environment,
@@ -179,9 +180,6 @@ CONDITIONS = {
     "B2": PilotCondition("B2", "enforce", "governed", merchant_variant="B2"),
     "B0": B0_PRIME,
 }
-# demo-stack uses b2-hp-v2 (docs/design/hp-p1-budget-d1.md); the pilots name theirs in the
-# manifest, and B2-PILOT-v1 stays pinned to PILOT_V1_POLICY (pilot_policy.py).
-HP_V2_POLICY = D1Policy("b2-hp-v2", "1", "b2-hp-v2-run")
 # Secrets the agent starts with; its log tail never shows them.
 AGENT_SECRETS = (
     "MERCHANT_BEARER_TOKEN",
@@ -548,7 +546,7 @@ def agent_environment(
         raise PilotError(f"Condition {condition.name} requires D1 run keys")
     return environment | {
         "AGENT_D1_ALLOWED_MERCHANT_ORIGINS": merchant_origin,
-        "AGENT_D1_POLICY_SET_ID": policy.policy_set_id,
+        "AGENT_D1_POLICY_SET_ID": policy.set_id,
         "AGENT_D1_POLICY_REVISION": policy.revision,
         "AGENT_D1_KEY_ID": policy.key_id,
         "AGENT_D1_HMAC_KEY_HEX": keys.hmac_hex,
@@ -1877,12 +1875,12 @@ def rescore(path: Path, matrix: dict[str, Any]) -> tuple[list[dict[str, Any]], d
     return records, document
 
 
-def _described_policy(policy: D1Policy) -> dict[str, Any]:
+def _described_policy(policy: D1Policy, rules: Sequence[str]) -> dict[str, Any]:
     return {
-        "policy_set_id": policy.policy_set_id,
+        "policy_set_id": policy.set_id,
         "revision": policy.revision,
         "key_id": policy.key_id,
-        "rules": list(policy.rules),
+        "rules": list(rules),
     }
 
 
@@ -1989,7 +1987,9 @@ def _run_pilot() -> int:
                     "runs": len(plan),
                     "scenarios": [scenario["id"] for scenario in scenarios],
                     "repetitions": repetitions,
-                    "policy": _described_policy(policy) if governed else None,
+                    "policy": (
+                        _described_policy(policy, registered_rules(manifest)) if governed else None
+                    ),
                     "scenario_setup": [
                         _described_setup(scenario, merchant_origin, governed)
                         for scenario in scenarios

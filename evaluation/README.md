@@ -99,7 +99,7 @@ El runner le pasa al agente la condición como variables de proceso, que ganan s
 - Los identificadores de D1 son estables: política `b2-pilot-v1`, revisión `1` y clave
   `b2-pilot-v1-run`. El runner del piloto v1 queda fijado a esa política (`PILOT_V1_POLICY` en
   `pilot_policy.py`), con POL-01 y POL-02, para que sus resultados publicados se puedan
-  reproducir. `demo-stack` usa la misma condición B2 con `b2-hp-v2` (`HP_V2_POLICY`), que agrega
+  reproducir. `demo-stack` usa la misma condición B2 con `b2-hp-v2` (`HP_V2_POLICY`, en el mismo módulo), que agrega
   POL-11 («Precio dentro de tu presupuesto») a D1. En el piloto v2 los identificadores salen de
   `policy` del manifiesto (abajo). Las claves HMAC y AES se generan en memoria en cada invocación y solo las
   recibe el agente. No se escriben en los resultados y se ocultan en la cola del log del agente.

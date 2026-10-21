@@ -39,7 +39,6 @@ from jwcrypto.jwk import JWK
 from commerce_agent.llm.prices import format_minor_amount
 from commerce_evaluation.governance_pilot import (
     CONDITIONS,
-    HP_V2_POLICY,
     ConditionMismatchError,
     D1RunKeys,
     PilotCondition,
@@ -48,6 +47,7 @@ from commerce_evaluation.governance_pilot import (
     verify_agent_condition,
 )
 from commerce_evaluation.paths import LOCAL, ROOT
+from commerce_evaluation.pilot_policy import HP_V2_POLICY
 
 DEMO_RUNS = LOCAL / "demo"
 AUTH = ROOT / "auth"
