@@ -11,6 +11,10 @@ from ..governance.canonical import canonical_bytes, sha256_digest
 
 EXECUTOR_REF = "service:hnp-executor"
 OPERATOR_REF = "operator"
+# Profile constants (spec §6), not settings: each executor step renews a lease this long, and
+# UoW-1 reserves only with this much validity left, so the open mandates outlive the close.
+LEASE_SECONDS = 120
+RESERVE_MARGIN_SECONDS = 300
 
 GrantState = Literal["active", "consumed", "revoked", "expired"]
 RevokedReason = Literal["owner", "operator", "escalated", "failed"]
@@ -63,6 +67,29 @@ OutcomeCode = Literal[
     "receipt_mismatch",
 ]
 ConsentStatus = Literal["created", "existing", "not_found", "scope_mismatch", "proposal_expired"]
+ReservationState = Literal["reserved", "committed", "consumed", "released", "uncertain"]
+ReleaseBasis = Literal["no_outbox", "psp_error_receipt"]
+UncertainReason = Literal["dispatch_timeout", "partial_verifier_failure", "receipt_mismatch"]
+OutboxState = Literal[
+    "committed",
+    "payment_sent",
+    "payment_accepted",
+    "complete_sent",
+    "completed",
+    "rejected",
+    "uncertain",
+]
+Ap2Error = Literal[
+    "invalid_credential", "invalid_mandate", "unresolved_constraint", "mandates_not_supported"
+]
+KillSwitchStage = Literal["claim", "uow1", "uow2"]
+RevokeEffect = Literal["no_effect", "released", "in_flight"]
+# applied: this call wrote its step. reused: the step was already durable (a retry).
+# closed: the call ended the task. lease_lost: another lease owns the task; nothing written.
+# blocked: a comparison failed; nothing written, `outcome` classifies it (spec §4.5).
+StepStatus = Literal[
+    "applied", "reused", "closed", "lease_lost", "blocked", "not_runnable", "not_found"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +200,139 @@ class KillSwitchState:
     enabled: bool
     control_epoch: int
     changed_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReservationRecord:
+    reservation_id: str
+    grant_id: str
+    owner_id: str
+    run_id: str
+    checkout_id: str
+    operation_id: str
+    amount_minor: int
+    currency: str
+    expected_epoch: int
+    state: ReservationState
+    state_version: int
+    release_basis: ReleaseBasis | None
+    uncertain_reason: UncertainReason | None
+    d2_evidence_id: str | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxRecord:
+    outbox_id: str
+    reservation_id: str
+    operation_id: str
+    grant_id: str
+    run_id: str
+    checkout_id: str
+    amount_minor: int
+    currency: str
+    checkout_expires_at: str
+    payment_request_digest: str
+    authority_epoch: int
+    control_epoch: int
+    d3_evidence_id: str | None
+    state: OutboxState
+    rejected_by: Literal["psp", "merchant"] | None
+    ap2_error: Ap2Error | None
+    order_id: str | None
+    error_receipt_jwt: str | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class Authority:
+    """What an executor step read and expects unchanged when it commits (spec §4.5)."""
+
+    authority_epoch: int
+    state_version: int
+    control_epoch: int
+
+
+@dataclass(frozen=True, slots=True)
+class Execution:
+    """The durable state of one task: what the executor resumes from after any crash."""
+
+    task: TaskRecord
+    grant: GrantRecord
+    control: KillSwitchState
+    reservation: ReservationRecord | None
+    outbox: OutboxRecord | None
+
+    @property
+    def authority(self) -> Authority:
+        return Authority(
+            self.grant.authority_epoch, self.grant.state_version, self.control.control_epoch
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Step:
+    status: StepStatus
+    execution: Execution | None = None
+    outcome: OutcomeCode | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReservationRequest:
+    task_id: str
+    lease_id: str
+    expected: Authority
+    reservation_id: str
+    operation_id: str
+    checkout_id: str
+    amount_minor: int
+    d2_evidence_id: str | None  # None in B0-HNP
+
+
+@dataclass(frozen=True, slots=True)
+class ClosedMandates:
+    task_id: str
+    lease_id: str
+    reservation_id: str
+    checkout_hash: str
+    closed_checkout: SignedMandate
+    closed_payment: SignedMandate
+
+
+@dataclass(frozen=True, slots=True)
+class DispatchCommit:
+    task_id: str
+    lease_id: str
+    expected: Authority
+    reservation_id: str
+    reservation_version: int
+    outbox_id: str
+    checkout_expires_at: str
+    payment_request_digest: str
+    d3_evidence_id: str | None  # None in B0-HNP
+
+
+@dataclass(frozen=True, slots=True)
+class TaskFinish:
+    """A terminal without an outbox row: escalation, cancellation or failure (spec §8.1)."""
+
+    task_id: str
+    lease_id: str
+    state: Literal["escalated", "failed", "canceled"]
+    outcome_code: OutcomeCode
+    stage: KillSwitchStage | None = None  # where the kill switch was met
+
+
+@dataclass(frozen=True, slots=True)
+class Revocation:
+    """revoked: this or an earlier owner revocation, with its original effect; already_closed:
+    revoked by another cause, nothing written; not_revocable: consumed or expired."""
+
+    status: Literal["revoked", "already_closed", "not_revocable"]
+    grant: GrantRecord
+    effect: RevokeEffect | None
 
 
 @dataclass(frozen=True, slots=True)
