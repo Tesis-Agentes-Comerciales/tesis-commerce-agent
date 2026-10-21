@@ -1,0 +1,170 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" version="31.4.5" type="device">
+  <diagram id="mapa-de-políticas" name="Mapa de políticas">
+    <mxGraphModel dx="1920" dy="1080" grid="0" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="54" value="" style="rounded=0;fillColor=#FFFFFF;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="1" y="1" width="1918" height="1078" as="geometry" />
+        </mxCell>
+        <mxCell id="2" value="Mapa de políticas B2: quién decide qué, y cuándo" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=31;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="50" y="26" width="1820" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="Arriba, el PDP (motor de políticas); abajo, los controles de aplicación. Estado en org/main al 20-oct-2026." style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=0;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="50" y="76" width="1820" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="Estado" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=19;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="956" y="30" width="90" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:18px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Hecho&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;en org/main y en el flujo&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=middle;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1056" y="30" width="260" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:18px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Planificado&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;piezas en org/main, sin conectar&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=1;dashPattern=10 6;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=middle;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1338" y="30" width="260" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:18px;color:#686868;line-height:1.15&quot;&gt;&lt;b&gt;Futuro&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;sin implementar&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8C8C8C;strokeWidth=2.2;dashed=1;dashPattern=2 5;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=middle;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1620" y="30" width="260" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="&lt;b&gt;Políticas del PDP&lt;/b&gt; · el motor decide allow o deny sobre hechos canónicos; con deny no hay efecto comercial" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=20;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="50" y="116" width="1800" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="Política" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="56" y="150" width="232" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="Observado frente a esperado" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="300" y="150" width="462" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="Quién y cuándo" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="774" y="150" width="264" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="12" value="Configuración" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="150" width="316" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="Evidencia y prueba" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1378" y="150" width="318" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="14" value="Estado" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1708" y="150" width="156" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="15" value="" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="180" width="1840" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="16" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;POL-01&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&lt;b&gt;Selección elegible&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;color:#686868;margin-top:3px&quot;&gt;En la traza: «Producto dentro de lo que pediste»&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="56" y="186" width="232" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="17" value="&lt;b&gt;Observado:&lt;/b&gt; el producto elegido&lt;br&gt;&lt;b&gt;Esperado:&lt;/b&gt; que esté entre los que cumplen el pedido (ranking del feed con la intención)&lt;div style=&quot;color:#686868;margin-top:5px&quot;&gt;Hoy una elección fuera de la lista corta no llega a D1: la frena la recuperación gobernada.&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="300" y="186" width="462" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="18" value="&lt;b&gt;D1 · PDP&lt;/b&gt;&lt;br&gt;antes de crear el checkout" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="774" y="186" width="264" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="19" value="Algoritmo de ranking medido por hash (domain/selection.py); intención y feed del episodio" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="186" width="316" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="20" value="decision_record en governance_evidence, en la misma transacción que la reserva" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1378" y="186" width="318" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="21" value="[B2 · hecho]" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1708" y="186" width="156" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="22" value="" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="304" width="1840" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="23" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;POL-02&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&lt;b&gt;Acción y comercio admitidos&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;color:#686868;margin-top:3px&quot;&gt;En la traza: «Comercio permitido»&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="56" y="310" width="232" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="24" value="&lt;b&gt;Observado:&lt;/b&gt; la acción prepare_checkout y el comercio&lt;br&gt;&lt;b&gt;Esperado:&lt;/b&gt; que estén en la lista de permitidos&lt;div style=&quot;color:#686868;margin-top:5px&quot;&gt;Deny: d1_denied y ningún POST al comercio.&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="300" y="310" width="462" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="25" value="&lt;b&gt;D1 · PDP&lt;/b&gt;&lt;br&gt;en la misma evaluación que POL-01" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="774" y="310" width="264" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="26" value="Settings: AGENT_D1_ALLOWED_&lt;wbr&gt;MERCHANT_ORIGINS. Sin ella, el comercio configurado; o un archivo de política con su digest" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="310" width="316" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="27" value="decision_record. Prueba live (#48) y &lt;span style=&quot;white-space:nowrap&quot;&gt;demo-stack --mode pol02-deny&lt;/span&gt;; el piloto no lo ejercitó" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1378" y="310" width="318" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="28" value="[B2 · hecho]" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1708" y="310" width="156" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="29" value="" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=1;dashPattern=10 6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="428" width="1840" height="192" as="geometry" />
+        </mxCell>
+        <mxCell id="30" value="&lt;b&gt;D2-HP · PDP&lt;/b&gt;&lt;br&gt;al aprobar, antes de firmar" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="774" y="434" width="264" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="31" value="Definidas en policy-v1, sin artefacto ni evaluador: el de main solo implementa &lt;span style=&quot;white-space:nowrap&quot;&gt;POL-01&lt;/span&gt; y &lt;span style=&quot;white-space:nowrap&quot;&gt;POL-02&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="434" width="316" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="32" value="Ninguna todavía. Piezas de consentimiento e identidad sin montar: human_consent y d2_consent_api" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1378" y="434" width="318" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="33" value="[B2 · planificado]" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1708" y="434" width="156" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="34" value="&lt;b&gt;POL-03&lt;/b&gt;&lt;br&gt;Principal habilitado" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="56" y="436" width="232" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="35" value="Quien aprueba es el dueño de la compra&lt;div style=&quot;color:#686868;margin-top:1px&quot;&gt;Hoy, en parte: JWT y ownership de la API (B0)&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="300" y="436" width="462" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="36" value="&lt;b&gt;POL-04&lt;/b&gt;&lt;br&gt;Continuidad del episodio" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="56" y="480" width="232" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="37" value="La aprobación es del mismo D1, intento y términos&lt;div style=&quot;color:#686868;margin-top:1px&quot;&gt;Hoy, en parte: continuación gobernada&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="300" y="480" width="462" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="38" value="&lt;b&gt;POL-05&lt;/b&gt;&lt;br&gt;Términos compatibles" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="56" y="524" width="232" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="39" value="Total, moneda y cantidad dentro del pedido&lt;div style=&quot;color:#686868;margin-top:1px&quot;&gt;Hoy, en parte: presupuesto autoritativo (B0)&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="300" y="524" width="462" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="40" value="&lt;b&gt;POL-06&lt;/b&gt;&lt;br&gt;Versión de política" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="56" y="568" width="232" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="41" value="Política y contexto iguales a los de D1&lt;div style=&quot;color:#686868;margin-top:1px&quot;&gt;Hoy, en parte: D1 comprueba su binding al evaluar&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="300" y="568" width="462" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="42" value="" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8C8C8C;strokeWidth=2.2;dashed=1;dashPattern=2 5;" vertex="1" parent="1">
+          <mxGeometry x="40" y="628" width="1840" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="43" value="&lt;b&gt;&lt;span style=&quot;white-space:nowrap&quot;&gt;POL-07 a POL-10&lt;/span&gt;&lt;/b&gt;&lt;br&gt;Delegación HNP" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="56" y="634" width="232" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="44" value="Grant vigente, alcance delegado, uso único y autoridad al despachar" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="300" y="634" width="462" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="45" value="&lt;b&gt;D2-HNP y D3-HNP · PDP&lt;/b&gt;&lt;br&gt;sin humano presente" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="774" y="634" width="264" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="46" value="Definidas en policy-v1; el grant de delegación, por definir" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="634" width="316" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="47" value="Ninguna" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1378" y="634" width="318" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="48" value="[B2 · futuro]" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=16;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1708" y="634" width="156" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="49" value="&lt;b&gt;Controles de aplicación&lt;/b&gt; · no son el PDP: actúan en el agente, fuera de D1. D1 permitió cada compra que evaluó (5/5 en S04 y 3/3 en S02)" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=20;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="50" y="710" width="1800" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="50" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:20px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Frescura de la oferta&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:16px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;&lt;b&gt;Cuándo:&lt;/b&gt; al presentar y releer los términos (present) y antes de firmar (approve)&lt;br&gt;&lt;b&gt;Compara:&lt;/b&gt; la oferta actual con el checkout presentado: moneda, subtotal, envío, total, vigencia, entrega y stock&lt;br&gt;&lt;b&gt;Si cambió:&lt;/b&gt; 409 checkout_terms_changed, sin firma; si no puede leerla, 503&lt;br&gt;&lt;b&gt;Evidencia:&lt;/b&gt; freshness_check en hp_evidence&lt;div style=&quot;color:#686868;margin-top:6px&quot;&gt;Piloto S04: aprobaciones obsoletas 5/5 → 0/5 (B0' → B2)&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=0;fontFamily=Arial;fontColor=#333333;align=left;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="748" width="445" height="252" as="geometry" />
+        </mxCell>
+        <mxCell id="51" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:20px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Recuperación gobernada&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:16px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;&lt;b&gt;Cuándo:&lt;/b&gt; sin candidato, elección fuera de la lista corta o total sobre el presupuesto con el checkout ya creado&lt;br&gt;&lt;b&gt;Efecto:&lt;/b&gt; explica la causa en el chat: 200, sin 5xx&lt;br&gt;&lt;b&gt;Evidencia:&lt;/b&gt; governed_recovery en hp_evidence&lt;div style=&quot;color:#686868;margin-top:6px&quot;&gt;Piloto S02: 5xx 4/5 → 0/5 (B0' → B2)&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=0;fontFamily=Arial;fontColor=#333333;align=left;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="505" y="748" width="445" height="252" as="geometry" />
+        </mxCell>
+        <mxCell id="52" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:20px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Presupuesto autoritativo&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[Componente B0]&lt;/div&gt;&lt;div style=&quot;font-size:16px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;&lt;b&gt;Cuándo:&lt;/b&gt; con el total final del comercio, después de crear el checkout&lt;br&gt;&lt;b&gt;Compara:&lt;/b&gt; el total con envío con el máximo del pedido; la lista corta solo mira el precio por unidad&lt;br&gt;&lt;b&gt;Si lo supera:&lt;/b&gt; cancela el checkout (price_sensitivity)&lt;br&gt;&lt;b&gt;Evidencia:&lt;/b&gt; en B2, el efecto cancel_budget del diario post-create&lt;div style=&quot;color:#686868;margin-top:6px&quot;&gt;Piloto S02: 3/5 checkouts creados y cancelados en B2&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=0;fontFamily=Arial;fontColor=#333333;align=left;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="970" y="748" width="445" height="252" as="geometry" />
+        </mxCell>
+        <mxCell id="53" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:20px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Continuación gobernada&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:16px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;&lt;b&gt;Cuándo:&lt;/b&gt; al leer términos, aprobar, cancelar y completar&lt;br&gt;&lt;b&gt;Exige:&lt;/b&gt; allow de D1 comprometido, checkout confirmed con el mismo id y post-create en awaiting_confirmation&lt;br&gt;&lt;b&gt;Evidencia:&lt;/b&gt; sin registro propio: lee los hechos de D1 y del diario post-create&lt;div style=&quot;color:#686868;margin-top:6px&quot;&gt;Piloto: se observa porque las compras llegan a la aprobación&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=0;fontFamily=Arial;fontColor=#333333;align=left;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1435" y="748" width="445" height="252" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

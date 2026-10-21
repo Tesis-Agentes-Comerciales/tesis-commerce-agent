@@ -74,7 +74,7 @@ P1–P5 original (OPA, Trusted State) quedó como histórico en
 - [Panorama 2026 y pregunta de investigación](landscape-research-question.md)
 - [Síntesis de investigación](research-synthesis.md)
 - [Arquitectura y flujo](architecture.md)
-- [Diagramas B0, B2-HP, delta, secuencia gobernada, HNP y piloto](../diagrams/README.md)
+- [Diagramas B0, B2-HP, delta, secuencia gobernada, mapa de políticas, HNP y piloto](../diagrams/README.md)
 - [Convención visual](visual-style.md)
 - [Contrato de política](policy-contract.md)
 - [Modelo de amenazas](threat-model.md)

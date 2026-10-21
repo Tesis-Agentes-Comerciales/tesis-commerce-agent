@@ -68,6 +68,22 @@ el rojo de fallo. Las líneas de vida quedan detrás de las tarjetas y de las et
 ## Resultados
 
 La figura de resultados del piloto (`pilot-results`) se genera desde el `.summary.json` congelado
-y nunca lo modifica. Cada repetición es un cuadro: lleno si cumple el oráculo, vacío con borde gris
+y su `.jsonl`, y nunca los modifica. Cada repetición es un cuadro, en su orden: lleno si cumple el
+oráculo, vacío con borde gris
 `#BBBBBB` si no. B0' usa el gris `#A3A3A3` y B2 el azul del agente; los conteos van siempre como
 texto (`n/5`) junto a los cuadros, así que el color no es la única pista.
+
+## Diapositivas y mapa de políticas
+
+Los diagramas de una sola diapositiva (`b0-vs-b2-delta`, `purchase-sequence-slide`, `policy-map` y
+`pilot-results`) se exportan a 1920 × 1080 exactos: el generador agrega un fondo blanco del tamaño
+de la página, comprueba que nada quede fuera y exporta sin borde. La secuencia en una diapositiva
+muestra los pasos como tarjetas con el color de quien actúa y las ramas que detienen la compra en
+rojo. Cada cifra del piloto va con el mecanismo que la produjo: si una rama tiene dos caminos (S02),
+cada número queda junto a su camino.
+
+En `policy-map` las políticas del PDP y los controles de aplicación van en bloques separados. Un
+control de aplicación (frescura, recuperación, presupuesto autoritativo, continuación) nunca se
+dibuja como política, para no atribuir al PDP lo que resolvió otro mecanismo (S04 y S02). Una
+política definida en `policy-v1.md` sin evaluador en `main` se marca planificada o futura y lo dice
+en el texto.
