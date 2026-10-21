@@ -203,7 +203,7 @@ No se permite cambiar pedidos, catálogo, modelo, repeticiones, oráculos ni cri
 
 | De | Rama | Qué aporta | Comprobación del runner antes de correr |
 | --- | --- | --- | --- |
-| P1 | `feat/d1-budget-rule` | POL-11 y el artefacto `b2-hp-v2` | El artefacto D1 que arma el agente para `b2-hp-v2` lista POL-11 |
+| P1 | `feat/d1-budget-rule` | POL-11 y el artefacto `b2-hp-v2` (en `main` desde #73) | El artefacto D1 que arma el agente para `b2-hp-v2` lista POL-11 |
 | P2 | `feat/evidence-chain` | `uv run verify-evidence` y el eslabón del webhook | El entry point `verify-evidence` está instalado |
 | P3 | `feat/d2-hp-authorization` | D2 con POL-03..06, evidencia `D2` | El artefacto de `b2-hp-v2` nombra POL-03..06 |
 | P5b | `fix/selection-shortlist-enum` | Elección restringida a la lista corta (en `main` desde #65) | Ninguna: es común a las dos condiciones y queda en el commit |

@@ -104,7 +104,7 @@
   "integration_dependencies": {
     "P1": {
       "branch": "feat/d1-budget-rule",
-      "provides": "POL-11 in D1 and the b2-hp-v2 artifact",
+      "provides": "POL-11 in D1 and the b2-hp-v2 artifact (merged in #73)",
       "readiness_check": "the D1 artifact the agent builds for b2-hp-v2 lists POL-11"
     },
     "P2": {
