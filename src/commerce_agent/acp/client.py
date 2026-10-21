@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import httpx
 import jwt
-from ap2.sdk.sdjwt import common
+from ap2.sdk.generated.checkout_receipt import CheckoutReceiptError
 from pydantic import SecretStr, ValidationError
 
 from commerce_agent.acp.creation import build_checkout_create
@@ -22,6 +22,7 @@ from commerce_agent.acp.models import (
 from commerce_agent.acp.offer_snapshot import DeliveryContext, MerchantOffer, OfferResponse
 from commerce_agent.acp.schema import ACPContractError, validate_acp
 from commerce_agent.config import validate_service_base_url
+from commerce_agent.delegated_payment import AP2_ERRORS, chain_reference
 
 
 class ACPClientError(RuntimeError):
@@ -33,12 +34,15 @@ class ACPClientError(RuntimeError):
         code: str = "acp_client_error",
         retry_after: str | None = None,
         request_id: str | None = None,
+        receipt: str | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.retry_after = retry_after
         self.request_id = request_id
+        # The AP2 error receipt of a Human Not Present rejection, still unverified.
+        self.receipt = receipt
 
 
 class ACPClient:
@@ -242,6 +246,8 @@ class ACPClient:
         *,
         idempotency_key: str,
     ) -> tuple[CheckoutSessionWithOrder, str]:
+        """`checkout_mandate` is the closed checkout mandate (Human Present) or the
+        `open~~closed` checkout chain (Human Not Present), which the merchant tells by `~~`."""
         checked_id = self._identifier(checkout_id)
         request = CheckoutCompleteRequest(payment_data=payment_data).acp_payload()
         validate_acp("CheckoutSessionCompleteRequest", request)
@@ -268,29 +274,8 @@ class ACPClient:
 
     def verify_checkout_receipt(self, receipt: str, mandate: str, order_id: str) -> None:
         try:
-            header = jwt.get_unverified_header(receipt)
-            if header.get("alg") != "ES256" or not isinstance(header.get("kid"), str):
-                raise ValueError("Invalid AP2 receipt signing key")
-            jwks = self._request("GET", "/.well-known/ap2/jwks.json", authenticated=False)
-            keys = jwks.get("keys")
-            if not isinstance(keys, list):
-                raise ValueError("Invalid merchant JWKS")
-            matches = [
-                key for key in keys if isinstance(key, dict) and key.get("kid") == header["kid"]
-            ]
-            if len(matches) != 1:
-                raise ValueError("Unknown merchant receipt key")
-            claims = jwt.decode(
-                receipt,
-                jwt.PyJWK.from_dict(matches[0]).key,
-                algorithms=["ES256"],
-                issuer=self._base_url,
-                options={
-                    "verify_aud": False,
-                    "require": ["iss", "iat", "status", "reference", "order_id"],
-                },
-            )
-            expected = common.compute_sd_hash(common.parse_token(mandate))
+            claims = self._receipt_claims(receipt, required=("order_id",))
+            expected = chain_reference(mandate)
             if (
                 claims["status"] != "Success"
                 or claims["reference"] != expected
@@ -299,6 +284,44 @@ class ACPClient:
                 raise ValueError("AP2 checkout receipt does not match the purchase")
         except (jwt.PyJWTError, KeyError, TypeError, ValueError) as error:
             raise ACPClientError("Merchant AP2 checkout receipt is invalid") from error
+
+    def verify_checkout_error_receipt(self, receipt: str, *, mandate: str) -> dict[str, Any]:
+        """The claims of a Human Not Present error receipt, only if it validates as
+        `CheckoutReceiptError`, its signature verifies with the merchant's JWKS and its
+        `reference` is the closed checkout mandate of `mandate` (docs/ap2-profile.md, Recibos)."""
+        try:
+            claims = self._receipt_claims(receipt, required=("error",))
+            CheckoutReceiptError.model_validate(claims)
+            if claims["error"] not in AP2_ERRORS or claims["reference"] != chain_reference(mandate):
+                raise ValueError("AP2 checkout error receipt does not match the chain")
+            return claims
+        except ACPClientError:
+            raise
+        except (jwt.PyJWTError, KeyError, TypeError, ValueError, ValidationError) as error:
+            raise ACPClientError("Merchant AP2 checkout error receipt is invalid") from error
+
+    def _receipt_claims(self, receipt: str, *, required: tuple[str, ...]) -> dict[str, Any]:
+        """A merchant receipt's claims, its signature verified with the key its `kid` names."""
+        header = jwt.get_unverified_header(receipt)
+        if header.get("alg") != "ES256" or not isinstance(header.get("kid"), str):
+            raise ValueError("Invalid AP2 receipt signing key")
+        jwks = self._request("GET", "/.well-known/ap2/jwks.json", authenticated=False)
+        keys = jwks.get("keys")
+        if not isinstance(keys, list):
+            raise ValueError("Invalid merchant JWKS")
+        matches = [key for key in keys if isinstance(key, dict) and key.get("kid") == header["kid"]]
+        if len(matches) != 1:
+            raise ValueError("Unknown merchant receipt key")
+        return jwt.decode(
+            receipt,
+            jwt.PyJWK.from_dict(matches[0]).key,
+            algorithms=["ES256"],
+            issuer=self._base_url,
+            options={
+                "verify_aud": False,
+                "require": ["iss", "iat", "status", "reference", *required],
+            },
+        )
 
     def _checkout_mutation(
         self,
@@ -381,6 +404,7 @@ class ACPClient:
     def _response_error(response: httpx.Response) -> ACPClientError:
         code = "http_error"
         message = f"Merchant request failed with HTTP {response.status_code}"
+        receipt = None
         try:
             payload = response.json()
         except ValueError:
@@ -391,12 +415,17 @@ class ACPClient:
                 raw_code = detail.get("code")
                 if isinstance(raw_code, str) and ACPClient._ERROR_CODE.fullmatch(raw_code):
                     code = raw_code
+            # Human Not Present: `{"code": <AP2 code>, "checkout_receipt_jwt": <receipt>}`.
+            raw_receipt = payload.get("checkout_receipt_jwt")
+            if isinstance(raw_receipt, str) and len(raw_receipt) <= 16_384:
+                receipt = raw_receipt
         return ACPClientError(
             message,
             status_code=response.status_code,
             code=code,
             retry_after=response.headers.get("Retry-After"),
             request_id=ACPClient._merchant_request_id(response),
+            receipt=receipt,
         )
 
     @staticmethod

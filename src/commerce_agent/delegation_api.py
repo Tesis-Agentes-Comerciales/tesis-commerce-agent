@@ -5,13 +5,17 @@ grant is not found. `/internal/hnp/*` take the service or the operator token, co
 constant time, and refuse any request with an `Origin` header, so a browser cannot reach them.
 Bodies are read as strict JSON here, so a bad body gets this API's `{code, message}`; the HP
 routes keep FastAPI's own validation errors.
+
+`POST /internal/hnp/tasks/{id}/run` claims the task in the request and resumes it in the
+background: the answer is the task as the claim left it.
 """
 
 import hmac
+import logging
 from collections.abc import Callable
-from typing import Annotated
+from typing import Annotated, Protocol
 
-from fastapi import APIRouter, Depends, FastAPI, Header, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, Header, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, SecretStr
 
@@ -25,7 +29,7 @@ from commerce_agent.delegation.contract import (
     RevokeReceipt,
     TaskView,
 )
-from commerce_agent.delegation.models import KillSwitchState
+from commerce_agent.delegation.models import Execution, KillSwitchState, Step
 from commerce_agent.delegation.service import (
     DelegationConsentRequest,
     DelegationError,
@@ -63,8 +67,28 @@ _ERRORS: dict[str, tuple[int, str]] = {
     "hnp_unauthorized": (401, "Esta ruta exige la credencial del servicio o del operador."),
     "hnp_origin_forbidden": (403, "Esta ruta no acepta peticiones desde un navegador."),
     "hnp_task_not_found": (404, "No encontré esa tarea delegada."),
+    "hnp_task_not_runnable": (409, "Esa tarea delegada ya terminó o se está ejecutando."),
     "hnp_request_invalid": (422, "La solicitud no es válida."),
 }
+
+
+_log = logging.getLogger(__name__)
+
+
+class TaskRunner(Protocol):
+    """`HnpExecutionService`: the claim, then the rest of the run from what it claimed."""
+
+    def claim(self, task_id: str) -> Step: ...
+
+    def resume(self, ex: Execution) -> Step: ...
+
+
+def _resume(executor: TaskRunner, ex: Execution) -> None:
+    """The run after the answer. Whatever escapes it leaves the task running for a later run."""
+    try:
+        executor.resume(ex)
+    except Exception as error:
+        _log.error("HNP task %s stopped: %s", ex.task.task_id, type(error).__name__)
 
 
 class KillSwitchRequest(BaseModel):
@@ -114,6 +138,7 @@ def register_delegation_api(
     app: FastAPI,
     service: DelegationService,
     *,
+    executor: TaskRunner,
     current_buyer: Callable[..., BuyerPrincipal],
     service_token: SecretStr,
     operator_token: SecretStr,
@@ -159,6 +184,23 @@ def register_delegation_api(
 
     @router.get("/internal/hnp/tasks/{task_id}", dependencies=[Depends(_internal(service_token))])
     def task(task_id: str) -> TaskView:
+        return service.task(task_id)
+
+    @router.post(
+        "/internal/hnp/tasks/{task_id}/run",
+        status_code=202,
+        dependencies=[Depends(_internal(service_token))],
+    )
+    def run(task_id: str, response: Response, background: BackgroundTasks) -> TaskView:
+        claimed = executor.claim(task_id)
+        if claimed.status == "not_found":
+            raise DelegationError("hnp_task_not_found")
+        if claimed.status == "not_runnable":  # terminal, or a lease still held
+            raise DelegationError("hnp_task_not_runnable")
+        if claimed.status == "applied" and claimed.execution is not None:
+            background.add_task(_resume, executor, claimed.execution)
+        else:
+            response.status_code = 200  # the claim itself ended the task
         return service.task(task_id)
 
     @router.post("/internal/hnp/kill-switch", dependencies=[Depends(_internal(operator_token))])

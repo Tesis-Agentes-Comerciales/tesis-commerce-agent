@@ -548,6 +548,14 @@ class SqliteDelegationLedger:
             _event(connection, ex, "task_claimed", "service", claimed, text, run_id=run_id)
             return Step("applied", _execution(connection, task_id))
 
+    def renew_lease(self, task_id: str, lease_id: str) -> Step:
+        """`reused` with the lease renewed while this run still holds it, even one that lapsed
+        while nobody re-claimed the task; `lease_lost` once another claim took it."""
+        with self._fenced(task_id, lease_id) as (connection, now, ex):
+            if ex is None:
+                return Step("lease_lost")
+            return _renewed(connection, ex, now)
+
     def reserve(
         self, request: ReservationRequest, *, hooks: Sequence[TransactionHook] = ()
     ) -> Step:
@@ -801,8 +809,9 @@ class SqliteDelegationLedger:
     ) -> Step:
         """UoW-3: the order with both receipts consumes the reservation and the grant. A grant
         revoked or expired after the commitment stays so; the reservation is consumed anyway."""
-        if (payment_receipt.kind, checkout_receipt.kind) != ("payment", "checkout") or (
-            payment_receipt.error is not None or checkout_receipt.error is not None
+        if (payment_receipt.kind, checkout_receipt.kind) != ("payment", "checkout") or any(
+            receipt.status != "success" or receipt.error is not None
+            for receipt in (payment_receipt, checkout_receipt)
         ):
             raise ValueError("UoW-3 takes the payment and checkout receipts, without error")
         with self._fenced(task_id, lease_id) as (connection, now, ex):

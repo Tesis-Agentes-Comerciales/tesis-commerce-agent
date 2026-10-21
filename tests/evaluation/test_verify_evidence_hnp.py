@@ -59,13 +59,13 @@ def _applied(directory: Path, then: Callable[[Any], None] | None = None) -> Path
     return chain.path
 
 
-def _completed(chain: Any) -> None:
-    chain.dispatch_with_order()
+def _completed(chain: Any, status: str = "Success") -> None:
+    chain.dispatch_with_order(status)
     chain.deliver_order_create()
 
 
-def _with_results(chain: Any) -> None:
-    _completed(chain)
+def _with_results(chain: Any, status: str = "Success") -> None:
+    _completed(chain, status)
     chain.record_results()
 
 
@@ -88,7 +88,14 @@ SCENARIOS: dict[str, Callable[[Path], Path]] = {
     "b2_hnp": _applied,
     "completed": lambda directory: _applied(directory, _completed),
     "completed_with_results": lambda directory: _applied(directory, _with_results),
+    # The receipts reach the ledger with the spec's `success`, the form it keeps from HNP-09b on.
+    "completed_lowercase": lambda directory: _applied(
+        directory, lambda chain: _with_results(chain, "success")
+    ),
     "psp_rejected": lambda directory: _applied(directory, lambda chain: chain.reject_by_psp()),
+    "merchant_rejected": lambda directory: _applied(
+        directory, lambda chain: chain.reject_by_merchant()
+    ),
     "d2_deny": lambda directory: _ended(directory, street="Carrera 7 # 1-1"),
     "d1_escalated": lambda directory: _ended(directory, total_max_minor=71_999),
     "d1_deny": lambda directory: _ended(
@@ -170,6 +177,26 @@ def rechain(
             previous = changed.digest
 
 
+def append_event(database: Path, event_type: str, body: dict[str, Any]) -> None:
+    """One more event at the end of the chain, linked to the last one as the ledger appends: the
+    chain still verifies."""
+    with closing(sqlite3.connect(database)) as connection, connection:
+        last = read_events(connection, GRANT)[-1]
+        event = replace(
+            last,
+            sequence=last.sequence + 1,
+            event_type=event_type,
+            body=body,
+            previous_digest=last.digest,
+        )
+        row = {**event.link(), "body": canonical_bytes(body).decode()}
+        row["digest"] = event_digest(event.link())
+        columns, marks = ", ".join(row), ", ".join("?" * len(row))
+        connection.execute(
+            f"INSERT INTO delegation_events ({columns}) VALUES ({marks})", tuple(row.values())
+        )
+
+
 # The chain of each kind of run
 
 
@@ -208,18 +235,23 @@ def test_an_order_without_the_09b_receipts_is_incomplete(scenario: Callable[[str
     assert document["h2"]["all_runs"]["n"] == 0
 
 
+@pytest.mark.parametrize("status", ["error", "Error"])
 def test_a_psp_rejection_ends_the_chain_at_its_error_receipt(
-    scenario: Callable[[str], Path],
+    scenario: Callable[[str], Path], status: str
 ) -> None:
-    """The AP2 error receipt binds the closed payment mandate; the ledger still keeps its status
-    as `error`, outside the AP2 profile, until HNP-09b: not `ok` yet."""
-    run = only_run(scenario("psp_rejected"))
+    """The AP2 error receipt binds the closed payment mandate, with the event's status in either
+    form of the profile: the ledger's `error` or the SDK's `Error`, which its JWT keeps."""
+    database = scenario("psp_rejected")
+    rechain(database, "receipt_recorded", status=status)
 
-    assert statuses(run) == expected(ok=UP_TO_D3, missing=("receipts",))
+    document = verify([database])
+    [run] = document["runs"]
+
+    assert statuses(run) == expected(ok=(*UP_TO_D3, "receipts"))
     assert run["links"]["receipts"]["refs"]["rejected_by"] == "psp"
-    assert "HNP-09b" in run["links"]["receipts"]["detail"]
     assert (run["task_state"], run["outcome_code"]) == ("failed", "verifier_invalid_mandate")
-    assert run["complete"] is False
+    assert run["complete"] is True
+    assert document["h2_hnp"]["blocked"] == {"n": 1, "complete": 1, "rate": 1.0}
 
 
 def test_an_error_receipt_of_another_mandate_is_a_mismatch(
@@ -244,14 +276,109 @@ def test_an_error_receipt_of_another_mandate_is_a_mismatch(
     assert run["complete"] is False
 
 
-def test_an_order_with_both_receipt_jwts_is_complete(scenario: Callable[[str], Path]) -> None:
-    """With the `completion_results` row HNP-09b is to write, the receipts verify."""
-    document = verify([scenario("completed_with_results")])
+def test_a_merchant_rejection_binds_its_error_receipt(scenario: Callable[[str], Path]) -> None:
+    """After the PSP's token, the merchant's error receipt binds the closed checkout mandate."""
+    run = only_run(scenario("merchant_rejected"))
+
+    assert run["links"]["receipts"]["status"] == "ok", run["links"]["receipts"]
+    assert run["links"]["receipts"]["refs"]["rejected_by"] == "merchant"
+    assert (run["task_state"], run["outcome_code"]) == ("uncertain", "partial_verifier_failure")
+
+
+@pytest.mark.parametrize(
+    ("name", "identifier"),
+    [
+        ("psp_rejected", {"payment_id": "pay_other"}),
+        ("psp_rejected", {"payment_id": None}),
+        ("merchant_rejected", {"order_id": "ord_other"}),
+    ],
+    ids=["psp-another_payment_id", "psp-without_payment_id", "merchant-another_order_id"],
+)
+def test_an_error_receipt_event_with_another_identifier_is_a_mismatch(
+    scenario: Callable[[str], Path], name: str, identifier: dict[str, Any]
+) -> None:
+    """The event's `payment_id` (PSP) or `order_id` (merchant) is not its JWT's, re-chained."""
+    database = scenario(name)
+    rechain(database, "receipt_recorded", **identifier)
+
+    run = only_run(database)
+
+    assert run["links"]["receipts"]["status"] == "mismatch"
+    assert run["complete"] is False
+
+
+def test_a_rejection_with_a_receipt_of_the_other_kind_is_a_mismatch(
+    scenario: Callable[[str], Path],
+) -> None:
+    """A rejection leaves only the error receipt of whoever rejected: a merchant receipt next to
+    the PSP's, chained, gives it away."""
+    database = scenario("psp_rejected")
+    token = receipt_jwt(status="Success", iss="https://merchant.test", reference="other")
+    append_event(
+        database,
+        "receipt_recorded",
+        {
+            "kind": "checkout",
+            "receipt_digest": token_digest(token),
+            "issuer": "https://merchant.test",
+            "status": "success",
+            "reference": "other",
+            "error": None,
+            "order_id": "ord_x",
+        },
+    )
+
+    run = only_run(database)
+
+    assert run["ledger_chain"]["status"] == "ok"
+    assert run["links"]["receipts"]["status"] == "mismatch"
+    assert run["complete"] is False
+
+
+@pytest.mark.parametrize("name", ["completed_with_results", "completed_lowercase"])
+def test_an_order_with_both_receipt_jwts_is_complete(
+    scenario: Callable[[str], Path], name: str
+) -> None:
+    """With the `completion_results` row HNP-09b is to write, the receipts verify whichever form
+    of the profile the ledger keeps their status in (`Success` or `success`)."""
+    document = verify([scenario(name)])
     [run] = document["runs"]
 
     assert statuses(run) == expected(ok=(*UP_TO_D3, "receipts", "order_webhook", "consumption"))
     assert run["complete"] is True
     assert document["h2_hnp"]["orders"] == {"n": 1, "complete": 1, "rate": 1.0}
+
+
+STATUS_EDITS = [
+    ("completed", "checkout", "done"),
+    ("completed", "payment", "done"),
+    ("completed", "checkout", "error"),
+    ("completed", "checkout", "Error"),
+    ("completed", "payment", "error"),
+    ("completed", "payment", "Error"),
+    ("psp_rejected", "payment", "done"),
+    ("psp_rejected", "payment", "success"),
+    ("psp_rejected", "payment", "Success"),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "kind", "status"), STATUS_EDITS, ids=["-".join(case) for case in STATUS_EDITS]
+)
+def test_a_receipt_status_outside_the_ap2_profile_is_a_mismatch(
+    scenario: Callable[[str], Path], name: str, kind: str, status: str
+) -> None:
+    """Neither form of the profile (`done`), or the other outcome's in either form (an order's
+    receipt in `error`, a rejection's in `success`), re-chained: the event alone gives it away,
+    without the receipt JWTs of `completion_results`."""
+    database = scenario(name)
+    rechain(database, "receipt_recorded", where={"kind": kind}, status=status)
+
+    run = only_run(database)
+
+    assert run["links"]["receipts"]["status"] == "mismatch"
+    assert not run["links"]["receipts"]["detail"].startswith("No se pudo interpretar")
+    assert run["complete"] is False
 
 
 def test_a_d2_deny_ends_the_chain_at_the_deny_and_its_escalation(
