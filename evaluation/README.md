@@ -287,16 +287,21 @@ la de `--run`), revisa nueve eslabones en el orden del contrato: `intent`, `d1_d
 `checkout_created`, `freshness`, `d2_decision`, `approval`, `mandates`, `receipts` y
 `order_webhook`. Cada uno sale `ok`, `missing`, `mismatch` o `not_applicable` (la compra no llegó
 a ese paso), con un `detail` en español y `refs` (identificadores y digests; nunca tokens,
-mandatos, recibos ni datos del comprador). `complete` es verdadero si ningún eslabón es `missing`
-ni `mismatch`. `h2.effects` (compras con orden: `n`, `complete`, `rate`) es la métrica de H2;
+mandatos, recibos ni datos del comprador). Un eslabón aplica según cualquier rastro de su paso
+(filas D1, `consent`, `effect`, un `order_create`), no solo según la fila de la compra. Una compra
+con orden o `effect` es `complete` solo si los nueve eslabones son `ok`; cualquier otra, si
+ningún eslabón es `missing` ni `mismatch`. Una base repetida en `--agent-db` cuenta una vez.
+`h2.effects` (compras con orden: `n`, `complete`, `rate`) es la métrica de H2;
 `h2.all_runs` usa todas las compras y `h2.by_link` cuenta los estados por eslabón. El código de
 salida es 0 si todas las cadenas verificadas están completas y 1 si no; 2 si los argumentos o las
 bases no sirven. Desde Python: `verify_database(path, run_id=…, psp_database=…)` y
 `h2_summary(runs)`.
 
 El verificador no espera webhooks: el `order_create` debe haber llegado antes de leer la base
-(el runner lo despacha con el agente arriba; ver `merchant_webhooks`). D2 sale `not_applicable`
-mientras no haya registro D2: lo verifica un PR posterior, cuando D2-HP esté en `main`.
+(el runner lo despacha con el agente arriba; ver `merchant_webhooks`). D2 es obligatorio en una
+compra aprobada con `b2-hp-v2` (sin registro, `missing`); un registro D2 sale `missing` con
+`content_verified: false` hasta que un PR posterior verifique su contenido, cuando D2-HP esté en
+`main`. Por eso, hoy ninguna compra con orden queda completa.
 
 ## Archivos
 

@@ -15,13 +15,23 @@ from typing import Any
 import jwt
 import pytest
 
-from commerce_evaluation.verify_evidence import LINKS, h2_summary, main, verify, verify_database
+from commerce_evaluation.demo_stack import OTHER_MERCHANT
+from commerce_evaluation.verify_evidence import (
+    LINKS,
+    Link,
+    h2_summary,
+    is_complete,
+    main,
+    verify,
+    verify_database,
+)
 from tests.evaluation.test_pilot_evidence import PSP_DELEGATIONS
 from tests.governance.test_hp_continuation import ask
 from tests.governance.test_stale_terms_pending import presented
 from tests.support.ap2_purchase import Ap2Shop, ap2_shop
 
 OK_B2 = dict.fromkeys(LINKS, "ok") | {"d2_decision": "not_applicable"}
+DENIED = dict.fromkeys(LINKS, "not_applicable") | {"intent": "ok", "d1_decision": "ok"}
 
 
 def statuses(run: dict[str, Any]) -> dict[str, str]:
@@ -72,13 +82,16 @@ def b2_purchase(tmp_path: Path) -> tuple[Path, Path]:
     return database, psp_database(tmp_path / "payments.db", shop, database)
 
 
-def test_a_complete_b2_purchase_verifies_every_link(b2_purchase: tuple[Path, Path]) -> None:
+def test_a_b2_purchase_verifies_every_link_but_is_incomplete_without_d2(
+    b2_purchase: tuple[Path, Path],
+) -> None:
     database, payments = b2_purchase
 
     run = only_run(database, psp_database=payments)
 
     assert statuses(run) == OK_B2
-    assert run["complete"] is True
+    # A purchase with an order is complete only with its nine links ok: D2 does not exist yet.
+    assert run["complete"] is False
     assert run["links"]["receipts"]["refs"]["psp"] == "verified"
     assert run["links"]["d1_decision"]["refs"]["replay"] == "reproduced"
     assert (
@@ -153,6 +166,103 @@ def test_s04_blocked_at_approval_ends_complete_at_the_freshness_link(tmp_path: P
     assert statuses(run) == dict.fromkeys(LINKS, "ok") | {name: "not_applicable" for name in after}
     assert run["links"]["freshness"]["refs"]["approve_decision"] == "block"
     assert run["complete"] is True
+
+
+def test_a_d1_deny_verifies_the_intent_and_the_decision(tmp_path: Path) -> None:
+    database = tmp_path / "agent.db"
+    with ap2_shop(database, agent_d1_allowed_merchant_origins=OTHER_MERCHANT) as shop:
+        turn = ask(shop.client, "turn-deny")
+        assert turn.status_code == 409 and turn.json()["code"] == "d1_denied", turn.text
+
+    run = only_run(database)
+
+    # The purchase never chose a product: its D1 rows alone make both links apply.
+    assert (run["stage"], run["order_id"]) == ("received", None)
+    assert statuses(run) == DENIED
+    assert run["links"]["d1_decision"]["refs"]["outcome"] == "deny"
+    assert run["links"]["d1_decision"]["refs"]["replay"] == "reproduced"
+    assert run["complete"] is True
+
+
+@pytest.fixture
+def denied(tmp_path: Path) -> Path:
+    database = tmp_path / "denied.db"
+    with ap2_shop(database, agent_d1_allowed_merchant_origins=OTHER_MERCHANT) as shop:
+        assert ask(shop.client, "turn-deny").status_code == 409
+    return database
+
+
+DENY_TAMPERING: dict[str, tuple[Callable[[Path], None], str]] = {
+    "deny turned into allow": (
+        lambda db: edit(
+            db,
+            "governance_evidence",
+            "UPDATE governance_evidence SET outcome = 'allow', "
+            "body = json_set(body, '$.decision.outcome', 'allow')",
+        ),
+        "d1_decision",
+    ),
+    "intent of a deny": (
+        lambda db: edit(
+            db,
+            "d1_provenance_sources",
+            "UPDATE d1_provenance_sources SET public_body = CAST('{}' AS BLOB) "
+            "WHERE kind = 'intent'",
+        ),
+        "intent",
+    ),
+    "checkout under a deny": (
+        lambda db: edit(db, "purchases", "UPDATE purchases SET checkout_id = 'cs_bypass'"),
+        "checkout_created",
+    ),
+}
+
+
+@pytest.mark.parametrize("change", sorted(DENY_TAMPERING))
+def test_a_manipulated_deny_is_a_mismatch(denied: Path, change: str) -> None:
+    tamper, link = DENY_TAMPERING[change]
+
+    tamper(denied)
+    run = only_run(denied)
+
+    assert run["links"][link]["status"] == "mismatch", run["links"][link]
+    assert run["complete"] is False
+
+
+def test_an_approved_b2_hp_v2_purchase_without_d2_misses_it(tmp_path: Path) -> None:
+    database = tmp_path / "agent.db"
+    with ap2_shop(database, agent_d1_policy_set_id="b2-hp-v2") as shop:
+        run_id = shop.buy()
+        shop.deliver_order_create(run_id)
+
+    run = only_run(database)
+
+    assert statuses(run) == OK_B2 | {"d2_decision": "missing"}
+    assert run["links"]["d2_decision"]["refs"] == {
+        "policy_set_id": "b2-hp-v2",
+        "d2_required": True,
+    }
+    assert run["complete"] is False
+
+
+def test_a_d2_record_counts_as_unverified_until_its_link_checks_it(tmp_path: Path) -> None:
+    database = tmp_path / "agent.db"
+    with closing(sqlite3.connect(database)) as connection, connection:
+        # The D2 schema is not on main yet: only the columns the verifier reads.
+        connection.execute(
+            "CREATE TABLE purchases (run_id TEXT, stage TEXT, selected_variant_id TEXT, "
+            "checkout_id TEXT, order_id TEXT, created_at TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO purchases VALUES ('run-d2', 'received', NULL, NULL, NULL, 'now')"
+        )
+        connection.execute("CREATE TABLE governance_evidence (run_id TEXT, phase TEXT)")
+        connection.execute("INSERT INTO governance_evidence VALUES ('run-d2', 'D2')")
+
+    run = only_run(database)
+
+    assert run["links"]["d2_decision"]["status"] == "missing"
+    assert run["links"]["d2_decision"]["refs"]["content_verified"] is False
 
 
 def test_a_creation_the_merchant_refused_has_no_checkout_receipts_or_order(tmp_path: Path) -> None:
@@ -286,6 +396,81 @@ def test_a_manipulated_chain_is_a_mismatch_at_the_link_that_was_changed(
     assert run["complete"] is False
 
 
+def test_consent_effect_and_the_webhook_anchor_links_whose_rows_were_deleted(
+    b2_purchase: tuple[Path, Path],
+) -> None:
+    database, _ = b2_purchase
+    edit(database, "completion_results", "DELETE FROM completion_results")
+    edit(database, "approvals", "DELETE FROM approvals")
+    edit(
+        database,
+        "purchases",
+        "UPDATE purchases SET order_id = NULL, stage = 'awaiting_confirmation'",
+    )
+
+    run = only_run(database)
+    summary = verify([database])["h2"]
+
+    # consent, effect and order_create still exist: the purchase was approved and has an order.
+    assert run["order_id"] == "ord_cs_api_1"
+    assert {name: statuses(run)[name] for name in LINKS[5:]} == {
+        "approval": "missing",
+        "mandates": "missing",
+        "receipts": "missing",
+        "order_webhook": "ok",
+    }
+    # The approve check is still there, and it allowed.
+    assert run["links"]["freshness"]["status"] == "ok"
+    assert run["complete"] is False
+    assert summary["effects"] == {"n": 1, "complete": 0, "rate": 0.0}
+
+
+def test_an_order_create_is_found_by_its_checkout_too(b2_purchase: tuple[Path, Path]) -> None:
+    database, _ = b2_purchase
+    edit(database, "completion_results", "DELETE FROM completion_results")
+    edit(database, "purchases", "UPDATE purchases SET order_id = NULL")
+    edit(database, "ap2_evidence", "DELETE FROM ap2_evidence WHERE record_kind = 'effect'")
+
+    run = only_run(database)
+
+    assert run["order_id"] == "ord_cs_api_1"
+    assert statuses(run)["receipts"] == "missing"
+    assert statuses(run)["order_webhook"] == "ok"
+
+
+def test_mandates_without_total_or_currency_are_a_mismatch(
+    b2_purchase: tuple[Path, Path],
+) -> None:
+    database, _ = b2_purchase
+    with closing(sqlite3.connect(database)) as connection:
+        [signed] = connection.execute("SELECT checkout_jwt FROM approvals").fetchone()
+    claims = jwt.decode(signed, options={"verify_signature": False})
+    claims["checkout"] = {
+        key: value for key, value in claims["checkout"].items() if key not in {"totals", "currency"}
+    }
+    forged = jwt.encode(claims, "x" * 32, algorithm="HS256")
+    edit(database, "approvals", "UPDATE approvals SET checkout_jwt = ?", forged)
+
+    link = only_run(database)["links"]["mandates"]
+
+    assert (link["status"], link["detail"]) == (
+        "mismatch",
+        "El checkout o el mandato de pago no tienen total y moneda",
+    )
+
+
+def test_a_purchase_with_an_order_is_complete_only_with_nine_links_ok() -> None:
+    every: dict[str, Link] = dict.fromkeys(LINKS, Link("ok", ""))
+    skipped = every | {"d2_decision": Link("not_applicable", "")}
+
+    assert is_complete(every, effect=True) is True
+    assert is_complete(skipped, effect=True) is False
+    assert is_complete(skipped, effect=False) is True
+    assert is_complete(every | {"freshness": Link("missing", "")}, effect=False) is False
+    assert is_complete(every | {"intent": Link("mismatch", "")}, effect=False) is False
+    assert is_complete({"intent": Link("ok", "")}, effect=False) is False
+
+
 def test_a_payment_the_provider_kept_for_another_mandate_is_a_mismatch(
     tmp_path: Path, b2_purchase: tuple[Path, Path]
 ) -> None:
@@ -324,27 +509,38 @@ def test_h2_is_the_share_of_purchases_with_an_order_whose_chain_is_complete() ->
 
 
 def test_the_cli_writes_json_and_exits_by_completeness(
-    tmp_path: Path, b2_purchase: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    b2_purchase: tuple[Path, Path],
+    denied: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     database, payments = b2_purchase
-    incomplete = tmp_path / "incomplete.db"
-    with ap2_shop(incomplete) as shop:
-        run_id = shop.buy()
+    [run_id] = [run["run_id"] for run in verify_database(database)]
     output = tmp_path / "verification.json"
 
-    assert (
-        main(["--agent-db", str(database), "--psp-db", str(payments), "--output", str(output)]) == 0
-    )
-    assert main(["--agent-db", str(database), "--agent-db", str(incomplete)]) == 1
-    assert main(["--agent-db", str(incomplete), "--run", run_id]) == 1
+    assert main(["--agent-db", str(denied), "--output", str(output)]) == 0
+    assert main(["--agent-db", str(denied), "--agent-db", str(database)]) == 1
+    assert main(["--agent-db", str(database), "--psp-db", str(payments), "--run", run_id]) == 1
 
     written = json.loads(output.read_text(encoding="utf-8"))
     assert written["schema_version"] == "evidence-chain-verification/1"
-    assert written["h2"]["effects"] == {"n": 1, "complete": 1, "rate": 1.0}
+    assert written["h2"]["effects"] == {"n": 0, "complete": 0, "rate": None}
     printed = json.loads(capsys.readouterr().out.split("\n}\n")[0] + "\n}")
     assert [run["complete"] for run in printed["runs"]] == [True, False]
+    assert printed["h2"]["effects"] == {"n": 1, "complete": 0, "rate": 0.0}
     with pytest.raises(SystemExit) as unknown:
         main(["--agent-db", str(database), "--run", "run-unknown"])
     assert unknown.value.code == 2
     with pytest.raises(SystemExit):
         main(["--agent-db", str(tmp_path / "absent.db")])
+
+
+def test_a_database_named_twice_is_verified_once(
+    b2_purchase: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    database, _ = b2_purchase
+    again = database.parent / "." / database.name
+
+    assert len(verify([database, again, database])["runs"]) == 1
+    main(["--agent-db", str(database), "--agent-db", str(again)])
+    assert len(json.loads(capsys.readouterr().out)["runs"]) == 1

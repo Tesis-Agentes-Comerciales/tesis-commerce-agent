@@ -4,8 +4,13 @@ For every purchase of an agent database, in the order of the coordination contra
 intent, D1 decision, checkout created, freshness, D2 decision, approval, mandates, receipts and
 the merchant's `order_create` webhook. Each link recomputes its digests from what the agent
 stored and checks that it references the link before; its status is `ok`, `missing`, `mismatch`
-or `not_applicable` (the purchase never reached that step). A chain is complete when no link is
-`missing` or `mismatch`. H2 is the share of purchases with an order whose chain is complete.
+or `not_applicable` (the purchase never reached that step). Whether a step was reached is read
+from every trace it leaves, not only from the purchase row: D1 rows, consent, effect or an
+`order_create` make their links apply even if another table lost its row.
+
+A purchase with an order or an effect is complete only when its nine links are `ok`; any other
+purchase is complete when no link is `missing` or `mismatch`. H2 is the share of purchases with
+an order whose chain is complete.
 
 Databases are opened read-only. The output carries identifiers and digests, never a token,
 mandate, receipt, idempotency key or buyer data. Signatures are not checked again: the agent
@@ -33,6 +38,7 @@ from commerce_agent.application.ap2_evidence import mandate_reference, receipt_s
 from commerce_agent.governance.canonical import parse_model, sha256_digest
 from commerce_agent.governance.dispatch_envelope import CheckoutCreationEnvelope
 from commerce_agent.governance.evidence import DecisionRecord, EvidenceError
+from commerce_agent.governance.provenance import HP_POLICY_SET_ID
 from commerce_agent.persistence import ap2_evidence_sqlite, hp_evidence_sqlite
 from commerce_agent.persistence.ap2_evidence_sqlite import Ap2Evidence
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
@@ -55,6 +61,11 @@ LINKS = (
 # Stages in which the buyer was shown the terms: the `present` freshness check ran.
 PRESENTED = {"awaiting_confirmation", "approved", "completing", "uncertain", "completed"}
 APPROVED = {"approved", "completing", "uncertain", "completed"}
+# Tables whose rows show that the purchase reached D1.
+D1_TABLES = ("d1_provenance_sources", "governance_evidence", "d1_checkout_operations")
+# D2/HP rules (contract, addendum 1). The ("D2", "HP") row of APPLICABLE_RULES arrives with the
+# D2 PR; until then the ids are spelled here. A policy that lists any of them requires D2.
+D2_RULES = frozenset({"POL-03", "POL-04", "POL-05", "POL-06"})
 
 
 @dataclass(frozen=True)
@@ -175,18 +186,35 @@ class RunVerification:
             if completions
             else None
         )
-        self.order_id: str | None = purchase["order_id"] or (
-            self.completion["order_id"] if self.completion else None
-        )
         self.intents: dict[tuple[str, int], str] = {}
         self.decision: DecisionRecord | None = None
         self.policy_set_id: str | None = None
         self.creation: str | None = None
         self.approve_check: HpEvidence | None = None
-        self._ap2: Link | Literal["unread"] | None = "unread"
         self.ap2_chain: tuple[Ap2Evidence, ...] = ()
         self.consent: Ap2Evidence | None = None
         self.effect: Ap2Evidence | None = None
+        self._ap2 = self._read_ap2()
+        self.has_d1 = any(
+            _table(connection, table)
+            and connection.execute(
+                f"SELECT 1 FROM {table} WHERE run_id = ? LIMIT 1", (self.run_id,)
+            ).fetchone()
+            is not None
+            for table in D1_TABLES
+        )
+        # The order is anchored by every record that names it: purchases, completion, effect
+        # and, through the checkout, the merchant's order_create.
+        effect_order = self.effect.body.get("order_id") if self.effect else None
+        named = [
+            purchase["order_id"],
+            self.completion["order_id"] if self.completion else None,
+            effect_order if isinstance(effect_order, str) else None,
+        ]
+        self.webhooks = self._order_events({order for order in named if order is not None})
+        if self.webhooks:
+            named.append(self.webhooks[0][1])
+        self.order_id: str | None = next((order for order in named if order is not None), None)
 
     @property
     def stage(self) -> str:
@@ -197,8 +225,52 @@ class RunVerification:
         return self.purchase["selected_variant_id"] is not None or self.checkout_id is not None
 
     @property
+    def reached_d1(self) -> bool:
+        """D1 applies: a product was chosen, D1 left rows, or a later step happened."""
+        return self.reached_selection or self.has_d1 or self.approved
+
+    @property
+    def completed(self) -> bool:
+        """Evidence only a completion leaves: its result, an order, effect or order_create."""
+        return (
+            self.completion is not None
+            or self.order_id is not None
+            or self.effect is not None
+            or self.stage == "completed"
+        )
+
+    @property
     def approved(self) -> bool:
-        return self.approval is not None or self.stage in APPROVED
+        """Evidence only an approval leaves: the approval, its stage, consent or a completion."""
+        unreadable = self._ap2 is not None and self._ap2.status == "mismatch"
+        return (
+            self.approval is not None
+            or self.stage in APPROVED
+            or self.consent is not None
+            or unreadable
+            or self.completed
+        )
+
+    def _order_events(self, order_ids: set[str]) -> list[tuple[str, str, str]]:
+        """order_create events naming one of the run's orders or, in the payload, its checkout."""
+        if not _table(self.db, "webhook_events"):
+            return []
+        rows = self.db.execute(
+            "SELECT payload_sha256, order_id, payload FROM webhook_events "
+            "WHERE event_type = 'order_create' ORDER BY received_at, rowid"
+        ).fetchall()
+        found: list[tuple[str, str, str]] = []
+        for sha, order_id, payload in rows:
+            try:
+                event = json.loads(payload).get("data")
+                checkout = event.get("checkout_session_id") if isinstance(event, dict) else None
+            except (ValueError, AttributeError):
+                checkout = None
+            if order_id in order_ids or (
+                self.checkout_id is not None and checkout == self.checkout_id
+            ):
+                found.append((sha, order_id, payload))
+        return found
 
     def links(self) -> dict[str, Link]:
         steps: dict[str, Callable[[], Link]] = {
@@ -222,8 +294,8 @@ class RunVerification:
         return result
 
     def intent(self) -> Link:
-        if not self.reached_selection:
-            return not_applicable("La compra no llegó a elegir un producto")
+        if not self.reached_d1:
+            return not_applicable("La compra no llegó a D1")
         if not _table(self.db, "d1_provenance_sources"):
             return missing("Sin procedencia D1: la intención no quedó registrada")
         rows = self.db.execute(
@@ -250,8 +322,8 @@ class RunVerification:
         )
 
     def d1_decision(self) -> Link:
-        if not self.reached_selection:
-            return not_applicable("La compra no llegó a elegir un producto")
+        if not self.reached_d1:
+            return not_applicable("La compra no llegó a D1")
         if not _table(self.db, "governance_evidence"):
             return missing("Sin ledger D1")
         rows = self.db.execute(
@@ -317,15 +389,25 @@ class RunVerification:
 
     def checkout_created(self) -> Link:
         decision = self.decision
+        operation = (
+            _row(self.db, "SELECT * FROM d1_checkout_operations WHERE run_id = ?", self.run_id)
+            if _table(self.db, "d1_checkout_operations")
+            else None
+        )
         if decision is not None and decision.decision.outcome == "deny":
+            if self.checkout_id is not None or operation is not None or self.approved:
+                # A checkout, its creation or anything after it under a deny is a bypass.
+                refs = _operation(operation) if operation is not None else {}
+                return mismatch(
+                    "D1 denegó pero la compra siguió hacia un checkout",
+                    checkout_id=self.checkout_id,
+                    **refs,
+                )
             return not_applicable("D1 denegó: no se creó checkout")
-        if decision is None and self.checkout_id is None:
+        if decision is None and self.checkout_id is None and not self.approved:
             return not_applicable("La compra no llegó a crear un checkout")
         if not _table(self.db, "d1_checkout_operations"):
             return missing("Sin operación D1 de creación del checkout")
-        operation = _row(
-            self.db, "SELECT * FROM d1_checkout_operations WHERE run_id = ?", self.run_id
-        )
         if operation is None:
             return missing("D1 no registró la operación de creación")
         if decision is None:
@@ -388,6 +470,8 @@ class RunVerification:
 
     def check_freshness(self) -> Link:
         if self.checkout_id is None:
+            if self.approved:
+                return mismatch("La compra fue aprobada pero no tiene checkout")
             return not_applicable("La compra no tiene checkout")
         records = (
             hp_evidence_sqlite.read_run(self.db, self.run_id)
@@ -417,9 +501,7 @@ class RunVerification:
                 "approve_digest": approve[-1].digest,
                 "approve_decision": approve[-1].body.get("decision"),
             }
-        if self.approval is None:
-            if self.approved:
-                return ok("Frescura registrada", **refs)
+        if not self.approved:
             blocked = self.approve_check is not None and refs["approve_decision"] == "block"
             return ok(
                 "La frescura bloqueó la aprobación"
@@ -428,33 +510,72 @@ class RunVerification:
                 **refs,
             )
         if self.approve_check is None:
-            return missing("Aprobación guardada sin comprobación de frescura al aprobar", **refs)
+            return missing("Compra aprobada sin comprobación de frescura al aprobar", **refs)
         if refs["approve_decision"] != "allow":
-            return mismatch("Aprobación guardada aunque la frescura la bloqueó", **refs)
+            return mismatch("Compra aprobada aunque la frescura la bloqueó", **refs)
         return ok("Frescura al mostrar y al aprobar registrada", **refs)
 
-    def d2_decision(self) -> Link:
-        if (
-            _table(self.db, "governance_evidence")
-            and self.db.execute(
-                "SELECT 1 FROM governance_evidence WHERE run_id = ? AND phase != 'D1'",
-                (self.run_id,),
+    def _policy(self) -> tuple[str | None, frozenset[str]]:
+        """The run's D1 policy set and rule ids: the verified binding, else the stored artifact."""
+        artifact: Any = None
+        if _table(self.db, "governance_episodes"):
+            row = self.db.execute(
+                "SELECT policy_bytes FROM governance_episodes WHERE run_id = ?", (self.run_id,)
             ).fetchone()
-        ):
-            return missing("Hay un registro D2 y este verificador todavía no lo verifica")
-        policy = self.policy_set_id or "sin política D1"
-        return not_applicable(f"Sin registro D2 ({policy})", policy_set_id=self.policy_set_id)
+            if row is not None and row[0] is not None:
+                try:
+                    artifact = json.loads(bytes(row[0]))
+                except ValueError:
+                    artifact = None
+        artifact = artifact if isinstance(artifact, dict) else {}
+        rules = artifact.get("policy_ids")
+        policy_set_id = self.policy_set_id or artifact.get("policy_set_id")
+        return (
+            policy_set_id if isinstance(policy_set_id, str) else None,
+            frozenset(rule for rule in rules if isinstance(rule, str))
+            if isinstance(rules, list)
+            else frozenset(),
+        )
+
+    def d2_decision(self) -> Link:
+        policy_set_id, rules = self._policy()
+        required = policy_set_id == HP_POLICY_SET_ID or bool(rules & D2_RULES)
+        refs = {"policy_set_id": policy_set_id, "d2_required": required and self.approved}
+        records = (
+            self.db.execute(
+                "SELECT count(*) FROM governance_evidence WHERE run_id = ? AND phase != 'D1'",
+                (self.run_id,),
+            ).fetchone()[0]
+            if _table(self.db, "governance_evidence")
+            else 0
+        )
+        if records:
+            # Presence alone does not verify D2: until its link checks the record's content
+            # (follow-up PR, after D2 is on main), it counts as unverified, never as ok.
+            return missing(
+                "Registro D2 presente; su contenido aún no se verifica",
+                records=records,
+                content_verified=False,
+                **refs,
+            )
+        if required and self.approved:
+            return missing("La compra aprobada no tiene decisión D2", **refs)
+        if required:
+            return not_applicable("La compra no llegó a aprobarse: D2 no se evaluó", **refs)
+        return not_applicable(f"La política {policy_set_id or '(sin D1)'} no exige D2", **refs)
 
     def _ap2_records(self) -> Link | None:
-        """Read once: the problem with the run's ap2_evidence, or None and consent/effect set."""
-        if self._ap2 == "unread":
-            self._ap2 = self._read_ap2()
+        """The problem with the run's ap2_evidence, or None and consent/effect set."""
         return self._ap2
 
     def _read_ap2(self) -> Link | None:
         if not _table(self.db, "ap2_evidence"):
             return missing("Sin evidencia AP2 (ap2_evidence)")
-        self.ap2_chain = ap2_evidence_sqlite.read_run(self.db, self.run_id)
+        try:
+            self.ap2_chain = ap2_evidence_sqlite.read_run(self.db, self.run_id)
+        except (ValueError, TypeError, IndexError):
+            # Records exist but cannot even be parsed: altered or corrupted.
+            return mismatch("La evidencia AP2 no se pudo interpretar")
         kinds = {record.record_kind: record for record in self.ap2_chain}
         self.consent, self.effect = kinds.get("consent"), kinds.get("effect")
         return None
@@ -470,7 +591,7 @@ class RunVerification:
         approval = self.approval
         if approval is None:
             return missing("La compra figura aprobada sin aprobación guardada")
-        if approval["checkout_id"] != self.checkout_id:
+        if self.checkout_id is None or approval["checkout_id"] != self.checkout_id:
             return mismatch("La aprobación es de otro checkout")
         problem = self._ap2_records()
         if problem is not None:
@@ -516,20 +637,30 @@ class RunVerification:
         checkout_claims = mandate_claims(checkout_mandate)
         payment_claims = mandate_claims(payment_mandate)
         amount = payment_claims.get("payment_amount") or {}
+        total, currency = _checkout_total(checkout), checkout.get("currency")
         refs = {
             "checkout_hash": bound,
             "checkout_mandate_sd_hash": mandate_reference(checkout_mandate),
             "payment_mandate_sd_hash": mandate_reference(payment_mandate),
         }
         if (
-            checkout.get("id") != self.checkout_id
+            total is None
+            or not isinstance(currency, str)
+            or not currency
+            or type(amount.get("amount")) is not int
+            or not isinstance(amount.get("currency"), str)
+        ):
+            return mismatch("El checkout o el mandato de pago no tienen total y moneda", **refs)
+        if (
+            self.checkout_id is None
+            or checkout.get("id") != self.checkout_id
             or checkout_claims.get("vct") != "mandate.checkout.1"
             or checkout_claims.get("checkout_jwt") != signed
             or checkout_claims.get("checkout_hash") != bound
             or payment_claims.get("vct") != "mandate.payment.1"
             or payment_claims.get("transaction_id") != bound
-            or amount.get("amount") != _checkout_total(checkout)
-            or str(amount.get("currency")).upper() != str(checkout.get("currency")).upper()
+            or amount["amount"] != total
+            or amount["currency"].upper() != currency.upper()
         ):
             return mismatch("Los mandatos no firman el checkout aprobado", **refs)
         problem = self._ap2_records()
@@ -546,10 +677,10 @@ class RunVerification:
         return ok("Mandatos ligados al checkout firmado y a consent", **refs)
 
     def receipts(self) -> Link:
-        if self.creation == "refused":
-            return not_applicable("El comercio rechazó la creación: no hay recibos")
-        if self.completion is None and self.order_id is None and self.stage != "completed":
+        if not self.completed:
             return not_applicable("La compra no llegó a una orden")
+        if self.creation == "refused":
+            return mismatch("El comercio rechazó la creación pero la compra tiene orden")
         completion, approval = self.completion, self.approval
         if completion is None:
             return missing("La compra tiene orden pero no resultado de completación")
@@ -573,6 +704,8 @@ class RunVerification:
             or checkout_receipt["reference"] != mandate_reference(approval["checkout_mandate"])
             or payment_receipt["reference"] != mandate_reference(approval["payment_mandate"])
             or checkout_receipt["order_id"] != completion["order_id"]
+            or payment_receipt["payment_id"] is None
+            or self.checkout_id is None
             or completion["checkout_id"] != self.checkout_id
             or (self.purchase["order_id"] not in (None, completion["order_id"]))
         ):
@@ -628,26 +761,26 @@ class RunVerification:
         return None
 
     def order_webhook(self) -> Link:
-        if self.creation == "refused" or self.order_id is None:
+        if self.order_id is None:
             return not_applicable("La compra no llegó a una orden")
+        if self.creation == "refused":
+            return mismatch("El comercio rechazó la creación pero hay una orden")
         if not _table(self.db, "webhook_events"):
             return missing("Sin eventos del comercio")
-        events = self.db.execute(
-            "SELECT payload_sha256, payload FROM webhook_events "
-            "WHERE order_id = ? AND event_type = 'order_create' ORDER BY received_at, rowid",
-            (self.order_id,),
-        ).fetchall()
+        events = self.webhooks
         if not events:
             return missing(
                 "El comercio no entregó el order_create de la orden", order_id=self.order_id
             )
-        for sha, payload in events:
+        for sha, order_id, payload in events:
             data = json.loads(payload)
             event = data.get("data") or {}
             if (
                 merchant_body_sha256(payload) != sha
                 or data.get("type") != "order_create"
+                or order_id != self.order_id
                 or event.get("id") != self.order_id
+                or self.checkout_id is None
                 or event.get("checkout_session_id") != self.checkout_id
             ):
                 return mismatch("El order_create no coincide con la orden", order_id=self.order_id)
@@ -693,15 +826,25 @@ def _run_document(
     purchase: dict[str, Any],
     psp: sqlite3.Connection | None,
 ) -> dict[str, Any]:
-    links = RunVerification(connection, purchase, psp).links()
+    run = RunVerification(connection, purchase, psp)
+    links = run.links()
     return {
         "database": database.name,
         "run_id": purchase["run_id"],
         "stage": purchase["stage"],
-        "order_id": purchase["order_id"],
+        # Anchored by purchases, completion, effect or the merchant's order_create.
+        "order_id": run.order_id,
         "links": {name: links[name].document() for name in LINKS},
-        "complete": all(link.status in {"ok", "not_applicable"} for link in links.values()),
+        "complete": is_complete(links, effect=run.order_id is not None or run.effect is not None),
     }
+
+
+def is_complete(links: Mapping[str, Link], *, effect: bool) -> bool:
+    """With an order or effect, the nine links `ok`; otherwise none `missing` or `mismatch`."""
+    if set(links) != set(LINKS):
+        return False
+    accepted = {"ok"} if effect else {"ok", "not_applicable"}
+    return all(link.status in accepted for link in links.values())
 
 
 def h2_summary(runs: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
@@ -731,9 +874,13 @@ def h2_summary(runs: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
 def verify(
     databases: Sequence[Path], *, run_id: str | None = None, psp_database: Path | None = None
 ) -> dict[str, Any]:
+    unique: dict[Path, Path] = {}
+    for database in databases:
+        # The same database named twice (another spelling, a symlink) counts once.
+        unique.setdefault(database.resolve(), database)
     runs = [
         run
-        for database in databases
+        for database in unique.values()
         for run in verify_database(database, run_id=run_id, psp_database=psp_database)
     ]
     return {"schema_version": SCHEMA_VERSION, "runs": runs, "h2": h2_summary(runs)}

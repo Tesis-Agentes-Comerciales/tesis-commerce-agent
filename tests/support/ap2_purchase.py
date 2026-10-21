@@ -175,8 +175,11 @@ class Ap2Shop:
 
 
 @contextmanager
-def ap2_shop(database: Path, *, mode: str = "enforce", flow: str = "governed") -> Iterator[Ap2Shop]:
-    settings = ap2(database, mode=mode, flow=flow)
+def ap2_shop(
+    database: Path, *, mode: str = "enforce", flow: str = "governed", **changes: Any
+) -> Iterator[Ap2Shop]:
+    """The app over the doubles; `changes` override settings (a D1 policy set, an allowlist)."""
+    settings = ap2(database, mode=mode, flow=flow).model_copy(update=changes)
     merchant = CompletingMerchant(settings.merchant_base_url)
     payments = Ap2PaymentProvider()
     app = create_app(

@@ -14,6 +14,9 @@ seeded B0 episode under two allowlists.
   ACTION_OR_MERCHANT_NOT_ALLOWED and the Merchant receives no checkout creation POST.
 - `b2`: the allowlist names the lane's Merchant (the demo's `b2` mode). The same turn reaches
   `awaiting_confirmation` after exactly one creation POST, with POL-02 `pass`.
+
+In both, `verify-evidence` verifies what the turn left: the deny's intent and decision, or the
+allowed purchase up to its freshness check. Nothing after it applies yet.
 """
 
 import pytest
@@ -27,6 +30,7 @@ from commerce_agent.trace.assembler import PurchaseTraces
 from commerce_agent.trace.models import PolicyDecisionStep
 from commerce_evaluation.demo_stack import MODES, mode_environment
 from commerce_evaluation.governance_pilot import D1RunKeys
+from commerce_evaluation.verify_evidence import LINKS, verify_database
 from tests.integration.live_purchase import (
     PHONE_INTENT,
     PHONE_REQUEST,
@@ -112,4 +116,22 @@ def test_b2_pol02_allowlist_from_settings_governs_the_purchase_turn(
         assert decision.reason_codes == ("ACTION_OR_MERCHANT_NOT_ALLOWED",)
         assert creations == 0
         assert after == before
+    [verified] = verify_database(settings.agent_database_path)
+    reached = ("intent", "d1_decision", "checkout_created", "freshness")
+    if mode == "b2":
+        assert verified["stage"] == "awaiting_confirmation"
+        reached_ok = {name: "ok" for name in reached}
+        # b2-hp-v2 requires D2 at approval, and the purchase was not approved.
+        assert verified["links"]["d2_decision"]["refs"] == {
+            "policy_set_id": "b2-hp-v2",
+            "d2_required": False,
+        }
+    else:
+        assert verified["stage"] == "received"
+        reached_ok = {"intent": "ok", "d1_decision": "ok"}
+        assert verified["links"]["d1_decision"]["refs"]["outcome"] == "deny"
+    statuses = {name: link["status"] for name, link in verified["links"].items()}
+    assert statuses == dict.fromkeys(LINKS, "not_applicable") | reached_ok
+    assert verified["links"]["d1_decision"]["refs"]["replay"] == "reproduced"
+    assert verified["complete"] is True
     b0.stack.record(f"b2:{mode}", creation_posts=creations, pol02=pol02.result)

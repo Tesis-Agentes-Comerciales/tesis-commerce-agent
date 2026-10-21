@@ -214,12 +214,14 @@ def test_b2_governed_purchase_completes_once_with_receipts_and_its_order_webhook
     trace = PurchaseTraces(settings).trace(run_id)
     order_events = [step for step in trace.steps if isinstance(step, OrderEventStep)]
     assert [step.event_type for step in order_events] == ["order_create"]
-    # And the whole chain verifies, the payment included, as `verify-evidence` reports it.
+    # And every link verifies, the payment included, as `verify-evidence` reports it. The
+    # purchase has an order, so it is complete only with all nine ok: D2 is the one missing.
     [verified] = verify_database(
         settings.agent_database_path, run_id=run_id, psp_database=b0.root / "payments.sqlite"
     )
-    assert verified["complete"] is True, verified["links"]
     assert {name: link["status"] for name, link in verified["links"].items()} == dict.fromkeys(
         LINKS, "ok"
     ) | {"d2_decision": "not_applicable"}
+    assert verified["order_id"] == completed.order.id
+    assert verified["complete"] is False
     b0.stack.record("b2:governed_purchase", orders_created=1, order_events=len(order_events))
