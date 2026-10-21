@@ -116,8 +116,9 @@ def scenario(built: Callable[[str], Path], tmp_path: Path) -> Callable[[str], Pa
     return copy
 
 
-def rechain(database: Path, event_type: str, **changes: Any) -> None:
-    """Rewrite one event's body and recompute every digest after it: the chain still verifies."""
+def rechain(database: Path, event_type: str, *, by: str | None = None, **changes: Any) -> None:
+    """Rewrite one event's body (and, with `by`, its actor and principal) and recompute every
+    digest after it: the chain still verifies."""
     with closing(sqlite3.connect(database)) as connection, connection:
         for (name,) in connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'trigger' "
@@ -126,14 +127,19 @@ def rechain(database: Path, event_type: str, **changes: Any) -> None:
             connection.execute(f"DROP TRIGGER {name}")
         previous = None
         for event in read_events(connection, GRANT):
-            body = {**event.body, **changes} if event.event_type == event_type else event.body
-            changed = replace(event, body=body, previous_digest=previous)
+            if event.event_type == event_type:
+                event = replace(event, body={**event.body, **changes})
+                if by is not None:
+                    event = replace(event, actor_ref=by, on_behalf_of=by)
+            changed = replace(event, previous_digest=previous)
             changed = replace(changed, digest=event_digest(changed.link()))
             connection.execute(
-                "UPDATE delegation_events SET body = ?, previous_digest = ?, digest = ? "
-                "WHERE grant_id = ? AND sequence = ?",
+                "UPDATE delegation_events SET body = ?, actor_ref = ?, on_behalf_of = ?, "
+                "previous_digest = ?, digest = ? WHERE grant_id = ? AND sequence = ?",
                 (
-                    canonical_bytes(dict(body)).decode(),
+                    canonical_bytes(dict(event.body)).decode(),
+                    event.actor_ref,
+                    event.on_behalf_of,
                     changed.previous_digest,
                     changed.digest,
                     GRANT,
@@ -187,6 +193,9 @@ def test_a_revocation_before_activation_is_verified_by_grant_and_task(
 
     assert statuses(run) == expected(ok=("delegation_consent", "open_mandates", "revocation"))
     assert (run["run_id"], run["stage"], run["task_state"]) == (None, None, "canceled")
+    assert run["ledger_chain"]["status"] == "ok"
+    open_mandates = run["links"]["open_mandates"]["refs"]
+    assert open_mandates["not_verified"] == ["merchant_refs", "owner_ref"]
     assert run["links"]["revocation"]["refs"] == {
         "revoked_reason": "owner",
         "epoch_before": 1,
@@ -272,6 +281,8 @@ MANIPULATIONS: list[tuple[str, str, Callable[[Path], None]]] = [
         "checkout_created",
         _sql("d1_checkout_results", "UPDATE d1_checkout_results SET checkout_id = 'cs_other'"),
     ),
+    # Another user revokes in the owner's name, re-chained.
+    ("revoked", "revocation", lambda database: rechain(database, "revoked", by="usr_other")),
     (
         "revoked",
         "revocation",
@@ -291,7 +302,9 @@ MANIPULATIONS: list[tuple[str, str, Callable[[Path], None]]] = [
 
 
 @pytest.mark.parametrize(
-    ("name", "link", "manipulate"), MANIPULATIONS, ids=[link for _, link, _ in MANIPULATIONS]
+    ("name", "link", "manipulate"),
+    MANIPULATIONS,
+    ids=[f"{name}-{link}" for name, link, _ in MANIPULATIONS],
 )
 def test_each_kind_of_link_detects_its_manipulation(
     scenario: Callable[[str], Path], name: str, link: str, manipulate: Callable[[Path], None]
@@ -326,6 +339,131 @@ def test_an_event_edited_without_rechaining_breaks_only_the_links_after_it(
     assert statuses(run) == expected(ok=HNP_LINKS[:5], mismatch=("escalation",))
 
 
+# The ledger as a whole: edits no single link reads still break `complete`
+
+
+def _steps(*steps: Callable[[Path], None]) -> Callable[[Path], None]:
+    def apply(database: Path) -> None:
+        for step in steps:
+            step(database)
+
+    return apply
+
+
+def _drop_event(sequence: int) -> Callable[[Path], None]:
+    return _sql("delegation_events", "DELETE FROM delegation_events WHERE sequence = ?", sequence)
+
+
+def _terminal(outcome: str) -> Callable[[Path], None]:
+    return body_edit("delegation_events", "event_type = 'task_finished'", "$.outcome_code", outcome)
+
+
+LEDGER: list[tuple[str, str, Callable[[Path], None]]] = [
+    (
+        "d1_deny",
+        "terminal_and_task_edited",
+        _steps(
+            _terminal("selection_not_eligible"),
+            _sql("hnp_tasks", "UPDATE hnp_tasks SET outcome_code = 'selection_not_eligible'"),
+        ),
+    ),
+    ("d1_deny", "revocation_deleted", _drop_event(4)),
+    (
+        "d1_deny",
+        "claim_deleted",
+        _steps(_drop_event(3), _sql("hnp_tasks", "UPDATE hnp_tasks SET run_id = NULL")),
+    ),
+    (
+        "d1_deny",
+        "terminal_rechained",
+        lambda database: rechain(database, "task_finished", outcome_code="selection_not_eligible"),
+    ),
+    (
+        "d1_deny",
+        "epoch_without_event",
+        _sql("delegation_grants", "UPDATE delegation_grants SET authority_epoch = 3"),
+    ),
+    (
+        "d1_deny",
+        "grant_reopened",
+        _sql(
+            "delegation_grants",
+            "UPDATE delegation_grants SET state = 'active', revoked_reason = NULL, "
+            "authority_epoch = 1",
+        ),
+    ),
+    (
+        "expired",
+        "expiry_edited",
+        body_edit(
+            "delegation_events", "event_type = 'expired'", "$.observed_at", "2026-01-01T00:00:00Z"
+        ),
+    ),
+    ("expired", "expiry_deleted", _drop_event(3)),
+    ("kill_switch", "terminal_edited", _terminal("revoked_by_owner")),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "label", "manipulate"), LEDGER, ids=[f"{name}-{label}" for name, label, _ in LEDGER]
+)
+def test_the_whole_chain_and_the_rows_it_leaves_bind_complete(
+    scenario: Callable[[str], Path], name: str, label: str, manipulate: Callable[[Path], None]
+) -> None:
+    database = scenario(name)
+    before = only_run(database, grant_id=GRANT)
+    manipulate(database)
+
+    run = only_run(database, grant_id=GRANT)
+
+    assert before["complete"] is True
+    assert run["complete"] is False, label
+    assert before["ledger_chain"]["status"] == "ok"
+    assert run["ledger_chain"]["status"] == "mismatch"
+
+
+def test_the_report_names_the_chained_terminal_not_the_table(
+    scenario: Callable[[str], Path],
+) -> None:
+    database = scenario("d1_deny")
+    _terminal("selection_not_eligible")(database)
+    edit(database, "hnp_tasks", "UPDATE hnp_tasks SET outcome_code = 'selection_not_eligible'")
+
+    run = only_run(database)
+
+    # The edited `task_finished` no longer verifies: the chain proves a claimed, running task.
+    assert (run["task_state"], run["outcome_code"], run["run_id"]) == ("running", None, "run_1")
+
+
+def _without_d1(database: Path) -> None:
+    """Every D1 row of the run deleted, and the purchase's selection with them."""
+    with closing(sqlite3.connect(database)) as connection, connection:
+        tables = ("d1_provenance_sources", "governance_evidence", "d1_checkout_operations")
+        for table in (*tables, "purchases"):
+            for (trigger,) in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ?", (table,)
+            ).fetchall():
+                connection.execute(f"DROP TRIGGER {trigger}")
+        for table in tables:
+            connection.execute(f"DELETE FROM {table} WHERE run_id = 'run_1'")
+        connection.execute("UPDATE purchases SET selected_variant_id = NULL, checkout_id = NULL")
+
+
+@pytest.mark.parametrize("name", ["d1_deny", "d1_escalated"])
+def test_a_d1_terminal_without_its_d1_evidence_is_missing(
+    scenario: Callable[[str], Path], name: str
+) -> None:
+    """HN08 and HN03 end with a D1 code: the chained terminal says D1 ran."""
+    database = scenario(name)
+    _without_d1(database)
+
+    run = only_run(database)
+
+    assert run["links"]["d1_decision"]["status"] == "missing"
+    assert run["links"]["intent"]["status"] == "missing"
+    assert run["complete"] is False
+
+
 # Integration with the HP verifier and the CLI
 
 
@@ -336,6 +474,7 @@ def test_an_hnp_purchase_is_never_verified_as_an_hp_one(scenario: Callable[[str]
     assert document["h2"]["all_runs"]["n"] == 0
     assert document["h2_hnp"]["all_runs"] == {"n": 2, "complete": 1, "rate": 0.5}
     assert document["h2_hnp"]["blocked"] == {"n": 1, "complete": 1, "rate": 1.0}
+    assert document["h2_hnp"]["blocked_states"] == ["canceled", "escalated", "failed"]
 
 
 def test_the_report_carries_no_token_mandate_receipt_or_owner(

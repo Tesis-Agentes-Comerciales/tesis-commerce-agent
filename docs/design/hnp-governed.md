@@ -1031,6 +1031,18 @@ verifica los eslabones 1 a 6, `order_webhook` y los terminales; `freshness`, `d2
 y, mientras tanto, una ejecución que pasó del checkout los tiene `missing` (nunca `ok`), así que su
 cadena no es completa. Precisiones de lo construido:
 
+- `ledger_chain` (fuera de los 17): la cadena `delegation_events` entera verifica, `hnp_tasks`
+  coincide con la tarea que dejan sus eventos (último `task_finished`, o el `task_claimed`, o la
+  revocación del dueño antes del claim) y el grant con su cierre (el primer `revoked`, `expired` o
+  `consumed` fija estado, motivo y época 2; sin cierre, `active` y época 1). `complete` la exige
+  `ok`, y `task_state`, `outcome_code` y `run_id` del documento salen de los eventos encadenados,
+  no de la tabla.
+- D1 aplica también cuando el rastro encadenado lo implica: la fila de la compra que deja `start`,
+  un evento posterior a D1 (reserva, cierre, outbox, recibo, consumo), `kill_switch_blocked` en
+  `uow1`/`uow2`, o un `task_claimed` con la tarea en curso o terminada con un código de D1 o de un
+  paso posterior. Sin su evidencia, D1 es `missing`. `selection_not_eligible`, `checkout_failed`,
+  `state_conflict`, `governance_unavailable`, `no_candidate_in_scope`, `budget_guard` y las
+  cancelaciones pueden terminar la ejecución antes de D1 (K12 en HN11): no lo implican.
 - `intent` compara `intent_json` del grant con la intención derivada del alcance (moneda y
   `total_max_minor`) y recalcula el digest de la fuente D1 como P2; la fuente D1 es un enlace HMAC,
   así que el vínculo con el grant lo cierra `d1_decision` (`IntentFacts` = alcance, política
@@ -1038,12 +1050,14 @@ cadena no es completa. Precisiones de lo construido:
 - `open_mandates` verifica las firmas con `public_jwk_json` y su huella = `issuer_kid`, a la hora
   `consented_at` del grant (el `iat` del abierto puede ir hasta 1 s antes: no se compara por
   igualdad). El comercio de confianza sale del propio mandato abierto: los pseudónimos
-  `merchant_refs` y `owner_ref` no se recalculan (requieren la clave del vault).
+  `merchant_refs` y `owner_ref` no se recalculan (requieren la clave del vault; el eslabón los
+  lista en `not_verified`).
 - Ningún eslabón lee `observed_state_version` de `application_failure`: se lee después de las
   escrituras del terminal.
 - Salida: `purchase_mode: "HNP"`, `grant_id`, `task_id`, `task_state`, `outcome_code` y
   `h2_hnp` (`orders` = H2-HNP, `blocked` = tareas `escalated`, `failed` o `canceled`, `all_runs`,
-  `by_link`) solo si hay ejecuciones HNP; `h2` cuenta solo compras HP.
+  `by_link`) solo si hay ejecuciones HNP; `h2` cuenta solo compras HP. `blocked` incluye HN04: no es
+  el `h2_hnp_block` del piloto, que E2 calcula desde los vectores sin HN04.
 
 ## 10. Traza (HNP-11)
 
