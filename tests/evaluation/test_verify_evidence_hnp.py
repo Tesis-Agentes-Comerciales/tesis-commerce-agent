@@ -191,9 +191,9 @@ def append_event(database: Path, event_type: str, body: dict[str, Any]) -> None:
         )
         row = {**event.link(), "body": canonical_bytes(body).decode()}
         row["digest"] = event_digest(event.link())
+        columns, marks = ", ".join(row), ", ".join("?" * len(row))
         connection.execute(
-            f"INSERT INTO delegation_events ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
-            tuple(row.values()),
+            f"INSERT INTO delegation_events ({columns}) VALUES ({marks})", tuple(row.values())
         )
 
 
@@ -295,7 +295,7 @@ def test_a_merchant_rejection_binds_its_error_receipt(scenario: Callable[[str], 
     ids=["psp-another_payment_id", "psp-without_payment_id", "merchant-another_order_id"],
 )
 def test_an_error_receipt_event_with_another_identifier_is_a_mismatch(
-    scenario: Callable[[str], Path], name: str, identifier: dict[str, str | None]
+    scenario: Callable[[str], Path], name: str, identifier: dict[str, Any]
 ) -> None:
     """The event's `payment_id` (PSP) or `order_id` (merchant) is not its JWT's, re-chained."""
     database = scenario(name)

@@ -6,8 +6,9 @@ tests/governance/test_hnp_gate.py wires them. Only the merchant (httpx.MockTrans
 checkout signature (a key generated for the test) and the authority clock are doubles.
 
 The executor stops at UoW-2 (HNP-09b dispatches). `dispatch_with_order`, `reject_by_psp` and
-`reject_by_merchant` drive the ledger's own dispatch steps as tests/support/delegation.py does, with AP2 receipts whose
-claims bind the closed mandates; `verify-evidence` reads their claims, never their signature.
+`reject_by_merchant` drive the ledger's own dispatch steps as tests/support/delegation.py does,
+with AP2 receipts whose claims bind the closed mandates; `verify-evidence` reads their claims,
+never their signature.
 `record_results` writes the `completion_results` row that HNP-09b's UoW-3 is to write.
 """
 
