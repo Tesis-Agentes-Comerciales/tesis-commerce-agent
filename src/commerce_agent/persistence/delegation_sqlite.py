@@ -7,34 +7,54 @@ authority clock (real UTC), never from the sandbox or commercial clocks. `delega
 
 import json
 import sqlite3
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import asdict, fields, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, get_args
 from uuid import uuid4
 
 from ..delegation.models import (
     EXECUTOR_REF,
+    LEASE_SECONDS,
     OPERATOR_REF,
+    RESERVE_MARGIN_SECONDS,
     ActorKind,
+    Ap2Error,
+    Authority,
+    ClosedMandates,
     ConsentRequest,
     ConsentResult,
     DelegationEvent,
+    DispatchCommit,
     EventType,
+    Execution,
     GrantRecord,
+    GrantState,
+    KillSwitchStage,
     KillSwitchState,
     MandateKind,
     MandateRecord,
+    OutboxRecord,
     OutcomeCode,
     ProposalDraft,
     ProposalRecord,
+    ReleaseBasis,
+    ReservationRecord,
+    ReservationRequest,
+    Revocation,
+    RevokedReason,
+    RevokeEffect,
     SignedMandate,
+    Step,
+    TaskFinish,
     TaskRecord,
+    TaskState,
     event_digest,
     token_digest,
 )
+from ..delegation.ports import TransactionHook
 from ..governance.canonical import canonical_bytes
 
 Clock = Callable[[], datetime]
@@ -202,6 +222,36 @@ _TABLES: dict[Callable[..., Any], str] = {
     GrantRecord: "delegation_grants",
     MandateRecord: "delegation_mandates",
     TaskRecord: "hnp_tasks",
+    ReservationRecord: "grant_reservations",
+    OutboxRecord: "dispatch_outbox",
+}
+_KEYS = {"hnp_tasks": "task_id", "grant_reservations": "reservation_id"}
+_LEASE = timedelta(seconds=LEASE_SECONDS)
+_CANCELLATIONS = frozenset({"revoked_by_owner", "kill_switch", "grant_expired"})
+_UNCERTAIN = frozenset({"dispatch_timeout", "partial_verifier_failure", "receipt_mismatch"})
+_VERIFIER_OUTCOMES: dict[Ap2Error, OutcomeCode] = {
+    "invalid_credential": "verifier_invalid_credential",
+    "invalid_mandate": "verifier_invalid_mandate",
+    "unresolved_constraint": "verifier_unresolved_constraint",
+    "mandates_not_supported": "verifier_mandates_not_supported",
+}
+_ESCALATIONS = frozenset(
+    {
+        "budget_not_satisfiable",
+        "no_candidate_in_scope",
+        "offer_changed",
+        "terms_out_of_scope",
+        "authorization_profile_unresolved",
+        "verifier_unresolved_constraint",
+        "verifier_mandates_not_supported",
+    }
+)
+# How a terminal closes a still active grant (spec §8.1); revoked_by_owner finds it revoked.
+_GRANT_CLOSE: dict[str, tuple[GrantState, RevokedReason | None]] = {
+    "kill_switch": ("revoked", "operator"),
+    "grant_expired": ("expired", None),
+    "escalated": ("revoked", "escalated"),
+    "failed": ("revoked", "failed"),
 }
 
 
@@ -425,6 +475,282 @@ class SqliteDelegationLedger:
         with self._read() as connection:
             return read_events(connection, grant_id)
 
+    # Executor (spec §4.5). Every step after the claim is fenced by the task's lease: with a
+    # foreign lease it writes nothing. A failed comparison writes nothing either and returns
+    # `blocked` with its classification; the executor ends the task with `finish_task`, by CAS.
+    # With an outbox row only the dispatch outcomes end the task (re-claim with outbox).
+
+    def execution(self, task_id: str) -> Execution | None:
+        with self._read() as connection:
+            return _execution(connection, task_id)
+
+    def claim(self, task_id: str, *, hooks: Sequence[TransactionHook] = ()) -> Step:
+        """A new lease, or the terminal that the switch, the owner or the clock impose when there
+        is no outbox row. `hooks` run only if the claim closes the task (a re-claim after start)."""
+        with self._unit() as (connection, now):
+            ex = _execution(connection, task_id)
+            if ex is None:
+                return Step("not_found")
+            task, text = ex.task, utc_text(now)
+            lapsed = task.lease_expires_at is not None and now >= utc_moment(task.lease_expires_at)
+            if task.state != "scheduled" and not (task.state == "running" and lapsed):
+                return Step("not_runnable", ex)
+            outcome = None if ex.outbox else _blocking(ex, None, now)
+            if outcome is not None:
+                state = "failed" if outcome == "state_conflict" else "canceled"
+                _close_task(connection, ex, state, outcome, text, stage="claim")
+                _run(hooks, connection)
+                return Step("closed", _execution(connection, task_id), outcome)
+            run_id = task.run_id or self._new_id("run")
+            claimed = {
+                "run_id": run_id,
+                "claim_count": task.claim_count + 1,
+                "lease_expires_at": utc_text(now + _LEASE),
+                "trigger": "service_token",
+            }
+            _update(
+                connection,
+                "hnp_tasks",
+                task_id,
+                state="running",
+                run_id=run_id,
+                claim_count=claimed["claim_count"],
+                lease_id=self._new_id("lease"),
+                lease_expires_at=claimed["lease_expires_at"],
+                updated_at=text,
+            )
+            _event(connection, ex, "task_claimed", "service", claimed, text, run_id=run_id)
+            return Step("applied", _execution(connection, task_id))
+
+    def reserve(
+        self, request: ReservationRequest, *, hooks: Sequence[TransactionHook] = ()
+    ) -> Step:
+        """UoW-1: the single-use reservation. A retry of the same operation returns it unchanged."""
+        with self._fenced(request.task_id, request.lease_id) as (connection, now, ex):
+            if ex is None:
+                return Step("lease_lost")
+            held = ex.reservation if ex.reservation and ex.reservation.state != "released" else None
+            if held is not None and held.operation_id == request.operation_id:
+                same = (held.reservation_id, held.checkout_id, held.amount_minor) == (
+                    request.reservation_id,
+                    request.checkout_id,
+                    request.amount_minor,
+                )
+                return _renewed(connection, ex, now) if same else _conflict(ex)
+            outcome = _blocking(ex, request.expected, now, RESERVE_MARGIN_SECONDS)
+            if outcome is not None or held is not None:
+                return Step("blocked", ex, outcome or "state_conflict")
+            text, grant = utc_text(now), ex.grant
+            _insert(
+                connection,
+                ReservationRecord(
+                    reservation_id=request.reservation_id,
+                    grant_id=grant.grant_id,
+                    owner_id=grant.owner_id,
+                    run_id=_run_id(ex),
+                    checkout_id=request.checkout_id,
+                    operation_id=request.operation_id,
+                    amount_minor=request.amount_minor,
+                    currency="COP",
+                    expected_epoch=grant.authority_epoch,
+                    state="reserved",
+                    state_version=1,
+                    release_basis=None,
+                    uncertain_reason=None,
+                    d2_evidence_id=request.d2_evidence_id,
+                    created_at=text,
+                    updated_at=text,
+                ),
+            )
+            _bump_grant(connection, grant, text)
+            reserved = {
+                "reservation_id": request.reservation_id,
+                "operation_id": request.operation_id,
+                "amount_minor": request.amount_minor,
+                "expected_epoch": grant.authority_epoch,
+                "state_version": grant.state_version + 1,
+                "d2_evidence_id": request.d2_evidence_id,
+            }
+            _event(connection, ex, "reservation_reserved", "service", reserved, text)
+            return _applied(connection, ex, now, hooks)
+
+    def record_closed_mandates(self, request: ClosedMandates) -> Step:
+        """UoW-C: the closed mandates, saved as soon as they are signed; a resumed run reuses
+        them instead of closing again (spec §4.5)."""
+        with self._fenced(request.task_id, request.lease_id) as (connection, now, ex):
+            if ex is None:
+                return Step("lease_lost")
+            reservation = ex.reservation
+            if reservation is None or reservation.reservation_id != request.reservation_id:
+                return _conflict(ex)
+            if _one(connection, MandateRecord, "reservation_id = ?", reservation.reservation_id):
+                return _renewed(connection, ex, now)
+            if reservation.state != "reserved":
+                return Step("blocked", ex, _blocking(ex, None, now) or "state_conflict")
+            text = utc_text(now)
+            closed: dict[MandateKind, SignedMandate] = {
+                "closed_checkout": request.closed_checkout,
+                "closed_payment": request.closed_payment,
+            }
+            for kind, mandate in closed.items():
+                self._insert_mandate(
+                    connection, ex.grant.grant_id, kind, reservation.reservation_id, mandate, text
+                )
+            body = {
+                "mandates": [
+                    {
+                        "kind": kind,
+                        "token_digest": token_digest(mandate.token),
+                        "link_hash": mandate.link_hash,
+                        "checkout_hash": request.checkout_hash,
+                        "agent_key_kid": ex.grant.agent_key_kid,
+                    }
+                    for kind, mandate in closed.items()
+                ]
+            }
+            _event(connection, ex, "mandates_closed", "service", body, text)
+            return _applied(connection, ex, now, ())
+
+    def commit_dispatch(
+        self, request: DispatchCommit, *, hooks: Sequence[TransactionHook] = ()
+    ) -> Step:
+        """UoW-2: re-checks epoch, switch, validity and reservation, and commits the reservation
+        with its outbox row. After this the purchase is in flight: nothing cancels it."""
+        with self._fenced(request.task_id, request.lease_id) as (connection, now, ex):
+            if ex is None:
+                return Step("lease_lost")
+            if ex.outbox is not None:
+                return _renewed(connection, ex, now)
+            reservation, grant = ex.reservation, ex.grant
+            outcome = _blocking(ex, request.expected, now)
+            if outcome is None and (
+                reservation is None
+                or (reservation.reservation_id, reservation.state, reservation.state_version)
+                != (request.reservation_id, "reserved", request.reservation_version)
+                or _one(connection, MandateRecord, "reservation_id = ?", request.reservation_id)
+                is None
+            ):
+                outcome = "state_conflict"
+            if outcome is not None or reservation is None:
+                return Step("blocked", ex, outcome)
+            text = utc_text(now)
+            _update_reservation(connection, reservation, text, state="committed")
+            _bump_grant(connection, grant, text)
+            _insert(
+                connection,
+                OutboxRecord(
+                    outbox_id=request.outbox_id,
+                    reservation_id=reservation.reservation_id,
+                    operation_id=reservation.operation_id,
+                    grant_id=grant.grant_id,
+                    run_id=reservation.run_id,
+                    checkout_id=reservation.checkout_id,
+                    amount_minor=reservation.amount_minor,
+                    currency=reservation.currency,
+                    checkout_expires_at=request.checkout_expires_at,
+                    payment_request_digest=request.payment_request_digest,
+                    authority_epoch=grant.authority_epoch,
+                    control_epoch=ex.control.control_epoch,
+                    d3_evidence_id=request.d3_evidence_id,
+                    state="committed",
+                    rejected_by=None,
+                    ap2_error=None,
+                    order_id=None,
+                    error_receipt_jwt=None,
+                    created_at=text,
+                    updated_at=text,
+                ),
+            )
+            committed = {
+                "outbox_id": request.outbox_id,
+                "d3_evidence_id": request.d3_evidence_id,
+                "authority_epoch": grant.authority_epoch,
+                "control_epoch": ex.control.control_epoch,
+            }
+            _event(connection, ex, "dispatch_committed", "service", committed, text)
+            return _applied(connection, ex, now, hooks)
+
+    def finish_task(self, request: TaskFinish, *, hooks: Sequence[TransactionHook] = ()) -> Step:
+        """The terminal of a task without an outbox row (spec §8.1), by CAS on its lease. It
+        releases a held reservation and closes an active grant with the matching cause."""
+        if (request.state == "canceled") != (request.outcome_code in _CANCELLATIONS) or (
+            request.state == "escalated" and request.outcome_code not in _ESCALATIONS
+        ):
+            raise ValueError("The outcome does not belong to that terminal state")
+        if (
+            request.outcome_code in _UNCERTAIN
+            or request.outcome_code in _VERIFIER_OUTCOMES.values()
+        ):
+            raise ValueError("Dispatch outcomes end the task through the outbox")
+        if (request.outcome_code == "kill_switch") != (request.stage is not None):
+            raise ValueError("Only the kill switch names the stage that met it")
+        with self._fenced(request.task_id, request.lease_id) as (connection, now, ex):
+            if ex is None:
+                return Step("lease_lost")
+            owner_revoked = ex.grant.revoked_reason == "owner"
+            if ex.outbox is not None:
+                return Step("blocked", ex)
+            if (request.outcome_code == "revoked_by_owner") != owner_revoked:
+                return _conflict(ex)
+            _close_task(
+                connection,
+                ex,
+                request.state,
+                request.outcome_code,
+                utc_text(now),
+                stage=request.stage,
+            )
+            return _closed(connection, ex, hooks)
+
+    # Revocation by the owner (spec §8.4)
+
+    def revoke(self, owner_id: str, grant_id: str) -> Revocation | None:
+        """Idempotent. Before the commitment it releases the reservation and leaves no outbox;
+        after it the purchase stays in flight and is reconciled, without a promise to cancel."""
+        with self._unit() as (connection, now):
+            grant = _one(
+                connection, GrantRecord, "grant_id = ? AND owner_id = ?", grant_id, owner_id
+            )
+            if grant is None:
+                return None
+            if grant.revoked_reason == "owner":
+                return Revocation("revoked", grant, _revocation_effect(connection, grant_id))
+            if grant.state == "revoked":
+                return Revocation("already_closed", grant, "no_effect")
+            if grant.state != "active" or now >= utc_moment(grant.expires_at):
+                return Revocation("not_revocable", grant, None)
+            ex = _execution(
+                connection, _get(connection, TaskRecord, "grant_id = ?", grant_id).task_id
+            )
+            if ex is None:
+                raise LookupError("A grant without its task")
+            text, reservation = utc_text(now), ex.reservation
+            held = reservation is not None and reservation.state == "reserved"
+            effect: RevokeEffect = "in_flight" if ex.outbox else "released" if held else "no_effect"
+            if reservation is not None and held:
+                _release(connection, ex, reservation, "no_outbox", "user", text)
+            _close_grant(connection, grant, "revoked", "owner", text)
+            revoked = {
+                "revoked_reason": "owner",
+                "epoch_before": grant.authority_epoch,
+                "epoch_after": grant.authority_epoch + 1,
+                "effect": effect,
+            }
+            _event(connection, ex, "revoked", "user", revoked, text)
+            if ex.task.state == "scheduled":
+                _update(
+                    connection,
+                    "hnp_tasks",
+                    ex.task.task_id,
+                    state="canceled",
+                    outcome_code="revoked_by_owner",
+                    updated_at=text,
+                    finished_at=text,
+                )
+            return Revocation(
+                "revoked", _get(connection, GrantRecord, "grant_id = ?", grant_id), effect
+            )
+
     # Kill switch (spec §8.4): one row per change; the highest control_epoch is the current one.
 
     def kill_switch(self) -> KillSwitchState:
@@ -456,6 +782,16 @@ class SqliteDelegationLedger:
                 connection.rollback()
                 raise
             connection.commit()
+
+    @contextmanager
+    def _fenced(
+        self, task_id: str, lease_id: str
+    ) -> Iterator[tuple[sqlite3.Connection, datetime, Execution | None]]:
+        """A unit of work and the task's state, or None as the state when the lease is not ours."""
+        with self._unit() as (connection, now):
+            ex = _execution(connection, task_id)
+            owned = ex is not None and ex.task.state == "running" and ex.task.lease_id == lease_id
+            yield connection, now, ex if owned else None
 
     @contextmanager
     def _read(self) -> Iterator[sqlite3.Connection]:
@@ -559,6 +895,258 @@ def _one[T](
 ) -> T | None:
     rows = _all(connection, record, where, *params)
     return rows[0] if rows else None
+
+
+# Executor steps
+
+
+def _execution(connection: sqlite3.Connection, task_id: str) -> Execution | None:
+    task = _one(connection, TaskRecord, "task_id = ?", task_id)
+    if task is None:
+        return None
+    reservation = _one(
+        connection, ReservationRecord, "grant_id = ? ORDER BY created_at DESC", task.grant_id
+    )
+    outbox = None
+    if reservation is not None:
+        outbox = _one(connection, OutboxRecord, "reservation_id = ?", reservation.reservation_id)
+    grant = _get(connection, GrantRecord, "grant_id = ?", task.grant_id)
+    return Execution(task, grant, _control(connection), reservation, outbox)
+
+
+def _blocking(
+    ex: Execution, expected: Authority | None, now: datetime, margin_seconds: int = 0
+) -> OutcomeCode | None:
+    """Why the grant no longer authorizes this step, in the order of spec §4.5, or None."""
+    grant, control = ex.grant, ex.control
+    if grant.revoked_reason == "owner":
+        return "revoked_by_owner"
+    if control.enabled or (expected and expected.control_epoch != control.control_epoch):
+        return "kill_switch"
+    expires_at = utc_moment(grant.expires_at)
+    if (
+        grant.state == "expired"
+        or now >= expires_at
+        or now + timedelta(seconds=margin_seconds) > expires_at
+    ):
+        return "grant_expired"
+    if grant.state != "active" or (
+        expected
+        and (expected.authority_epoch, expected.state_version)
+        != (grant.authority_epoch, grant.state_version)
+    ):
+        return "state_conflict"
+    return None
+
+
+def _close_task(
+    connection: sqlite3.Connection,
+    ex: Execution,
+    state: TaskState,
+    outcome: OutcomeCode,
+    text: str,
+    *,
+    stage: KillSwitchStage | None = None,
+) -> None:
+    """A terminal of spec §8.1: release the held reservation, close an active grant, end."""
+    grant, reservation = ex.grant, ex.reservation
+    actor: ActorKind = "operator" if outcome == "kill_switch" else "service"
+    if outcome == "kill_switch":
+        (switched_on,) = connection.execute(
+            "SELECT MAX(control_epoch) FROM hnp_controls WHERE kill_switch = 1"
+        ).fetchone()
+        blocked = {"control_epoch": switched_on, "stage": stage}
+        _event(connection, ex, "kill_switch_blocked", "service", blocked, text)
+    released = reservation is not None and reservation.state == "reserved"
+    if reservation is not None and released:
+        _release(connection, ex, reservation, "no_outbox", actor, text)
+    target = _GRANT_CLOSE.get(outcome) or _GRANT_CLOSE.get(state)
+    if grant.state == "active" and target is not None:
+        _close_grant(connection, grant, *target, text)
+        if target[0] == "expired":
+            lapsed = {"expires_at": grant.expires_at, "observed_at": text}
+            _event(connection, ex, "expired", "service", lapsed, text)
+        else:
+            revoked = {
+                "revoked_reason": target[1],
+                "epoch_before": grant.authority_epoch,
+                "epoch_after": grant.authority_epoch + 1,
+                "effect": "released" if released else "no_effect",
+            }
+            _event(connection, ex, "revoked", actor, revoked, text)
+    elif released:
+        _bump_grant(connection, grant, text)
+    _finish(connection, ex, state, outcome, text)
+
+
+def _release(
+    connection: sqlite3.Connection,
+    ex: Execution,
+    reservation: ReservationRecord,
+    basis: ReleaseBasis,
+    actor: ActorKind,
+    text: str,
+) -> None:
+    _update_reservation(connection, reservation, text, state="released", release_basis=basis)
+    body = {"reservation_id": reservation.reservation_id, "release_basis": basis}
+    _event(connection, ex, "reservation_released", actor, body, text)
+
+
+def _finish(
+    connection: sqlite3.Connection,
+    ex: Execution,
+    state: TaskState,
+    outcome: OutcomeCode | None,
+    text: str,
+) -> None:
+    task = ex.task
+    _update(
+        connection,
+        "hnp_tasks",
+        task.task_id,
+        state=state,
+        outcome_code=outcome,
+        lease_id=None,
+        lease_expires_at=None,
+        updated_at=text,
+        finished_at=text,
+    )
+    body = {"state": state, "outcome_code": outcome, "run_id": task.run_id}
+    _event(connection, ex, "task_finished", "service", body, text)
+
+
+def _close_grant(
+    connection: sqlite3.Connection,
+    grant: GrantRecord,
+    state: GrantState,
+    reason: RevokedReason | None,
+    text: str,
+) -> None:
+    """Every step to a terminal state adds 1 to `authority_epoch` (spec §4.4)."""
+    connection.execute(
+        "UPDATE delegation_grants SET state = ?, revoked_reason = ?, closed_at = ?, "
+        "authority_epoch = authority_epoch + 1 WHERE grant_id = ?",
+        (state, reason, text, grant.grant_id),
+    )
+    _bump_grant(connection, grant, text)
+
+
+def _bump_grant(connection: sqlite3.Connection, grant: GrantRecord, text: str) -> None:
+    """Any transition of the grant or of its reservation (spec §4.3)."""
+    connection.execute(
+        "UPDATE delegation_grants SET state_version = state_version + 1, updated_at = ? "
+        "WHERE grant_id = ?",
+        (text, grant.grant_id),
+    )
+
+
+def _update_reservation(
+    connection: sqlite3.Connection, reservation: ReservationRecord, text: str, **changes: object
+) -> None:
+    _update(
+        connection,
+        "grant_reservations",
+        reservation.reservation_id,
+        state_version=reservation.state_version + 1,
+        updated_at=text,
+        **changes,
+    )
+
+
+def _event(
+    connection: sqlite3.Connection,
+    ex: Execution,
+    event_type: EventType,
+    actor_kind: ActorKind,
+    body: Mapping[str, Any],
+    text: str,
+    *,
+    run_id: str | None = None,
+) -> None:
+    task = ex.task
+    append_event(
+        connection,
+        task.grant_id,
+        event_type,
+        actor_kind,
+        body,
+        text,
+        task.task_id,
+        run_id or task.run_id,
+    )
+
+
+def _revocation_effect(connection: sqlite3.Connection, grant_id: str) -> RevokeEffect:
+    (body,) = connection.execute(
+        "SELECT body FROM delegation_events WHERE grant_id = ? AND event_type = 'revoked' "
+        "ORDER BY sequence DESC LIMIT 1",
+        (grant_id,),
+    ).fetchone()
+    return json.loads(body)["effect"]
+
+
+def _run_id(ex: Execution) -> str:
+    if ex.task.run_id is None:
+        raise LookupError("A running task without its run")
+    return ex.task.run_id
+
+
+def _renew(connection: sqlite3.Connection, ex: Execution, now: datetime) -> None:
+    """Each fenced step renews the lease it holds (spec §4.5)."""
+    connection.execute(
+        "UPDATE hnp_tasks SET lease_expires_at = ?, updated_at = ? WHERE task_id = ?",
+        (utc_text(now + _LEASE), utc_text(now), ex.task.task_id),
+    )
+
+
+def _run(hooks: Sequence[TransactionHook], connection: sqlite3.Connection) -> None:
+    for hook in hooks:
+        hook(connection)
+
+
+def _renewed(connection: sqlite3.Connection, ex: Execution, now: datetime) -> Step:
+    _renew(connection, ex, now)
+    return Step("reused", _execution(connection, ex.task.task_id))
+
+
+def _applied(
+    connection: sqlite3.Connection,
+    ex: Execution,
+    now: datetime,
+    hooks: Sequence[TransactionHook],
+) -> Step:
+    """The ledger's writes are done: renew the lease, then the hooks, before COMMIT."""
+    _renew(connection, ex, now)
+    _run(hooks, connection)
+    return Step("applied", _execution(connection, ex.task.task_id))
+
+
+def _closed(
+    connection: sqlite3.Connection, ex: Execution, hooks: Sequence[TransactionHook]
+) -> Step:
+    _run(hooks, connection)
+    after = _execution(connection, ex.task.task_id)
+    return Step("closed", after, None if after is None else after.task.outcome_code)
+
+
+def _conflict(ex: Execution) -> Step:
+    return Step("blocked", ex, "state_conflict")
+
+
+def _update(connection: sqlite3.Connection, table: str, key: str, **changes: object) -> None:
+    assignments = ", ".join(f"{name} = ?" for name in changes)
+    connection.execute(
+        f"UPDATE {table} SET {assignments} WHERE {_KEYS[table]} = ?", (*changes.values(), key)
+    )
+
+
+def _get[T](
+    connection: sqlite3.Connection, record: Callable[..., T], where: str, *params: object
+) -> T:
+    found = _one(connection, record, where, *params)
+    if found is None:
+        raise LookupError(f"No row in {_TABLES[record]}")
+    return found
 
 
 def _control(connection: sqlite3.Connection) -> KillSwitchState:
