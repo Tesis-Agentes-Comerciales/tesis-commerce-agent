@@ -113,6 +113,8 @@ READY_TIMEOUT_SECONDS = 90.0
 # what is due, signed with MERCHANT_WEBHOOK_SECRET, to WEBHOOK_RECEIVER_URL (merchant README).
 WEBHOOK_RELAY_SECONDS = 2.0
 WEBHOOK_BATCH = 20
+# One dispatcher pass delivers at most WEBHOOK_BATCH events; past this it is stuck and is killed.
+WEBHOOK_DISPATCH_TIMEOUT_SECONDS = 10.0
 STOP_TIMEOUT_SECONDS = 10.0
 GROUP_POLL_SECONDS = 0.05
 # Closing the terminal (SIGHUP) or `kill` (SIGTERM) shut the stack down like Ctrl-C.
@@ -628,6 +630,7 @@ class Launcher:
         self.running: list[tuple[Service, Process]] = []
         self.health: dict[str, str] | None = None
         self._relay_down = False
+        self._dispatcher: subprocess.Popen[str] | None = None
         self._secrets = list(plan.secret_values())
         plan.run_dir.mkdir(parents=True, exist_ok=True)
         self._log = (plan.run_dir / "launcher.log").open("a", encoding="utf-8")
@@ -646,6 +649,44 @@ class Launcher:
             check=False,
         )
         return result.returncode, result.stdout, result.stderr
+
+    def _dispatch(
+        self,
+        command: Sequence[str],
+        cwd: Path,
+        env: Mapping[str, str],
+        timeout: float = WEBHOOK_DISPATCH_TIMEOUT_SECONDS,
+    ) -> tuple[int, str, str]:
+        """The merchant's dispatcher in its own process group, bounded by `timeout`: past it, or
+        on Ctrl-C, the whole group is killed (`uv run` leaves a python child) and
+        TimeoutExpired or the interruption propagates."""
+        process = subprocess.Popen(
+            list(command),
+            cwd=cwd,
+            env=dict(env),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        self._dispatcher = process
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            return process.returncode, stdout, stderr
+        finally:
+            self._kill_dispatcher()
+
+    def _kill_dispatcher(self) -> None:
+        """SIGKILL to the group of a dispatcher still in flight, and reap it. One that finished
+        was reaped already: its group id may belong to someone else by now."""
+        process, self._dispatcher = self._dispatcher, None
+        if process is None or process.returncode is not None:
+            return
+        self._signal(process, signal.SIGKILL)
+        # Its pipes close once the group is gone; a process that escaped the group is not waited.
+        with suppress(subprocess.TimeoutExpired, OSError, ValueError):
+            process.communicate(timeout=STOP_TIMEOUT_SECONDS)
 
     def _spawn(self, service: Service) -> Process:
         with (self.plan.run_dir / service.log).open("ab") as log:
@@ -824,41 +865,61 @@ class Launcher:
                         f"{service.label} se detuvo (código {code}). Log: "
                         f"{self.plan.run_dir / service.log}\n{self.service_tail(service)}"
                     )
-            self.relay_webhooks()
+            try:
+                self.relay_webhooks()
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                # Nothing the relay does (launching, its output, its log, the terminal) may stop
+                # the demo or delay noticing a service that stopped.
+                self._relay_failed(f"error: {type(error).__name__}", str(error))
             time.sleep(interval)
 
     def relay_webhooks(self) -> list[dict[str, Any]]:
         """One pass of the merchant's dispatcher. A failure is announced once, never fatal: the
         purchase does not depend on it, only the trace's «El comercio registró la orden»."""
         plan = self.plan
-        code, stdout, stderr = self._run(
-            plan.dispatch_webhooks(), plan.merchant_repo, plan.webhook_env()
-        )
+        try:
+            code, stdout, stderr = self._dispatch(
+                plan.dispatch_webhooks(), plan.merchant_repo, plan.webhook_env()
+            )
+        except subprocess.TimeoutExpired:
+            self._relay_failed(
+                f"no respondió en {WEBHOOK_DISPATCH_TIMEOUT_SECONDS:.0f} s y se detuvo", ""
+            )
+            return []
+        except OSError as error:
+            self._relay_failed(f"no se pudo lanzar: {type(error).__name__}", str(error))
+            return []
         deliveries = _deliveries(stdout) if code == 0 else None
-        log = plan.run_dir / "webhooks.log"
-        with log.open("a", encoding="utf-8") as output:
-            if deliveries is None:
-                output.write(f"$ webhook-dispatch (código {code})\n{self._tail(stderr)}\n")
-            for item in deliveries or []:
-                output.write(
+        if deliveries is None:
+            self._relay_failed(f"código {code}", stderr)
+            return []
+        with suppress(OSError), (plan.run_dir / "webhooks.log").open("a", encoding="utf-8") as out:
+            for item in deliveries:
+                out.write(
                     f"{datetime.now(UTC).isoformat()} {item.get('delivery_id')} "
                     f"{item.get('outcome')} http={item.get('http_status')} "
                     f"error={item.get('error_code')}\n"
                 )
-        if deliveries is None:
-            if not self._relay_down:
-                self.say(
-                    f"Aviso: el comercio no pudo entregar sus webhooks al agente (código {code}). "
-                    f"La compra sigue; detalle en {log}"
-                )
-            self._relay_down = True
-            return []
         if self._relay_down:
             self.say("· Webhooks del comercio: entrega restablecida")
             self._relay_down = False
         if deliveries:
             self.say(f"· Webhooks del comercio: {_delivery_summary(deliveries)}")
         return deliveries
+
+    def _relay_failed(self, reason: str, detail: str) -> None:
+        """Logged every time, announced once until a pass succeeds again."""
+        log = self.plan.run_dir / "webhooks.log"
+        with suppress(OSError), log.open("a", encoding="utf-8") as output:
+            output.write(f"$ webhook-dispatch ({reason})\n{self._tail(detail)}\n")
+        if not self._relay_down:
+            self._relay_down = True
+            # Not even a terminal that is gone may stop the demo from here.
+            with suppress(OSError, ValueError):
+                self.say(
+                    f"Aviso: el comercio no pudo entregar sus webhooks al agente ({reason}). "
+                    f"La compra sigue; detalle en {log}"
+                )
 
     def stop(self) -> None:
         """SIGTERM to every group first; when every group is gone or the deadline passes,
@@ -867,6 +928,8 @@ class Launcher:
         # A second Ctrl-C, SIGTERM or SIGHUP must not leave services behind.
         previous = {signum: signal.signal(signum, signal.SIG_IGN) for signum in STOP_SIGNALS}
         try:
+            # A dispatcher pass still in flight leaves no orphan behind.
+            self._kill_dispatcher()
             running = [(s, p) for s, p in reversed(self.running) if p.poll() is None]
             for _, process in running:
                 self._signal(process, signal.SIGTERM)

@@ -278,6 +278,8 @@ class FakeLauncher(Launcher):
         # What each `webhook-dispatch` answers, in order; then nothing is due.
         self.due: list[list[dict[str, Any]]] = []
         self.dispatched: list[tuple[Path, dict[str, str]]] = []
+        # What the next dispatcher passes raise instead of answering: a hang, a launch error.
+        self.dispatch_errors: list[Exception] = []
         super().__init__(plan, io.StringIO())
 
     def _run(
@@ -300,6 +302,18 @@ class FakeLauncher(Launcher):
         if "issue-session" in command:
             return 0, json.dumps({"session_token": MERCHANT_TOKEN}), f"{stderr} {MERCHANT_TOKEN}"
         return 0, "", stderr
+
+    def _dispatch(
+        self,
+        command: Sequence[str],
+        cwd: Path,
+        env: Mapping[str, str],
+        timeout: float = demo_stack.WEBHOOK_DISPATCH_TIMEOUT_SECONDS,
+    ) -> tuple[int, str, str]:
+        if self.dispatch_errors:
+            self.dispatched.append((cwd, dict(env)))
+            raise self.dispatch_errors.pop(0)
+        return self._run(command, cwd, env)
 
     def _spawn(self, service: Service) -> FakeProcess:
         process = FakeProcess()
@@ -482,6 +496,110 @@ def test_a_failing_relay_is_announced_once_and_the_demo_goes_on(tmp_path: Path) 
     printed = launcher.out.getvalue()  # type: ignore[attr-defined]
     assert printed.count("Aviso: el comercio no pudo entregar sus webhooks al agente") == 1
     assert "Webhooks del comercio: entrega restablecida" in printed
+
+
+def stops_after(rounds: int) -> Any:
+    """A service's poll that reports it stopped on round `rounds + 1` of the watch."""
+    polls = 0
+
+    def poll() -> int | None:
+        nonlocal polls
+        polls += 1
+        return 1 if polls > rounds else None
+
+    return poll
+
+
+def test_a_dispatcher_that_hangs_or_cannot_start_never_stops_the_watch(tmp_path: Path) -> None:
+    plan = plan_for("b2", tmp_path)
+    launcher = FakeLauncher(plan, health={"governance_mode": "enforce", "hp_flow": "governed"})
+    launcher.start()
+    launcher.dispatch_errors = [
+        subprocess.TimeoutExpired("webhook-dispatch", demo_stack.WEBHOOK_DISPATCH_TIMEOUT_SECONDS),
+        FileNotFoundError(2, "No such file or directory", "uv"),
+    ]
+    launcher.due = [[delivery()]]
+    launcher.spawned["agent"].poll = stops_after(3)  # type: ignore[method-assign]
+
+    # The agent stopping is still noticed after a hung pass and one that could not start.
+    with pytest.raises(DemoError, match="Agente se detuvo"):
+        launcher.watch(interval=0)
+    launcher.stop()
+    launcher.close()
+
+    assert len(launcher.dispatched) == 3
+    printed = launcher.out.getvalue()  # type: ignore[attr-defined]
+    assert printed.count("Aviso: el comercio no pudo entregar sus webhooks al agente") == 1
+    assert "(no respondió en 10 s y se detuvo)" in printed
+    assert "Webhooks del comercio: entrega restablecida" in printed
+    log = (plan.run_dir / "webhooks.log").read_text("utf-8")
+    assert "no respondió en 10 s" in log and "no se pudo lanzar: FileNotFoundError" in log
+    assert_no_secret(shown(launcher) + log, plan)
+
+
+def test_a_webhooks_log_that_cannot_be_written_never_stops_the_watch(tmp_path: Path) -> None:
+    plan = plan_for("b2", tmp_path)
+    launcher = FakeLauncher(plan, health={"governance_mode": "enforce", "hp_flow": "governed"})
+    launcher.start()
+    (plan.run_dir / "webhooks.log").mkdir()
+    launcher.due = [[delivery()]]
+    launcher.failing = None
+    launcher.spawned["agent"].poll = stops_after(2)  # type: ignore[method-assign]
+    launcher.dispatch_errors = [OSError("dispatcher failed")]
+
+    with pytest.raises(DemoError, match="Agente se detuvo"):
+        launcher.watch(interval=0)
+    launcher.stop()
+    launcher.close()
+
+    printed = launcher.out.getvalue()  # type: ignore[attr-defined]
+    assert "Aviso: el comercio no pudo entregar sus webhooks al agente" in printed
+    assert "Webhooks del comercio: 1 entregado al agente" in printed
+
+
+def hanging_dispatcher(tmp_path: Path) -> tuple[list[str], Path, Path]:
+    """A shell that records its pid, starts a child that outlives it and waits for it."""
+    leader, child = tmp_path / "leader.pid", tmp_path / "child.pid"
+    script = 'echo $$ > "$0"; sleep 30 & echo $! > "$1"; wait'
+    return ["sh", "-c", script, str(leader), str(child)], leader, child
+
+
+def test_a_hanging_dispatcher_is_killed_with_its_whole_group(tmp_path: Path) -> None:
+    plan = plan_for("b2", tmp_path)
+    launcher = Launcher(plan, io.StringIO())
+    command, leader, child = hanging_dispatcher(tmp_path)
+    started = time.monotonic()
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            launcher._dispatch(command, tmp_path, os.environ, timeout=0.5)
+
+        assert time.monotonic() - started < demo_stack.STOP_TIMEOUT_SECONDS
+        # No orphan: the child the leader started dies with it.
+        assert gone(pid_from(leader)) and gone(pid_from(child))
+    finally:
+        launcher.close()
+
+
+def test_stop_kills_a_dispatcher_pass_still_in_flight(tmp_path: Path) -> None:
+    plan = plan_for("b2", tmp_path)
+    launcher = Launcher(plan, io.StringIO())
+    command, leader, child = hanging_dispatcher(tmp_path)
+    # What _dispatch holds while it waits, as when Ctrl-C arrives in the middle of a pass.
+    process = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True
+    )
+    launcher._dispatcher = process
+    try:
+        orphan = pid_from(child)
+
+        launcher.stop()
+
+        assert gone(pid_from(leader)) and gone(orphan)
+        assert process.returncode is not None
+    finally:
+        with suppress(ProcessLookupError, PermissionError):
+            os.killpg(process.pid, signal.SIGKILL)
+        launcher.close()
 
 
 def test_dry_run_names_variables_but_shows_no_value(tmp_path: Path) -> None:
