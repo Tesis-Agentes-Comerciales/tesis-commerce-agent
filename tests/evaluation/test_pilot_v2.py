@@ -7,11 +7,11 @@ from the agent's real stores. No service starts and no model is called.
 import json
 import os
 import sqlite3
-import subprocess
 import sys
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -45,11 +45,12 @@ from commerce_evaluation.governance_pilot import (
 )
 from commerce_evaluation.paths import DATA
 from commerce_evaluation.pilot_evidence_chain import (
+    VERIFIER_MODULE,
     EvidenceChainCheck,
     EvidenceChainError,
     chain_complete,
     link_statuses,
-    verifier_command,
+    verifier_readiness,
 )
 from commerce_evaluation.pilot_measures import (
     authority_violations,
@@ -76,6 +77,7 @@ from tests.evaluation.test_pilot_evidence import (
     checkout_report,
     fake_merchant,
     psp_database,
+    recording_dispatch,
     row,
     write_feed,
 )
@@ -243,17 +245,19 @@ def test_readiness_names_what_p1_p2_and_p3_must_provide(monkeypatch: pytest.Monk
     assert integration_readiness(load_manifest(PILOT_MANIFEST)) == {}
 
     monkeypatch.setattr(pilot_policy, "_built_rules", lambda _: {"POL-01", "POL-02", "POL-11"})
-    monkeypatch.setattr(pilot_policy, "_verifier_installed", lambda: False)
+    missing_verifier = {"ready": False, "module": VERIFIER_MODULE, "links_match": None}
+    monkeypatch.setattr(pilot_policy, "verifier_readiness", lambda _: missing_verifier)
     readiness = integration_readiness(V2_MANIFEST)
     assert readiness == {
         "policy_rules": {"ready": False, "missing": ["POL-03", "POL-04", "POL-05", "POL-06"]},
-        "evidence_verifier": {"ready": False, "entry_point": "verify-evidence"},
+        "evidence_verifier": missing_verifier,
     }
     with pytest.raises(PilotError, match="policy_rules"):
         require_integrations(readiness)
 
     monkeypatch.setattr(pilot_policy, "_built_rules", lambda _: set(registered_rules(V2_MANIFEST)))
-    monkeypatch.setattr(pilot_policy, "_verifier_installed", lambda: True)
+    ready_verifier = {"ready": True, "module": VERIFIER_MODULE, "links_match": True}
+    monkeypatch.setattr(pilot_policy, "verifier_readiness", lambda _: ready_verifier)
     ready = integration_readiness(V2_MANIFEST)
     assert all(check["ready"] for check in ready.values())
     require_integrations(ready)
@@ -464,79 +468,82 @@ def test_decisions_are_split_by_decision_point(tmp_path: Path) -> None:
     }
 
 
-def completed(stdout: str, returncode: int = 0) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(["verify-evidence"], returncode, stdout, "")
-
-
-def report(**statuses: str) -> str:
-    return json.dumps({"run_id": "run-real", "links": statuses})
-
-
-def test_the_verifier_report_becomes_one_status_per_link(tmp_path: Path) -> None:
-    listed = {
-        "links": [{"link": "intent", "status": "ok"}, {"name": "mandates", "status": "missing"}]
+def verifier_run(order_id: str | None = "ord_1", **statuses: str) -> dict[str, Any]:
+    """One run document as P2's verify_database returns it."""
+    links = dict.fromkeys(LINKS, "ok") | statuses
+    return {
+        "database": "agent.db",
+        "run_id": "run-real",
+        "stage": "completed" if order_id else "awaiting_confirmation",
+        "order_id": order_id,
+        "links": {
+            name: {"status": status, "detail": f"{name}: {status}", "refs": {"id": "ref"}}
+            for name, status in links.items()
+        },
+        "complete": all(status in {"ok", "not_applicable"} for status in links.values()),
     }
-    assert link_statuses(listed) == {"intent": "ok", "mandates": "missing"}
+
+
+def test_the_row_keeps_the_verifier_document_without_refs(tmp_path: Path) -> None:
+    asked: list[tuple[Path, str, Path | None]] = []
+
+    def verify(database: Path, run_id: str, psp: Path | None) -> list[dict[str, Any]]:
+        asked.append((database, run_id, psp))
+        return [verifier_run(mandates="mismatch")]
+
+    chain = EvidenceChainCheck(LINKS, verify_run=verify)
+    document = chain.verify(tmp_path / "agent.db", "run-real", tmp_path / "payments.db")
+
+    assert asked == [(tmp_path / "agent.db", "run-real", tmp_path / "payments.db")]
+    assert document["required_links"] == list(LINKS)
+    assert link_statuses(document)["mandates"] == "mismatch"
+    assert all(set(link) == {"status", "detail"} for link in document["links"].values())
+    with pytest.raises(EvidenceChainError, match="found 0 purchases"):
+        EvidenceChainCheck(LINKS, verify_run=lambda *_: []).verify(tmp_path, "r", None)
     with pytest.raises(EvidenceChainError, match="unknown status"):
-        link_statuses({"links": {"intent": "fine"}})
-
-    # An incomplete chain may exit non-zero and is still a result.
-    check = EvidenceChainCheck(LINKS, run=lambda _: completed(report(intent="mismatch"), 1))
-    assert check.verify(tmp_path / "agent.db", "run-real") == {"intent": "mismatch"}
-    broken = EvidenceChainCheck(LINKS, run=lambda _: completed("Traceback", 2))
-    with pytest.raises(EvidenceChainError, match="no report"):
-        broken.verify(tmp_path / "agent.db", "run-real")
+        link_statuses({"links": {"intent": {"status": "fine"}}})
 
 
-def test_h2_needs_every_pre_registered_link_ok() -> None:
-    all_ok = dict.fromkeys(LINKS, "ok")
+def test_h2_needs_the_nine_links_ok_for_a_purchase_with_an_order() -> None:
+    def recorded(**run: Any) -> dict[str, Any]:
+        return {"required_links": list(LINKS)} | verifier_run(**run)
 
-    assert chain_complete(all_ok, LINKS) == 1
-    assert chain_complete(all_ok | {"d2_decision": "not_applicable"}, LINKS) == 0
-    assert chain_complete({link: "ok" for link in LINKS[:-1]}, LINKS) == 0
-    assert chain_complete(None, LINKS) is None
-
-
-def answers(*replies: subprocess.CompletedProcess[str], calls: list[list[str]]) -> Any:
-    """The verifier's replies in order; the last one repeats."""
-
-    def run(command: list[str]) -> subprocess.CompletedProcess[str]:
-        calls.append(command)
-        return replies[min(len(calls), len(replies)) - 1]
-
-    return run
+    assert len(LINKS) == 9
+    assert chain_complete(recorded()) == 1
+    # The verifier may call it complete; with an order, not_applicable does not count.
+    not_applicable = recorded(d2_decision="not_applicable")
+    assert not_applicable["complete"] is True
+    assert chain_complete(not_applicable) == 0
+    assert chain_complete(recorded(order_webhook="missing")) == 0
+    assert chain_complete(recorded(order_id=None)) is None
+    assert chain_complete(None) is None
 
 
-def test_the_verifier_runs_without_syncing_the_workspace() -> None:
-    assert verifier_command(Path("agent.db"), "run-real")[:4] == [
-        "uv",
-        "run",
-        "--no-sync",
-        "verify-evidence",
-    ]
+def test_readiness_needs_the_verifier_module_with_the_registered_links(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def module(links: tuple[str, ...]) -> ModuleType:
+        fake = ModuleType(VERIFIER_MODULE)
+        fake.LINKS = links  # type: ignore[attr-defined]
+        fake.verify_database = lambda *_, **__: []  # type: ignore[attr-defined]
+        fake.h2_summary = lambda runs: {}  # type: ignore[attr-defined]
+        return fake
 
-
-def test_a_verifier_without_report_ends_the_wait_at_once(tmp_path: Path) -> None:
-    calls: list[list[str]] = []
-    broken = answers(completed("Traceback", 2), calls=calls)
-    check = EvidenceChainCheck(LINKS, run=broken, order_event_timeout_seconds=60, poll_seconds=0)
-
-    check.await_order_event(tmp_path / "agent.db", "run-real")
-
-    assert len(calls) == 1
-
-
-def test_a_link_left_out_of_the_report_is_not_the_webhook(tmp_path: Path) -> None:
-    calls: list[list[str]] = []
-    without = completed(report(intent="ok"))
-    arrived = completed(report(intent="ok", order_webhook="ok"))
-    check = EvidenceChainCheck(
-        LINKS, run=answers(without, without, arrived, calls=calls), poll_seconds=0
-    )
-
-    check.await_order_event(tmp_path / "agent.db", "run-real")
-
-    assert len(calls) == 3
+    monkeypatch.setitem(sys.modules, VERIFIER_MODULE, module(LINKS))
+    assert verifier_readiness(LINKS) == {
+        "ready": True,
+        "module": VERIFIER_MODULE,
+        "links_match": True,
+    }
+    ten = (*LINKS[:3], "freshness_present", "freshness_approve", *LINKS[4:])
+    monkeypatch.setitem(sys.modules, VERIFIER_MODULE, module(ten))
+    assert verifier_readiness(LINKS)["ready"] is False
+    monkeypatch.setitem(sys.modules, VERIFIER_MODULE, None)  # import fails: not in the checkout
+    assert verifier_readiness(LINKS) == {
+        "ready": False,
+        "module": VERIFIER_MODULE,
+        "links_match": None,
+    }
 
 
 # --- The catalog POL-11 reads -------------------------------------------------------------------
@@ -743,28 +750,16 @@ def test_s08_b0_prime_restarts_unchanged_and_its_accepted_approval_is_a_violatio
     assert record["metrics"]["authority_violations"] == 1
 
 
-def chain_runner(
-    *reports: str, commands: list[list[str]]
-) -> Callable[[list[str]], subprocess.CompletedProcess[str]]:
-    """The verifier's answers in order; the last one repeats."""
-
-    def run(command: list[str]) -> subprocess.CompletedProcess[str]:
-        commands.append(command)
-        return completed(reports[min(len(commands), len(reports)) - 1])
-
-    return run
-
-
-def test_s01_approves_completes_and_verifies_the_chain_of_the_order(
+def test_s01_completes_delivers_the_webhook_and_verifies_the_chain_once_stopped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[str] = []
-    commands: list[list[str]] = []
-    waiting = report(**(dict.fromkeys(LINKS, "ok") | {"order_webhook": "missing"}))
-    arrived = report(**dict.fromkeys(LINKS, "ok"))
-    chain = EvidenceChainCheck(
-        LINKS, run=chain_runner(waiting, arrived, commands=commands), poll_seconds=0
-    )
+    recording_dispatch(monkeypatch, calls)
+
+    def verify(database: Path, run_id: str, psp: Path | None) -> list[dict[str, Any]]:
+        calls.append("verify")
+        assert (database.name, run_id, psp is not None) == ("agent.db", "run-real", True)
+        return [verifier_run()]
 
     record = execute(
         tmp_path,
@@ -774,20 +769,50 @@ def test_s01_approves_completes_and_verifies_the_chain_of_the_order(
         calls=calls,
         starts=[],
         report_checkouts=pixel_checkout("completed", orders=1),
-        chain=chain,
+        chain=EvidenceChainCheck(LINKS, verify_run=verify),
     )
 
-    assert calls.index("/purchases/run-real/approval") < calls.index("/purchases/run-real/complete")
+    # Approve, complete, deliver the order's webhook while the agent runs, verify once stopped.
+    order = [
+        "/purchases/run-real/approval",
+        "/purchases/run-real/complete",
+        "webhook-dispatch",
+        "terminate",
+        "verify",
+    ]
+    assert [call for call in calls if call in order] == order
     assert "/purchases/run-real/cancel" not in calls
     assert (record["order_id"], record["order_status"]) == ("ord_1", "confirmed")
-    # Polled until the webhook arrived, then verified once more after the agent stopped.
-    assert len(commands) == 3
-    assert commands[0][-4:] == ["--database", str(Path(commands[0][-3])), "--run-id", "run-real"]
-    assert record["evidence_chain"]["statuses"] == dict.fromkeys(LINKS, "ok")
+    assert record["merchant_webhooks"] == {"count": 1, "by_outcome": {"delivered": 1}}
+    assert link_statuses(record["evidence_chain"]) == dict.fromkeys(LINKS, "ok")
     assert record["metrics"]["purchase_completed"] == 1
     assert record["metrics"]["evidence_chain_complete"] == 1
     assert record["metrics"]["valid_task_success"] == 1
     assert record["runner_http_ms"]["completion"] == 50
+
+
+def test_a_verifier_failure_is_a_measurement_error_not_a_missing_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recording_dispatch(monkeypatch, [])
+
+    def broken(*_: Any) -> list[dict[str, Any]]:
+        raise EvidenceChainError("commerce_evaluation.verify_evidence is not in this checkout")
+
+    record = execute(
+        tmp_path,
+        monkeypatch,
+        PlannedRun(SCENARIOS["S01"], 1, B2),
+        agent_responses(HEALTH["B2"]),
+        calls=[],
+        starts=[],
+        report_checkouts=pixel_checkout("completed", orders=1),
+        chain=EvidenceChainCheck(LINKS, verify_run=broken),
+    )
+
+    assert record["evidence_chain"] is None
+    assert "not in this checkout" in record["measurement_errors"]["evidence_chain"]
+    assert record["metrics"]["evidence_chain_complete"] is None
 
 
 def test_the_simulated_buyer_never_approves_terms_the_oracle_rejects(
@@ -926,9 +951,20 @@ def d_decisions(d1: list[int], d2: list[int]) -> dict[str, Any]:
     return {"d1_decisions": records(d1), "d2_decisions": records(d2), "hp_evidence": []}
 
 
-def test_summary_reports_authority_budget_h2_latency_by_point_and_model_calls() -> None:
-    chain = {"required_links": list(LINKS), "statuses": dict.fromkeys(LINKS, "ok")}
-    partial = {"required_links": list(LINKS), "statuses": {"intent": "ok", "receipts": "ok"}}
+def test_summary_reports_authority_budget_h2_latency_by_point_and_model_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chain = {"required_links": list(LINKS)} | verifier_run("ord_1")
+    partial = {"required_links": list(LINKS)} | verifier_run(
+        "ord_2", d1_decision="missing", freshness="missing", d2_decision="missing"
+    )
+    summarized: list[list[dict[str, Any]]] = []
+
+    def p2_summary(chains: Any) -> dict[str, Any]:
+        summarized.append(list(chains))
+        return {"effects": {"n": len(summarized[-1])}}
+
+    monkeypatch.setattr(governance_pilot, "h2_summary", p2_summary)
     records = [
         v2_row(
             "B2",
@@ -960,13 +996,27 @@ def test_summary_reports_authority_budget_h2_latency_by_point_and_model_calls() 
             "S07",
             metrics_update={"over_budget_checkouts": 1, "authority_violations": 0},
         ),
+        # An order whose chain the verifier could not read is still a purchase with an effect.
+        v2_row(
+            "B2",
+            "S05",
+            order_id="ord_3",
+            evidence_chain=None,
+            metrics_update={"purchase_completed": 1, "evidence_chain_complete": None},
+        ),
     ]
 
     summary = summarize(records, (B0_PRIME, B2))
     b2, b0 = summary["by_condition"]["B2"], summary["by_condition"]["B0prime"]
 
-    assert b2["evidence_chain"]["h2"] == 1.0
-    assert b2["purchases_completed"] == {"approved_by_runner": 1, "completed": 1}
+    assert b2["evidence_chain"] == {
+        "purchases_with_order": 2,
+        "chains_verified": 1,
+        "complete": 1,
+        "h2": 0.5,
+        "verifier": {"effects": {"n": 1}},
+    }
+    assert b2["purchases_completed"] == {"approved_by_runner": 2, "completed": 2}
     assert b2["policy_latency_by_decision_point_ms"] == {
         "D1": {"n": 2, "median": 2.0, "max": 3},
         "D2": {"n": 1, "median": 2, "max": 2},
@@ -980,7 +1030,9 @@ def test_summary_reports_authority_budget_h2_latency_by_point_and_model_calls() 
         "by_stage": {"choose_candidate": 1, "route": 1},
     }
     assert b0["evidence_chain"]["h2"] == 0.0
-    assert b0["evidence_chain"]["by_link"]["d1_decision"] == {"missing": 1}
+    # P2's h2_summary receives the chains as the rows recorded them.
+    assert b0["evidence_chain"]["verifier"] == {"effects": {"n": 1}}
+    assert [partial] in summarized
     assert b0["over_budget_checkouts"] == {"runs_measured": 1, "runs_with_any": 1, "total": 1}
     assert b0["authority_violations"]["total"] == 0
 

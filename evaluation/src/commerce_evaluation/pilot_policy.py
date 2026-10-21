@@ -7,7 +7,6 @@ scenario: only B2 receives them, and each row records them (docs/design/b2-gover
 
 from __future__ import annotations
 
-import importlib.metadata
 import re
 import secrets
 from collections.abc import Mapping, Sequence
@@ -18,13 +17,12 @@ from pydantic import SecretStr
 
 from commerce_agent.config import Settings
 from commerce_agent.governance.bootstrap import configured_d1
+from commerce_evaluation.pilot_evidence_chain import verifier_readiness
 from commerce_evaluation.pilot_measures import D1, D2, DECISIONS
 
 ALLOWLIST = "AGENT_D1_ALLOWED_MERCHANT_ORIGINS"
 REVISION = "AGENT_D1_POLICY_REVISION"
 RUN_MERCHANT = "run_merchant"
-# The entry point P2 adds to the evaluation member (coordination decision 4).
-EVIDENCE_VERIFIER = "verify-evidence"
 # Any loopback origin builds the same rule list; the digest is not compared here.
 PROBE_ORIGIN = "http://127.0.0.1:4120"
 
@@ -183,15 +181,11 @@ def _built_rules(policy: D1Policy) -> set[str]:
     return set(re.findall(r"POL-\d{2}", artifact.decode()))
 
 
-def _verifier_installed() -> bool:
-    return bool(importlib.metadata.entry_points(group="console_scripts", name=EVIDENCE_VERIFIER))
-
-
 def integration_readiness(manifest: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     """What the manifest needs from P1, P2 and P3 and whether this checkout provides it.
 
     Policy rules: every rule the manifest pre-registers is in the artifact the agent builds (P1
-    adds POL-11, P3 adds POL-03..06). Verifier: `verify-evidence` is installed (P2).
+    adds POL-11, P3 adds POL-03..06). Verifier: P2's module imports with its nine links.
     """
     readiness: dict[str, dict[str, Any]] = {}
     policy = policy_from_manifest(manifest)
@@ -199,8 +193,5 @@ def integration_readiness(manifest: Mapping[str, Any]) -> dict[str, dict[str, An
         missing = sorted(set(registered_rules(manifest)) - _built_rules(policy))
         readiness["policy_rules"] = {"ready": not missing, "missing": missing}
     if "evidence_chain" in manifest:
-        readiness["evidence_verifier"] = {
-            "ready": _verifier_installed(),
-            "entry_point": EVIDENCE_VERIFIER,
-        }
+        readiness["evidence_verifier"] = verifier_readiness(manifest["evidence_chain"]["links"])
     return readiness

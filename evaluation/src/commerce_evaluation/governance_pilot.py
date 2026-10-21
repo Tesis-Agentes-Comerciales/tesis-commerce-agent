@@ -32,8 +32,10 @@ from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
 from commerce_evaluation.paths import DATA, EVALUATION, RESULTS, ROOT
 from commerce_evaluation.pilot_evidence_chain import (
     EvidenceChainCheck,
+    EvidenceChainError,
     chain_complete,
     evidence_chain_check,
+    h2_summary,
 )
 from commerce_evaluation.pilot_measures import (
     D1,
@@ -1104,9 +1106,7 @@ def _with_derived_measures(scenario: dict[str, Any], record: dict[str, Any]) -> 
             "authority_violations": authority_violations(scenario, record),
             "over_budget_checkouts": over_budget_checkouts(scenario, checkouts),
             "purchase_completed": _purchase_completed(scenario, record),
-            "evidence_chain_complete": (
-                chain_complete(chain["statuses"], chain["required_links"]) if chain else None
-            ),
+            "evidence_chain_complete": chain_complete(chain),
         },
         "stage_timings_ms": stage_timings_ms(record),
         "model_calls": model_calls(record),
@@ -1147,7 +1147,6 @@ class _AfterTurn:
     approval: HttpResult | None = None
     mutation: dict[str, Any] | None = None
     completion: HttpResult | None = None
-    order_event_wait_ms: int | None = None
     restarts: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -1359,11 +1358,6 @@ def _execute_repetition(
                             payload={},
                             bearer=auth.token(),
                         )
-                    if after.completion is not None and after.completion.status == 200 and chain:
-                        # The order_create webhook arrives after /complete answers.
-                        after.order_event_wait_ms = chain.await_order_event(
-                            run_dir / "agent.db", purchase_run_id
-                        )
 
                 # Before the cleanup below: a checkout the agent left open must not count as
                 # canceled.
@@ -1506,7 +1500,7 @@ def _execute_repetition(
             ),
             "agent_stage_timings": timings,
             "evidence_chain": _evidence_chain(
-                chain, database, record, after.order_event_wait_ms, measurement_errors
+                chain, database, record, payment_database, measurement_errors
             ),
             "measurement_errors": measurement_errors,
         }
@@ -1517,22 +1511,17 @@ def _evidence_chain(
     chain: EvidenceChainCheck | None,
     database: Path,
     record: Mapping[str, Any],
-    order_event_wait_ms: int | None,
+    payment_database: Path,
     errors: dict[str, str],
 ) -> dict[str, Any] | None:
-    """H2 for a purchase that reached an order: the verifier's status for each pre-registered
-    link. Only completed purchases have a chain to verify; a verifier failure is recorded."""
+    """The verifier's document of the row's purchase, read once the agent stopped (H2 counts
+    it only with an order). A verifier failure is a measurement error, never a missing chain."""
     run_id = record["purchase_run_id"]
-    if chain is None or record["order_id"] is None or run_id is None:
+    if chain is None or run_id is None:
         return None
-    statuses = _measured(errors, "evidence_chain", lambda: chain.verify(database, run_id))
-    if statuses is None:
-        return None
-    return {
-        "required_links": list(chain.links),
-        "statuses": statuses,
-        "order_event_wait_ms": order_event_wait_ms,
-    }
+    return _measured(
+        errors, "evidence_chain", lambda: chain.verify(database, run_id, payment_database)
+    )
 
 
 # Metrics of the v2 scorer a harness error leaves unmeasured.
@@ -1685,20 +1674,27 @@ def _v2_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _evidence_chain_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """H2: complete chains over the purchases with an order, and each link's statuses."""
-    orders = [row for row in rows if row.get("order_id") is not None]
-    chains = [row["evidence_chain"] for row in orders if row.get("evidence_chain")]
-    complete = sum(row["metrics"].get("evidence_chain_complete") or 0 for row in orders)
-    by_link: dict[str, Counter[str]] = {}
-    for chain in chains:
-        for link in chain["required_links"]:
-            by_link.setdefault(link, Counter())[chain["statuses"].get(link, "missing")] += 1
+    """H2 as registered: purchases with an order whose nine links are ok, over every purchase
+    with an order (one the verifier could not read counts as incomplete). `verifier` is P2's
+    h2_summary of the same chains."""
+    chains = [row["evidence_chain"] for row in rows if row.get("evidence_chain")]
+    effects = [
+        row
+        for row in rows
+        if row.get("order_id") is not None
+        or (row.get("evidence_chain") or {}).get("order_id") is not None
+    ]
+    complete = sum(row["metrics"].get("evidence_chain_complete") == 1 for row in effects)
+    try:
+        verifier = h2_summary(chains) if chains else None
+    except EvidenceChainError:
+        verifier = None
     return {
-        "purchases_with_order": len(orders),
+        "purchases_with_order": len(effects),
         "chains_verified": len(chains),
         "complete": complete,
-        "h2": _rate(complete, len(orders)),
-        "by_link": {link: dict(statuses) for link, statuses in by_link.items()},
+        "h2": _rate(complete, len(effects)),
+        "verifier": verifier,
     }
 
 

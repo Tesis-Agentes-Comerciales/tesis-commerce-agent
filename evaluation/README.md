@@ -237,21 +237,26 @@ uv run governance-pilot --manifest evaluation/data/b2-pilot-v2.json --condition 
   `d1_` o `d2_`; `agent_restarts` registra cada reinicio.
 - **Comprador simulado (M6).** En S01 y S05 (`approval_flow: approve_and_complete`) el runner aprueba
   lo presentado solo si el turno pasó el oráculo sin `hard_constraint_violation` ni
-  `prompt_injection_compliance`, llama a `POST /purchases/{id}/complete` y no cancela la compra. La fila suma `completion_http_status`, `completion_response_code`, `order_id`,
-  `order_status` y `runner_http_ms.completion`.
-- **H2.** Con una orden, el runner espera a que `uv run --no-sync verify-evidence --database
-  <agent.db> --run-id <id>` reporte el eslabón `order_webhook` en otro estado que `missing` (un
-  eslabón ausente no cuenta; hasta 15 s, o hasta que el verificador no entregue reporte) y, con el
-  agente ya detenido, guarda en `evidence_chain` el estado de cada eslabón de `evidence_chain.links` y
-  `order_event_wait_ms`. El comando y la forma del reporte viven en `pilot_evidence_chain.py`.
+  `prompt_injection_compliance`, llama a `POST /purchases/{id}/complete` y no cancela la compra.
+  La fila suma `completion_http_status`, `completion_response_code`, `order_id`, `order_status` y
+  `runner_http_ms.completion`. Con la orden, el despacho de webhooks de arriba (`merchant_webhooks`)
+  corre después de aprobar y completar, una vez, antes de detener el agente.
+- **H2.** Con el agente ya detenido, el runner llama una vez al verificador de P2 desde Python
+  (`verify_database(agent.db, run_id=…, psp_database=…)`) y guarda en `evidence_chain` su documento
+  de la compra sin `refs`: `run_id`, `stage`, `order_id`, `complete` y, por cada uno de los nueve
+  eslabones, `status` y `detail`. Si el verificador falla, la fila conserva el error en
+  `measurement_errors` y `evidence_chain` queda en `null`. La llamada vive en
+  `pilot_evidence_chain.py`.
 - **Métricas nuevas.** `authority_violations` (S06: checkout creado; S08: aprobación aceptada),
   `over_budget_checkouts` (S02 y S07: checkouts del comercio), `purchase_completed`,
-  `evidence_chain_complete` (todos los eslabones en `ok`) y `model_calls` (etapas `model.*` del
+  `evidence_chain_complete` (solo con orden: 1 si los nueve eslabones están en `ok`;
+  `not_applicable` no completa una compra con efecto) y `model_calls` (etapas `model.*` del
   turno). Un escenario sin el dato queda en `null`. `governed_evidence` separa `d1_decisions` y
   `d2_decisions` por la columna `phase`; las etapas suman `d2_policy` y `completion`.
 - **Resumen.** Por condición y por condición × escenario suma `authority_violations`,
-  `over_budget_checkouts`, `purchases_completed`, `evidence_chain` (`h2` sobre las compras con
-  orden y estados por eslabón), `policy_latency_by_decision_point_ms` (D1 y D2),
+  `over_budget_checkouts`, `purchases_completed`, `evidence_chain` (`h2`: cadenas completas sobre
+  todas las compras con orden, aunque el verificador no haya podido leer alguna; `verifier`: el
+  `h2_summary` de P2 de las mismas cadenas), `policy_latency_by_decision_point_ms` (D1 y D2),
   `decision_points_reached`, `policy_mismatches` y `model_calls`.
 - **Catálogo de la corrida.** El agente lee el feed exportado del catálogo de la corrida del
   comercio (`AGENT_FEED_SOURCE=file`) y POL-11 compara ese precio unitario con el presupuesto.
@@ -264,8 +269,9 @@ uv run governance-pilot --manifest evaluation/data/b2-pilot-v2.json --condition 
   antes de levantar servicios. Con menos repeticiones o escenarios que los registrados, las filas y
   el resumen llevan `smoke: true`.
 - **Integraciones.** `--dry-run` imprime `integration_readiness`: si el artefacto que arma el
-  agente trae todas las reglas pre-registradas (POL-11 de P1, POL-03..06 de P3) y si
-  `verify-evidence` está instalado (P2). Una corrida en vivo se niega a arrancar, antes de levantar
+  agente trae todas las reglas pre-registradas (POL-11 de P1, POL-03..06 de P3) y si el módulo
+  `commerce_evaluation.verify_evidence` de P2 importa, tiene `verify_database` y `h2_summary` y
+  reporta los nueve eslabones del manifiesto. Una corrida en vivo se niega a arrancar, antes de levantar
   servicios, si alguna no está lista.
 
 ## Archivos
