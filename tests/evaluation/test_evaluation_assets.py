@@ -177,3 +177,11 @@ def test_v2_manifest_points_to_its_matrix_policy_and_controls() -> None:
     )
     assert manifest["evidence_chain"]["links"] == EVIDENCE_LINKS
     assert manifest["amendments_recorded"] == []
+
+
+def test_v2_declares_that_its_b0_prime_is_not_the_v1_one() -> None:
+    """#65 restricts the choice to the shortlist in both conditions: B0' changes from v1."""
+    manifest = load_json("b2-pilot-v2.json")
+
+    assert "#65" in manifest["conditions"]["B0prime"]["differs_from_v1"]
+    assert manifest["comparability"].keys() == {"B0prime_v1", "latency_ms"}

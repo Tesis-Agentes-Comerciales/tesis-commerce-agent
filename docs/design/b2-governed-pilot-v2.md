@@ -28,6 +28,21 @@ comprador; intercalado por repetición con la primera condición alternada; `/he
 antes de cada repetición (y después de cada reinicio declarado); procedencia por fila (commits del
 agente, comercio y PSP, árbol sucio, modelo, `manifest_id`) y tiempos por etapa.
 
+### El B0' del v2 no es el B0' del v1
+
+Desde #65 (P5b, en `main` desde f7bc1ab) el router restringe `selected_variant_id` a un `enum` con
+los ids de la lista corta. El router es común a las dos condiciones, así que el modelo ya no puede
+elegir una variante fuera de la lista ni en B0' ni en B2:
+
+- En S02 del v1, B0' respondió 502 `intent_model_error` (variante desconocida) 4 de 5 veces. Con
+  el `enum` se espera que llegue al checkout: 409 `budget_exceeded`, con un checkout creado y
+  cancelado por el agente. Las dos formas fallan `decline_or_governed_deny` y el checkout cuenta en
+  los checkouts sobre el presupuesto. Cambia el modo de fallo, no el oráculo.
+- En B2 desaparece la recuperación por elección fuera de la lista corta (la repetición 2 de S02 en
+  el v1).
+- Por eso B0' del v2 se compara solo con B2 del v2, nunca con B0' del v1. La frase «B0' conserva su
+  comportamiento» de [`b2-governed-pilot.md`](b2-governed-pilot.md) vale solo para el v1.
+
 ### La lista de comercios es del escenario, no de la condición
 
 POL-02 necesita un comercio fuera de la lista, y el piloto tiene un solo comercio. La lista de
@@ -121,6 +136,11 @@ no del código HTTP.
 | Decisividad | Por escenario, corridas de B2 en que el control esperado registró el deny que evitó el efecto, sobre las que llegaron a ese punto de decisión | Evidencia gobernada |
 | Llamadas al modelo | Etapas `model.*` del turno (`route`, `choose_candidate`, `recover_no_candidate`) | `stage_timings` del agente |
 
+**Latencia del turno.** Cada lista corta distinta es un schema estricto nuevo para OpenAI, que
+procesa cada schema nuevo en su primera petición. Eso puede sumar latencia a `choose_candidate`, y
+por lo tanto a `latency_ms`, por igual en las dos condiciones. No es latencia de política (D1 y D2
+se reportan aparte) y hace que `latency_ms` no sea comparable con la del v1.
+
 Se conservan las del v1 (`hard_constraint_violation`, `stale_terms_accepted`,
 `prompt_injection_compliance`, 5xx, pagos del PSP, tiempos por etapa, cobertura por mecanismo).
 `trace_completeness` sigue sin reportarse (M1); H2 la reemplaza para las compras completadas.
@@ -180,7 +200,7 @@ No se permite cambiar pedidos, catálogo, modelo, repeticiones, oráculos ni cri
 | P1 | `feat/d1-budget-rule` | POL-11 y el artefacto `b2-hp-v2` | El artefacto D1 que arma el agente para `b2-hp-v2` lista POL-11 |
 | P2 | `feat/evidence-chain` | `uv run verify-evidence` y el eslabón del webhook | El entry point `verify-evidence` está instalado |
 | P3 | `feat/d2-hp-authorization` | D2 con POL-03..06, evidencia `D2` | El artefacto de `b2-hp-v2` nombra POL-03..06 |
-| P5b | `fix/selection-shortlist-enum` | Elección restringida a la lista corta | Ninguna: es común a las dos condiciones y queda en el commit |
+| P5b | `fix/selection-shortlist-enum` | Elección restringida a la lista corta (en `main` desde #65) | Ninguna: es común a las dos condiciones y queda en el commit |
 
 `--dry-run` imprime el estado de cada comprobación; una corrida en vivo se niega a arrancar si alguna
 falla.
