@@ -181,7 +181,13 @@ def test_v2_manifest_points_to_its_matrix_policy_and_controls() -> None:
     # The nine links of P2's verifier; with an order, only ok counts (no not_applicable).
     assert manifest["evidence_chain"]["links"] == EVIDENCE_LINKS
     assert "not_applicable is not accepted" in manifest["evidence_chain"]["complete"]
-    assert manifest["amendments_recorded"] == []
+    # Only E1 (P2's final verifier contract), dated and before any live repetition.
+    (amendment,) = manifest["amendments_recorded"]
+    assert (amendment["id"], amendment["date"]) == ("E1", "2026-10-20")
+    assert amendment["allowed_by"] in manifest["allowed_amendments"]
+    assert amendment["reason"]
+    assert "d2_decision as not_applicable in B0'" in amendment["change"]
+    assert amendment["h2"].startswith("unchanged")
 
 
 def test_v2_declares_that_neither_condition_is_the_v1_one() -> None:

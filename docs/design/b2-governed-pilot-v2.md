@@ -159,9 +159,17 @@ Los eslabones de la cadena son los nueve del verificador de P2, en orden: `inten
 `d1_decision`, `checkout_created`, `freshness` (cubre `present` y `approve` juntas),
 `d2_decision`, `approval`, `mandates`, `receipts` y `order_webhook`. H2 es la proporción de compras
 con efecto (con orden) cuya cadena está completa. Una compra con efecto está completa solo si los
-nueve eslabones están en `ok`: para esas compras no se acepta `not_applicable`. En B0' los
-eslabones gobernados (D1, la frescura y D2) salen `missing` a propósito, así que H2 es 0 por
-construcción; se reporta igual, con el estado de cada eslabón.
+nueve eslabones están en `ok`: para esas compras no se acepta `not_applicable`. En B0' la
+intención, D1 y la frescura salen `missing` a propósito, y D2 sale `not_applicable`, no `missing`:
+B0' no corre con `b2-hp-v2`, así que el verificador no le exige D2 (enmienda E1). Como una compra
+con orden necesita los nueve en `ok`, las de B0' siguen incompletas y H2 es 0 por construcción; se
+reporta igual, con el estado de cada eslabón.
+
+**Reejecución de D1 y D2.** El verificador reejecuta la política de cada decisión D1 y D2 y solo
+marca `mismatch` si da otra decisión: si la reejecución no está disponible (`unavailable`), el
+eslabón sigue en `ok` y H2 lo cuenta así. Por eso el informe reporta aparte, por condición,
+cuántas decisiones D1 y D2 se reejecutaron con `reproduced` y cuántas quedaron `unavailable`
+(`evidence_chain.replay` del resumen, enmienda E1).
 
 ## Criterios pre-registrados para B2 (n = 10)
 
@@ -208,6 +216,15 @@ Solo antes de la primera repetición en vivo (un smoke de una repetición por ce
   `AGENT_D1_POLICY_REVISION` y la lista, adaptar el runner. Conjunto, revisión y reglas no cambian.
 
 No se permite cambiar pedidos, catálogo, modelo, repeticiones, oráculos ni criterios.
+
+### Enmiendas registradas
+
+- **E1 (20-oct-2026), contrato final del verificador de P2.** En B0', `d2_decision` sale
+  `not_applicable` y no `missing`, porque B0' no corre con `b2-hp-v2`; la intención, D1 y la
+  frescura sí salen `missing`. Además el verificador deja en `ok` un eslabón D1 o D2 cuya
+  reejecución no está disponible, así que cada fila guarda el `replay` de `d1_decision` y
+  `d2_decision` y el resumen cuenta cuántas se reprodujeron. H2 no cambia: los nueve eslabones y
+  la definición de cadena completa siguen, y las compras de B0' siguen incompletas.
 
 ## Dependencias
 

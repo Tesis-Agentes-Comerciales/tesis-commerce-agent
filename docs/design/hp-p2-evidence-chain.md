@@ -138,11 +138,13 @@ alcance y su input, y además:
   S08), y si se aplicó (`transition_committed`) su `transition_ref` es su `authorization_id`.
 
 Una compra aprobada exige exactamente una autorización D2 aplicada, que `approvals.
-authorization_evidence_id` apunte a ella y que su frescura sea el `approve` de la aprobación. Un
-`deny`, un input rechazado o un `allow` sin aplicar seguido de aprobación u orden es `mismatch`
-(bypass). Sin aprobación, el último registro D2 decide: un `deny` verificado deja `approval` y lo
-posterior en `not_applicable`. La reejecución de D2 es diagnóstica, como la de D1. D1 y D2 se leen
-por separado, así que alterar un registro D2 no rompe el eslabón D1.
+authorization_evidence_id` apunte a ella y que su frescura sea el `approve` de la aprobación.
+Una aprobación u orden sin una autorización D2 aplicada es `mismatch` (bypass): un `deny`, un
+input rechazado o un `allow` sin aplicar no autorizan nada, pero un `deny` seguido de un reintento
+con un `allow` aplicado es legítimo. Sin aprobación, el último registro D2 decide: un `deny`
+verificado deja `approval` y lo posterior en `not_applicable`. La reejecución de D2 es
+diagnóstica, como la de D1. D1 y D2 se leen por separado, así que alterar un registro D2 no rompe
+el eslabón D1.
 
 **Completa.** Una compra con orden o `effect` está completa solo si sus nueve eslabones son `ok`:
 para ella no se acepta `not_applicable`. Cualquier otra compra está completa si ningún eslabón es
