@@ -79,7 +79,7 @@ del backend; el cuerpo de la petición solo aporta la huella que se compara.
 | `terms` (`MaterialTerms`) | GET autoritativo del checkout en el comercio. El destino va como HMAC (`PrivateBinding`), nunca en claro |
 | `freshness` | Último `freshness_check` de `hp_evidence`: etapa `approve`, mismo checkout |
 | `constraint_matches` | Cada restricción dura de la intención (vault), recalculada con `rejection_reason` sobre la variante del feed congelado de D1 |
-| `hp` | Últimos términos que presentó el servidor (`approval_terms`: el chat, `GET /me/pending-purchase` y ahora también `GET /purchases/{run_id}/approval` los guardan), huella del clic frente a la presentada y a la del checkout actual |
+| `hp` | Últimos términos que presentó el servidor (`approval_terms`: el chat y `GET /me/pending-purchase` los guardan, y ahora también `GET /purchases/{run_id}/approval` cuando su huella es otra; releer los mismos términos conserva la hora en que se mostraron), huella del clic frente a la presentada y a la del checkout actual |
 | `authorization_profile` | Perfil de aprobación configurado: AP2 (`hp-ap2/v1`) o HMAC (`hp-hmac/v1`) |
 | `authorization_id` / `operation_id` | Derivados del run y del intento / la operación de la decisión D1 |
 

@@ -356,8 +356,11 @@ def create_app(
     ) -> ApprovalTerms:
         owned_purchase(run_id, buyer)
         terms = purchase_service.approval_terms(run_id)
-        # The terms the server presented: D2 binds the click to them (hp.presented_snapshot_ref).
-        store.save_approval_terms(run_id, terms.model_dump(mode="json"))
+        # The terms the server presented, which D2 binds the click to. The same terms keep the
+        # time they were first shown: the UI rereads them right before approving.
+        shown = store.approval_terms([run_id]).get(run_id)
+        if shown is None or shown.get("fingerprint") != terms.fingerprint:
+            store.save_approval_terms(run_id, terms.model_dump(mode="json"))
         return terms
 
     @app.post("/purchases/{run_id}/approval", response_model=ApprovalReceipt)

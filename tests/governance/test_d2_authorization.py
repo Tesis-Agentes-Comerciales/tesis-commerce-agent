@@ -189,6 +189,21 @@ def test_allow_writes_approval_stage_and_evidence_together(tmp_path: Path) -> No
     assert "Calle 100" not in d2.canonical_input_bytes
 
 
+def test_rereading_the_same_terms_keeps_when_they_were_shown(tmp_path: Path) -> None:
+    settings = d2_settings(tmp_path / "agent.db")
+    store = SqliteAgentStore(settings.agent_database_path)
+    with app_client(settings, StoreMerchant()) as client:
+        run_id = start_purchase(client, "turn-reread")
+        shown = store.approval_terms([run_id])[run_id]
+        with closing(sqlite3.connect(settings.agent_database_path)) as connection:
+            query = "SELECT updated_at FROM approval_terms WHERE run_id=?"
+            (first,) = connection.execute(query, (run_id,)).fetchone()
+            assert client.get(f"/purchases/{run_id}/approval").status_code == 200
+            (second,) = connection.execute(query, (run_id,)).fetchone()
+        # The UI rereads the terms right before approving: the wait is still the buyer's.
+        assert second == first and store.approval_terms([run_id])[run_id] == shown
+
+
 def test_presented_terms_that_differ_from_the_click_deny_before_signing(tmp_path: Path) -> None:
     settings = d2_settings(tmp_path / "agent.db")
     merchant = StoreMerchant()
@@ -204,7 +219,8 @@ def test_presented_terms_that_differ_from_the_click_deny_before_signing(tmp_path
         )
         assert_refused(denied, "d2_denied")
         assert stage(client, run_id) == "awaiting_confirmation"
-        assert client.post(f"/purchases/{run_id}/complete").is_client_error
+        refused = client.post(f"/purchases/{run_id}/complete")
+        assert (refused.status_code, refused.json()["code"]) == (409, "invalid_stage")
     (record,) = d2_records(settings.agent_database_path)
     assert record.decision.outcome == "deny"
     assert record.decision.reason_codes == ("EPISODE_BINDING_MISMATCH",)
