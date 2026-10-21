@@ -167,7 +167,7 @@ def error_response(error: Exception) -> JSONResponse:
         status = 409 if code not in {"purchase_not_found", "checkout_missing"} else 404
     # Governance stops reach REST clients with the chat's Spanish copy, never internal names.
     # So does a refusal of D1's creation POST, which arrives as a service error, not ACP's.
-    governed = code.startswith("d1_") or code in _GOVERNED_MERCHANT_CODES
+    governed = code.startswith(("d1_", "d2_")) or code in _GOVERNED_MERCHANT_CODES
     message = error_message(code) if governed else str(error)
     return JSONResponse({"code": code, "message": message}, status_code=status)
 
@@ -355,7 +355,13 @@ def create_app(
         run_id: str, buyer: Annotated[BuyerPrincipal, Depends(current_buyer)]
     ) -> ApprovalTerms:
         owned_purchase(run_id, buyer)
-        return purchase_service.approval_terms(run_id)
+        terms = purchase_service.approval_terms(run_id)
+        # The terms the server presented, which D2 binds the click to. The same terms keep the
+        # time they were first shown: the UI rereads them right before approving.
+        shown = store.approval_terms([run_id]).get(run_id)
+        if shown is None or shown.get("fingerprint") != terms.fingerprint:
+            store.save_approval_terms(run_id, terms.model_dump(mode="json"))
+        return terms
 
     @app.post("/purchases/{run_id}/approval", response_model=ApprovalReceipt)
     def approve_purchase(

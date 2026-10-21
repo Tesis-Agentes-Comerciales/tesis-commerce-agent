@@ -111,7 +111,10 @@ def test_every_policy_keeps_its_own_reason_code() -> None:
 
 def test_the_rules_that_apply_depend_on_the_phase_and_the_purchase_mode() -> None:
     """New phases and purchase modes add rows; the D1/HP row is part of b2-hp-v2's bytes."""
-    assert dict(APPLICABLE_RULES) == {("D1", "HP"): ("POL-01", "POL-02", "POL-11")}
+    assert dict(APPLICABLE_RULES) == {
+        ("D1", "HP"): ("POL-01", "POL-02", "POL-11"),
+        ("D2", "HP"): ("POL-03", "POL-04", "POL-05", "POL-06"),
+    }
     payload, binding = build_d1_policy(
         policy_set_id="b2-hp-v2", version=1, merchant_ref=MERCHANT_REF
     )

@@ -11,7 +11,7 @@ import secrets
 import sqlite3
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import BaseModel, TypeAdapter
@@ -46,7 +46,19 @@ Kind = Literal[
     "commercial",
     "policy",
     "context",
+    # D2-HP facts resolved when approving: the checkout, presented terms and their contracts.
+    "authorization",
 ]
+# D2-HP sources. Private ones hold buyer-bearing snapshots; public ones are fixed contracts.
+AuthorizationRole = Literal[
+    "checkout_terms",
+    "presented_terms",
+    "consent_binding",
+    "material_contract",
+    "freshness_contract",
+    "authorization_profile",
+]
+_PUBLIC_ROLES = frozenset({"material_contract", "freshness_contract", "authorization_profile"})
 _ID = TypeAdapter(Id)
 
 
@@ -388,6 +400,21 @@ class SqliteD1ProvenanceStore:
         if candidate.currency.upper() != "COP":
             return None
         return candidate.observed_unit_amount_minor
+
+    @_safe
+    def register_authorization_source(
+        self, run_id: str, owner_id: str, role: AuthorizationRole, payload: bytes
+    ) -> ObjectRef:
+        """One D2-HP fact per role and run; a changed payload is a new version of its role."""
+        if role not in get_args(AuthorizationRole):
+            raise GovernanceError("GOV_INPUT_INVALID")
+        return self._register(
+            run_id, owner_id, "authorization", payload, public=role in _PUBLIC_ROLES, slot=role
+        )
+
+    @_safe
+    def recover_authorization_source(self, run_id: str, owner_id: str, ref: ObjectRef) -> bytes:
+        return self._get(run_id, owner_id, ref, "authorization")[0]
 
     @_safe
     def register_context(

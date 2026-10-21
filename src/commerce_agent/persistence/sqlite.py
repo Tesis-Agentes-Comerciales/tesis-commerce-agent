@@ -36,6 +36,8 @@ class ApprovalRecord:
     checkout_jwt: str | None = None
     checkout_mandate: str | None = None
     payment_mandate: str | None = None
+    # The D2 decision that authorized this approval (governance_evidence); None without D2.
+    authorization_evidence_id: str | None = None
 
 
 class SqliteAgentStore:
@@ -130,7 +132,12 @@ class SqliteAgentStore:
             approval_columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(approvals)")
             }
-            for column in ("checkout_jwt", "checkout_mandate", "payment_mandate"):
+            for column in (
+                "checkout_jwt",
+                "checkout_mandate",
+                "payment_mandate",
+                "authorization_evidence_id",
+            ):
                 if column not in approval_columns:
                     connection.execute(f"ALTER TABLE approvals ADD COLUMN {column} TEXT")
             completion_columns = {
@@ -499,36 +506,7 @@ class SqliteAgentStore:
 
     def save_approval(self, record: ApprovalRecord) -> None:
         with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO approvals
-                  (run_id, checkout_id, checkout_fingerprint, actor_id,
-                   approved_at, signature, consumed_at, checkout_jwt,
-                   checkout_mandate, payment_mandate)
-                VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
-                ON CONFLICT (run_id) DO UPDATE SET
-                  checkout_id = excluded.checkout_id,
-                  checkout_fingerprint = excluded.checkout_fingerprint,
-                  actor_id = excluded.actor_id,
-                  approved_at = excluded.approved_at,
-                  signature = excluded.signature,
-                  consumed_at = NULL,
-                  checkout_jwt = excluded.checkout_jwt,
-                  checkout_mandate = excluded.checkout_mandate,
-                  payment_mandate = excluded.payment_mandate
-                """,
-                (
-                    record.run_id,
-                    record.checkout_id,
-                    record.checkout_fingerprint,
-                    record.actor_id,
-                    record.approved_at,
-                    record.signature,
-                    record.checkout_jwt,
-                    record.checkout_mandate,
-                    record.payment_mandate,
-                ),
-            )
+            write_approval(connection, record)
 
     def approval(self, run_id: str) -> ApprovalRecord | None:
         with self._connect() as connection:
@@ -536,7 +514,7 @@ class SqliteAgentStore:
                 """
                 SELECT run_id, checkout_id, checkout_fingerprint, actor_id,
                        approved_at, signature, consumed_at, checkout_jwt,
-                       checkout_mandate, payment_mandate
+                       checkout_mandate, payment_mandate, authorization_evidence_id
                 FROM approvals WHERE run_id = ?
                 """,
                 (run_id,),
@@ -803,6 +781,45 @@ def _project_order(
           updated_at = excluded.updated_at
         """,
         (order_id, checkout_id, status, snapshot, updated_at),
+    )
+
+
+def write_approval(connection: sqlite3.Connection, record: ApprovalRecord) -> None:
+    """Write the run's active approval on the caller's connection and transaction.
+
+    D2 writes it in the same transaction as the purchase transition and its evidence.
+    """
+    connection.execute(
+        """
+        INSERT INTO approvals
+          (run_id, checkout_id, checkout_fingerprint, actor_id,
+           approved_at, signature, consumed_at, checkout_jwt,
+           checkout_mandate, payment_mandate, authorization_evidence_id)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+        ON CONFLICT (run_id) DO UPDATE SET
+          checkout_id = excluded.checkout_id,
+          checkout_fingerprint = excluded.checkout_fingerprint,
+          actor_id = excluded.actor_id,
+          approved_at = excluded.approved_at,
+          signature = excluded.signature,
+          consumed_at = NULL,
+          checkout_jwt = excluded.checkout_jwt,
+          checkout_mandate = excluded.checkout_mandate,
+          payment_mandate = excluded.payment_mandate,
+          authorization_evidence_id = excluded.authorization_evidence_id
+        """,
+        (
+            record.run_id,
+            record.checkout_id,
+            record.checkout_fingerprint,
+            record.actor_id,
+            record.approved_at,
+            record.signature,
+            record.checkout_jwt,
+            record.checkout_mandate,
+            record.payment_mandate,
+            record.authorization_evidence_id,
+        ),
     )
 
 

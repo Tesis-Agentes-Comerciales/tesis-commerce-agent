@@ -31,6 +31,7 @@ from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 
 if TYPE_CHECKING:
+    from commerce_agent.governance.authorization import SqliteD2AuthorizationGate
     from commerce_agent.governance.enforce import SqliteD1EnforceGate
     from commerce_agent.governance.shadow import ShadowD1Observer, UnavailableShadowObserver
 
@@ -48,6 +49,7 @@ class AgentRuntime:
     mandate_signer: AgentMandateSigner | None = None
     d1_shadow: "ShadowD1Observer | UnavailableShadowObserver | None" = None
     d1_gate: "SqliteD1EnforceGate | None" = None
+    d2_gate: "SqliteD2AuthorizationGate | None" = None
     # Display name of each merchant origin, from the seller its feed declares at startup.
     merchant_names: dict[str, str] = field(default_factory=dict)
 
@@ -148,6 +150,12 @@ def build_runtime(
         from commerce_agent.governance.hp_continuation import governed_continuation
 
         d1_continuation = governed_continuation(configuration, d1_gate, store)
+    d2_gate = None
+    if d1_continuation is not None:
+        from commerce_agent.governance.bootstrap import build_authorization_gate
+
+        # After the store exists: the gate checks the ledger of this very database.
+        d2_gate = build_authorization_gate(configuration, clock, ap2=mandate_signer is not None)
     ap2_evidence = build_ap2_evidence(configuration)
     completion = CompletionService(
         client, approvals, payments, store, d1_continuation, ap2_evidence=ap2_evidence
@@ -166,6 +174,7 @@ def build_runtime(
         d1_observer=d1_shadow,
         d1_gate=TimedD1Gate(d1_gate, timings) if d1_gate is not None else None,
         d1_continuation=d1_continuation,
+        d2_gate=d2_gate,
         ap2_evidence=ap2_evidence,
     )
     owned_router = None
@@ -225,6 +234,7 @@ def build_runtime(
         mandate_signer=mandate_signer,
         d1_shadow=d1_shadow,
         d1_gate=d1_gate,
+        d2_gate=d2_gate,
         merchant_names=(
             {configuration.merchant_base_url: feed.seller_name} if feed.seller_name else {}
         ),
