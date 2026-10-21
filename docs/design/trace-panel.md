@@ -284,8 +284,12 @@ interface PurchaseSummary {       // filas de GET /me/purchases
 | `governed_recovery` | `hp_evidence` (`governed_recovery`), con la cadena y la forma del cuerpo verificadas. Actor `agent`, `state` `done`. Solo la ve una compra que existe: hoy, `budget_exceeded_after_checkout` | `null`: el registro no guarda hora; va al final |
 
 Los pasos de `hp_evidence` y los avisos del comercio se intercalan por hora entre los demás: cada
-uno va antes del primer paso posterior, y los pasos sin hora no se mueven. En un empate, la frescura
-va antes del paso que protege y un aviso, después. Si la cadena de `hp_evidence` o la forma de un
+uno va antes del primer paso posterior, y los pasos sin hora no se mueven. La traza muestra
+milisegundos, pero un aviso del comercio y el pago, la orden, la cancelación o el fallo pueden caer
+en el mismo: entonces decide la hora guardada, que tiene microsegundos y se toma justo antes de cada
+escritura, así que conserva el orden en que se escribieron (no hay una secuencia común a
+`webhook_events` y las demás tablas). Si aun así empatan, o en cualquier otro empate, la frescura va
+antes del paso que protege y un aviso, después. Si la cadena de `hp_evidence` o la forma de un
 cuerpo no se verifica, la traza no está disponible, como con la evidencia de la política. Ninguno
 expone el texto del comprador ni la explicación: la evidencia guarda sus digests y la traza ni
 siquiera los copia.

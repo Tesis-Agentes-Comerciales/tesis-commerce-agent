@@ -380,8 +380,9 @@ def test_a_webhook_stored_before_the_completion_stays_in_time_order(tmp_path: Pa
         trace = current.trace(prepared["purchase"]["run_id"])
         row = current.history()["purchases"][0]
 
+    # Both can fall in the same millisecond; the order still follows the writes.
     assert kinds(trace)[-3:] == ["payment_authorized", "order_event", "order_confirmed"]
-    assert step(trace, "order_event")["at"] < step(trace, "order_confirmed")["at"]
+    assert step(trace, "order_event")["at"] <= step(trace, "order_confirmed")["at"]
     assert_chronological(trace)
     # The purchase still ends at its order, as with a late webhook.
     assert row["status"] == "completed"
@@ -389,6 +390,40 @@ def test_a_webhook_stored_before_the_completion_stays_in_time_order(tmp_path: Pa
         datetime.fromisoformat(step(trace, "order_confirmed")["at"])
         - datetime.fromisoformat(trace["started_at"])
     ) // timedelta(milliseconds=1)
+
+
+@pytest.mark.parametrize(
+    ("webhook_us", "expected"),
+    [(100, ["order_event", "order_confirmed"]), (900, ["order_confirmed", "order_event"])],
+    ids=["webhook-first", "order-first"],
+)
+def test_a_webhook_in_the_same_millisecond_keeps_the_order_of_the_writes(
+    tmp_path: Path, webhook_us: int, expected: list[str]
+) -> None:
+    with shop(tmp_path, "off") as current:
+        prepared = current.prepare()
+        run_id = prepared["purchase"]["run_id"]
+        current.approve(prepared)
+        record_order_webhook(current, ORDER_ID)
+        # One millisecond, a second after the payment: the order at 500 µs, the webhook around it.
+        with closing(sqlite3.connect(current.configuration.agent_database_path)) as db, db:
+            [stored] = db.execute(
+                "SELECT completed_at FROM completion_results WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            second = datetime.fromisoformat(stored).replace(microsecond=0) + timedelta(seconds=1)
+            order_at, webhook_at = (
+                (second + timedelta(microseconds=us)).isoformat() for us in (500, webhook_us)
+            )
+            db.execute(
+                "UPDATE completion_results SET completed_at = ? WHERE run_id = ?",
+                (order_at, run_id),
+            )
+            db.execute("UPDATE webhook_events SET received_at = ?", (webhook_at,))
+        trace = current.trace(run_id)
+
+    # The trace shows milliseconds, so both read the same; the stored microseconds decide.
+    assert step(trace, "order_event")["at"] == step(trace, "order_confirmed")["at"]
+    assert kinds(trace)[-2:] == expected
 
 
 def test_a_late_merchant_webhook_does_not_stretch_the_purchase_duration(

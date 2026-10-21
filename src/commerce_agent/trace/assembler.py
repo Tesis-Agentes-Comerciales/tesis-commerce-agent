@@ -406,34 +406,83 @@ def sandbox_timed(records: PurchaseRecords, context: TraceContext) -> frozenset[
     return frozenset({"approval", "authorization_signed"})
 
 
-def goes_before(item: TraceStep, current: TraceStep, sandboxed: frozenset[str]) -> bool:
-    """Times are rounded to milliseconds. A freshness check runs right before the step it gates,
-    so on a tie it goes first; anything else goes after the steps it ties with.
+def stored_times(records: PurchaseRecords) -> dict[str, datetime]:
+    """Step id → its time as stored, to the microsecond, for a merchant webhook and the steps it
+    can share a millisecond with.
+
+    There is no sequence shared by `webhook_events` and the other tables. Each time is taken right
+    before its own write, so for two writes made one after the other it keeps their order: the
+    trace shows milliseconds, but a tie there is not a tie here.
+    """
+    stage, completion = records.purchase["stage"], records.completion
+    stored = {
+        "payment_authorized": records.operations.get("payment.delegate"),
+        "order_confirmed": completion["completed_at"] if completion else None,
+        "canceled": next(
+            (
+                records.operations[key]
+                for key in (f"checkout.cancel.{by}" for by in CANCELED_BY)
+                if key in records.operations
+            ),
+            None,
+        ),
+        "failed": records.purchase["updated_at"] if stage == "failed" else None,
+        **{
+            f"order_event:{number}": at
+            for number, (_, at) in enumerate(records.order_events, start=1)
+        },
+    }
+    return {key: precise(value) for key, value in stored.items() if value is not None}
+
+
+def precise(value: str) -> datetime:
+    moment = datetime.fromisoformat(value)
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class Ordering:
+    """What `by_time` compares besides the times the trace shows."""
+
+    # Steps that carry the sandbox's fixed time instead of when they happened.
+    sandboxed: frozenset[str] = frozenset()
+    # Step id → stored time to the microsecond (`stored_times`).
+    stored: Mapping[str, datetime] = field(default_factory=dict)
+
+
+def goes_before(item: TraceStep, current: TraceStep, ordering: Ordering) -> bool:
+    """Times are rounded to milliseconds. Within one, the stored times keep the order of the
+    writes. If those tie too, or are not known, a freshness check runs right before the step it
+    gates, so it goes first; anything else goes after the steps it ties with.
 
     A step with the sandbox's time is not compared: every check runs before the approval is
     signed, and anything else comes after it.
     """
-    if current.kind in sandboxed:
+    if current.kind in ordering.sandboxed:
         return item.kind == "freshness_check"
     if item.at is None or current.at is None:
         return False
     if current.at != item.at:
         return current.at > item.at
+    stored_item, stored_current = ordering.stored.get(item.id), ordering.stored.get(current.id)
+    if stored_item is not None and stored_current is not None and stored_item != stored_current:
+        return stored_current > stored_item
     return item.kind == "freshness_check" and current.kind in GATED
 
 
 def by_time(
-    steps: list[TraceStep], interleaved: list[TraceStep], sandboxed: frozenset[str] = frozenset()
+    steps: list[TraceStep], interleaved: list[TraceStep], ordering: Ordering | None = None
 ) -> list[TraceStep]:
     """Insert each step before the first later one; steps without a time keep their place.
 
     Freshness checks and merchant webhooks have their own clock: a webhook can arrive before the
     agent records the completion the merchant had already confirmed.
     """
+    ordering = ordering or Ordering()
     merged = list(steps)
     for item in interleaved:
         later = (
-            index for index, current in enumerate(merged) if goes_before(item, current, sandboxed)
+            index for index, current in enumerate(merged) if goes_before(item, current, ordering)
         )
         merged.insert(next(later, len(merged)), item)
     return merged
@@ -479,7 +528,7 @@ def assemble(records: PurchaseRecords, context: TraceContext) -> PurchaseTrace:
     ordered = by_time(
         [item for item in found if item is not None],
         [*order_event_steps(records), *freshness_steps(records)],
-        sandbox_timed(records, context),
+        Ordering(sandbox_timed(records, context), stored_times(records)),
     )
     steps = (*ordered, *recovery_steps(records))
     terms = records.terms
