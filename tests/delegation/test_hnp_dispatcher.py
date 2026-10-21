@@ -376,6 +376,52 @@ def test_a_request_that_no_longer_matches_its_commitment_is_never_sent(
     assert payment_noted(built) == []  # the trace shows no payment that never left
 
 
+def test_a_dispatch_whose_purchase_is_gone_ends_uncertain_without_sending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the outbox row committed, a durable purchase that went missing under the run cannot be
+    completed nor failed (§8.1): the task ends `uncertain(receipt_mismatch)`, as a request that no
+    longer matches its digest, instead of escaping with a `LookupError` and staying running."""
+    built, psp, merchant = bench(tmp_path)
+    crash_when(monkeypatch, built.ledger, "advance_dispatch", lambda *a, **k: True)
+    with pytest.raises(Crash):
+        built.run()
+    with closing(sqlite3.connect(built.path)) as connection, connection:
+        connection.execute("DELETE FROM purchases")
+    lapse(built)
+
+    step = built.run()
+
+    assert (step.status, built.ended()) == ("closed", ("uncertain", "receipt_mismatch"))
+    assert rows(built) == {
+        "outbox": ("uncertain", None, None, None, None),
+        "reservation": ("uncertain", None, "receipt_mismatch"),
+        "grant": ("active", None),
+    }
+    assert built.events()[-2:] == ["reservation_uncertain", "task_finished"]
+    assert (psp.delegations, merchant.completions) == ([], [])
+
+
+def test_a_completed_dispatch_whose_purchase_is_gone_waits_without_sending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """From `completed` the ledger has no way to `uncertain` (§4.4): the run stops `blocked`,
+    replays nothing and leaves the task running, instead of escaping with a `LookupError`."""
+    built, psp, merchant = bench(tmp_path)
+    crash_when(monkeypatch, built.ledger, "record_completion", lambda *a, **k: True)
+    with pytest.raises(Crash):
+        built.run()
+    with closing(sqlite3.connect(built.path)) as connection, connection:
+        connection.execute("DELETE FROM purchases")
+    lapse(built)
+
+    step = built.run()
+
+    assert (step.status, built.ended()) == ("blocked", ("running", None))
+    assert rows(built)["outbox"][0] == "completed"
+    assert (len(psp.delegations), len(merchant.completions)) == (1, 1)
+
+
 def test_a_completed_dispatch_never_becomes_uncertain(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
