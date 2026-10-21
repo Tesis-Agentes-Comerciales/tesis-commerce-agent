@@ -299,9 +299,10 @@ bases no sirven. Desde Python: `verify_database(path, run_id=…, psp_database=�
 
 El verificador no espera webhooks: el `order_create` debe haber llegado antes de leer la base
 (el runner lo despacha con el agente arriba; ver `merchant_webhooks`). D2 es obligatorio en una
-compra aprobada con `b2-hp-v2` (sin registro, `missing`); un registro D2 sale `missing` con
-`content_verified: false` hasta que un PR posterior verifique su contenido, cuando D2-HP esté en
-`main`. Por eso, hoy ninguna compra con orden queda completa.
+compra aprobada con `b2-hp-v2` o con POL-03..06 en su artefacto (sin registro, `missing`). El
+eslabón verifica el registro D2 con el ledger, su enlace con D1 (`evidence_digest`,
+`operation_id`, `policy_binding`), su frescura `approve` y que `approvals.authorization_evidence_id`
+apunte a la autorización aplicada; un `deny` seguido de aprobación es `mismatch`.
 
 ## Archivos
 
