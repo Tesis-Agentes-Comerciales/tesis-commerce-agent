@@ -43,16 +43,17 @@ La columna «Fuente» dice de dónde sale cada afirmación:
 | --- | --- | --- |
 | `vct` de los abiertos | `mandate.checkout.open.1` y `mandate.payment.open.1` | SDK (`OpenCheckoutMandate`, `OpenPaymentMandate`) |
 | `vct` de los cerrados | `mandate.checkout.1` y `mandate.payment.1` | SDK |
+| `vct` por segmento en la verificación | Cada verificador comprueba el `vct` de los dos segmentos de su cadena: checkout = `mandate.checkout.open.1` y `mandate.checkout.1`; pago = `mandate.payment.open.1` y `mandate.payment.1`. Un abierto de pago en la cadena de checkout, o al revés, da `invalid_credential` | perfil |
 | Forma | `<abierto SD-JWT>~~<cerrado KB-SD-JWT>`, exactamente dos segmentos | SDK (`MandateClient.present` y `verify`; `CheckoutMandateChain.parse` y `PaymentMandateChain.parse` exigen dos) |
 | Raíz de confianza | La clave del proveedor del agente (`AGENT_AP2_PRIVATE_KEY_PEM`) firma los abiertos. El comercio (`MERCHANT_AP2_AGENT_JWK_JSON`) y el PSP (`PAYMENT_AP2_AGENT_JWK_JSON`) ya la fijan para HP, así que la confianza entre servicios no cambia | perfil (el mismo modelo de confianza de HP) |
 | Resolución de la clave raíz | La cabecera del SD-JWT raíz lleva `kid` = thumbprint RFC 7638 de la clave del proveedor: jwcrypto lo calcula al cargar el PEM y el SDK lo copia (cabecera `{"alg":"ES256","typ":"example+sd-jwt","kid":…}`). Los verificadores usan un proveedor propio que exige `kid` = thumbprint de la JWK fijada y rechaza `x5c`; si no, `invalid_credential`. No usan `X5cOrKidPublicKeyProvider` tal cual: sin `trusted_roots` acepta cualquier cadena `x5c` | SDK (probado y leído); el proveedor es perfil |
 | `cnf` | `{"jwk": <Agent Key pública>}` en los dos abiertos. Agent Key: `AGENT_HNP_AGENT_KEY_PEM`, ES256, distinta de la del proveedor | spec (`cnf` es obligatorio mientras el mandato está abierto, RFC 7800); SDK (`ParsedToken.cnf_jwk` lee `cnf.jwk`) |
 | Cierre | KB-SD-JWT terminal (`typ` `kb+sd-jwt`) firmado con la Agent Key, sin `cnf` | SDK (`kb_sd_jwt`: un salto terminal no lleva `cnf`; probado) |
-| Vínculo cerrado → abierto | `sd_hash` (modo por defecto de `present`): hash del abierto tal como se presenta, con sus divulgaciones | SDK |
+| Vínculo cerrado → abierto | `sd_hash` (modo por defecto de `present`): hash del abierto tal como se presenta, con sus divulgaciones. `verify_binding` del SDK también acepta `issuer_jwt_hash`; los verificadores exigen `sd_hash` y rechazan un cerrado con `issuer_jwt_hash` con `invalid_credential` | SDK (`verify_binding`, leído); la exigencia es perfil |
 | Algoritmo de hash | SHA-256, base64url sin relleno; los tokens no llevan `_sd_alg` | SDK (`_hash_for_alg(None)`); spec (sha-256 por defecto) |
 | Vigencia del abierto | `iat` = consentimiento; `exp` = `expires_at` del grant | perfil |
 | Vigencia del cerrado | `exp = iat + 300` | perfil (igual que HP) |
-| Tolerancia de reloj | Los verificadores pasan `clock_skew_seconds=60` | SDK: el valor por defecto es 300 s y con él un abierto vencido hace 200 s todavía verifica (probado). perfil: 60 s, la misma holgura de `iat` que HP |
+| Tiempo en la verificación | Los verificadores pasan `clock_skew_seconds=60` al SDK y además exigen, en **cada** segmento (abierto y cerrado): `iat` y `exp` presentes, `iat ≤ now + 60` y `now < exp` sin holgura; si no, `invalid_credential`. El cerrado además cumple `exp − iat ≤ 300` | SDK: `_check_time_claims` solo valida `exp` e `iat` si existen, aplica la holgura también a `exp` y su valor por defecto es 300 s (con él, un abierto vencido hace 200 s todavía verifica; probado). perfil: la holgura de 60 s vale solo para `iat`, como HP; `exp` es estricto, como HP en el comercio y en el PSP |
 | Divulgación selectiva | Los abiertos se presentan completos | perfil (no llevan datos personales) |
 
 ### Restricciones soportadas
@@ -127,16 +128,24 @@ La columna «Fuente» dice de dónde sale cada afirmación:
 3. Las restricciones del abierto se revisan en JSON contra este perfil antes de parsear.
 4. El `checkout_jwt` del cerrado pasa las comprobaciones de HP (firma propia, `aud`, revisión y
    coincidencia con el checkout actual) y `checkout_hash` es su hash.
-5. El cerrado tiene `iat` y `exp`, `exp − iat ≤ 300` e `iat ≤ now + 60`. El abierto no tiene ese
-   tope: vence con su `exp`.
+5. Los dos segmentos cumplen la regla de tiempo de «Mandatos y cadenas» (`iat` y `exp` presentes,
+   `iat ≤ now + 60`, `now < exp`) y el `vct` de su posición; el cerrado, además, `exp − iat ≤ 300`.
+   El cerrado lleva `sd_hash`, no `issuer_jwt_hash`.
 6. `check_checkout_constraints(abierto, project_acp_checkout(checkout))`. No se usa
    `CheckoutMandateChain.verify(checkout_jwt=…)`, porque valida el payload del JWT directamente como
    `Checkout` del SDK y nuestro JWT es el envoltorio `{iss, aud, iat, exp, jti, checkout: <ACP>,
    checkout_revision}` (SDK).
 7. Un reintento idempotente sobre un checkout ya `completed` acepta el mismo cierre aunque haya
-   vencido, como HP.
+   vencido, como HP: `verify_chain` rechaza saltos vencidos, así que el comercio verifica esa cadena
+   con `current_time` = `iat` del cerrado y omite `now < exp`; todo lo demás se comprueba igual y
+   responde con la misma orden y el mismo recibo.
 
 ### Verificación en el PSP (HNP-P1)
+
+**Orden.** El PSP consulta la idempotencia antes de verificar (como hoy en `store.py`). El mismo
+cuerpo con la misma clave devuelve el mismo token aunque el cierre haya vencido; un cuerpo distinto
+con la misma clave es 409 `idempotency_conflict`, sin recibo. Solo emite recibo de error si no hay
+una delegación previa con esa clave. Después:
 
 1. La cadena de pago se verifica con el proveedor de la raíz de confianza,
    `expected_aud="tesis_payment_provider"`, `expected_nonce` = hash de `ap2_checkout_jwt` y
@@ -148,8 +157,9 @@ La columna «Fuente» dice de dónde sale cada afirmación:
 3. `PaymentMandateChain.verify(expected_transaction_id=<hash de ap2_checkout_jwt>,
    expected_open_checkout_hash=<hash del abierto de checkout>)` (SDK).
 4. Las comprobaciones de HP sobre el cerrado y la `allowance` (comercio, instrumento, monto =
-   `max_amount`, moneda, checkout `ready_for_payment` y un solo total). El tope `exp − iat ≤ 300`
-   aplica solo al cerrado.
+   `max_amount`, moneda, checkout `ready_for_payment` y un solo total). Los dos segmentos de cada
+   cadena cumplen la regla de tiempo y el `vct` de su posición, y cada cerrado se liga por `sd_hash`;
+   el tope `exp − iat ≤ 300` aplica solo al cerrado.
 
 ### Recibos
 
@@ -163,9 +173,21 @@ La columna «Fuente» dice de dónde sale cada afirmación:
 - **Error:** `status: "Error"`, `iss`, `iat`, `reference`, `error` (código AP2) y
   `error_description` (SDK, `CheckoutReceiptError` y `PaymentReceiptError`). Si el último segmento no
   se puede parsear, `reference` = base64url(SHA-256 del segmento tal como llegó) (perfil).
+- **`payment_id` del recibo de error del PSP:** `PaymentReceiptError` lo exige (SDK). El PSP usa
+  `"pay_rejected_" + hex(SHA-256(Idempotency-Key))[:32]`, determinista por clave, así que un
+  reintento rechazado da el mismo `payment_id` (perfil).
+- **Validación en el agente:** un recibo de error del PSP solo cuenta si valida como
+  `PaymentReceiptError`, su firma verifica con la JWKS del PSP (`/.well-known/ap2/jwks.json`, como
+  HP) y su `reference` es el `link_hash` del cerrado de pago. Solo entonces libera la reserva
+  (`psp_error_receipt`). Un 4xx sin recibo válido, incluido el 409 `idempotency_conflict`, y todo 5xx
+  (también un 503 `mandates_not_supported` sin recibo) son `uncertain` y no liberan (perfil).
+- **`status` frente a `result`:** la spec llama `result` al campo, con valores `success` y `error`
+  (`agent_authorization.md`); el SDK usa `status` con `Success` y `Error`. El perfil sigue al SDK,
+  igual que HP. **Divergencia declarada.**
 - **HTTP:** el comercio responde 422 `{"code": <código AP2>, "checkout_receipt_jwt": <recibo>}` y el
   PSP, 422 `{"code": <código AP2>, "payment_receipt_jwt": <recibo>}`. `mandates_not_supported` es 503
-  sin recibo cuando el verificador no tiene AP2 configurado, porque no tiene con qué firmar. El
+  sin recibo cuando el verificador no tiene AP2 configurado, porque no tiene con qué firmar; para el
+  agente es un 5xx sin recibo. El
   camino HP conserva sus respuestas (perfil). La spec pide recibo de error también en HP; HP no lo
   emite hoy y no cambia en esta ola.
 
@@ -177,10 +199,10 @@ agéntico (`agent_authorization.md`). El reparto de causas es del perfil.
 
 | Código | Causa | Qué hace el agente |
 | --- | --- | --- |
-| `invalid_credential` | Firma o raíz inválidas; salto firmado con una clave distinta del `cnf`; `sd_hash` que no coincide; `aud` o `nonce` distintos; `typ` inesperado; `exp` vencido o `iat` futuro; token mal formado o número de segmentos distinto de dos | Terminal: `failed` y alerta al operador |
+| `invalid_credential` | Firma o raíz inválidas; salto firmado con una clave distinta del `cnf`; `sd_hash` que no coincide o vínculo por `issuer_jwt_hash`; `aud` o `nonce` distintos; `typ` o `vct` inesperados para la posición; falta `iat` o `exp`; `exp` vencido (sin holgura) o `iat` futuro (más de 60 s); token mal formado o número de segmentos distinto de dos | Terminal: `failed` y alerta al operador |
 | `invalid_mandate` | El cerrado viola una restricción soportada (monto, payee, instrumento, comercio, variante); `checkout_hash` o `transaction_id` distintos del JWT presentado; `payment.reference` que no coincide; cerrado con `exp − iat > 300`; checkout con más de una línea o cantidad distinta de 1 | Terminal: `failed` y alerta |
 | `unresolved_constraint` | `type` o propiedad fuera del perfil; `acceptable_items` vacío; abierto con claims prefijados; checkout no proyectable; falta `ap2_checkout_mandate` en el PSP | Escala (si el PSP ya emitió el token, la compra queda `uncertain`) |
-| `mandates_not_supported` | El verificador no tiene AP2 configurado | Escala |
+| `mandates_not_supported` | El verificador no tiene AP2 configurado | Escala solo con recibo válido; el 503 sin recibo es `uncertain` |
 
 ### Adaptación ACP→SDK (no es conformidad)
 

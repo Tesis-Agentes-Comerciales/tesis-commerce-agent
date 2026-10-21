@@ -152,13 +152,14 @@ afirmación de conformidad HNP procede de parsear modelos o simular status=valid
 
 Agregado el 20-oct-2026 con la spec [`hnp-governed.md`](../design/hnp-governed.md) (HNP-00). No
 cambia ningún caso ni oráculo: dice qué PR cubre cada caso y en qué capa. Los ids son los del plan
-de PRs de esa spec; «I1» es la prueba en vivo (`tests/integration`, a mano con `RUN_LIVE_STACK=1`),
+de PRs de esa spec (`HNP-0x`, con guion), distintos de los casos de esta tabla (`HNP0x`, sin guion)
+y de los experimentos offline «HNP-01/HNP-02» del validador; «I1» es la prueba en vivo (`tests/integration`, a mano con `RUN_LIVE_STACK=1`),
 que cierra los gates H01/H04/H05/H06 en vivo.
 
 | Caso | Store y reglas (sin servicios) | Servicio, executor y verificadores | En vivo |
 | --- | --- | --- | --- |
-| HNP01 | HNP-02 (vencimiento en el claim y en las UoW), HNP-03 (POL-07: antes de `valid_from`, `now == expires_at` y después deniegan) | HNP-06 (POL-07 por el boundary), HNP-09a (claim de un grant vencido: 0 checkout), HNP-M1 y HNP-P1 (`exp` del abierto con tolerancia de 60 s) | I1; HN04 en la evaluación (HNP-E1/E2) |
-| HNP02 | HNP-03 (POL-08 con total, envío y demás términos) | HNP-06 (POL-05 y POL-08 por el boundary), HNP-09a (frescura `close`: cambio → escalamiento sin firma; dentro del alcance, D2 y cierre sobre los términos nuevos solo sin presentación incierta) | I1 (precio sobre el límite: escalamiento y 0 firmas); HN02 y HN03 en la evaluación |
+| HNP01 | HNP-02 (vencimiento en el claim y en las UoW, con el reloj real leído dentro de la transacción), HNP-03 (POL-07: antes de `valid_from`, `now == expires_at` y después deniegan) | HNP-06 (POL-07 por el boundary), HNP-09a (claim de un grant vencido: 0 checkout; margen de 300 s en UoW-1), HNP-M1 y HNP-P1 (`now < exp` del abierto sin holgura; solo `iat` tiene 60 s) | I1; HN04 en la evaluación (HNP-E1/E2) |
+| HNP02 | HNP-03 (POL-08 con total, envío y demás términos) | HNP-06 (POL-05 y POL-08 por el boundary), HNP-09a: cambio antes de crear el checkout (HN02): D2 y cierre al precio nuevo; cambio al cerrar: `escalated(offer_changed)`, sin firma | I1 (precio sobre el límite: escalamiento y 0 firmas); HN02 y HN03 en la evaluación |
 | HNP03 | HNP-02 (revocar antes del compromiso no deja outbox; epoch re-chequeado en UoW-1 y UoW-2) | HNP-08 (revocación idempotente), HNP-09a (revocación antes de UoW-1 y entre UoW-1 y UoW-2), HNP-06 (N10/F10) | I1 (revocación con `FaultProxy` en `/ap2/checkout-jwt`: 0 órdenes y 0 tokens) |
 | HNP04 | HNP-02 (revocar después del compromiso deja la operación «en curso») | HNP-08 (`RevokeReceipt` con `in_flight`), HNP-09b (el despacho sigue y se reconcilia; sin promesa de cancelar) | I1 |
 | HNP05 | HNP-02 (de dos reservas sobre el mismo grant gana una; índice `one_use_per_grant`) | HNP-09a (conflicto CAS: el perdedor no avanza), HNP-03 (N09 con reserva ajena) | I1 (dos disparos: 1 orden); HN07 en la evaluación |
