@@ -24,7 +24,7 @@ export const HNP_TRACES = {
   d2Denied: parsePurchaseTrace(d2Denied),
   /** La prueba del mandato abierto quedó sin resolver: D2 se detiene sin evaluar reglas y escala. */
   escalated: parsePurchaseTrace(escalated),
-  /** El envío subió justo antes de cerrar: la frescura detiene la compra y D2 no evalúa. */
+  /** El envío subió justo antes de cerrar: la frescura detiene la compra antes de D2. */
   offerChanged: parsePurchaseTrace(offerChanged),
   /** El dueño revocó con el despacho ya comprometido: la compra sigue y se concilia. */
   revokedInFlight: parsePurchaseTrace(revokedInFlight),

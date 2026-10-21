@@ -430,7 +430,7 @@ la frescura, la revocación y el escalamiento solo aparecen si la traza los trae
 
 | Paso | Título | Detalle |
 | --- | --- | --- |
-| `delegation_consented` | «Delegación autorizada» | «Hasta $ 2.000.000 COP · vence …» |
+| `delegation_consented` | «Delegación autorizada» | «Hasta $ 2.000.000,00 COP · vence …» |
 | `task_activated` | «Compra delegada en marcha»; el segundo, «Compra delegada reanudada» | «Sin tu intervención» |
 | Frescura `fresh` al cerrar | «Oferta vigente al cerrar» | «Antes de cerrar la compra delegada»; bloqueada: «No se reservó el uso único. No se hizo ningún cobro.» |
 | `authorization_decision` (D2-HNP) | «Autorización delegada verificada» o los títulos de D2 | «Antes de reservar el uso único» o, detenida, lo que no pasó |
@@ -440,7 +440,18 @@ la frescura, la revocación y el escalamiento solo aparecen si la traza los trae
 | `revoked` | «Delegación revocada» | Quién (tú o el operador) y su efecto, con las frases de §8.3 |
 | `escalated` | «Necesito tu decisión» | La causa de §8.3 y «No se hizo ningún cobro.» |
 | `canceled` por vencimiento | «La delegación venció» | «Venció antes de que el agente comprara. No se hizo ningún cobro.» |
-| `failed:task` | «La compra delegada se detuvo» | El código de la tarea y «No se hizo ningún cobro.» |
+| `failed` de una compra delegada | «La compra no se pudo completar» | La causa solo si es cierta en todos los caminos que dan ese código, y «No se hizo ningún cobro.». Si no, «Por precaución, la compra se detuvo. No se hizo ningún cobro.» |
+| `failed:task` | «La compra delegada se detuvo» | Igual que `failed` |
+| K15: `failed` `governance_unavailable` con la compra `uncertain` | «La compra espera la recuperación de la política de compra» | «La delegación quedó cerrada. No se hizo ningún cobro.»; en la fila de actividad, «Por confirmar: recuperación pendiente» |
+
+Una causa solo se nombra si es cierta en todos los caminos de `application/hnp_execution.py` que
+dan ese código:
+
+- `checkout_failed` también sale con el checkout ya creado: si el comercio rechaza el update, si
+  falla el cierre o la Agent Key, o con `d1_post_create_uncertain`. Por eso no culpa al comercio.
+- `governance_unavailable` también sale si no se pudo leer la oferta al cerrar. Por eso no culpa a
+  la política: la frescura no se presenta como una decisión de la política.
+- `policy_denied` sí nombra la política: solo sale de un deny de D2 o D3 por sus reglas.
 
 ### Chat en vivo (`ui/src/components/agent/`)
 

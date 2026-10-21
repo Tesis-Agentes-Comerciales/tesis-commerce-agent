@@ -278,9 +278,13 @@ export const FAILURE_COPY = {
 /** Lo que no pasó en una compra delegada que falló: el pago nunca salió (§8.1). */
 const NO_CHARGE = "No se hizo ningún cobro."
 
+/**
+ * Causa de un fallo de la tarea delegada, solo si es cierta en todos los caminos que dan ese código
+ * (`application/hnp_execution.py`). `checkout_failed` también cubre un update rechazado o un cierre
+ * fallido con el checkout ya creado, y `governance_unavailable`, la frescura sin leer al cerrar:
+ * ninguno nombra una causa. `policy_denied` solo sale de un deny de D2 o D3 por sus reglas.
+ */
 const DELEGATED_FAILURE: Record<string, string> = {
-  checkout_failed: "El comercio no pudo crear el checkout.",
-  governance_unavailable: "La política de compra no estaba disponible.",
   policy_denied: "La política de compra no permitió la compra.",
 }
 
@@ -292,7 +296,7 @@ function failureDetail(step: Extract<TraceStep, { kind: "failed" }>, context?: S
   return `${reason} ${NO_CHARGE}`
 }
 
-/** K15: la compra quedó elegida sin el resultado de la política; no se cobró y espera su recuperación. */
+/** K15: D1 permitió sin su resultado de despacho; la tarea cerró la delegación sin cobrar. */
 function waitingForPolicy(step: TraceStep, context?: StepContext) {
   return (
     delegated(context) &&
@@ -309,9 +313,9 @@ function failureTitle(step: Extract<TraceStep, { kind: "failed" }>, context?: St
 }
 
 const WAITING_FOR_POLICY = {
-  title: "La compra espera la política de compra",
-  detail: `La compra espera que se recupere la decisión de la política de compra. ${NO_CHARGE}`,
-  summary: "Por confirmar: espera la política",
+  title: "La compra espera la recuperación de la política de compra",
+  detail: `La delegación quedó cerrada. ${NO_CHARGE}`,
+  summary: "Por confirmar: recuperación pendiente",
 }
 
 const SCOPES = { checkout: "la compra", payment: "el pago" } as const
