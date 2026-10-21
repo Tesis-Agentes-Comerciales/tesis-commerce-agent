@@ -691,6 +691,8 @@ class SqliteDelegationLedger:
                 return Step("lease_lost")
             outbox = ex.outbox
             if outbox is not None and outbox.state == to:
+                if order_id != outbox.order_id:
+                    raise ValueError("A completed dispatch keeps its order")
                 return _renewed(connection, ex, now)
             if outbox is None or _next_dispatch_step(outbox.state) != to:
                 return Step("blocked", ex)
@@ -738,6 +740,8 @@ class SqliteDelegationLedger:
         """A verified AP2 error receipt. From the PSP nothing reached the merchant: the
         reservation is released and the task escalates or fails (B0-HNP never escalates, so it
         passes `escalate=False`). From the merchant, after the PSP token: `uncertain`."""
+        if receipt.status != "error" or receipt.error != ap2_error:
+            raise ValueError("An error receipt with that AP2 error rejects the dispatch")
         with self._fenced(task_id, lease_id) as (connection, now, ex):
             if ex is None:
                 return Step("lease_lost")
@@ -747,6 +751,8 @@ class SqliteDelegationLedger:
             )
             if outbox is None or rejected_by is None:
                 return Step("blocked", ex)
+            if receipt.kind != ("payment" if rejected_by == "psp" else "checkout"):
+                raise ValueError("The receipt comes from the verifier that was sent to")
             text = utc_text(now)
             _update(
                 connection,
@@ -779,12 +785,18 @@ class SqliteDelegationLedger:
     ) -> Step:
         """UoW-3: the order with both receipts consumes the reservation and the grant. A grant
         revoked or expired after the commitment stays so; the reservation is consumed anyway."""
+        if (payment_receipt.kind, checkout_receipt.kind) != ("payment", "checkout") or (
+            payment_receipt.error is not None or checkout_receipt.error is not None
+        ):
+            raise ValueError("UoW-3 takes the payment and checkout receipts, without error")
         with self._fenced(task_id, lease_id) as (connection, now, ex):
             if ex is None:
                 return Step("lease_lost")
             outbox, reservation, grant = ex.outbox, ex.reservation, ex.grant
             if outbox is None or reservation is None or outbox.state != "completed":
                 return Step("blocked", ex)
+            if checkout_receipt.order_id != outbox.order_id:
+                raise ValueError("The checkout receipt names the completed order")
             text = utc_text(now)
             _update_reservation(connection, reservation, text, state="consumed")
             if grant.state == "active":

@@ -4,11 +4,18 @@ HNP04 and HNP09 through to the order.
 """
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from commerce_agent.delegation.models import LEASE_SECONDS, Ap2Error, chain_is_valid
+from commerce_agent.delegation.models import (
+    LEASE_SECONDS,
+    Ap2Error,
+    DispatchStep,
+    Receipt,
+    chain_is_valid,
+)
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
 from tests.support.delegation import (
     OWNER,
@@ -39,6 +46,13 @@ def event_types(flow: Flow) -> list[str]:
     return [event.event_type for event in flow.ledger.events(flow.grant_id)]
 
 
+_UP_TO_COMPLETE_SENT: tuple[DispatchStep, ...] = (
+    "payment_sent",
+    "payment_accepted",
+    "complete_sent",
+)
+
+
 def complete(flow: Flow) -> None:
     flow.advance("payment_sent", "payment_accepted", "complete_sent", "completed")
     step = flow.ledger.record_completion(
@@ -67,6 +81,7 @@ def test_a_dispatch_timeout_becomes_uncertain_without_releasing(flow: Flow) -> N
         "dispatch_timeout",
         "active",
     )
+    assert ex.grant.state_version == 4  # consent 1, UoW-1 2, UoW-2 3, uncertain 4
     assert flow.claim().status == "not_runnable"
     assert event_types(flow)[-2:] == ["reservation_uncertain", "task_finished"]
 
@@ -144,6 +159,112 @@ def test_a_merchant_error_receipt_after_the_psp_token_is_uncertain(flow: Flow) -
     )
     assert (ex.task.state, ex.grant.state) == ("uncertain", "active")
     assert ex.outbox is not None and ex.outbox.rejected_by == "merchant"
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        (),
+        ("payment_sent", "payment_accepted"),
+        ("payment_sent", "payment_accepted", "complete_sent", "completed"),
+    ],
+    ids=["committed", "payment_accepted", "completed"],
+)
+def test_an_error_receipt_rejects_only_a_send(flow: Flow, steps: tuple[DispatchStep, ...]) -> None:
+    """§4.4: `payment_sent → rejected(psp)` and `complete_sent → rejected(merchant)` only."""
+    flow.committed()
+    flow.advance(*steps)
+    before, events = flow.state(), event_types(flow)
+
+    for kind in ("payment", "checkout"):
+        error = receipt(kind, error="invalid_mandate")
+        step = flow.ledger.reject_dispatch(flow.task_id, flow.lease_id, "invalid_mandate", error)
+        assert step.status == "blocked"
+
+    assert (flow.state(), event_types(flow)) == (before, events)
+
+
+@pytest.mark.parametrize(
+    ("sent", "error"),
+    [
+        ("payment_sent", receipt("checkout", error="invalid_mandate")),
+        ("payment_sent", receipt("payment")),
+        ("payment_sent", replace(receipt("payment", error="invalid_mandate"), status="success")),
+        ("payment_sent", receipt("checkout")),
+        ("payment_sent", receipt("payment", error="unresolved_constraint")),
+        ("complete_sent", receipt("payment", error="invalid_mandate")),
+        ("complete_sent", receipt("checkout")),
+    ],
+    ids=[
+        "psp_checkout",
+        "psp_success",
+        "psp_success_with_error",
+        "psp_checkout_success",
+        "psp_other_error",
+        "merchant_payment",
+        "merchant_success",
+    ],
+)
+def test_an_incoherent_error_receipt_is_refused_before_writing(
+    flow: Flow, sent: DispatchStep, error: Receipt
+) -> None:
+    flow.committed()
+    flow.advance(*(("payment_sent",) if sent == "payment_sent" else _UP_TO_COMPLETE_SENT))
+    before, events = flow.state(), event_types(flow)
+
+    with pytest.raises(ValueError):
+        flow.ledger.reject_dispatch(flow.task_id, flow.lease_id, "invalid_mandate", error)
+
+    assert (flow.state(), event_types(flow)) == (before, events)
+
+
+@pytest.mark.parametrize(
+    ("payment", "checkout"),
+    [
+        (receipt("checkout"), receipt("payment")),
+        (receipt("checkout"), receipt("checkout")),
+        (receipt("payment"), replace(receipt("payment"), order_id="order_1")),
+        (receipt("payment", error="invalid_mandate"), receipt("checkout")),
+        (
+            receipt("payment"),
+            replace(receipt("checkout", error="invalid_mandate"), order_id="order_1"),
+        ),
+        (receipt("payment"), replace(receipt("checkout"), order_id="order_2")),
+    ],
+    ids=[
+        "swapped",
+        "two_checkouts",
+        "two_payments",
+        "payment_error",
+        "checkout_error",
+        "another_order",
+    ],
+)
+def test_uow3_refuses_incoherent_receipts_before_writing(
+    flow: Flow, payment: Receipt, checkout: Receipt
+) -> None:
+    flow.committed()
+    flow.advance(*_UP_TO_COMPLETE_SENT, "completed")
+    before, events = flow.state(), event_types(flow)
+
+    with pytest.raises(ValueError):
+        flow.ledger.record_completion(flow.task_id, flow.lease_id, payment, checkout)
+
+    assert (flow.state(), event_types(flow)) == (before, events)
+
+
+def test_a_completed_dispatch_keeps_its_order(flow: Flow) -> None:
+    flow.committed()
+    flow.advance(*_UP_TO_COMPLETE_SENT, "completed")
+    ledger, task_id, lease = flow.ledger, flow.task_id, flow.lease_id
+
+    assert ledger.advance_dispatch(task_id, lease, "completed", order_id="order_1").status == (
+        "reused"
+    )
+    with pytest.raises(ValueError, match="order"):
+        ledger.advance_dispatch(task_id, lease, "completed", order_id="order_2")
+    outbox = flow.state().outbox
+    assert outbox is not None and outbox.order_id == "order_1"
 
 
 def test_the_outbox_only_moves_forward(flow: Flow) -> None:
@@ -265,7 +386,8 @@ def test_with_a_foreign_lease_the_dispatch_writes_nothing(
 
     assert ledger.advance_dispatch(task_id, stale, "payment_sent").status == "lease_lost"
     assert ledger.mark_uncertain(task_id, stale, "dispatch_timeout").status == "lease_lost"
-    rejected = ledger.reject_dispatch(task_id, stale, "invalid_mandate", receipt("payment"))
+    error = receipt("payment", error="invalid_mandate")
+    rejected = ledger.reject_dispatch(task_id, stale, "invalid_mandate", error)
     completed = ledger.record_completion(task_id, stale, receipt("payment"), receipt("checkout"))
     assert (rejected.status, completed.status) == ("lease_lost", "lease_lost")
     assert flow.state() == before
