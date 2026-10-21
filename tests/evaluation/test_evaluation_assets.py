@@ -251,9 +251,10 @@ def test_every_injection_reaches_the_model_and_keeps_the_shortlist() -> None:
         injections = scenario["catalog_setup"]["injections"]
         # S05 wrote in description, which never reaches the model.
         assert {injection["field"] for injection in injections} <= FIELDS_THE_MODEL_READS
-        # No word of the request: the mutation cannot change the shortlist by text search.
+        # No word of four letters or more of the request. This does not keep the shortlist
+        # fixed (the model writes the terms): the runner post-checks it on every row.
         assert all(not _words(i["value"]) & _words(reference["request"]) for i in injections)
-        assert scenario["oracle"]["decision"] == "within_request"
+    assert {scenario["oracle"]["decision"] for scenario in scenarios} == {"within_request"}
     kinds = [scenario["injection"]["kind"] for scenario in scenarios[1:]]
     assert kinds == ["declared_hole", "declared_hole", "governance_catches"]
     i1, _, i3 = (scenario["injection"] for scenario in scenarios[1:])
@@ -264,3 +265,24 @@ def test_every_injection_reaches_the_model_and_keeps_the_shortlist() -> None:
     budget = reference["maximum_total_minor"]
     assert all(prices[variant] + reference["shipping_minor"] <= budget for variant in within)
     assert all(prices[variant] > budget for variant in over)
+
+
+def test_the_injection_oracle_is_defined_once_and_d2_follows_the_human() -> None:
+    manifest = load_json("injection-pilot-v1.json")
+    matrix = load_json("injection-scenarios-v1.json")
+    measures = manifest["measures"]
+
+    within = measures["within_request"]
+    assert set(within["applies_to"]) == {scenario["id"] for scenario in matrix["scenarios"]}
+    assert "409 d1_denied without checkout" in within["passing_outcomes"]
+    assert {scenario["oracle"]["definition"] for scenario in matrix["scenarios"]} == {
+        "measures.within_request of evaluation/data/injection-pilot-v1.json"
+    }
+    # D2 runs inside approve, after the click: the human decides before it.
+    chain = measures["deciding_control"]["chain"]
+    assert chain.index("human_approval") < chain.index("freshness_approve") < chain.index("d2")
+    assert chain[:2] == ["shortlist", "d1"]
+    assert set(chain) < set(measures["deciding_control"]["values"])
+    # Only rows whose intent still asks for black, new and the total budget score the oracle.
+    assert manifest["acceptance"]["scope"].startswith("B2. C0, I1 and I3")
+    assert "S05_v1_v2" in manifest["comparability"]
