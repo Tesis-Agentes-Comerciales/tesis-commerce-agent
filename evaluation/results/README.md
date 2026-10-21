@@ -28,3 +28,8 @@ un kernel.
 `hnp02/<run_id>/` guarda corridas de EC-HNP-02 (`uv run hnp-matrix`), cada una con su `README.md`
 de configuración, resultados y lectura, más `SHA256SUMS`. La primera corrida en vivo es
 `hnp02/hnp02-live-20261020T180845Z-s20261022/`.
+
+El piloto B2 gobernado v2 (manifiesto `B2-PILOT-v2`) está en `b2-pilot-v2/`.
+- Contiene el lote 1, el lote 2 (S05, S06 y S08, una invocación por escenario) y la combinación que cuenta, con `SHA256SUMS`.
+- `b2-pilot-v2-report.md` resume los resultados frente a los criterios pre-registrados y explica la regla del lote de completitud.
+- En estos resúmenes, el campo `output` conserva la ruta absoluta que guardó el runner. No se reescribió.
