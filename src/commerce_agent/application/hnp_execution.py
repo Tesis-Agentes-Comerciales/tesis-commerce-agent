@@ -375,13 +375,21 @@ class HnpExecutionService:
         self._dispatcher = dispatcher
 
     def run(self, task_id: str) -> Step:
-        """Steps 1 to 12 of one task. The result is the step that ended this run: `closed` with a
-        terminal (`purchased` among them), `lease_lost`, `applied` once UoW-2 committed when no
-        dispatcher is plugged in, the dispatch's own answer, or the claim's."""
-        claimed = self._ledger.claim(task_id, hooks=self._reclaim_hooks(task_id))
+        """Steps 1 to 12 of one task in this thread: `claim`, then `resume` if it got the lease."""
+        claimed = self.claim(task_id)
         if claimed.status != "applied" or claimed.execution is None:
             return claimed
-        ex = claimed.execution
+        return self.resume(claimed.execution)
+
+    def claim(self, task_id: str) -> Step:
+        """Step 1: `applied` with a new lease, `closed` with the terminal the claim imposed, or
+        `not_found` / `not_runnable` (§4.5). The service route answers with it before resuming."""
+        return self._ledger.claim(task_id, hooks=self._reclaim_hooks(task_id))
+
+    def resume(self, ex: Execution) -> Step:
+        """Steps 2 to 12 of a task this run claimed, from its durable state. The result is the step
+        that ended the run: `closed` with a terminal (`purchased` among them), `lease_lost`,
+        `applied` once UoW-2 committed when no dispatcher is plugged in, or the dispatch's own."""
         step = Step("applied", ex) if ex.outbox is not None else self._prepare(ex)
         committed = step.execution if step.status == "applied" else None
         if self._dispatcher is not None and committed is not None and committed.outbox is not None:

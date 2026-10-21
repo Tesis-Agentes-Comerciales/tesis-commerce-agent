@@ -298,12 +298,14 @@ def create_app(
         app, service=conversation, new_id=id_factory, current_buyer=current_buyer
     )
     if runtime.delegations is not None:
-        # The bootstrap already required both tokens (delegation/bootstrap.py).
+        # The bootstrap required both tokens and built the executor (delegation/bootstrap.py).
         assert configuration.agent_hnp_service_token is not None
         assert configuration.agent_hnp_operator_token is not None
+        assert runtime.hnp_executor is not None
         register_delegation_api(
             app,
             runtime.delegations,
+            executor=runtime.hnp_executor,
             current_buyer=current_buyer,
             service_token=configuration.agent_hnp_service_token,
             operator_token=configuration.agent_hnp_operator_token,

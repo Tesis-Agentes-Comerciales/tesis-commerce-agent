@@ -228,7 +228,8 @@ puede volver a obtener los recibos, la tarea sigue `running` y la próxima corri
 peticiones idempotentes.
 
 **Arranque (HNP-09a).** Con `AGENT_HNP_ENABLED`, `build_runtime` arma el executor en un solo lugar,
-`delegation/bootstrap.build_hnp_executor`, que es donde 09b enchufa el despacho. En `enforce`, la
+`delegation/bootstrap.build_hnp_executor`, que desde 09b le enchufa el `HnpDispatcher` con el mismo
+ledger, el `DelegatedPaymentClient` y el `ACPClient` del runtime. En `enforce`, la
 `PurchaseService` del runtime recibe D1-HNP (`governance/bootstrap.build_hnp_d1_gate`, con
 `merchant_refs=operator_merchant_refs(...)`, K11) y el executor recibe
 `build_hnp_policy_gate(settings, clock, trust=hnp_trust.mandates)` y el guard de frescura del
@@ -735,6 +736,11 @@ puede dispararlas.
 | `POST /internal/hnp/kill-switch` | Operador | `{"enabled": bool}` | 200 `KillSwitchState {enabled, control_epoch, changed_at}`; el mismo valor no cambia el epoch | 401; 403; 422 `hnp_request_invalid` |
 
 El token de servicio no sirve para el kill switch ni el de operador para disparar tareas.
+
+**Cómo lo arma HNP-09b.** `run` hace el claim (`HnpExecutionService.claim`) dentro de la petición
+y, si obtuvo el lease, deja el resto de la corrida (`resume`) en una `BackgroundTask` del mismo
+proceso: responde 202 antes de seleccionar. Lo que escape de esa corrida se registra solo por su
+tipo; la tarea sigue `running` hasta que vence su lease y otro disparo la reanuda (§4.5).
 
 ### 5.3 Vistas (contrato de HNP-01)
 
