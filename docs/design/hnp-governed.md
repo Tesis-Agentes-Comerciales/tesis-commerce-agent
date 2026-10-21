@@ -895,6 +895,13 @@ escalamiento: **«Necesito tu decisión»** (clave `escalation.title`; el prelle
 seguido del sufijo (`escalation_message`): `suffix_rejected_by_psp` para los dos `verifier_*`, y
 `suffix_before_presentation` para los demás.
 
+**Montos (K16, reemplaza a K13).** `<total>` usa la notación de `formatMoney` de la UI, para que la
+tarjeta no mezcle dos: «$ 1.924.000,00 COP», con espacio duro (U+00A0) después de «$», miles con
+punto y siempre dos decimales. La escribe `format_cop` (`delegation/views.py`); la tabla
+`ui/src/storybook/fixtures/money-notation.json` la comprueban pytest y vitest. La UI fija los dos
+decimales porque los datos de CLDR recientes le dan 0 a COP. `format_minor_amount` («COP 1.924.000»)
+sigue en el chat HP y en el texto del modelo.
+
 | Clave | Texto |
 | --- | --- |
 | `escalation.budget_not_satisfiable` | El precio de catálogo de la opción disponible ya supera el total máximo que autorizaste. |
@@ -1153,3 +1160,4 @@ archivo caliente, no global. La coordinación del día está en el contrato de c
 26. Revocar un grant ya cerrado por otra causa responde 200 `no_effect`.
 27. El destino se normaliza al proponer como lo hace el comercio; uno que el comercio rechazaría es
     422 `delegation_destination_unsupported`.
+28. Los montos de los textos HNP usan la notación de `formatMoney` de la UI (K16, §8.3).
