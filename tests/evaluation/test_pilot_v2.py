@@ -15,6 +15,7 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from commerce_agent.config import Settings
 from commerce_agent.governance.bootstrap import build_enforce_gate
@@ -30,10 +31,12 @@ from commerce_evaluation.governance_pilot import (
     PlannedRun,
     RepositoryProvenance,
     agent_environment,
+    condition_environments,
     feed_item_prices,
     load_manifest,
     mechanism_evidence,
     mechanisms_by_scenario,
+    openai_timeout_seconds,
     pilot_manifest_id,
     read_governed_evidence,
     require_integrations,
@@ -42,6 +45,7 @@ from commerce_evaluation.governance_pilot import (
     rescore_record,
     score_result,
     summarize,
+    turn_timeout_seconds,
 )
 from commerce_evaluation.paths import DATA
 from commerce_evaluation.pilot_evidence_chain import (
@@ -167,6 +171,81 @@ def test_the_s06_environment_starts_an_enforce_gate_without_the_run_merchant(
     assert settings.agent_d1_policy_set_id == "b2-hp-v2"
     assert settings.agent_d1_allowed_merchant_origins == OTHER
     build_enforce_gate(settings, None)
+
+
+def test_the_registered_model_timeout_reaches_the_agent_in_both_conditions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """E4: OPENAI_TIMEOUT_SECONDS=90 for B0' and B2 alike, also after S08's restart."""
+    timeout = openai_timeout_seconds(V2_MANIFEST)
+    assert timeout == 90.0
+    environments = condition_environments(
+        (B0_PRIME, B2), MERCHANT, V2_POLICY, openai_timeout_seconds=timeout
+    )
+    assert {name: env["OPENAI_TIMEOUT_SECONDS"] for name, env in environments.items()} == {
+        "B0prime": "90",
+        "B2": "90",
+    }
+    s08 = SCENARIOS["S08"]
+    for environment in environments.values():
+        scenario = scenario_environment(environment, s08, MERCHANT)
+        revised = revised_environment(scenario, s08["stimuli"][0])
+        assert scenario["OPENAI_TIMEOUT_SECONDS"] == revised["OPENAI_TIMEOUT_SECONDS"] == "90"
+    # The agent reads it: a process variable wins over its .env and its default of 30 s.
+    monkeypatch.setenv("OPENAI_TIMEOUT_SECONDS", environments["B0prime"]["OPENAI_TIMEOUT_SECONDS"])
+    assert Settings(_env_file=None).openai_timeout_seconds == 90.0  # type: ignore[call-arg]
+    # The runner accepts exactly what the agent's Settings accepts.
+    limit = governance_pilot.MAX_OPENAI_TIMEOUT_SECONDS
+    Settings(_env_file=None, openai_timeout_seconds=limit)  # type: ignore[call-arg]
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, openai_timeout_seconds=limit + 1)  # type: ignore[call-arg]
+    for value in (0, limit + 1, "90", True):
+        with pytest.raises(PilotError, match="openai_timeout_seconds"):
+            openai_timeout_seconds({"execution": {"openai_timeout_seconds": value}})
+    # v1 registers none: the agent keeps its own setting and the runner waits as before.
+    assert openai_timeout_seconds(load_manifest(PILOT_MANIFEST)) is None
+    assert "OPENAI_TIMEOUT_SECONDS" not in condition_environments((B0_PRIME,), MERCHANT)["B0prime"]
+
+
+def test_the_runner_waits_for_a_turn_as_long_as_the_agent_may_take(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Three model requests per turn, each tried twice, plus a margin; v1 keeps 150 s.
+    assert turn_timeout_seconds(90.0) == 600
+    assert turn_timeout_seconds(None) == turn_timeout_seconds(10.0) == 150
+    waited: list[float] = []
+    turn = governance_pilot._execute_turn
+
+    def timed_turn(**arguments: Any) -> HttpResult:
+        waited.append(arguments["timeout_seconds"])
+        return turn(**arguments)
+
+    monkeypatch.setattr(governance_pilot, "_execute_turn", timed_turn)
+    responses = agent_responses(
+        HEALTH["B0prime"],
+        _conversation_turn=HttpResult(
+            502,
+            {"code": "intent_model_error", "message": "The candidate model request failed"},
+            70_000,
+        ),
+    )
+    record = execute(
+        tmp_path,
+        monkeypatch,
+        PlannedRun(SCENARIOS["S02"], 1, B0_PRIME),
+        responses,
+        calls=[],
+        starts=[],
+        report_checkouts=checkout_report(),
+        turn_timeout=turn_timeout_seconds(90.0),
+    )
+
+    assert waited == [600]
+    # The agent's own 502 is what the row records, not a harness error.
+    assert (record["http_status"], record["error_response"]["code"]) == (
+        502,
+        "intent_model_error",
+    )
 
 
 def test_s08_revises_only_b2_and_both_restart() -> None:
@@ -710,6 +789,7 @@ def execute(
     chain: EvidenceChainCheck | None = None,
     write: Callable[[Path], None] = lambda _: None,
     prices: dict[str, int] = FEED_PRICES,
+    turn_timeout: float = governance_pilot.DEFAULT_TURN_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     def popen(command: list[str], *, env: dict[str, str], **_: Any) -> FakeAgentProcess:
         starts.append(env)
@@ -740,6 +820,7 @@ def execute(
         payment_database=psp_database(tmp_path / "payments.db"),
         matrix_ids=("governance-pilot-v2", "B0-2026-10-06"),
         chain=chain,
+        turn_timeout=turn_timeout,
     )
 
 
@@ -1269,3 +1350,6 @@ def test_the_dry_run_and_the_summary_mark_a_smoke(
     assert output["smoke"] is smoke
     assert output["manifest_id"] == "B2-PILOT-v2"
     assert "smoke" in governance_pilot.RUN_METADATA_KEYS
+    # E4: rows and summary record the client timeout the agent ran with.
+    assert output["openai_timeout_seconds"] == 90.0
+    assert "openai_timeout_seconds" in governance_pilot.RUN_METADATA_KEYS

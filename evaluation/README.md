@@ -75,9 +75,13 @@ uv run governance-pilot --condition B0prime --condition B2
   `agent.db` y su corrida del comercio.
 - **Procedencia.** Cada fila y el resumen registran `manifest_id` (`B2-PILOT-v1` solo cuando corren
   exactamente B0' y B2 sobre la matriz del manifiesto; con una sola condición u otra matriz,
-  `null`), `agent_commit` y `agent_worktree_dirty`. Una corrida en vivo registra además `model`
-  (el `OPENAI_MODEL` verificado contra la matriz), `merchant_commit`, `merchant_worktree_dirty`,
-  `payment_commit` y `payment_worktree_dirty`; `--dry-run` solo muestra el agente. Si hay cambios
+  `null`), `agent_commit`, `agent_worktree_dirty` y `openai_timeout_seconds` (el de
+  `execution.openai_timeout_seconds` del manifiesto, 90 en el v2 por la enmienda E4: el runner lo
+  fija como `OPENAI_TIMEOUT_SECONDS` al agente en las dos condiciones, por encima de su `.env`, y
+  espera cada turno hasta seis veces ese tiempo más 60 s; `null` en el v1, que no lo fija y espera
+  150 s). Una corrida en vivo registra además `model` (el `OPENAI_MODEL` verificado contra la
+  matriz), `merchant_commit`, `merchant_worktree_dirty`, `payment_commit` y
+  `payment_worktree_dirty`; `--dry-run` solo muestra el agente. Si hay cambios
   sin commit en archivos versionados del agente, del comercio o del PSP, el runner aborta antes de
   levantar servicios, salvo con `--allow-dirty`. Los archivos sin versionar (como los resultados)
   no cuentan.
