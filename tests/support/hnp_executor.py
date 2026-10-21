@@ -30,6 +30,7 @@ from commerce_agent.ap2_hnp import (
 from commerce_agent.ap2_hnp import SignedMandate as Ap2Mandate
 from commerce_agent.application import PurchaseService
 from commerce_agent.application.hnp_execution import (
+    Dispatcher,
     HnpExecutionService,
     NullHnpPolicyGate,
     PurchaseStarter,
@@ -341,8 +342,10 @@ class Bench:
         d1_denials: Callable[[str], tuple[str, ...]] | None = None,
         checkout: CheckoutGateway | None = None,
         real_chains: bool = False,
+        dispatcher: Callable[["Bench"], Dispatcher] | None = None,
     ) -> None:
         self.path = tmp_path / "agent.db"
+        self.mode: Literal["off", "enforce"] = mode
         self.clock = AuthorityClock()
         self.ledger = SqliteDelegationLedger(self.path, clock=self.clock, id_factory=Ids())
         self.ledger.initialize()
@@ -392,6 +395,7 @@ class Bench:
             id_factory=Ids(),
             freshness=self.freshness,
             d1_denials=None if mode == "off" else d1_denials or (lambda run_id: d1_reasons),
+            dispatcher=dispatcher(self) if dispatcher else None,
         )
 
     def run(self) -> Step:

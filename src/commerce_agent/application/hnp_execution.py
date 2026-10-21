@@ -7,7 +7,8 @@ a variant of the grant's shortlist. Each external effect waits for the step befo
 1. claim, with a lease; 2. shortlist and selector; 3-4. `PurchaseService.start` with the grant
 (D1-HNP in enforce) up to `checkout_prepared`; 5. freshness `close`; 6. D2-HNP; 7. UoW-1
 reserves; 8. the merchant's signed checkout, the Agent Key close and UoW-C; 9. D3-HNP; 10. UoW-2
-commits the outbox row and moves the purchase to `completing`. Dispatching it is HNP-09b's.
+commits the outbox row and moves the purchase to `completing`; 11-12. the `Dispatcher`
+(`application/hnp_dispatch.py`) sends it and UoW-3 records the order.
 
 B0-HNP (`off`) runs the same ledger steps with `NullHnpPolicyGate`, without D1, freshness or
 escalation: what B2-HNP escalates ends `failed` with the same code (§8.1, §11).
@@ -17,9 +18,9 @@ outcome, by CAS on its lease. UoW-1 expects the claim's authority, and D3 and Uo
 validated (UoW-C checks neither the kill switch nor the grant): never a re-read one (K10). A lost
 lease ends nothing.
 
-A re-claim resumes from the durable state (§4.5): an outbox row is left to its dispatch; the
-closed mandates UoW-C kept are reused for D3 and UoW-2 while they are valid; any other progress
-ends `state_conflict`. Nothing is created or closed twice.
+A re-claim resumes from the durable state (§4.5): with an outbox row it dispatches it; with the
+closed mandates UoW-C kept it reuses them for D3 and UoW-2 while they are valid; any other
+progress ends `state_conflict`. Nothing is created or closed twice.
 """
 
 import json
@@ -179,6 +180,12 @@ class CheckoutCanceler(Protocol):
     ) -> CheckoutSession: ...
 
 
+class Dispatcher(Protocol):
+    """Steps 11 and 12 (`HnpDispatcher`): resumes a claimed task's outbox row from its state."""
+
+    def dispatch(self, execution: Execution) -> Step: ...
+
+
 class NullHnpPolicyGate:
     """B0-HNP (`off`): evaluates nothing and fabricates no decision (spec §11)."""
 
@@ -252,13 +259,13 @@ def closed_request(
 
 def purchase_terminal(task_id: str, run_id: str, version: int) -> TransactionHook:
     """The purchase side of a task terminal (§4.6), from the task the unit of work just closed:
-    `failed` with its code, or `canceled` for an escalation or a cancellation."""
+    `failed` with its code, `uncertain`, or `canceled` for an escalation or a cancellation."""
 
     def close(connection: sqlite3.Connection) -> None:
         state, outcome = connection.execute(
             "SELECT state, outcome_code FROM hnp_tasks WHERE task_id = ?", (task_id,)
         ).fetchone()
-        stage = "failed" if state == "failed" else "canceled"
+        stage = state if state in ("failed", "uncertain") else "canceled"
         SqliteAgentStore.transition_hnp_purchase(
             connection,
             run_id,
@@ -353,6 +360,7 @@ class HnpExecutionService:
         id_factory: Callable[[str], str],
         freshness: FreshnessCheck | None = None,
         d1_denials: Callable[[str], tuple[str, ...]] | None = None,
+        dispatcher: Dispatcher | None = None,
     ) -> None:
         # B0-HNP runs no PDP and no freshness; B2-HNP never runs without them (spec §11).
         if (mode == "off") != isinstance(gate, NullHnpPolicyGate) or (mode == "off") != (
@@ -364,18 +372,20 @@ class HnpExecutionService:
         self._checkout, self._closer, self._gate, self._selector = checkout, closer, gate, selector
         self._feed, self._clock, self._new_id = feed, clock, id_factory
         self._freshness, self._d1_denials = freshness, d1_denials
+        self._dispatcher = dispatcher
 
     def run(self, task_id: str) -> Step:
-        """Steps 1 to 10 of one task. The result is the step that ended this run: `applied` once
-        UoW-2 committed (the dispatch is pending), `closed` with a terminal, `lease_lost`, or the
-        claim's own answer."""
+        """Steps 1 to 12 of one task. The result is the step that ended this run: `closed` with a
+        terminal (`purchased` among them), `lease_lost`, `applied` once UoW-2 committed when no
+        dispatcher is plugged in, the dispatch's own answer, or the claim's."""
         claimed = self._ledger.claim(task_id, hooks=self._reclaim_hooks(task_id))
         if claimed.status != "applied" or claimed.execution is None:
             return claimed
         ex = claimed.execution
-        if ex.outbox is not None:
-            return claimed  # committed before a crash: its dispatch resumes it (HNP-09b)
-        step = self._prepare(ex)
+        step = Step("applied", ex) if ex.outbox is not None else self._prepare(ex)
+        committed = step.execution if step.status == "applied" else None
+        if self._dispatcher is not None and committed is not None and committed.outbox is not None:
+            step = self._dispatcher.dispatch(committed)
         alert_operator(step)
         return step
 

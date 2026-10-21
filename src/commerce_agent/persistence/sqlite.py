@@ -646,6 +646,25 @@ class SqliteAgentStore:
         )
         return expected_state_version + 1
 
+    def record_operation_key(self, run_id: str, operation: str, idempotency_key: str) -> None:
+        """Notes an operation whose key was fixed elsewhere (HNP's dispatch takes its keys from the
+        outbox), as `idempotency_key` notes its own: the first note keeps its time."""
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO operation_keys (run_id, operation, idempotency_key, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (run_id, operation) DO NOTHING
+                """,
+                (run_id, operation, idempotency_key, _timestamp()),
+            )
+            row = connection.execute(
+                "SELECT idempotency_key FROM operation_keys WHERE run_id = ? AND operation = ?",
+                (run_id, operation),
+            ).fetchone()
+        if row is None or row[0] != idempotency_key:
+            raise RuntimeError("Operation key could not be persisted")
+
     def idempotency_key(self, run_id: str, operation: str) -> str:
         now = _timestamp()
         candidate = f"agent_{secrets.token_urlsafe(24)}"
