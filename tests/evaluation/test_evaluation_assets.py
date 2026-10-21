@@ -161,6 +161,10 @@ def test_v2_manifest_points_to_its_matrix_policy_and_controls() -> None:
     assert manifest["execution"]["repetitions_per_condition"] == matrix["repetitions_per_condition"]
     assert manifest["policy"]["policy_set_id"] == "b2-hp-v2"
     assert manifest["policy"]["revision"] == "1"
+    # Both conditions run on the last HP commit before HNP, tagged for the pilot.
+    assert manifest["execution"]["agent_ref"] == "pilot-v2-base"
+    revoked = manifest["measurement_amendments"]["M5_revoked_approval_form"]
+    assert "d2_allow_unapplied fails" in revoked
     b2 = manifest["conditions"]["B2"]["agent_environment"]
     assert b2["AGENT_D1_POLICY_SET_ID"] == manifest["policy"]["policy_set_id"]
     assert b2["AGENT_D1_POLICY_REVISION"] == manifest["policy"]["revision"]
