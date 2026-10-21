@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react"
 import { expect, fn, waitFor } from "storybook/test"
 
 import { formatMoneyParts } from "@/components/agent/agent-format"
+import { expectFitsPhoneColumn, PHONE_COLUMN } from "@/components/delegation/story-helpers"
 import {
   PurchaseApprovalCard,
   PurchaseApprovalCardSkeleton,
@@ -13,6 +14,7 @@ import {
   ORDER,
   SONORA,
   SONORA_LONG,
+  TERMS_MILLIONS,
   TERMS_MULTIPLE_LINES,
   TERMS_NO_ADDRESS,
   TERMS_PRICE_CHANGED,
@@ -424,6 +426,57 @@ export const WithoutAddress: Story = {
   args: { terms: TERMS_NO_ADDRESS },
   play: async ({ canvas }) => {
     await expect(canvas.getByText("Sin dirección")).toBeVisible()
+  },
+}
+
+/**
+ * Teléfono de 320 px: el hilo deja 288 px. Con un total real en pesos, cada estado cabe sin
+ * desbordar, también con las etiquetas más largas («Registrando aprobación…», «Cancelando…»): el
+ * código de la moneda baja bajo el total y los botones se apilan.
+ */
+export const Phone320: Story = {
+  args: { terms: TERMS_MILLIONS },
+  render: (args) => (
+    <div className={`${PHONE_COLUMN} space-y-3`} data-testid="phone-column">
+      <PurchaseApprovalCard {...args} />
+      <PurchaseApprovalCard {...args} status="approving" />
+      <PurchaseApprovalCard {...args} status="canceling" />
+      <PurchaseApprovalCard
+        {...args}
+        status="error"
+        approvalRecorded
+        error="El comercio no pudo procesar la solicitud. La aprobación sigue vigente."
+        receipt={RECEIPT}
+      />
+      <PurchaseApprovalCard
+        {...args}
+        status="completed"
+        approvalRecorded
+        order={ORDER}
+        receipt={RECEIPT}
+      />
+      <PurchaseApprovalCard {...args} status="canceled" />
+    </div>
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    const cards = canvasElement.querySelectorAll<HTMLElement>("[data-testid=purchase-approval-card]")
+    await expect(cards).toHaveLength(6)
+    for (const card of cards) {
+      await expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth)
+      const { left, right } = card.getBoundingClientRect()
+      for (const action of card.querySelectorAll<HTMLElement>("button, a")) {
+        const label = action.textContent ?? ""
+        await expect(action).toBeVisible()
+        // La etiqueta entera dentro de la píldora, y la píldora dentro de la tarjeta.
+        await expect(action.scrollWidth, label).toBeLessThanOrEqual(action.clientWidth)
+        const box = action.getBoundingClientRect()
+        await expect(box.left, label).toBeGreaterThanOrEqual(left)
+        await expect(box.right, label).toBeLessThanOrEqual(right)
+      }
+    }
+    await expect(canvas.getByRole("button", { name: "Aprobar y comprar" })).toBeVisible()
+    await expect(canvas.getByRole("link", { name: /Ver orden/ })).toBeVisible()
+    await expectFitsPhoneColumn(canvasElement)
   },
 }
 
