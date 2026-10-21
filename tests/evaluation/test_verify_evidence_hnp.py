@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from commerce_agent.delegation.models import event_digest
+from commerce_agent.delegation.models import event_digest, token_digest
 from commerce_agent.governance.canonical import canonical_bytes
 from commerce_agent.persistence.delegation_sqlite import read_events
 from commerce_evaluation.verify_evidence import main, verify, verify_database
@@ -25,7 +25,7 @@ from commerce_evaluation.verify_evidence_hnp import HNP_LINKS, HP_ONLY
 from tests.evaluation.test_verify_evidence import body_edit, edit
 from tests.governance.test_d1_hnp_gate import AUTHORIZED_ONLY
 from tests.governance.test_shadow_integration import OWNER
-from tests.support.hnp_chain import hnp_chain
+from tests.support.hnp_chain import PSP, hnp_chain, receipt_jwt
 
 GRANT = "dg_1"
 UP_TO_D3 = HNP_LINKS[:11]
@@ -64,6 +64,11 @@ def _completed(chain: Any) -> None:
     chain.deliver_order_create()
 
 
+def _with_results(chain: Any) -> None:
+    _completed(chain)
+    chain.record_results()
+
+
 def _ended(directory: Path, before: Callable[[Any], None] | None = None, **options: Any) -> Path:
     with hnp_chain(directory, **options) as chain:
         if before is not None:
@@ -82,6 +87,7 @@ def _at(phase: str, action: str) -> Callable[[Any], None]:
 SCENARIOS: dict[str, Callable[[Path], Path]] = {
     "b2_hnp": _applied,
     "completed": lambda directory: _applied(directory, _completed),
+    "completed_with_results": lambda directory: _applied(directory, _with_results),
     "psp_rejected": lambda directory: _applied(directory, lambda chain: chain.reject_by_psp()),
     "d2_deny": lambda directory: _ended(directory, street="Carrera 7 # 1-1"),
     "d1_escalated": lambda directory: _ended(directory, total_max_minor=71_999),
@@ -123,9 +129,17 @@ def scenario(built: Callable[[str], Path], tmp_path: Path) -> Callable[[str], Pa
     return copy
 
 
-def rechain(database: Path, event_type: str, *, by: str | None = None, **changes: Any) -> None:
-    """Rewrite one event's body (and, with `by`, its actor and principal) and recompute every
-    digest after it: the chain still verifies."""
+def rechain(
+    database: Path,
+    event_type: str,
+    *,
+    by: str | None = None,
+    where: dict[str, Any] | None = None,
+    **changes: Any,
+) -> None:
+    """Rewrite one event's body (and, with `by`, its actor and principal; with `where`, only the
+    events whose body has those values) and recompute every digest after it: the chain still
+    verifies."""
     with closing(sqlite3.connect(database)) as connection, connection:
         for (name,) in connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'trigger' "
@@ -134,7 +148,7 @@ def rechain(database: Path, event_type: str, *, by: str | None = None, **changes
             connection.execute(f"DROP TRIGGER {name}")
         previous = None
         for event in read_events(connection, GRANT):
-            if event.event_type == event_type:
+            if event.event_type == event_type and (where or {}).items() <= event.body.items():
                 event = replace(event, body={**event.body, **changes})
                 if by is not None:
                     event = replace(event, actor_ref=by, on_behalf_of=by)
@@ -197,12 +211,47 @@ def test_an_order_without_the_09b_receipts_is_incomplete(scenario: Callable[[str
 def test_a_psp_rejection_ends_the_chain_at_its_error_receipt(
     scenario: Callable[[str], Path],
 ) -> None:
+    """The AP2 error receipt binds the closed payment mandate; the ledger still keeps its status
+    as `error`, outside the AP2 profile, until HNP-09b: not `ok` yet."""
     run = only_run(scenario("psp_rejected"))
 
-    assert statuses(run) == expected(ok=(*UP_TO_D3, "receipts"))
+    assert statuses(run) == expected(ok=UP_TO_D3, missing=("receipts",))
     assert run["links"]["receipts"]["refs"]["rejected_by"] == "psp"
+    assert "HNP-09b" in run["links"]["receipts"]["detail"]
     assert (run["task_state"], run["outcome_code"]) == ("failed", "verifier_invalid_mandate")
+    assert run["complete"] is False
+
+
+def test_an_error_receipt_of_another_mandate_is_a_mismatch(
+    scenario: Callable[[str], Path],
+) -> None:
+    """Another error receipt in the outbox, its digest re-chained: the claims give it away."""
+    database = scenario("psp_rejected")
+    forged = receipt_jwt(
+        status="Error",
+        iss=PSP,
+        reference="other",
+        error="invalid_mandate",
+        error_description="The payment mandate does not verify",
+        payment_id="pay_1",
+    )
+    _outbox("error_receipt_jwt = ?", forged)(database)
+    rechain(database, "receipt_recorded", receipt_digest=token_digest(forged))
+
+    run = only_run(database)
+
+    assert run["links"]["receipts"]["status"] == "mismatch"
+    assert run["complete"] is False
+
+
+def test_an_order_with_both_receipt_jwts_is_complete(scenario: Callable[[str], Path]) -> None:
+    """With the `completion_results` row HNP-09b is to write, the receipts verify."""
+    document = verify([scenario("completed_with_results")])
+    [run] = document["runs"]
+
+    assert statuses(run) == expected(ok=(*UP_TO_D3, "receipts", "order_webhook", "consumption"))
     assert run["complete"] is True
+    assert document["h2_hnp"]["orders"] == {"n": 1, "complete": 1, "rate": 1.0}
 
 
 def test_a_d2_deny_ends_the_chain_at_the_deny_and_its_escalation(
@@ -314,6 +363,47 @@ def _sql(table: str, statement: str, *values: Any) -> Callable[[Path], None]:
     return lambda database: edit(database, table, statement, *values)
 
 
+def _steps(*steps: Callable[[Path], None]) -> Callable[[Path], None]:
+    def apply(database: Path) -> None:
+        for step in steps:
+            step(database)
+
+    return apply
+
+
+def _outbox(statement: str, *values: Any) -> Callable[[Path], None]:
+    return _sql("dispatch_outbox", f"UPDATE dispatch_outbox SET {statement}", *values)
+
+
+def _forged_results(database: Path) -> None:
+    """`completion_results` with receipts of another mandate and order, their digests
+    re-chained: the digests agree, the claims do not."""
+    forged = {
+        "checkout": receipt_jwt(
+            status="Success", iss="https://merchant.test", reference="other", order_id="ord_x"
+        ),
+        "payment": receipt_jwt(
+            status="Success",
+            iss=PSP,
+            reference="other",
+            payment_id="pay_x",
+            psp_confirmation_id="psp_x",
+            network_confirmation_id="net_x",
+        ),
+    }
+    edit(
+        database,
+        "completion_results",
+        "UPDATE completion_results SET checkout_receipt_jwt = ?, payment_receipt_jwt = ?",
+        forged["checkout"],
+        forged["payment"],
+    )
+    for kind, token in forged.items():
+        rechain(
+            database, "receipt_recorded", where={"kind": kind}, receipt_digest=token_digest(token)
+        )
+
+
 MANIPULATIONS: list[tuple[str, str, Callable[[Path], None]]] = [
     (
         "b2_hnp",
@@ -382,11 +472,22 @@ MANIPULATIONS: list[tuple[str, str, Callable[[Path], None]]] = [
         "d3_decision",
         _sql("dispatch_outbox", "UPDATE dispatch_outbox SET d3_evidence_id = 'evidence:other'"),
     ),
+    # The outbox row UoW-2 committed, edited without its event (review of #106).
+    ("b2_hnp", "d3_decision", _outbox("payment_request_digest = ?", "sha256:" + "0" * 64)),
+    ("b2_hnp", "d3_decision", _outbox("amount_minor = 1")),
+    ("b2_hnp", "d3_decision", _outbox("checkout_id = 'cs_other'")),
+    ("b2_hnp", "d3_decision", _outbox("run_id = 'run_other'")),
+    ("b2_hnp", "d3_decision", _outbox("operation_id = 'op_other'")),
+    ("b2_hnp", "d3_decision", _outbox("checkout_expires_at = '2030-01-01T00:00:00Z'")),
     (
-        "psp_rejected",
-        "receipts",
-        _sql("dispatch_outbox", "UPDATE dispatch_outbox SET error_receipt_jwt = 'eyJ.other.sig'"),
+        "b2_hnp",
+        "d3_decision",
+        _steps(
+            _outbox("control_epoch = 9"),
+            lambda database: rechain(database, "dispatch_committed", control_epoch=9),
+        ),
     ),
+    ("completed_with_results", "receipts", lambda database: _forged_results(database)),
     (
         "completed",
         "order_webhook",
@@ -461,14 +562,6 @@ def test_an_event_edited_without_rechaining_breaks_only_the_links_after_it(
 # The ledger as a whole: edits no single link reads still break `complete`
 
 
-def _steps(*steps: Callable[[Path], None]) -> Callable[[Path], None]:
-    def apply(database: Path) -> None:
-        for step in steps:
-            step(database)
-
-    return apply
-
-
 def _drop_event(sequence: int) -> Callable[[Path], None]:
     return _sql("delegation_events", "DELETE FROM delegation_events WHERE sequence = ?", sequence)
 
@@ -520,6 +613,11 @@ LEDGER: list[tuple[str, str, Callable[[Path], None]]] = [
     ),
     ("expired", "expiry_deleted", _drop_event(3)),
     ("kill_switch", "terminal_edited", _terminal("revoked_by_owner")),
+    (
+        "completed_with_results",
+        "grant_expired_without_event",
+        _sql("delegation_grants", "UPDATE delegation_grants SET state = 'expired'"),
+    ),
 ]
 
 
@@ -599,17 +697,20 @@ def test_an_hnp_purchase_is_never_verified_as_an_hp_one(scenario: Callable[[str]
 def test_the_report_carries_no_token_mandate_receipt_or_owner(
     scenario: Callable[[str], Path],
 ) -> None:
-    database = scenario("completed")
+    database = scenario("completed_with_results")
 
     report = json.dumps(verify([database]))
 
     with closing(sqlite3.connect(database)) as connection:
         tokens = [row[0] for row in connection.execute("SELECT token FROM delegation_mandates")]
+        receipts = connection.execute(
+            "SELECT checkout_receipt_jwt, payment_receipt_jwt FROM completion_results"
+        ).fetchone()
         error = connection.execute("SELECT checkout_details_json FROM delegation_grants")
         details = error.fetchone()[0]
     assert len(tokens) == 4
     assert all(token not in report for token in tokens)
-    assert "eyJ.checkout-receipt.sig" not in report and "eyJ.payment-receipt.sig" not in report
+    assert all(receipt not in report for receipt in receipts)
     assert OWNER not in report and "buyer@example.test" not in report and details not in report
 
 

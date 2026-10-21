@@ -6,16 +6,18 @@ tests/governance/test_hnp_gate.py wires them. Only the merchant (httpx.MockTrans
 checkout signature (a key generated for the test) and the authority clock are doubles.
 
 The executor stops at UoW-2 (HNP-09b dispatches). `dispatch_with_order` and `reject_by_psp`
-drive the ledger's own dispatch steps as tests/support/delegation.py does: their receipts are
-opaque strings, because the ledger only keeps their digest and public fields.
+drive the ledger's own dispatch steps as tests/support/delegation.py does, with AP2 receipts whose
+claims bind the closed mandates; `verify-evidence` reads their claims, never their signature.
+`record_results` writes the `completion_results` row that HNP-09b's UoW-3 is to write.
 """
 
 import hashlib
 import json
 import secrets
+import sqlite3
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from dataclasses import dataclass
+from contextlib import closing, contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -58,6 +60,12 @@ from tests.test_purchase_service import details
 
 Mode = Literal["off", "enforce"]
 ORDER_ID = "ord_api_1"
+PSP = "tesis_payment_provider"
+
+
+def receipt_jwt(**claims: Any) -> str:
+    """An AP2 receipt; its issuer's key is a test one, because only its claims are read."""
+    return jwt.encode({"iat": 1_792_000_000, **claims}, "x" * 32, algorithm="HS256")
 
 
 class SignedClient:
@@ -107,6 +115,7 @@ class HnpChain:
     gate: Before | None
     grant_id: str
     task_id: str
+    receipts: dict[str, str] = field(default_factory=dict)
 
     def run(self) -> Step:
         return self.executor.run(self.task_id)
@@ -138,25 +147,61 @@ class HnpChain:
             self.task_id, lease, "completed", order_id=ORDER_ID
         )
         assert completed.status == "applied"
-        links = self.closed_links()
+        links, merchant = self.closed_links(), self.settings.merchant_base_url
+        self.receipts = {
+            "payment": receipt_jwt(
+                status="Success",
+                iss=PSP,
+                reference=links["closed_payment"],
+                payment_id="pay_1",
+                psp_confirmation_id="psp_1",
+                network_confirmation_id="net_1",
+            ),
+            "checkout": receipt_jwt(
+                status="Success",
+                iss=merchant,
+                reference=links["closed_checkout"],
+                order_id=ORDER_ID,
+            ),
+        }
         payment = Receipt(
             "payment",
-            "eyJ.payment-receipt.sig",
-            "tesis_payment_provider",
-            "success",
+            self.receipts["payment"],
+            PSP,
+            "Success",
             links["closed_payment"],
             payment_id="pay_1",
         )
         checkout = Receipt(
             "checkout",
-            "eyJ.checkout-receipt.sig",
-            self.settings.merchant_base_url,
-            "success",
+            self.receipts["checkout"],
+            merchant,
+            "Success",
             links["closed_checkout"],
             order_id=ORDER_ID,
         )
         step = self.ledger.record_completion(self.task_id, lease, payment, checkout)
         assert step.status == "closed"
+
+    def record_results(self) -> None:
+        """Both receipt JWTs in `completion_results`, as HNP-09b's UoW-3 is to keep them."""
+        execution = self.ledger.execution(self.task_id)
+        assert execution is not None and execution.outbox is not None
+        outbox = execution.outbox
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute(
+                "INSERT INTO completion_results (run_id, checkout_id, order_id, snapshot, "
+                "completed_at, checkout_receipt_jwt, payment_receipt_jwt) "
+                "VALUES (?, ?, ?, '{}', ?, ?, ?)",
+                (
+                    outbox.run_id,
+                    outbox.checkout_id,
+                    outbox.order_id,
+                    self.clock().isoformat(),
+                    self.receipts["checkout"],
+                    self.receipts["payment"],
+                ),
+            )
 
     def deliver_order_create(self) -> None:
         """The merchant's `order_create` for the order, as the webhook endpoint stores it."""
@@ -182,14 +227,17 @@ class HnpChain:
         """The PSP answers the payment with a verified AP2 error receipt."""
         lease = self.lease()
         assert self.ledger.advance_dispatch(self.task_id, lease, "payment_sent").status == "applied"
-        receipt = Receipt(
-            "payment",
-            "eyJ.payment-error-receipt.sig",
-            "tesis_payment_provider",
-            "error",
-            self.closed_links()["closed_payment"],
+        reference = self.closed_links()["closed_payment"]
+        token = receipt_jwt(
+            status="Error",
+            iss=PSP,
+            reference=reference,
             error="invalid_mandate",
+            error_description="The payment mandate does not verify",
+            payment_id="pay_1",
         )
+        # The ledger takes the status in lowercase until HNP-09b normalizes it.
+        receipt = Receipt("payment", token, PSP, "error", reference, error="invalid_mandate")
         step = self.ledger.reject_dispatch(self.task_id, lease, "invalid_mandate", receipt)
         assert step.status == "closed"
 

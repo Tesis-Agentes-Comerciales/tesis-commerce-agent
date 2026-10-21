@@ -25,11 +25,21 @@ from pathlib import Path
 from typing import Any
 
 import jwt
+from ap2.sdk.generated.checkout_receipt import CheckoutReceipt
+from ap2.sdk.generated.payment_receipt import PaymentReceipt
 from ap2.sdk.sdjwt import chain, common
 from jwcrypto.jwk import JWK
 
+from commerce_agent.acp.models import CheckoutSession
 from commerce_agent.ap2 import checkout_hash
-from commerce_agent.ap2_hnp import MandateTrust, verify_closed_proof, verify_open_proof
+from commerce_agent.ap2_hnp import (
+    MandatePair,
+    MandateTrust,
+    SignedMandate,
+    verify_closed_proof,
+    verify_open_proof,
+)
+from commerce_agent.application.hnp_execution import payment_request_digest
 from commerce_agent.delegation.models import (
     EXECUTOR_REF,
     OPERATOR_REF,
@@ -121,6 +131,8 @@ AFTER_D1 = frozenset(
         "receipt_mismatch",
     }
 )
+# Of those, the ones a run past its checkout gives (D1's own deny never reaches it).
+AFTER_CHECKOUT = AFTER_D1 - {"merchant_not_allowed", "budget_not_satisfiable"}
 
 
 def _thumbprint(jwk: Mapping[str, Any]) -> str:
@@ -250,7 +262,13 @@ class HnpRunVerification(RunVerification):
             or self.d2_committed
             or self.outbox is not None
             or self.purchase["stage"] in ("completing", "completed")
+            or any(event.event_type in PAST_D1 for event in self.chained)
         )
+
+    @property
+    def past_checkout(self) -> bool:
+        """Anything past the checkout, or a chained terminal only a later step gives."""
+        return self.approved or self.chained_task["outcome_code"] in AFTER_CHECKOUT
 
     @property
     def reached_d1(self) -> bool:
@@ -497,6 +515,8 @@ class HnpRunVerification(RunVerification):
         if self.checkout_id is None:
             if self.approved:
                 return mismatch("La ejecución siguió sin checkout")
+            if self.past_checkout:
+                return missing("La ejecución terminó después del checkout sin su checkout_id")
             return not_applicable("La ejecución no tiene checkout")
         records = (
             hp_evidence_sqlite.read_run(self.db, self.run_id)
@@ -513,7 +533,7 @@ class HnpRunVerification(RunVerification):
         stopped = any(
             event.body.get("stage") in AFTER_CLOSE for event in self._of("kill_switch_blocked")
         )
-        if not (checks or self.approved or self._phase("D2") or stopped):
+        if not (checks or self.past_checkout or self._phase("D2") or stopped):
             return not_applicable("La ejecución no llegó a la frescura de cierre")
         if not checks:
             return missing("Sin comprobación de frescura `close` del checkout")
@@ -532,8 +552,9 @@ class HnpRunVerification(RunVerification):
     def hnp_d2_decision(self) -> Link:
         rows = self._phase("D2")
         allowed = self.close_check is not None and self.close_check.body.get("decision") == "allow"
+        after = self.chained_task["outcome_code"] in AFTER_CHECKOUT - {"offer_changed"}
         if not rows:
-            if self.approved or allowed:
+            if self.approved or allowed or after:
                 return missing("La ejecución pasó la frescura sin decisión D2")
             return not_applicable("La ejecución no llegó a D2")
         ledger = SqliteGovernanceEvidenceStore(self.db)
@@ -727,8 +748,11 @@ class HnpRunVerification(RunVerification):
 
     def d3_decision(self) -> Link:
         rows, outbox = self._phase("D3"), self.outbox
+        closed = any(
+            event.event_type in ("mandates_closed", "dispatch_committed") for event in self.chained
+        )
         if not rows:
-            if outbox is not None or self.checkout_jwt is not None:
+            if outbox is not None or self.checkout_jwt is not None or closed:
                 return missing("La ejecución cerró los mandatos sin decisión D3")
             return not_applicable("La ejecución no llegó a D3")
         ledger = SqliteGovernanceEvidenceStore(self.db)
@@ -760,22 +784,96 @@ class HnpRunVerification(RunVerification):
                 or dict(events[0].body) != {name: outbox[name] for name in names}
             ):
                 return mismatch("El outbox no es la transición de la autorización D3")
+            problem = self._outbox_problem(outbox)
+            if problem is not None:
+                return mismatch(problem, outbox_id=outbox["outbox_id"])
         if not decisions:
             kinds = sorted({record.record_kind for record in records})
             return ok(f"D3 no llegó a decidir ({', '.join(kinds)})", records=len(records))
         return _replayed(ledger, committed[0] if committed else decisions[-1], "D3")
 
+    def _outbox_problem(self, outbox: Mapping[str, Any]) -> str | None:
+        """The row UoW-2 committed, anchored to the reservation, the closed mandates and the
+        checkout they sign, the PSP request rebuilt as the dispatch will, and a switch off."""
+        reservation, signed = self.reservation, self.checkout_jwt
+        if reservation is None or signed is None:
+            return "El outbox no tiene su reserva ni sus mandatos cerrados verificados"
+        checkout = CheckoutSession.model_validate(
+            jwt.decode(signed, options={"verify_signature": False})["checkout"]
+        )
+        bound = {
+            "grant_id": self.task["grant_id"],
+            "run_id": self.run_id,
+            "checkout_id": self.checkout_id,
+            "operation_id": reservation["operation_id"],
+            "amount_minor": reservation["amount_minor"],
+            "currency": reservation["currency"],
+            "authority_epoch": reservation["expected_epoch"],
+        }
+        if {name: outbox[name] for name in bound} != bound or (
+            checkout.id,
+            checkout.total_minor,
+            checkout.currency.upper(),
+        ) != (self.checkout_id, reservation["amount_minor"], reservation["currency"]):
+            return "El outbox no es el de la reserva y el checkout de la ejecución"
+        if outbox["checkout_expires_at"] != checkout.expires_at:
+            return "El outbox no guarda el vencimiento del checkout firmado"
+        closed = MandatePair(
+            *(
+                SignedMandate(row["token"], row["link_hash"], json.loads(row["public_jwk_json"]))
+                for row in (self.stored[kind] for kind in CLOSED)
+            )
+        )
+        request = payment_request_digest(
+            operation_id=outbox["operation_id"],
+            checkout=checkout,
+            checkout_jwt=signed,
+            closed=closed,
+        )
+        if outbox["payment_request_digest"] != request:
+            return "payment_request_digest no es la petición al PSP de los mandatos cerrados"
+        control = _row(
+            self.db,
+            "SELECT kill_switch FROM hnp_controls WHERE control_epoch = ?",
+            outbox["control_epoch"],
+        )
+        if control is None or control["kill_switch"] != 0:
+            return (
+                "El outbox nombra una época de control inexistente o con el kill switch encendido"
+            )
+        return None
+
     def _d3_problem(self, record: DecisionRecord) -> str | None:
         data, d2, reservation = record.dispatch_input(), self.d2_record, self.reservation
-        if d2 is None or reservation is None or self.checkout_jwt is None:
+        grant = self.grant
+        if d2 is None or reservation is None or self.checkout_jwt is None or grant is None:
             return "D3 sin una autorización D2 aplicada ni mandatos cerrados verificados"
         proof = data.closed_proof
         if (
-            (data.d2.evidence_id, data.d2.application_transition_ref)
-            != (d2.evidence_id, reservation["reservation_id"])
-            or (data.reservation.reservation_id, data.operation_id)
-            != (reservation["reservation_id"], reservation["operation_id"])
-            or data.grant.grant_ref.id != self.task["grant_id"]
+            (
+                data.d2.decision_id,
+                data.d2.evidence_id,
+                data.d2.evidence_digest,
+                data.d2.application_transition_ref,
+            )
+            != (
+                d2.decision.decision_id,
+                d2.evidence_id,
+                sha256_digest(canonical_bytes(d2)),
+                reservation["reservation_id"],
+            )
+            or (
+                data.reservation.reservation_id,
+                data.operation_id,
+                data.reservation.amount_minor,
+                data.reservation.expected_epoch,
+            )
+            != tuple(
+                reservation[name]
+                for name in ("reservation_id", "operation_id", "amount_minor", "expected_epoch")
+            )
+            or (data.grant.grant_ref.id, data.grant.grant_ref.digest)
+            != (grant["grant_id"], grant["scope_digest"])
             or (proof.checkout_chain_ref.digest, proof.payment_chain_ref.digest)
             != (
                 self.stored["closed_checkout"]["token_digest"],
@@ -792,12 +890,17 @@ class HnpRunVerification(RunVerification):
     def hnp_receipts(self) -> Link:
         outbox, recorded = self.outbox, self._of("receipt_recorded")
         if outbox is None or (outbox["state"] not in ("completed", "rejected") and not recorded):
+            if recorded:
+                return missing("Hay recibos en la cadena sin su outbox")
             return not_applicable("El despacho no llegó a un recibo")
         links = {
             kind: self.stored[f"closed_{kind}"]["link_hash"]
             for kind in ("checkout", "payment")
             if f"closed_{kind}" in self.stored
         }
+        kinds = [event.body.get("kind") for event in recorded]
+        if len(kinds) != len(set(kinds)):
+            return mismatch("Más de un recibo del mismo tipo en la cadena")
         receipts = {event.body.get("kind"): event for event in recorded}
         if outbox["state"] == "rejected":
             kind = "payment" if outbox["rejected_by"] == "psp" else "checkout"
@@ -808,13 +911,21 @@ class HnpRunVerification(RunVerification):
                 "receipt_digest": event.body["receipt_digest"],
                 "rejected_by": outbox["rejected_by"],
             }
+            claims = _ap2_receipt(token, kind)
             if not (
                 self._linked(event)
                 and event.body["receipt_digest"] == token_digest(token)
-                and (event.body["status"], event.body["error"]) == ("error", outbox["ap2_error"])
-                and event.body["reference"] == links.get(kind)
+                and claims["status"] == "Error"
+                and claims["reference"] == event.body["reference"] == links.get(kind)
+                and claims["error"] == event.body["error"] == outbox["ap2_error"]
+                and claims["iss"] == event.body["issuer"]
             ):
                 return mismatch("El recibo de error no es el del mandato cerrado", **refs)
+            if event.body["status"] != claims["status"]:
+                # The ledger takes `error` until HNP-09b records the AP2 status.
+                return missing(
+                    "El estado del recibo en la cadena no es el del perfil AP2 (HNP-09b)", **refs
+                )
             return ok("Recibo de error AP2 ligado al mandato cerrado", **refs)
         for kind, event in receipts.items():
             if not (
@@ -833,13 +944,26 @@ class HnpRunVerification(RunVerification):
             # Extension point: UoW-3 of HNP-09b keeps both JWTs in `completion_results`.
             return missing("Sin completion_results: los JWT de los recibos los guarda HNP-09b")
         refs = {kind: receipts[kind].body["receipt_digest"] for kind in ("checkout", "payment")}
-        if (
-            token_digest(completion["checkout_receipt_jwt"] or "") != refs["checkout"]
-            or token_digest(completion["payment_receipt_jwt"] or "") != refs["payment"]
-            or (completion["order_id"], completion["checkout_id"])
-            != (outbox["order_id"], self.checkout_id)
-        ):
+        tokens = {
+            "checkout": completion["checkout_receipt_jwt"] or "",
+            "payment": completion["payment_receipt_jwt"] or "",
+        }
+        if any(token_digest(tokens[kind]) != refs[kind] for kind in tokens) or (
+            completion["order_id"],
+            completion["checkout_id"],
+        ) != (outbox["order_id"], self.checkout_id):
             return mismatch("Los recibos guardados no son los de la cadena", **refs)
+        identifiers = {"checkout": "order_id", "payment": "payment_id"}
+        for kind, token in tokens.items():
+            claims, body = _ap2_receipt(token, kind), receipts[kind].body
+            name = identifiers[kind]
+            if not (
+                claims["status"] == body["status"] == "Success"
+                and claims["reference"] == links[kind]
+                and claims["iss"] == body["issuer"]
+                and claims[name] == body[name]
+            ):
+                return mismatch(f"El JWT del recibo {kind} no es el de la cadena", **refs)
         return ok("Recibos de la orden ligados a los mandatos cerrados", **refs)
 
     def consumption(self) -> Link:
@@ -976,6 +1100,14 @@ def _replayed(ledger: SqliteGovernanceEvidenceStore, record: DecisionRecord, pha
     unapplied = record.application.disposition == "blocked" and record.decision.outcome == "allow"
     detail = f"Decisión {phase} {record.decision.outcome} verificada"
     return ok(f"{detail}; su unidad de trabajo no la aplicó" if unapplied else detail, **refs)
+
+
+def _ap2_receipt(token: str, kind: str) -> dict[str, Any]:
+    """The public claims of an AP2 receipt, held to its profile (`Success`/`Error`). Its signature
+    was verified when it arrived; its key is not stored."""
+    claims = jwt.decode(token, options={"verify_signature": False})
+    model = PaymentReceipt if kind == "payment" else CheckoutReceipt
+    return model.model_validate(claims).root.model_dump()
 
 
 def _rows(connection: sqlite3.Connection, query: str, *values: Any) -> list[dict[str, Any]]:

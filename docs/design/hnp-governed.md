@@ -1052,9 +1052,18 @@ cualquier rastro suyo (fila de la compra, registros D1/D2/D3, `close`, reserva, 
 - `d2_decision` y `d3_decision` reejecutan la política y siguen las referencias de su entrada (D1,
   grant, consentimiento, mandatos, reserva, frescura `close`, outbox). No leen
   `observed_state_version` de `application_failure`: se lee después de las escrituras del terminal.
-- `receipts` acepta el rechazo del PSP (`error_receipt_jwt` del outbox contra su
-  `receipt_recorded`); con orden exige además los JWT de `completion_results`, que escribe la UoW-3
-  de HNP-09b: hasta entonces sale `missing`.
+- `d3_decision` ancla además la fila del outbox: grant, `run_id`, checkout, operación, monto,
+  moneda y época de la reserva; `checkout_expires_at` = `expires_at` del checkout JWT del cerrado;
+  `payment_request_digest` = el que recalcula `hnp_execution.payment_request_digest` con ese
+  checkout, su JWT y los dos cerrados; y `control_epoch` existe en `hnp_controls` con el kill switch
+  apagado.
+- `receipts` lee los JWT de los recibos con el perfil AP2 (`PaymentReceipt`/`CheckoutReceipt` del
+  SDK, `status` solo `Success` o `Error`): `reference` = `link_hash` del cerrado, y emisor,
+  `order_id`/`payment_id`, `error` y estado iguales a su `receipt_recorded`. Con orden exige los
+  JWT de `completion_results`, que escribe la UoW-3 de HNP-09b: hasta entonces sale `missing`. El
+  rechazo del PSP lee el `error_receipt_jwt` del outbox; mientras el ledger guarde el estado como
+  `error` (fuera del perfil AP2, lo normaliza HNP-09b) sale `missing`, nunca `ok`. Un tipo de
+  recibo repetido en la cadena es `mismatch`.
 - Salida: `purchase_mode: "HNP"`, `grant_id`, `task_id`, `task_state`, `outcome_code` y
   `h2_hnp` (`orders` = H2-HNP, `blocked` = tareas `escalated`, `failed` o `canceled`, `all_runs`,
   `by_link`) solo si hay ejecuciones HNP; `h2` cuenta solo compras HP. `blocked` incluye HN04: no es
