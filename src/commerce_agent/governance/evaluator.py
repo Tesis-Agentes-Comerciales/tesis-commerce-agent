@@ -6,6 +6,7 @@ from typing import Protocol
 
 from .canonical import canonical_bytes, input_digest, parse_model, sha256_digest
 from .models import (
+    POLICY_REASONS,
     SCHEMA,
     D1PolicyArtifact,
     EngineIdentity,
@@ -13,8 +14,10 @@ from .models import (
     GuardReason,
     PolicyBinding,
     PolicyDecision,
+    PolicyId,
     RuleResult,
     SelectionPolicyInput,
+    rules_apply,
 )
 
 ENGINE_VERSION = "reference-d1:1"
@@ -76,6 +79,19 @@ def verify_artifact(payload: bytes | None, binding: PolicyBinding) -> D1PolicyAr
         raise GovernanceError("GOV_ARTIFACT_MISMATCH") from None
 
 
+def budget_satisfiable(data: SelectionPolicyInput) -> bool:
+    """POL-11: the merchant's total is never below the catalog unit price times the quantity.
+
+    Without a total budget there is nothing to exceed; without an observed price the policy
+    cannot show the budget is reachable, so it fails closed.
+    """
+    budget = data.intent.max_total_minor
+    if budget is None:
+        return True
+    price = data.selected_unit_minor
+    return price is not None and price * data.intent.quantity <= budget
+
+
 class ReferencePolicyEvaluator:
     """Configured, verified data + measured local code. Evaluation itself is pure."""
 
@@ -99,28 +115,29 @@ class ReferencePolicyEvaluator:
         data = parse_input(canonical_bytes(policy_input))
         if data.governance_mode == "off":
             raise GovernanceError("GOV_INPUT_INVALID")
-        if data.expected_policy != self._binding:
+        if data.expected_policy != self._binding or not rules_apply(
+            self._artifact.policy_ids, data.phase, data.purchase_mode
+        ):
             raise GovernanceError("GOV_ARTIFACT_MISMATCH")
-        passes = (
-            data.selected_variant_id in data.eligible_variant_ids,
-            data.action in self._artifact.allowed_actions
-            and data.merchant_ref in self._artifact.allowed_merchant_refs,
-        )
-        rules = (
-            RuleResult(
-                schema_version=SCHEMA, policy_id="POL-01", result="pass" if passes[0] else "fail"
+        checks: dict[PolicyId, Callable[[], bool]] = {
+            "POL-01": lambda: data.selected_variant_id in data.eligible_variant_ids,
+            "POL-02": lambda: (
+                data.action in self._artifact.allowed_actions
+                and data.merchant_ref in self._artifact.allowed_merchant_refs
             ),
-            RuleResult(
-                schema_version=SCHEMA, policy_id="POL-02", result="pass" if passes[1] else "fail"
-            ),
+            "POL-11": lambda: budget_satisfiable(data),
+        }
+        # Exactly the rules the verified artifact lists, in its order.
+        passes: dict[PolicyId, bool] = {
+            policy_id: checks[policy_id]() for policy_id in self._artifact.policy_ids
+        }
+        rules = tuple(
+            RuleResult(schema_version=SCHEMA, policy_id=policy_id, result="pass" if ok else "fail")
+            for policy_id, ok in passes.items()
         )
         # Build through the wire parser so catalog and consistency checks also
         # apply to dynamically assembled reasons, not only to external responses.
-        reasons = (
-            ("SELECTION_NOT_ELIGIBLE", "ACTION_OR_MERCHANT_NOT_ALLOWED")[index]
-            for index, passed in enumerate(passes)
-            if not passed
-        )
+        reasons = tuple(POLICY_REASONS[policy_id] for policy_id, ok in passes.items() if not ok)
         return parse_model(
             PolicyDecision,
             canonical_bytes(
@@ -130,9 +147,9 @@ class ReferencePolicyEvaluator:
                     "phase": data.phase,
                     "purchase_mode": data.purchase_mode,
                     "governance_mode": data.governance_mode,
-                    "outcome": "allow" if all(passes) else "deny",
+                    "outcome": "allow" if all(passes.values()) else "deny",
                     "origin": "policy",
-                    "reason_codes": tuple(reasons) or ("ALL_APPLICABLE_POLICIES_SATISFIED",),
+                    "reason_codes": reasons or ("ALL_APPLICABLE_POLICIES_SATISFIED",),
                     "rule_results": [rule.model_dump(mode="json") for rule in rules],
                     "input_digest": input_digest(data),
                     "policy_binding": self._binding.model_dump(mode="json"),
@@ -180,8 +197,11 @@ class D1PolicyBoundary:
         if data.governance_mode == "off":
             raise GovernanceError("GOV_INPUT_INVALID")
         try:
-            verify_artifact(self._bytes, self._binding)
+            artifact = verify_artifact(self._bytes, self._binding)
             if data.expected_policy != self._binding:
+                raise GovernanceError("GOV_ARTIFACT_MISMATCH")
+            # A policy only evaluates the rules of its own phase and purchase mode.
+            if not rules_apply(artifact.policy_ids, data.phase, data.purchase_mode):
                 raise GovernanceError("GOV_ARTIFACT_MISMATCH")
             if self._identity_failure is not None:
                 raise GovernanceError(self._identity_failure)
@@ -206,6 +226,8 @@ class D1PolicyBoundary:
                 or result.purchase_mode != data.purchase_mode
                 or result.governance_mode != data.governance_mode
                 or result.input_digest != input_digest(data)
+                # An engine may not skip or add a rule of the verified artifact (POL-11).
+                or tuple(rule.policy_id for rule in result.rule_results) != artifact.policy_ids
             ):
                 raise ValueError("Output is unrelated to request")
             if result.policy_binding != self._binding or result.engine != self._identity:

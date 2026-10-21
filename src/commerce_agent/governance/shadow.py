@@ -202,6 +202,9 @@ class ShadowD1Observer:
                     eligible = tuple(item.candidate.variant_id for item in selection.ranked)
                     if selected_variant_id not in eligible or len(set(eligible)) != len(eligible):
                         raise GovernanceError("GOV_INPUT_INVALID")
+                    unit = vault.selected_unit_minor(
+                        run_id, owner_id, feed_ref, selected_variant_id
+                    )
                     algorithm_ref = context.data.eligibility_algorithm_ref
                     template = {
                         "schema_version": SCHEMA,
@@ -224,6 +227,7 @@ class ShadowD1Observer:
                         "eligible_variant_ids": sorted(eligible),
                         "selected_variant_id": selected_variant_id,
                         "merchant_ref": context.data.merchant_ref,
+                        **({} if unit is None else {"selected_unit_minor": unit}),
                     }
                     key = sha256_digest(
                         b"commerce-d1-shadow-attempt/v1\0"

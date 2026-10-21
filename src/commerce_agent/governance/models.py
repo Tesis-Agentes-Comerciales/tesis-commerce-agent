@@ -1,9 +1,20 @@
 """Strict, immutable wire models for the first (D1 only) policy increment."""
 
+from collections.abc import Mapping
 from datetime import datetime
+from types import MappingProxyType
 from typing import Annotated, Literal, Self
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 SCHEMA = "commerce-policy/1.0"
 Id = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")]
@@ -25,19 +36,42 @@ PolicyId = Literal[
     "POL-08",
     "POL-09",
     "POL-10",
+    "POL-11",
 ]
-POLICY_REASONS = (
-    "SELECTION_NOT_ELIGIBLE",
-    "ACTION_OR_MERCHANT_NOT_ALLOWED",
-    "PRINCIPAL_ACTION_NOT_ALLOWED",
-    "EPISODE_BINDING_MISMATCH",
-    "CHECKOUT_CONSTRAINT_MISMATCH",
-    "POLICY_CONTEXT_MISMATCH",
-    "DELEGATION_NOT_ACTIVE",
-    "DELEGATION_SCOPE_EXCEEDED",
-    "DELEGATION_USE_UNAVAILABLE",
-    "DISPATCH_AUTHORITY_CHANGED",
+POLICY_REASONS: dict[PolicyId, str] = {
+    "POL-01": "SELECTION_NOT_ELIGIBLE",
+    "POL-02": "ACTION_OR_MERCHANT_NOT_ALLOWED",
+    "POL-03": "PRINCIPAL_ACTION_NOT_ALLOWED",
+    "POL-04": "EPISODE_BINDING_MISMATCH",
+    "POL-05": "CHECKOUT_CONSTRAINT_MISMATCH",
+    "POL-06": "POLICY_CONTEXT_MISMATCH",
+    "POL-07": "DELEGATION_NOT_ACTIVE",
+    "POL-08": "DELEGATION_SCOPE_EXCEEDED",
+    "POL-09": "DELEGATION_USE_UNAVAILABLE",
+    "POL-10": "DISPATCH_AUTHORITY_CHANGED",
+    "POL-11": "BUDGET_NOT_SATISFIABLE",
+}
+Phase = Literal["D1"]
+Rules = tuple[PolicyId, ...]
+# The rules each (phase, purchase mode) evaluates, in order, from b2-hp-v2 on. A new phase or
+# purchase mode adds its own row and leaves the others alone: a row is part of the bytes of the
+# policy artifacts built from it (governance/provenance.py).
+APPLICABLE_RULES: Mapping[tuple[Phase, PurchaseMode], Rules] = MappingProxyType(
+    {("D1", "HP"): ("POL-01", "POL-02", "POL-11")}
 )
+# b2-pilot-v1 predates the table: its published artifact evaluates POL-01 and POL-02 in D1.
+D1_PILOT_RULES: Rules = ("POL-01", "POL-02")
+D1_PROFILES: tuple[Rules, ...] = (
+    D1_PILOT_RULES,
+    *(rules for (phase, _), rules in APPLICABLE_RULES.items() if phase == "D1"),
+)
+
+
+def rules_apply(rules: Rules, phase: Phase, purchase_mode: PurchaseMode) -> bool:
+    """Whether a policy may evaluate these rules for this phase and purchase mode."""
+    return rules == D1_PILOT_RULES or rules == APPLICABLE_RULES.get((phase, purchase_mode))
+
+
 GuardReason = Literal[
     "GOV_INPUT_INVALID",
     "GOV_FACTS_UNAVAILABLE",
@@ -62,6 +96,7 @@ ReasonCode = (
         "DELEGATION_SCOPE_EXCEEDED",
         "DELEGATION_USE_UNAVAILABLE",
         "DISPATCH_AUTHORITY_CHANGED",
+        "BUDGET_NOT_SATISFIABLE",
     ]
     | GuardReason
 )
@@ -144,11 +179,24 @@ class SelectionPolicyInput(InputHeader):
     eligible_variant_ids: Ids
     selected_variant_id: Id
     merchant_ref: Id
+    # POL-11: catalog unit price of the selected variant in the registered feed snapshot, in COP
+    # minor units. Absent when not observed in COP, and in inputs recorded before POL-11.
+    selected_unit_minor: Minor | None = None
 
     @field_validator("eligible_variant_ids")
     @classmethod
     def ordered_eligible_set(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(sorted(value))
+
+    @model_serializer(mode="wrap")
+    def canonical_without_absent_price(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, object]:
+        # Evidence stored before POL-11 has no price: omitting an absent one keeps its digest.
+        data = handler(self)
+        if data.get("selected_unit_minor") is None:
+            data.pop("selected_unit_minor", None)
+        return data
 
 
 class RuleResult(ContractModel):
@@ -206,12 +254,11 @@ class PolicyDecision(ContractModel):
             or self.engine.artifact_digest is None
         ):
             raise ValueError("Missing measured engine identity")
-        if tuple(rule.policy_id for rule in self.rule_results) != ("POL-01", "POL-02"):
-            raise ValueError("D1 requires exactly POL-01, POL-02 in order")
+        ids: Rules = tuple(rule.policy_id for rule in self.rule_results)
+        if not rules_apply(ids, self.phase, self.purchase_mode):
+            raise ValueError("Rules other than the ones this phase and purchase mode apply")
         failed = tuple(
-            POLICY_REASONS[index]
-            for index, rule in enumerate(self.rule_results)
-            if rule.result == "fail"
+            POLICY_REASONS[rule.policy_id] for rule in self.rule_results if rule.result == "fail"
         )
         expected = failed or ("ALL_APPLICABLE_POLICIES_SATISFIED",)
         if self.reason_codes != expected or self.outcome != ("deny" if failed else "allow"):
@@ -224,8 +271,16 @@ class D1PolicyArtifact(ContractModel):
 
     policy_set_id: Id
     version: Version
-    policy_ids: tuple[Literal["POL-01"], Literal["POL-02"]]
+    # Pilot bytes stay ["POL-01","POL-02"]; b2-hp-v2 lists APPLICABLE_RULES[("D1", "HP")].
+    policy_ids: Rules
     allowed_actions: Actions
     allowed_merchant_refs: Ids
     currency: Literal["COP"]
     quantity: One
+
+    @field_validator("policy_ids")
+    @classmethod
+    def known_d1_profile(cls, value: Rules) -> Rules:
+        if value not in D1_PROFILES:
+            raise ValueError("A D1 artifact lists the pilot's rules or a D1 row of the table")
+        return value
