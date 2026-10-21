@@ -347,8 +347,11 @@ que la delegación quedó cerrada sin cobro, y el resumen «Por confirmar: recup
 si no, la etapa de la compra, como en HP. Una revocación con el despacho comprometido deja la compra
 `in_progress`.
 
-**Pendiente de 09b:** `payment_authorized` no sale todavía en una compra delegada (necesita la hora
-del envío al PSP que escribe 09b), y `order_confirmed` y la reserva `consumed` aparecen cuando
+**Pendiente de 09b:** `payment_authorized` no sale todavía en una compra delegada. Solo saldrá con
+la prueba del token: el recibo de pago `success` (`completion_results` o el evento
+`receipt_recorded` del pago). Nunca de la etapa, que es `completing` desde UoW-2, ni de
+`payment.delegate`, que se anota antes del primer envío al PSP: un rechazo, un timeout o una clave
+sin envío no son un pago autorizado. `order_confirmed` y la reserva `consumed` aparecen cuando
 `record_hnp_completion` escriba `completion_results` y el ledger su `consumed`. Las fixtures
 completadas (`trace-fixtures/hnp/`) ya los muestran así.
 

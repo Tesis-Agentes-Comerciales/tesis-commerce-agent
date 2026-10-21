@@ -365,6 +365,30 @@ def test_b0_hnp_has_no_policy_steps_and_reads_the_ledger(tmp_path: Path, ticking
     assert summarize(trace).policy is None
 
 
+def test_a_payment_attempt_without_its_receipt_shows_no_payment(
+    tmp_path: Path, ticking: Ticking
+) -> None:
+    """09b writes `payment.delegate` before the first send to the PSP, and the purchase is
+    `completing` from UoW-2: neither proves that the PSP returned a token, so a rejection, a
+    timeout or a key without a send must not read as an authorized payment. Only the payment
+    receipt `success` does."""
+    bench = Bench(tmp_path)
+    assert bench.run().status == "applied"
+    store, run_id = SqliteAgentStore(bench.path), bench.run_id()
+    store.idempotency_key(run_id, "payment.delegate")
+    # Even with the terms HP prices its payment step with: the HP inference must not apply.
+    origin = bench_trace(bench).merchant
+    terms = {"merchant_origin": origin, "total_minor": 74_000, "currency": "cop"}
+    store.save_approval_terms(run_id, terms)
+    assert bench.purchase() == ("completing", None)
+
+    trace = bench_trace(bench)
+
+    assert not of(trace, "payment_authorized")
+    assert not of(trace, "order_confirmed")
+    assert (kinds(trace)[-1], trace.status) == ("mandates_closed", "in_progress")
+
+
 def test_k15_a_task_failed_with_the_purchase_selected_waits_for_d1(
     tmp_path: Path, ticking: Ticking
 ) -> None:

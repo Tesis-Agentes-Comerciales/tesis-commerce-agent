@@ -821,6 +821,9 @@ def assemble_delegated(
             for index, item in enumerate(records.authorizations)
         ),
         *(dispatch_decision_step(item, index) for index, item in enumerate(records.dispatches)),
+        # No `payment_step`: `payment.delegate` is written before the first send to the PSP and
+        # the purchase is `completing` from UoW-2, so neither proves a token. Only the payment
+        # receipt `success` does (09b).
         order_step(records),
         purchase_end,
     )
