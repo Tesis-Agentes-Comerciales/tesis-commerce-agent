@@ -11,7 +11,7 @@ pasa por HTTP real de loopback a través de `FaultProxy`, que es transparente sa
 prueba arma un fallo etiquetado. La suite normal y `ci.yml` los omiten; el workflow
 `nightly.yml` los ejecuta cada noche y a pedido.
 
-Hay cuatro grupos sobre el mismo PostgreSQL:
+Hay cinco grupos sobre el mismo PostgreSQL:
 
 - Gobernanza (06D-C, 07A, 07B-B, 07B-P): el Merchant del stack detrás de su proxy, con fallos
   inyectados.
@@ -46,6 +46,22 @@ Hay cuatro grupos sobre el mismo PostgreSQL:
   aprobación enviada igual terminan en `checkout_terms_changed` antes de D2, sin ninguna fila D2
   ni rechazo D2 para el chat, y una segunda compra del mismo comprador pasa D2 y llega a la
   orden.
+- Human Not Present (`test_live_hnp.py`, HNP-I1 de
+  [`docs/design/hnp-governed.md`](../../docs/design/hnp-governed.md)): el carril `hnp` tiene el
+  Merchant y el proveedor AP2 de `b0`, y cada prueba levanta su propio Agent con
+  `AGENT_HNP_ENABLED` en un proceso aparte (`HnpAgent`: `create_app` de producción desde sus
+  variables, selector determinista, sin modelo), en la condición B0-HNP (`off`) o B2-HNP
+  (`enforce`). El comprador propone y consiente por la API con su token y el token de servicio
+  dispara la tarea. Cubre la compra con los dos recibos y la cadena de `verify-evidence`
+  (destino «Bogotá» con tilde y los montos con «,00» de `format_cop`, leídos de vuelta al
+  centavo); el precio sobre el límite (B2-HNP escala en D1 por POL-11 sin ningún POST, con el
+  prellenado del chat; B0-HNP falla `budget_guard`), sin firmar cierres; dos disparos a la vez
+  (202 y 409, una orden); la revocación del dueño mientras el Agent pide `/ap2/checkout-jwt`
+  (reserva liberada, cero tokens y cero órdenes); un mandato abierto con una restricción fuera
+  del perfil (B2-HNP escala en D2; en B0-HNP el PSP la rechaza con recibo firmado); la caída del
+  Agent con `ap2/complete` en vuelo y su reanudación con las mismas claves; el timeout de
+  `ap2/complete` (`uncertain`, sin reintento), y las cadenas alteradas de la tabla dorada
+  enviadas directo al Merchant y al PSP, que las rechazan con su recibo de error y su código.
 - Navegador (`test_live_browser.py`): sobre el carril `b0`, Chromium se registra en `auth/`,
   pide la compra en la UI servida por Vite, la aprueba en la tarjeta y ve la orden confirmada;
   el Agent atiende en este mismo proceso con el router guionado y guarda ambos recibos AP2.
@@ -95,13 +111,16 @@ uv run pytest tests/integration -rs
 
 Un módulo o un escenario: pase su archivo, o filtre por el identificador que llevan los nombres
 (`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`, `-k b0`, `-k b2`, `-k pol02`, `-k pol11`,
-`-k d2`, `-k acp`, `-k browser`). Con `--basetemp=<dir>` la evidencia queda en un lugar conocido.
+`-k d2`, `-k acp`, `-k hnp`, `-k browser`). `-k` no distingue mayúsculas, así que `-k b0` y
+`-k b2` también eligen las pruebas HNP de las condiciones B0-HNP y B2-HNP; `-k "b2 and not hnp"`
+las deja fuera. Con `--basetemp=<dir>` la evidencia queda en un lugar conocido.
 
-La suite completa (70 pruebas) tarda unos 12 minutos en macOS con OrbStack. Casi todo es 07B-B
+La suite completa (81 pruebas) tarda unos 13 minutos en macOS con OrbStack. Casi todo es 07B-B
 (marker `slow`): cada escenario hace una selección nueva sobre el catálogo completo del Merchant
 (cientos de lecturas de Offer por fase) y el Merchant reconstruye el catálogo en cada lectura.
-`-m "not slow"` deja 59 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
-las ocho gobernadas B2 y la del navegador) en unos 2 minutos.
+`-m "not slow"` deja 70 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
+las ocho gobernadas B2, las once HNP y la del navegador) en unos 3 minutos. `test_live_hnp.py`
+solo (11 pruebas) tarda unos 40 segundos.
 
 ## Evidencia y limpieza
 
@@ -112,8 +131,9 @@ Cada ejecución deja bajo `<basetemp>/live-stack0/`:
   del Merchant antes y después), más `shutdown`.
 - `merchant.log`, `merchant-control.log` y un log por proceso del Agent. Los workers solo
   exportan tipos y códigos de error, nunca mensajes, credenciales ni cuerpos.
-- `b0/` y `acp/`: el `merchant.log`, `payment.log` y `merchant-control.log` de cada carril, sus
-  feeds exportados y sus SQLite (Agent y proveedor). La prueba del navegador deja en
+- `b0/`, `acp/` y `hnp/`: el `merchant.log`, `payment.log` y `merchant-control.log` de cada
+  carril, sus feeds exportados y sus SQLite (Agent y proveedor). En `hnp/agent-<actor>/` quedan
+  el `agent.log` y la SQLite del Agent HNP de cada prueba. La prueba del navegador deja en
   `b0/browser-<actor>/` el `auth.log`, el `ui.log`, sus SQLite y `browser.png`, la captura final.
 
 Al terminar la sesión se detiene el Merchant (SIGTERM al grupo de procesos) y se elimina el
@@ -125,6 +145,7 @@ docker ps -a --filter label=tesis-live=1
 docker rm --force --volumes $(docker ps -aq --filter label=tesis-live=1)
 pgrep -fl "commerce_lab.api:app --fd"   # Merchant huérfano, si quedó alguno
 pgrep -fl "tesis_payment_provider.api:app_factory"   # proveedor huérfano
+pgrep -fl "live_purchase:hnp_app"   # Agent HNP huérfano
 pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
 ```
 
@@ -134,9 +155,13 @@ pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
   heredado), `MerchantControl`, `FaultProxy` (rutas exactas o con `*` por segmento),
   `LiveStack`, `AgentProcess` y `JointCase` (episodio 06D-C/07A sobre el Merchant real).
 - `live_purchase.py`: `PurchaseLane` (Merchant, proxy, proveedor de pagos, receptor de webhooks
-  del Agent y control del Merchant de un perfil `b0` o `acp`) y `Episode` (episodio B0 sembrado
-  con su sesión y su feed ACP exportado), además del router guionado y la solicitud del teléfono
-  que comparten la prueba conversacional y la del navegador.
+  del Agent y control del Merchant de un perfil `b0`, `acp` o `hnp`) y `Episode` (episodio B0
+  sembrado con su sesión y su feed ACP exportado), además del router guionado y la solicitud del
+  teléfono que comparten la prueba conversacional y la del navegador. Para HNP, `HnpAgent` (el
+  Agent de un episodio y una condición en su propio proceso: `hnp_app` bajo uvicorn, con el
+  comprador del episodio y un reloj de autoridad que puede adelantarse tras una caída) y
+  `on_checkout`, que arma los hooks y fallos de las rutas con el id del checkout antes de que el
+  Agent las pida.
 - `live_browser.py`: `BuyerUi` (`auth/` y Vite como `NodeServer`, el Agent como `AgentServer`,
   uvicorn en un hilo de este proceso) para un episodio de un carril.
 - `live_merchant_control.py`: corre con el intérprete del Merchant. Aprovisiona con las
@@ -146,7 +171,7 @@ pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
   sean los de la ejecución.
 - `live_agent_worker.py`: proceso del Agent para reinicios y caídas. Un audit hook limita sus
   sockets al proxy y sus escrituras al directorio de la ejecución.
-- `conftest.py`: `stack` (sesión), `proxy` (por prueba) y los carriles `b0` y `acp` (sesión,
+- `conftest.py`: `stack` (sesión), `proxy` (por prueba) y los carriles `b0`, `acp` y `hnp` (sesión,
   verificados por prueba). Cada proxy se reinicia antes de la prueba y la hace fallar si un hook
   falló o si alguien pidió una ruta fuera de la lista permitida (el proxy responde 405 y no la
   reenvía). La activación por `RUN_LIVE_STACK` y los markers `live`/`slow` vienen de
@@ -164,6 +189,8 @@ pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
 | Merchant caído o reiniciado | `ServiceServer.stop/start`: proceso nuevo detrás del mismo proxy, misma base. |
 | PostgreSQL caído o reiniciado | `docker stop` / `docker start` del contenedor, mismo `data_directory`. |
 | Caída del Agent | `AgentProcess.kill_at(cutpoint)`: el worker se detiene en un punto con nombre y el arnés envía SIGKILL. |
+| Caída del Agent HNP | `HnpAgent.crash()` desde un hook `before_forward` del proxy: SIGKILL al grupo con la petición en vuelo, que el proxy igual reenvía; `restart(clock_ahead_seconds=…)` levanta otro proceso sobre la misma SQLite. |
+| Revocación a mitad de corrida | Un hook `before_forward` envía la revocación del comprador antes de reenviar la petición del Agent. |
 | SQLite alterado | Edición directa del archivo cerrado (sobre, evento antiguo, un byte de un sello). |
 
 Los cutpoints son `verification_commit` (06D-C, en la fábrica de conexiones del verificador, antes

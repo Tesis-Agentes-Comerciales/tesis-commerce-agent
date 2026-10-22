@@ -32,7 +32,7 @@ clasificada por dónde se crea, sin `pytestmark` ni `skipif` propios:
 | 1. Autenticación | Registro, sesión y JWT verificable con JWKS contra el servidor real | `auth/test/` | Cada PR (`auth`) | `cd auth && npm ci && npm test` |
 | 2. Merchant + PostgreSQL | Persistencia, D17, ACP HTTP del Merchant | Repositorio del Merchant | Cada PR del Merchant | Ver su `docs/testing.md` |
 | 3. UI | Lint, build, historias de Storybook con interacción y axe en Chromium, y pruebas unitarias de Vitest en Node (`src/**/*.test.ts`, dentro de `test-storybook`) | `ui/` | Cada PR (`ui`) | `cd ui && npm ci && npm run lint && npm test && npm run build && npm run test-storybook` |
-| 4. Sistema | Agent ↔ Merchant ↔ proveedor de pagos con PostgreSQL desechable; gobernanza con fallos inyectados, compras B0 y ACP, compra B0 desde el navegador | `tests/integration/` | Cada noche y a pedido (`nightly.yml`) | [`tests/integration/README.md`](../tests/integration/README.md) |
+| 4. Sistema | Agent ↔ Merchant ↔ proveedor de pagos con PostgreSQL desechable; gobernanza con fallos inyectados, compras B0 y ACP, compras Human Not Present (B0-HNP y B2-HNP), compra B0 desde el navegador | `tests/integration/` | Cada noche y a pedido (`nightly.yml`) | [`tests/integration/README.md`](../tests/integration/README.md) |
 | 3. UI E2E | Recorridos de chat y de delegaciones en el navegador con Playwright, sobre el build y con backends simulados (las delegaciones reproducen secuencias reales de la API) | `ui/e2e/` | Cada PR (`ui`) | `cd ui && npm run e2e` |
 | 5. Evaluación | Experimento HNP y piloto de gobernanza sin red ni modelo (dry-run): forma de resultados, costos, trazas, guardas de gasto; `verify-evidence` HP y HNP sobre bases SQLite de corridas con el código del producto | `tests/evaluation/` y entrypoints | Cada PR, dentro de `python-tests` | `uv run pytest -m evaluation`, `uv run hnp-matrix --dry-run --env-file .env.example`, `uv run governance-pilot --dry-run`, `uv run hnp-pilot --dry-run` |
 
@@ -111,13 +111,14 @@ para estas cifras: sus servicios corren en otros procesos.
 
 ## Tiempos de referencia
 
-En macOS con OrbStack, 2026-10-20:
+En macOS con OrbStack, 2026-10-20; los conteos y la fila HNP, 2026-10-21:
 
 | Selección | Pruebas | Tiempo |
 | --- | --- | --- |
-| `uv run pytest` (capas 1 y 5) | ~2000: ~1925 pasan y 70 se omiten | ~1,5 min |
-| `tests/integration` completa | 70 | ~12 min |
-| `tests/integration -m "not slow"` | 59 | ~2 min |
+| `uv run pytest` (capas 1 y 5) | ~3250: ~3165 pasan y 81 se omiten | ~1,5 min |
+| `tests/integration` completa | 81 | ~13 min |
+| `tests/integration -m "not slow"` | 70 | ~3 min |
+| `tests/integration/test_live_hnp.py` | 11 | ~40 s |
 
 Los conteos salen de `uv run pytest --collect-only -q` con la selección de cada fila.
 
