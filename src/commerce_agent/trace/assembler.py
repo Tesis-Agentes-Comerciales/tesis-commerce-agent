@@ -533,7 +533,11 @@ def stored_times(records: PurchaseRecords) -> dict[str, datetime]:
     """
     stage, completion = records.purchase["stage"], records.completion
     stored = {
-        "payment_authorized": records.operations.get("payment.delegate"),
+        # HP's payment step. A delegated one takes its receipt's time, not `payment.delegate`:
+        # it has none stored, and `goes_before` puts it before the order it shares UoW-3 with.
+        "payment_authorized": records.operations.get("payment.delegate")
+        if records.delegation is None
+        else None,
         "order_confirmed": completion["completed_at"] if completion else None,
         "canceled": next(
             (
@@ -570,7 +574,9 @@ class Ordering:
 def goes_before(item: TraceStep, current: TraceStep, ordering: Ordering) -> bool:
     """Times are rounded to milliseconds. Within one, the stored times keep the order of the
     writes. If those tie too, or are not known, a freshness check runs right before the step it
-    gates, so it goes first; anything else goes after the steps it ties with.
+    gates, so it goes first, and so does a delegated payment before the order: UoW-3 records its
+    receipt before the order in the same transaction. Anything else goes after the steps it ties
+    with.
 
     A step with the sandbox's time is not compared: every check runs before the approval is
     signed, and anything else comes after it.
@@ -584,7 +590,8 @@ def goes_before(item: TraceStep, current: TraceStep, ordering: Ordering) -> bool
     stored_item, stored_current = ordering.stored.get(item.id), ordering.stored.get(current.id)
     if stored_item is not None and stored_current is not None and stored_item != stored_current:
         return stored_current > stored_item
-    return item.kind == "freshness_check" and current.kind in GATED
+    gated = item.kind == "freshness_check" and current.kind in GATED
+    return gated or (item.kind == "payment_authorized" and current.kind == "order_confirmed")
 
 
 def by_time(
@@ -728,6 +735,12 @@ def delegation_steps(delegation: Delegation, purchase_end: TraceStep | None) -> 
                 add("reservation", at, "agent", outcome=outcome, amount=cop(amount))
             case "mandates_closed":
                 add("mandates_closed", at, "agent")
+            case "receipt_recorded" if body["kind"] == "payment" and body["status"] == "success":
+                # The PSP's verified receipt is the only proof of its token (UoW-3): never the
+                # stage, `completing` from UoW-2, nor `payment.delegate`, noted before the first
+                # send. As in HP, the amount the payment covers: the single use it consumes.
+                paid = next(reversed(amounts.values()), None)
+                add("payment_authorized", at, "payment", max_minor=paid, currency="COP")
             case "revoked" if body["revoked_reason"] in REVOKED_BY:
                 by = body["revoked_reason"]
                 add("revoked", at, REVOKED_BY[by], by=by, effect=body["effect"])
@@ -821,9 +834,6 @@ def assemble_delegated(
             for index, item in enumerate(records.authorizations)
         ),
         *(dispatch_decision_step(item, index) for index, item in enumerate(records.dispatches)),
-        # No `payment_step`: `payment.delegate` is written before the first send to the PSP and
-        # the purchase is `completing` from UoW-2, so neither proves a token. Only the payment
-        # receipt `success` does (09b).
         order_step(records),
         purchase_end,
     )

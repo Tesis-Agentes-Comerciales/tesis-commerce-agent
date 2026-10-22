@@ -12,8 +12,9 @@ import waitingForPolicy from "./waiting-for-policy.json"
 
 // Compras delegadas (HNP, docs/design/hnp-governed.md §10): el comprador consintió antes de irse y
 // el agente compra solo. Sintéticas como las de HP y en su propia carpeta; el backend las valida
-// con Pydantic (tests/test_hnp_trace_contract.py). `order_confirmed` y el uso consumido son los que
-// escribirá la completación HNP (09b); `payment_authorized` todavía no sale en una compra delegada.
+// con Pydantic (tests/test_hnp_trace_contract.py). Las completadas traen lo que escribe la UoW-3:
+// `payment_authorized` (del recibo de pago `success`), `order_confirmed` y el uso consumido, con la
+// misma hora y en ese orden.
 
 export const HNP_TRACES = {
   /** B0-HNP: sin decisiones de política; los controles del ledger siguen. */

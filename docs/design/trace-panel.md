@@ -328,6 +328,8 @@ del ejecutor («Compra delegada»).
 | `freshness_check` | `hp_evidence` con `stage: "close"` | `checked_at` |
 | `reservation` | `reservation_reserved`, `reservation_released`, `reservation_uncertain` y `consumed`; el monto es el reservado | `recorded_at` |
 | `mandates_closed` | evento `mandates_closed`, sin los mandatos | `recorded_at` |
+| `payment_authorized` | `receipt_recorded` con `kind: "payment"` y `status: "success"`: el recibo verificado del PSP, que la UoW-3 anota con la orden. Actor `payment`; `max_minor` es el monto reservado del uso único y `currency`, `COP`, la misma forma que en HP. Del cuerpo solo se leen `kind` y `status`: ni el recibo ni su digest llegan a la traza. Un recibo de error del PSP, el de checkout, la etapa (`completing` desde UoW-2) y `payment.delegate` (se anota antes del primer envío al PSP) no son un pago autorizado | `recorded_at` |
+| `order_confirmed` | `completion_results`, como en HP: los recibos solo como presencia | `completed_at` |
 | `revoked` | `revoked` con `revoked_reason` `owner` (actor `user`) u `operator` (actor `operator`, el kill switch); `effect` del evento. Las revocaciones `escalated` y `failed` las explica su terminal | `recorded_at` |
 | `escalated` | `task_finished` con `state: "escalated"`; `reason` es el `outcome_code`. `state: "blocked"` | `recorded_at` |
 | `canceled` | `expired`: `by: "expiry"` (nombre nuevo de HNP-11). Y, como en HP, el guardia de presupuesto de `start` (`checkout.cancel.budget`); una escalada o una revocación cancelan la compra sin esa operación, y las explica su terminal | `recorded_at`; el del guardia, la operación |
@@ -335,8 +337,11 @@ del ejecutor («Compra delegada»).
 
 Toda la cadena del grant se verifica (`delegation.models.chain_is_valid`) y cada cuerpo leído se
 valida; si no, la traza no está disponible y su fila del historial conserva `purchase_mode`. Una
-revocación y la liberación que causa comparten la hora: va primero la revocación. El total de la
-traza es el último monto reservado (con envío).
+revocación y la liberación que causa comparten la hora: va primero la revocación. El pago y la
+orden también suelen compartir el milisegundo, porque la UoW-3 los escribe en la misma transacción:
+va primero el pago, que la UoW-3 anota antes que la orden. Su hora guardada no es
+`payment.delegate`, que en HP sí desempata. El total de la traza es el último monto reservado (con
+envío).
 
 **Estado de una compra delegada:** `completed` si la compra se completó; `canceled` si la tarea
 terminó `revoked_by_owner`, `kill_switch` o `grant_expired`; `stale_terms` si la última frescura
@@ -347,13 +352,12 @@ que la delegación quedó cerrada sin cobro, y el resumen «Por confirmar: recup
 si no, la etapa de la compra, como en HP. Una revocación con el despacho comprometido deja la compra
 `in_progress`.
 
-**Pendiente de 09b:** `payment_authorized` no sale todavía en una compra delegada. Solo saldrá con
-la prueba del token: el recibo de pago `success` (`completion_results` o el evento
-`receipt_recorded` del pago). Nunca de la etapa, que es `completing` desde UoW-2, ni de
-`payment.delegate`, que se anota antes del primer envío al PSP: un rechazo, un timeout o una clave
-sin envío no son un pago autorizado. `order_confirmed` y la reserva `consumed` aparecen cuando
-`record_hnp_completion` escriba `completion_results` y el ledger su `consumed`. Las fixtures
-completadas (`trace-fixtures/hnp/`) ya los muestran así.
+**Pago de una compra delegada:** `payment_authorized` sale solo con la prueba del token, el recibo de
+pago `success` que la UoW-3 anota en `receipt_recorded`. Un rechazo, un timeout o una clave sin
+envío no son un pago autorizado: una compra `completing` sin ese recibo no muestra el paso. La
+misma UoW-3 escribe `completion_results` (`order_confirmed`) y el `consumed` del ledger (la reserva
+`consumed`). Las fixtures completadas (`trace-fixtures/hnp/`) los muestran en el mismo milisegundo:
+pago, orden y uso consumido.
 
 ## Componentes
 
@@ -442,6 +446,7 @@ la frescura, la revocación y el escalamiento solo aparecen si la traza los trae
 | `reservation` | «Uso único reservado», «… liberado», «… consumido», «… por confirmar» | El monto |
 | `mandates_closed` | «Autorización cerrada por el agente» | «Dentro de lo que autorizaste» |
 | `dispatch_decision` (D3) | «Despacho autorizado», «La política no autorizó el despacho», «No se pudo verificar el despacho» | «Antes de enviar el pago» |
+| `payment_authorized` | «Pago autorizado», como en HP | «Hasta $ 1.924.000,00 COP»: el monto del uso único |
 | `revoked` | «Delegación revocada» | Quién (tú o el operador) y su efecto, con las frases de §8.3 |
 | `escalated` | «Necesito tu decisión» | La causa de §8.3 y «No se hizo ningún cobro.» |
 | `canceled` por vencimiento | «La delegación venció» | «Venció antes de que el agente comprara. No se hizo ningún cobro.» |

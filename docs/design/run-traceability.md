@@ -83,7 +83,7 @@ cuentan como fuente.
 | Reserva, mandatos, despacho, orden y webhook | A: `grant_reservations`, `delegation_mandates`, `dispatch_outbox`, `delegation_events` (cadena) | `evidence_chain.links`, `task`, `ledger_outbox` | Nada crítico |
 | Errores | `hnp_tasks.outcome_code`, `dispatch_outbox.ap2_error` | `task.outcome_code`, `harness_error` | Etapa |
 
-La traza (T) de una compra HNP agrega los pasos de la delegación (`assembler.py:806-853`), pero no
+La traza (T) de una compra HNP agrega los pasos de la delegación (`assembler.py:818-862`), pero no
 trae `request` ni `selection`, y no existe si la tarea termina antes de crear la compra
 (`no_candidate_in_scope`, o `selection_not_eligible` en B0-HNP).
 

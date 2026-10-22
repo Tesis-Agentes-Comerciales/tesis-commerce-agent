@@ -66,6 +66,16 @@
       "kind": "mandates_closed"
     },
     {
+      "id": "payment_authorized",
+      "at": "2026-10-21T15:00:04.912Z",
+      "duration_ms": null,
+      "actor": "payment",
+      "state": "done",
+      "kind": "payment_authorized",
+      "max_minor": 192400000,
+      "currency": "COP"
+    },
+    {
       "id": "order_confirmed",
       "at": "2026-10-21T15:00:04.912Z",
       "duration_ms": null,

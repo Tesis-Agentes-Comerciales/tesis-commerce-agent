@@ -76,6 +76,13 @@ class FinishedBody(TypedDict):
     outcome_code: str | None
 
 
+class ReceiptBody(TypedDict):
+    """Which verifier issued a recorded AP2 receipt and its status; never the receipt itself."""
+
+    kind: str
+    status: str
+
+
 # What the trace reads of each delegation event it shows (delegation_sqlite.py, spec §9.1).
 DELEGATION_BODIES: dict[str, TypeAdapter[Any]] = {
     "reservation_reserved": TypeAdapter(ReservedBody),
@@ -84,6 +91,7 @@ DELEGATION_BODIES: dict[str, TypeAdapter[Any]] = {
     "consumed": TypeAdapter(ReservationBody),
     "revoked": TypeAdapter(RevokedBody),
     "task_finished": TypeAdapter(FinishedBody),
+    "receipt_recorded": TypeAdapter(ReceiptBody),
 }
 HP_BODIES: dict[str, TypeAdapter[Any]] = {
     "freshness_check": TypeAdapter(FreshnessBody),

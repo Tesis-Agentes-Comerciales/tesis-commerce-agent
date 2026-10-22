@@ -103,7 +103,8 @@ def test_a_dispatch_buys_with_both_receipts_in_completion_results_and_orders(
         ).fetchone()
     assert order == ("cs_1", "confirmed")
     assert (checkout_receipt, payment_receipt) == (merchant.issued[0], psp.issued[0])
-    # The trace's `payment_authorized`: HP's operation, with the outbox key, before the order.
+    # `payment.delegate`: HP's operation, with the outbox key, before the order. The trace's
+    # `payment_authorized` comes from the payment receipt instead (tests/test_hnp_trace.py).
     with closing(sqlite3.connect(built.path)) as connection:
         [(key, sent_at, completed_at)] = connection.execute(
             "SELECT k.idempotency_key, k.created_at, c.completed_at FROM operation_keys k "
