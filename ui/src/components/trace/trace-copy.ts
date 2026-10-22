@@ -924,9 +924,20 @@ export const COPY_FEEDBACK = {
 
 // Tarjeta de bloqueo. Las decisiones de política ocurren antes de crear el checkout (D1).
 
+/** Cómo la política detuvo la compra según el código del stream, antes de que llegue la traza. */
+export type PolicyBlockReason = "denied" | "unavailable" | "allow_unapplied"
+
 export const NOTHING_CHARGED = "No se creó ningún checkout ni se hizo ningún cobro."
 
 const PRECAUTION = "Ante la duda, la compra se detiene antes de llegar al comercio."
+
+const BLOCKED_TITLE = {
+  denied: "La política de compra detuvo esta compra",
+  unavailable: "No se pudo verificar la política de compra",
+  allow_unapplied: "La política de compra permitió esta compra",
+} as const
+const STOPPED_BY_PRECAUTION = "Por precaución, la compra se detuvo."
+const ALLOW_UNAPPLIED = `No se pudo dejar lista para crear el checkout. ${PRECAUTION}`
 
 /**
  * Sin reglas fallidas la política no pudo verificar la compra: no respondió (ninguna regla
@@ -936,9 +947,9 @@ export function blockedCardCopy(decision: PolicyDecision, failedCount: number) {
   if (allowNotApplied(decision)) {
     // El mismo relato que el chat (`d1_allow_unapplied`): permitió, pero se detuvo por precaución.
     return {
-      title: "La política de compra permitió esta compra",
-      subtitle: "Por precaución, la compra se detuvo.",
-      explanation: `No se pudo dejar lista para crear el checkout. ${PRECAUTION}`,
+      title: BLOCKED_TITLE.allow_unapplied,
+      subtitle: STOPPED_BY_PRECAUTION,
+      explanation: ALLOW_UNAPPLIED,
     }
   }
   if (failedCount === 0) {
@@ -946,16 +957,48 @@ export function blockedCardCopy(decision: PolicyDecision, failedCount: number) {
       ? "La política no estaba disponible para revisar esta compra."
       : "La revisión de la política no se completó."
     return {
-      title: "No se pudo verificar la política de compra",
-      subtitle: "Por precaución, la compra se detuvo.",
+      title: BLOCKED_TITLE.unavailable,
+      subtitle: STOPPED_BY_PRECAUTION,
       explanation: `${cause} ${PRECAUTION}`,
     }
   }
   return {
-    title: "La política de compra detuvo esta compra",
+    title: BLOCKED_TITLE.denied,
     subtitle:
       failedCount === 1 ? "No se cumplió una regla." : `No se cumplieron ${failedCount} reglas.`,
     explanation: null,
+  }
+}
+
+/**
+ * La misma tarjeta antes de la traza, con lo que dice el código del stream (`d1_denied`,
+ * `d1_unavailable`, `d1_allow_unapplied`). El título es el que tendrá con la traza, así no cambia
+ * al llegar. Lo que solo sabe la traza (qué regla, por qué no respondió) queda en `null`: la tarjeta
+ * lo muestra en esqueleto mientras la espera y, si no llega, lo dice con `missing`.
+ */
+export function streamBlockCopy(reason: PolicyBlockReason) {
+  switch (reason) {
+    case "denied":
+      return {
+        title: BLOCKED_TITLE.denied,
+        subtitle: null,
+        explanation: null,
+        missing: "No pude mostrar qué regla no se cumplió.",
+      }
+    case "unavailable":
+      return {
+        title: BLOCKED_TITLE.unavailable,
+        subtitle: STOPPED_BY_PRECAUTION,
+        explanation: null,
+        missing: PRECAUTION,
+      }
+    case "allow_unapplied":
+      return {
+        title: BLOCKED_TITLE.allow_unapplied,
+        subtitle: STOPPED_BY_PRECAUTION,
+        explanation: ALLOW_UNAPPLIED,
+        missing: ALLOW_UNAPPLIED,
+      }
   }
 }
 

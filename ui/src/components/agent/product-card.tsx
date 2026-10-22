@@ -369,54 +369,73 @@ export function ProductCard({
   )
 }
 
-/** Marcador mientras `select_product` o `search_catalog` siguen en curso. */
-export function ProductCardSkeleton({
-  variant = "hero",
-  className,
-}: {
-  variant?: "hero" | "compact"
-  className?: string
-}) {
-  if (variant === "compact") {
-    return (
-      <div
-        className={cn("overflow-hidden rounded-[16px] border border-[#ececec] bg-white", className)}
-        aria-hidden
-      >
-        <div className="agent-skeleton aspect-square" />
-        <div className="space-y-2 p-3">
-          <div className="agent-skeleton h-3.5 w-4/5 rounded-full" />
-          <div className="agent-skeleton h-3 w-1/2 rounded-full" />
-          <div className="agent-skeleton mt-4 h-4 w-2/5 rounded-full" />
-        </div>
+/** Tarjeta compacta en blanco mientras la búsqueda sigue en curso (carrusel). */
+export function ProductCardSkeleton({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn("overflow-hidden rounded-[16px] border border-[#ececec] bg-white", className)}
+      aria-hidden
+    >
+      <div className="agent-skeleton aspect-square" />
+      <div className="space-y-2 p-3">
+        <div className="agent-skeleton h-3.5 w-4/5 rounded-full" />
+        <div className="agent-skeleton h-3 w-1/2 rounded-full" />
+        <div className="agent-skeleton mt-4 h-4 w-2/5 rounded-full" />
       </div>
-    )
-  }
+    </div>
+  )
+}
 
+export type ProductChoiceMarkerProps = {
+  /** Candidatos que compara el agente (`candidate_variant_ids`); con menos de dos, solo «elige». */
+  candidates?: number
+  /** El producto ya elegido, mientras se prepara su checkout. */
+  product?: ProductCardData | null
+  className?: string
+}
+
+/**
+ * Lugar del producto elegido mientras el turno corre: bajo y rotulado, en vez de un esqueleto
+ * grande sin texto. Primero dice entre cuántas opciones elige el agente; con el producto elegido, lo
+ * nombra con su precio hasta que el checkout está listo y entra la tarjeta grande (o, si la política
+ * detiene la compra, la tarjeta de bloqueo). La línea viva al pie del mensaje dice el paso y el tiempo.
+ */
+export function ProductChoiceMarker({ candidates = 0, product, className }: ProductChoiceMarkerProps) {
   return (
     <div
       className={cn(
-        "@container overflow-hidden rounded-[24px] border border-[#ececec] bg-white",
+        "flex min-h-16 w-full max-w-[30rem] items-center gap-3 rounded-[16px] border border-[#ececec] bg-white px-3 py-2.5",
         className,
       )}
-      role="status"
-      aria-label="Cargando la recomendación"
-      aria-busy="true"
+      data-testid="product-choice-marker"
     >
-      <div className="grid @lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-        <div className="agent-skeleton aspect-[4/3] @lg:aspect-auto @lg:min-h-72" />
-        <div className="space-y-3 p-5 @lg:p-6">
-          <div className="agent-skeleton h-5 w-3/4 rounded-full" />
-          <div className="agent-skeleton h-3.5 w-1/3 rounded-full" />
-          <div className="flex gap-1.5 pt-2">
-            <div className="agent-skeleton h-6 w-20 rounded-full" />
-            <div className="agent-skeleton h-6 w-16 rounded-full" />
+      {product ? (
+        <>
+          <ProductImage
+            image={product.image}
+            fallbackAlt={product.title}
+            seed={product.product_id}
+            caption={false}
+            className="size-11 shrink-0 rounded-[10px]"
+          />
+          <div className="min-w-0">
+            <p className="truncate text-sm leading-5 font-medium">{product.title}</p>
+            <p className="truncate text-xs leading-5 text-[#6b6b6b] tabular-nums">
+              {formatMoney(product.observed_unit_amount_minor, product.currency)} · Precio de
+              catálogo
+            </p>
           </div>
-          <div className="agent-skeleton mt-2 h-7 w-32 rounded-full" />
-          <div className="agent-skeleton h-3 w-full rounded-full" />
-          <div className="agent-skeleton h-3 w-11/12 rounded-full" />
-        </div>
-      </div>
+        </>
+      ) : (
+        <>
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-[10px] bg-[#f7f7f7] text-[#6b6b6b]">
+            <ShoppingBagIcon className="size-5" strokeWidth={1.6} aria-hidden />
+          </span>
+          <p className="min-w-0 text-sm leading-5 text-[#6b6b6b]">
+            {candidates >= 2 ? `Eligiendo entre ${candidates} opciones` : "Eligiendo el producto"}
+          </p>
+        </>
+      )}
     </div>
   )
 }

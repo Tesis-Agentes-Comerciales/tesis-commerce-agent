@@ -1,6 +1,6 @@
 import { cn } from "cn"
 
-import { formatElapsed } from "@/components/agent/agent-format"
+import { formatLiveElapsed } from "@/components/agent/agent-format"
 
 import "./agent.css"
 
@@ -12,11 +12,12 @@ export type ThinkingIndicatorProps = {
 }
 
 /**
- * Línea de estado en vivo. La etiqueta se monta de nuevo cuando cambia, así entra con un fundido
- * y los lectores de pantalla la anuncian; el tiempo queda fuera de la región viva.
+ * Línea de estado en vivo: el paso actual y el tiempo. La etiqueta se monta de nuevo cuando cambia,
+ * así entra con un fundido y los lectores de pantalla la anuncian; el tiempo queda fuera de la región
+ * viva, con formato y ancho fijos para que no salte en cada tic.
  */
 export function ThinkingIndicator({ label, elapsedMs, className }: ThinkingIndicatorProps) {
-  const elapsed = elapsedMs === undefined ? null : formatElapsed(elapsedMs)
+  const elapsed = elapsedMs === undefined ? null : formatLiveElapsed(elapsedMs)
 
   return (
     <div
@@ -33,7 +34,7 @@ export function ThinkingIndicator({ label, elapsedMs, className }: ThinkingIndic
       </span>
       {elapsed && (
         <span
-          className="shrink-0 rounded-full bg-[#f2f2f2] px-2 py-0.5 text-xs text-[#525252] tabular-nums"
+          className="min-w-[6ch] shrink-0 rounded-full bg-[#f2f2f2] px-2 py-0.5 text-center text-xs text-[#525252] tabular-nums"
           aria-hidden
         >
           {elapsed}

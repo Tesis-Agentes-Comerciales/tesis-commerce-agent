@@ -1,5 +1,5 @@
 import { useAssistantTransportState } from "@assistant-ui/react"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 
 import type { ApprovalReceipt } from "@/components/agent"
 import { isRecord } from "@/features/agent-results"
@@ -55,12 +55,13 @@ function traceRevision(
 /**
  * Pide la traza cuando aparece el `run_id`, cuando termina cada paso del stream y después de aprobar,
  * completar o cancelar. Un 404, un 503, la red caída o una traza fuera de contrato no rompen el chat:
- * se conserva la última traza leída o, si no hay ninguna, la fila no aparece.
+ * se conserva la última traza leída o, si no hay ninguna, la fila no aparece. `pending` dice si la
+ * primera traza viene en camino: la tarjeta de bloqueo deja de esperarla si la lectura falló.
  */
 export function useMessagePurchaseTrace(
   parts: readonly MessagePart[],
   status: AgentMessageStatus | undefined,
-): PurchaseTrace | null {
+): { trace: PurchaseTrace | null; pending: boolean } {
   const runId = messagePurchaseRunId(parts)
   const stage = useAssistantTransportState((state) =>
     state.purchase && state.purchase.run_id === runId ? state.purchase.stage : null,
@@ -68,20 +69,26 @@ export function useMessagePurchaseTrace(
   const { purchases, traces, recordTrace } = usePurchaseSession()
   const localStatus = runId === null ? null : (purchases[runId]?.status ?? null)
   const revision = traceRevision(parts, status, stage, localStatus)
+  const [failedRun, setFailedRun] = useState<string | null>(null)
 
   useEffect(() => {
     if (runId === null) return
     const controller = new AbortController()
     getPurchaseTrace(runId, controller.signal).then(
       (trace) => {
-        if (!controller.signal.aborted) recordTrace(runId, trace)
+        if (controller.signal.aborted) return
+        recordTrace(runId, trace)
+        setFailedRun(null)
       },
-      () => {},
+      () => {
+        if (!controller.signal.aborted) setFailedRun(runId)
+      },
     )
     return () => controller.abort()
   }, [runId, revision, recordTrace])
 
-  return runId === null ? null : (traces[runId] ?? null)
+  const trace = runId === null ? null : (traces[runId] ?? null)
+  return { trace, pending: runId !== null && trace === null && failedRun !== runId }
 }
 
 /** La decisión que detuvo la compra, para la tarjeta de bloqueo. */

@@ -3,6 +3,7 @@ import { expect } from "storybook/test"
 
 import { PolicyBlockedCard } from "@/components/agent/policy-blocked-card"
 import { traceMerchant } from "@/components/trace/trace-copy"
+import { SONORA } from "@/storybook/agent-fixtures"
 import { decisionOf, TRACES } from "@/storybook/trace-fixtures"
 
 const NOTHING_HAPPENED = "No se creó ningún checkout ni se hizo ningún cobro."
@@ -157,14 +158,94 @@ export const AllowNotApplied: Story = {
 
 /** El detalle técnico lleva los códigos y la versión de la política. */
 export const TechnicalDetail: Story = {
-  play: async ({ args, canvas, userEvent }) => {
+  play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByText("Detalle técnico"))
-    await expect(canvas.getByText(args.decision.evidence_id)).toBeVisible()
+    await expect(canvas.getByText(MERCHANT_DECISION.evidence_id)).toBeVisible()
     await expect(canvas.getByText("POL-02")).toBeVisible()
     await expect(canvas.getByText("d1-demo-policy · revisión 3")).toBeVisible()
   },
 }
 
 export const Mobile: Story = {
+  globals: { viewport: { value: "mobile", isRotated: false } },
+}
+
+// Antes de la traza (trace-panel.md, «Mientras carga un turno»): la tarjeta sale con el código del
+// stream desde el primer cuadro, y la traza solo completa lo que solo ella sabe.
+
+/** Una compra bloqueada no lleva la tarjeta grande del producto: el producto va aquí, con su precio. */
+export const WithProduct: Story = {
+  args: {
+    decision: decisionOf(TRACES.blockedBudget),
+    merchant: traceMerchant(TRACES.blockedBudget),
+    product: SONORA,
+  },
+  play: async ({ canvas }) => {
+    const product = canvas.getByTestId("policy-blocked-product")
+    await expect(product).toHaveTextContent(SONORA.title)
+    await expect(product).toHaveTextContent("Precio de catálogo")
+    await expect(canvas.getByText("Precio dentro de tu presupuesto")).toBeVisible()
+  },
+}
+
+/** `d1_denied` en el stream y la traza en camino: título y producto ya, reglas en esqueleto. */
+export const DeniedWaitingForTrace: Story = {
+  args: { decision: null, reason: "denied", loading: true, product: SONORA },
+  play: async ({ canvas }) => {
+    const card = canvas.getByTestId("policy-blocked-card")
+    await expect(card).toHaveAttribute("aria-busy", "true")
+    await expect(
+      canvas.getByRole("heading", { name: "La política de compra detuvo esta compra" }),
+    ).toBeVisible()
+    await expect(canvas.getByTestId("policy-blocked-product")).toHaveTextContent(SONORA.title)
+    await expect(canvas.getByText(NOTHING_HAPPENED)).toBeVisible()
+    // Nada de error mientras espera: ni aviso rojo ni «Se detuvo por un error».
+    await expect(canvas.queryByRole("alert")).toBeNull()
+    await expect(canvas.queryByText(/error/i)).toBeNull()
+    await expect(canvas.queryByText("Detalle técnico")).toBeNull()
+  },
+}
+
+/** `d1_unavailable`: ya se sabe que se detuvo por precaución; el porqué llega con la traza. */
+export const UnavailableWaitingForTrace: Story = {
+  args: { decision: null, reason: "unavailable", loading: true },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("heading", { name: "No se pudo verificar la política de compra" }),
+    ).toBeVisible()
+    await expect(canvas.getByText("Por precaución, la compra se detuvo.")).toBeVisible()
+    await expect(canvas.getByText(NOTHING_HAPPENED)).toBeVisible()
+  },
+}
+
+/** `d1_allow_unapplied`: el código ya lo dice todo; solo el detalle técnico espera la traza. */
+export const AllowNotAppliedWaitingForTrace: Story = {
+  args: { decision: null, reason: "allow_unapplied", loading: true },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("heading", { name: "La política de compra permitió esta compra" }),
+    ).toBeVisible()
+    await expect(canvas.getByText(/No se pudo dejar lista para crear el checkout\./)).toBeVisible()
+  },
+}
+
+/** La traza no llegó (404, 503, red): la tarjeta se queda con el código, sin esqueleto ni error. */
+export const DeniedWithoutTrace: Story = {
+  args: { decision: null, reason: "denied", loading: false, product: SONORA },
+  play: async ({ canvas }) => {
+    const card = canvas.getByTestId("policy-blocked-card")
+    await expect(card).not.toHaveAttribute("aria-busy")
+    await expect(canvas.getByText("No pude mostrar qué regla no se cumplió.")).toBeVisible()
+    await expect(canvas.getByText(NOTHING_HAPPENED)).toBeVisible()
+    // La imagen del producto tiene su propio esqueleto mientras carga; fuera de ella, ninguno.
+    const skeletons = [...card.querySelectorAll(".agent-skeleton")].filter(
+      (element) => !element.closest('[data-testid="policy-blocked-product"]'),
+    )
+    await expect(skeletons).toHaveLength(0)
+  },
+}
+
+export const DeniedWaitingForTraceMobile: Story = {
+  args: DeniedWaitingForTrace.args,
   globals: { viewport: { value: "mobile", isRotated: false } },
 }

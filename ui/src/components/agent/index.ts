@@ -19,12 +19,15 @@ export {
 export {
   ProductCard,
   ProductCardSkeleton,
+  ProductChoiceMarker,
   ProductImage,
   type ProductCardProps,
+  type ProductChoiceMarkerProps,
 } from "@/components/agent/product-card"
 export {
   PolicyBlockedCard,
   type PolicyBlockedCardProps,
+  type PolicyBlockReason,
 } from "@/components/agent/policy-blocked-card"
 export { ProductCarousel, type ProductCarouselProps } from "@/components/agent/product-carousel"
 export {

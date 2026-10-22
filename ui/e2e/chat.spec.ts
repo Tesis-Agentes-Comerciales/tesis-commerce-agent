@@ -149,8 +149,11 @@ type AssistantBody = {
 
 type AgentCall = { method: string; path: string; authorization: string | null; body: unknown }
 
-/** Respuesta de `GET /purchases/{run_id}/trace` según las llamadas hechas hasta ahora (incluida esta). */
-type TraceRoute = (calls: AgentCall[]) => { status?: number; body: unknown }
+/**
+ * Respuesta de `GET /purchases/{run_id}/trace` según las llamadas hechas hasta ahora (incluida esta).
+ * `until` la retiene hasta que la prueba la suelta, como una traza lenta.
+ */
+type TraceRoute = (calls: AgentCall[]) => { status?: number; body: unknown; until?: Promise<void> }
 
 type AgentOptions = {
   /** Stream de cada mensaje del comprador, en orden: por defecto, la compra preparada. */
@@ -211,6 +214,7 @@ async function routeAgent(
       case "GET /purchases/:runId/trace": {
         if (!trace) break
         const reply = trace(calls)
+        await reply.until
         return route.fulfill({ status: reply.status ?? 200, headers: cors, json: reply.body })
       }
       case "GET /purchases/:runId/approval":
@@ -403,6 +407,41 @@ test.describe("actividad de la compra", () => {
     await expect(page.getByRole("alert")).toHaveCount(0)
     await expect(page.getByTestId("purchase-approval-card")).toHaveCount(0)
     expect(calls.some((call) => call.path === `/purchases/${BLOCKED_RUN}/trace`)).toBe(true)
+  })
+
+  test("modo activo: la tarjeta de bloqueo sale del stream antes de la traza, sin aviso rojo ni tarjeta del producto", async ({
+    page,
+  }) => {
+    await routeSession(page)
+    let release = () => {}
+    const slow = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await routeAgent(page, {
+      turns: [PURCHASE_BLOCKED],
+      trace: () => ({ body: trace("blocked-budget", BLOCKED_RUN), until: slow }),
+    })
+    await page.goto("/")
+    const composer = page.getByLabel("Mensaje de compra")
+    await composer.fill(PURCHASE_REQUEST)
+    await composer.press("Enter")
+
+    // Sin traza todavía: el código del stream ya explica el bloqueo, con el producto dentro.
+    const card = page.getByTestId("policy-blocked-card")
+    await expect(card).toHaveAttribute("aria-busy", "true")
+    await expect(card.getByRole("heading", { name: "La política de compra detuvo esta compra" })).toBeVisible()
+    await expect(card.getByTestId("policy-blocked-product")).toContainText("Sony WH-1000XM6")
+    await expect(card.getByText(NOTHING_CHARGED)).toBeVisible()
+    await expect(page.getByRole("alert")).toHaveCount(0)
+    await expect(page.getByText("Se detuvo por un error")).toHaveCount(0)
+    await expect(page.getByTestId("product-card-hero")).toHaveCount(0)
+
+    release()
+    await expect(card).not.toHaveAttribute("aria-busy")
+    await expect(card.getByText("Precio dentro de tu presupuesto")).toBeVisible()
+    await expect(page.getByTestId("purchase-activity")).toHaveAttribute("data-status", "blocked")
+    await expect(page.getByRole("alert")).toHaveCount(0)
+    await expect(page.getByTestId("product-card-hero")).toHaveCount(0)
   })
 
   test("política desactivada: la compra se completa y el control figura como desactivado", async ({

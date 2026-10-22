@@ -59,6 +59,20 @@ export function formatElapsed(ms: number) {
   return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`
 }
 
+/**
+ * Contador en vivo, que cambia cada 250 ms: siempre un decimal por debajo de 10 s («2,0 s» y no
+ * «2 s»), así su ancho no salta entre un tic y el siguiente.
+ */
+export function formatLiveElapsed(ms: number) {
+  if (!Number.isFinite(ms) || ms < 0 || ms >= 10_000) return formatElapsed(ms)
+  const value = new Intl.NumberFormat(LOCALE, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+    roundingMode: "trunc",
+  }).format(ms / 1000)
+  return `${value} s`
+}
+
 /** Como `formatElapsed`, pero un control de milisegundos no se redondea a "0 s". */
 export function formatDuration(ms: number) {
   if (!Number.isFinite(ms) || ms < 0) return null

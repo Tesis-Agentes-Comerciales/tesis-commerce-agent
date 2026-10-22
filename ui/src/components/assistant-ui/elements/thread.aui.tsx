@@ -32,13 +32,16 @@ import {
   useElapsedMs,
 } from "@/components/agent"
 import { traceMerchant } from "@/components/trace/trace-copy"
+import { asSelectResult } from "@/features/agent-results"
 import { PROMINENT_TOOLS } from "@/features/agent-toolkit"
+import { messagePolicyBlock } from "@/features/policy-block"
 import {
   activityVisible,
   blockingDecision,
   useMessagePurchaseTrace,
 } from "@/features/purchase-trace"
 import { messageHasPurchaseCard, useMessageStaleTerms } from "@/features/stale-terms"
+import { isFollowUpOnly } from "@/features/turn-layout"
 import {
   AGENT_TOOL_NAMES,
   MAX_MESSAGE_CHARS,
@@ -81,18 +84,29 @@ function isAgentTool(part: PartState): part is ToolCallPart & { toolName: AgentT
 
 /**
  * Reparte las partes del mensaje: razonamiento y pasos intermedios van al grupo "Pensando…"; el
- * producto elegido y la aprobación, destacados; el texto, al final como respuesta.
+ * producto elegido y la aprobación, destacados; el texto, al final como respuesta. El seguimiento
+ * de aprobar o cancelar (`purchase_update` solo) no lleva grupo: su texto lo dice todo.
  */
-function partLayout(parts: readonly PartState[]) {
+function partLayout(parts: readonly PartState[], followUp: boolean) {
   const trace: number[] = []
   const prominent: number[] = []
   const text: number[] = []
   parts.forEach((part, index) => {
     if (part.type === "reasoning") trace.push(index)
     else if (part.type === "text") text.push(index)
-    else if (isAgentTool(part)) (PROMINENT_TOOLS.has(part.toolName) ? prominent : trace).push(index)
+    else if (isAgentTool(part) && !(followUp && part.toolName === "purchase_update")) {
+      ;(PROMINENT_TOOLS.has(part.toolName) ? prominent : trace).push(index)
+    }
   })
   return { trace, prominent, text }
+}
+
+/** El producto que eligió el turno, para nombrarlo en la tarjeta de bloqueo. */
+function selectedProduct(parts: readonly PartState[]) {
+  const part = parts.find(
+    (item) => item.type === "tool-call" && item.toolName === "select_product" && !item.isError,
+  )
+  return part?.type === "tool-call" ? (asSelectResult(part.result)?.product ?? null) : null
 }
 
 /** Qué hace el agente ahora, para la línea de estado bajo el mensaje en curso. */
@@ -123,15 +137,7 @@ function useActiveElapsed(active: boolean) {
   return useElapsedMs(span.start, active, span.end)
 }
 
-function AgentProgress({
-  parts,
-  active,
-  isLast,
-}: {
-  parts: readonly PartState[]
-  active: boolean
-  isLast: boolean
-}) {
+function AgentProgress({ parts, active }: { parts: readonly PartState[]; active: boolean }) {
   const purchase = useAssistantTransportState((state) => state.purchase)
   const tools = parts.filter(isAgentTool)
   const interpreted = tools.find((part) => part.toolName === "interpret_request")?.result
@@ -150,9 +156,10 @@ function AgentProgress({
       : undefined
   const own = purchase && purchase.run_id === runId ? purchase : null
   // El plan acompaña al turno en curso y, después, a la compra que sigue abierta: es el contexto
-  // de la decisión de aprobar, justo cuando hace falta.
+  // de la decisión de aprobar, y sigue mientras se aprueba (el seguimiento no lleva el suyo). Se
+  // retira cuando la compra termina: completada, cancelada o fallida.
   const pending = own !== null && !SETTLED_STAGES.has(own.stage)
-  if (!active && !(isLast && pending)) return null
+  if (!active && !pending) return null
   const progress = derivePlanProgress({ parts: tools, purchase: own, running: active })
   return <AgentPlan {...progress} className="mb-4" />
 }
@@ -168,32 +175,37 @@ function AssistantMessage() {
   const hasText = parts.some((part) => part.type === "text" && part.text.trim().length > 0)
   // Solo el último mensaje en curso muestra actividad; uno viejo que quedó "running" no.
   const active = running && isLast
-  const layout = useMemo(() => partLayout(parts), [parts])
+  const followUp = isFollowUpOnly(parts)
+  const layout = useMemo(() => partLayout(parts, followUp), [parts, followUp])
   const failedStep = layout.trace.some((index) => {
     const part = parts[index]
     return part?.type === "tool-call" && toolStepStatus(part, status) === "error"
   })
-  const purchaseTrace = useMessagePurchaseTrace(parts, status)
-  // Un bloqueo de la política no es un error: lo explica su tarjeta, no el aviso rojo. Tampoco unos
-  // términos que ya no valen: su tarjeta lo dice y ofrece cancelar.
+  const { trace: purchaseTrace, pending: tracePending } = useMessagePurchaseTrace(parts, status)
+  // Un bloqueo de la política no es un error: lo explica su tarjeta, no el aviso rojo. El código del
+  // stream ya lo dice, así que la tarjeta sale desde el primer cuadro y la traza solo la completa.
+  // Tampoco unos términos que ya no valen: su tarjeta lo dice y ofrece cancelar.
+  const streamBlock = messagePolicyBlock(parts)
   const blockedBy = blockingDecision(purchaseTrace)
+  const policyBlocked = blockedBy !== null || streamBlock !== null
   const staleTerms = useMessageStaleTerms(parts)
-  const explained = blockedBy !== null || staleTerms
+  const explained = policyBlocked || staleTerms
   const elapsedMs = useActiveElapsed(active)
+  // Mientras el turno corre, una sola línea viva al pie con el paso y el tiempo, aunque el grupo
+  // esté abierto: es lo que queda a la vista cuando el chat baja con el mensaje.
   const activity = active ? currentActivity(parts) : null
   // El grupo se abre solo mientras el turno corre, hasta que la persona lo toque.
   const [userTraceOpen, setUserTraceOpen] = useState<boolean | null>(null)
   const hasTrace = layout.trace.length > 0
   const traceOpen = hasTrace && (userTraceOpen ?? active)
-  // Abierto, las filas ya dicen en qué paso va y cuánto lleva: repetirlo abajo sobra.
-  const showActivity = activity !== null && !traceOpen
 
   return (
     <MessagePrimitive.Root className="group/message px-2 leading-7 wrap-break-word">
       {/* Encabezado solo para lectores de pantalla: mantiene el orden h1 › h2 › h3 de las tarjetas. */}
       <h2 className="sr-only">Respuesta del agente</h2>
-      {/* El plan esperaría una aprobación que ya no es posible: lo dice la tarjeta de términos. */}
-      {!staleTerms && <AgentProgress parts={parts} active={active} isLast={isLast} />}
+      {/* El plan esperaría una aprobación que ya no es posible: lo dice la tarjeta de términos o la
+          de bloqueo. El seguimiento de aprobar no lleva plan: el de la compra sigue en su mensaje. */}
+      {!staleTerms && !policyBlocked && !followUp && <AgentProgress parts={parts} active={active} />}
 
       {hasTrace && (
         <ThinkingGroup
@@ -227,17 +239,22 @@ function AssistantMessage() {
         />
       )}
 
+      {/* Vacío si el producto fue a la tarjeta de bloqueo: sin hueco. */}
       {layout.prominent.length > 0 && (
-        <div className="mb-4 flex flex-col gap-4">
+        <div className="mb-4 flex flex-col gap-4 empty:hidden">
           {layout.prominent.map((index) => (
             <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />
           ))}
         </div>
       )}
 
-      {blockedBy && (
+      {/* Con la compra bloqueada no hay tarjeta del producto: el producto va en esta. */}
+      {policyBlocked && (
         <PolicyBlockedCard
           decision={blockedBy}
+          reason={streamBlock?.reason}
+          loading={tracePending}
+          product={selectedProduct(parts)}
           merchant={purchaseTrace ? traceMerchant(purchaseTrace) : undefined}
           className="mb-4"
         />
@@ -247,17 +264,12 @@ function AssistantMessage() {
         <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />
       ))}
 
-      {/* Plegado, o antes del primer paso, esta línea es la única señal de actividad. Con el grupo
-          abierto el tiempo ya está en su encabezado, así que aquí solo va la etiqueta. */}
-      {showActivity && (
-        <ThinkingIndicator
-          label={activity}
-          elapsedMs={hasTrace ? undefined : elapsedMs}
-          className="mt-2"
-        />
+      {activity !== null && (
+        <ThinkingIndicator label={activity} elapsedMs={elapsedMs} className="mt-2" />
       )}
 
-      {/* Sin la traza (404, 503) el aviso sigue: el backend ya lo redacta sin «error inesperado». */}
+      {/* Sin la traza (404, 503) el aviso sigue: el backend ya lo redacta sin «error inesperado». Un
+          bloqueo de la política nunca lo muestra: su tarjeta sale del código del stream. */}
       {!explained && (
         <MessagePrimitive.Error>
           <ErrorPrimitive.Root className="mt-2 rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, waitFor } from "storybook/test"
+import { expect, waitFor, within } from "storybook/test"
 
 import { Thread } from "@/components/assistant-ui/elements/thread.aui"
 import { CommerceWelcome } from "@/components/commerce-welcome"
@@ -65,6 +65,35 @@ function traceApi(trace: PurchaseTrace | { status: number }): { agentApi: AgentA
   }
 }
 
+/** La traza tarda en llegar: la UI muestra lo que ya sabe por el stream mientras tanto. */
+function slowTraceApi(trace: PurchaseTrace): { agentApi: AgentApiMock } {
+  return {
+    agentApi: {
+      "GET /purchases/:runId/trace": ({ params }) => ({
+        body: withRunId(trace, params.runId ?? ""),
+        delayMs: 60_000,
+      }),
+    },
+  }
+}
+
+/** El último mensaje del hilo, para mirar solo el turno en curso. */
+function lastMessage(canvasElement: HTMLElement) {
+  const messages = canvasElement.querySelectorAll<HTMLElement>("[data-message-id]")
+  const last = messages[messages.length - 1]
+  if (!last) throw Error("El hilo no tiene mensajes")
+  return { element: last, canvas: within(last) }
+}
+
+/** Mientras corre, siempre una línea viva al pie con el paso y el tiempo, aunque el grupo esté abierto. */
+async function expectLiveLine(canvasElement: HTMLElement, label: RegExp) {
+  const { canvas } = lastMessage(canvasElement)
+  const line = await canvas.findByTestId("thinking-indicator")
+  await expect(line).toBeVisible()
+  await expect(line).toHaveTextContent(label)
+  await expect(line).toHaveTextContent(/\d+,\d s|\d+ s/)
+}
+
 /** Espera a que la UI reciba al menos una lectura de la traza de esta historia. */
 async function traceSettled() {
   await waitFor(() => expect(traceReads).toBeGreaterThan(0))
@@ -115,24 +144,74 @@ export const Greeting: Story = { args: { state: fixtureState("greeting") } }
 
 export const Clarify: Story = { args: { state: fixtureState("clarify") } }
 
+// Mientras carga un turno (trace-panel.md): una sola línea viva al pie, un marcador bajo y rotulado
+// en el lugar del producto, y nada que luego desaparezca.
+
 export const InterpretingRequest: Story = {
   args: { state: fixtureState("purchase", '"toolName": "interpret_request"') },
+  play: async ({ canvasElement }) => {
+    await expectLiveLine(canvasElement, /Interpretando tu solicitud…/)
+  },
 }
 
 export const StreamingReasoning: Story = {
   args: { state: fixtureState("purchase", "La persona pide") },
+  play: async ({ canvasElement }) => {
+    await expectLiveLine(canvasElement, /Razonando…/)
+  },
 }
 
+/** El esqueleto del carrusel sale solo si la búsqueda tarda más de 300 ms. */
 export const SearchingCatalog: Story = {
   args: { state: fixtureState("purchase", '"toolName": "search_catalog"') },
+  play: async ({ canvas, canvasElement }) => {
+    await expectLiveLine(canvasElement, /Buscando en el catálogo…/)
+    await waitFor(() =>
+      expect(canvas.getByRole("group", { name: "Resultados del catálogo" })).toHaveAttribute(
+        "aria-busy",
+        "true",
+      ),
+    )
+  },
 }
 
+/** Eligiendo: el marcador dice entre cuántas opciones, sin esqueleto grande y mudo. */
 export const SelectingProduct: Story = {
-  args: { state: fixtureState("purchase", "Tres aud") },
+  args: { state: fixtureState("purchase", '"toolName": "select_product"') },
+  play: async ({ canvasElement }) => {
+    const { canvas } = lastMessage(canvasElement)
+    await expect(await canvas.findByTestId("product-choice-marker")).toHaveTextContent(
+      /Eligiendo entre \d+ opciones/,
+    )
+    await expect(canvas.queryByTestId("product-card-hero")).toBeNull()
+    await expect(canvas.queryByRole("status", { name: "Cargando la recomendación" })).toBeNull()
+    await expectLiveLine(canvasElement, /Eligiendo el producto…/)
+  },
 }
 
+/** Con el razonamiento abierto en el grupo, la línea viva sigue al pie. */
+export const SelectingProductWithReasoning: Story = {
+  args: { state: fixtureState("purchase", "Dos aud") },
+  play: async ({ canvasElement }) => {
+    await expectLiveLine(canvasElement, /Razonando…/)
+    await expect(lastMessage(canvasElement).canvas.getByTestId("product-choice-marker")).toBeVisible()
+  },
+}
+
+/**
+ * Producto elegido y checkout en preparación: el marcador ya nombra el producto. La tarjeta grande
+ * entra con el checkout listo; si la política lo detiene, nunca entra.
+ */
 export const PreparingCheckout: Story = {
   args: { state: fixtureState("purchase", '"toolName": "prepare_checkout"') },
+  play: async ({ canvasElement }) => {
+    const { canvas } = lastMessage(canvasElement)
+    await expect(await canvas.findByTestId("product-choice-marker")).toHaveTextContent(
+      "Sony WH-1000XM6",
+    )
+    await expect(canvas.queryByTestId("product-card-hero")).toBeNull()
+    await expectLiveLine(canvasElement, /Preparando el checkout…/)
+  },
 }
 
 export const RequestingApproval: Story = {
@@ -212,10 +291,11 @@ export const PurchaseFailed: Story = {
 export const PolicyBlocked: Story = {
   args: { state: fixtureState("purchaseBlocked") },
   parameters: traceApi(TRACES.blockedMerchant),
-  play: async ({ canvas }) => {
+  play: async ({ canvas, canvasElement }) => {
     const card = await canvas.findByTestId("policy-blocked-card")
     await expect(card).toHaveTextContent("La política de compra detuvo esta compra")
-    await expect(card).toHaveTextContent("Comercio permitido")
+    // La tarjeta sale con el código del stream; la regla llega con la traza.
+    await waitFor(() => expect(card).toHaveTextContent("Comercio permitido"))
     await expect(card).toHaveTextContent(NOTHING_CHARGED)
     await expect(canvas.getByRole("button", { name: /Bloqueada por la política/ })).toBeVisible()
     // Sin tarjeta de aprobación, la fila es la que anuncia el estado de la compra.
@@ -225,6 +305,38 @@ export const PolicyBlocked: Story = {
     await expect(canvas.queryByRole("alert")).toBeNull()
     await expect(canvas.queryByText(/error inesperado/i)).toBeNull()
     await expect(canvas.queryByText("Se detuvo por un error")).toBeNull()
+    // Sin la tarjeta grande del producto: el producto va dentro de la de bloqueo. Orden final:
+    // «Pensó durante», la fila de actividad y la tarjeta.
+    await expect(canvas.queryByTestId("product-card-hero")).toBeNull()
+    await expect(within(card).getByTestId("policy-blocked-product")).toHaveTextContent(
+      "Sony WH-1000XM6",
+    )
+    const { element } = lastMessage(canvasElement)
+    const order = [...element.querySelectorAll("[data-testid]")]
+      .map((node) => node.getAttribute("data-testid"))
+      .filter((id) => ["thinking-group", "purchase-activity", "policy-blocked-card"].includes(id ?? ""))
+    await expect(order).toEqual(["thinking-group", "purchase-activity", "policy-blocked-card"])
+    await expect(element.querySelector("[data-testid='agent-plan']")).toBeNull()
+  },
+}
+
+/**
+ * `d1_denied` en el stream y la traza todavía en camino: la tarjeta de bloqueo ya está, con el
+ * producto y las reglas en esqueleto. Nunca aviso rojo ni «Se detuvo por un error».
+ */
+export const PolicyBlockedWaitingForTrace: Story = {
+  args: { state: fixtureState("purchaseBlocked") },
+  parameters: slowTraceApi(TRACES.blockedBudget),
+  play: async ({ canvas }) => {
+    const card = await canvas.findByTestId("policy-blocked-card")
+    await expect(card).toHaveAttribute("aria-busy", "true")
+    await expect(card).toHaveTextContent("La política de compra detuvo esta compra")
+    await expect(card).toHaveTextContent("Sony WH-1000XM6")
+    await expect(card).toHaveTextContent(NOTHING_CHARGED)
+    await expect(canvas.queryByRole("alert")).toBeNull()
+    await expect(canvas.queryByText("Se detuvo por un error")).toBeNull()
+    await expect(canvas.queryByTestId("product-card-hero")).toBeNull()
+    await expect(canvas.getByRole("button", { name: /Pasos del agente/ })).toBeVisible()
   },
 }
 
@@ -237,22 +349,28 @@ export const PolicyBlockedByBudget: Story = {
   parameters: traceApi(TRACES.blockedBudget),
   play: async ({ canvas }) => {
     const card = await canvas.findByTestId("policy-blocked-card")
-    await expect(card).toHaveTextContent("Precio dentro de tu presupuesto")
+    await waitFor(() => expect(card).toHaveTextContent("Precio dentro de tu presupuesto"))
     await expect(card).toHaveTextContent(NOTHING_CHARGED)
     await expect(canvas.getByRole("button", { name: /Bloqueada por la política/ })).toBeVisible()
     await expect(canvas.queryByRole("alert")).toBeNull()
   },
 }
 
-/** Sin traza (503) el chat sigue: queda el aviso que redacta el backend, sin fila ni tarjeta. */
+/**
+ * Sin traza (503) el chat sigue: la tarjeta de bloqueo se queda con lo que dice el código del
+ * stream, sin esqueleto, y sin la fila de actividad. Tampoco aquí hay aviso rojo.
+ */
 export const PolicyBlockedTraceUnavailable: Story = {
   args: { state: fixtureState("purchaseBlocked") },
   parameters: traceApi({ status: 503 }),
   play: async ({ canvas }) => {
     await traceSettled()
-    await expect(await canvas.findByRole("alert")).toHaveTextContent(NOTHING_CHARGED)
+    const card = await canvas.findByTestId("policy-blocked-card")
+    await waitFor(() => expect(card).not.toHaveAttribute("aria-busy"))
+    await expect(card).toHaveTextContent("No pude mostrar qué regla no se cumplió.")
+    await expect(card).toHaveTextContent(NOTHING_CHARGED)
+    await expect(canvas.queryByRole("alert")).toBeNull()
     await expect(canvas.queryByTestId("purchase-activity")).toBeNull()
-    await expect(canvas.queryByTestId("policy-blocked-card")).toBeNull()
   },
 }
 
@@ -318,6 +436,34 @@ export const CheckoutError: Story = {
     await traceSettled()
     await expect(await canvas.findByRole("alert")).toBeVisible()
     await expect(canvas.queryByTestId("purchase-activity")).toBeNull()
+  },
+}
+
+/**
+ * Al aprobar, el seguimiento (`purchase_update`) corre sin plan y sin grupo «Pensando…»: solo la
+ * línea viva. El plan de la compra se retira de su mensaje cuando la compra termina.
+ */
+export const ApprovingFollowUp: Story = {
+  args: { state: fixtureState("purchaseCompleted", '"toolName": "purchase_update"') },
+  parameters: traceApi(TRACES.completedShadow),
+  play: async ({ canvasElement }) => {
+    const { canvas } = lastMessage(canvasElement)
+    await expectLiveLine(canvasElement, /Actualizando la compra…/)
+    await expect(canvas.queryByTestId("agent-plan")).toBeNull()
+    await expect(canvas.queryByTestId("thinking-group")).toBeNull()
+    await expect(canvas.queryByText("Plan de compra")).toBeNull()
+  },
+}
+
+/** Terminado, el seguimiento es solo su texto. */
+export const FollowUpCompleted: Story = {
+  args: { state: fixtureState("purchaseCompleted") },
+  parameters: traceApi(TRACES.completedShadow),
+  play: async ({ canvasElement }) => {
+    const { canvas } = lastMessage(canvasElement)
+    await expect(await canvas.findByText(/La compra quedó completada/)).toBeVisible()
+    await expect(canvas.queryByTestId("thinking-group")).toBeNull()
+    await expect(canvasElement.querySelector("[data-testid='agent-plan']")).toBeNull()
   },
 }
 
