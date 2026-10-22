@@ -566,6 +566,39 @@ def hnp_app() -> FastAPI:
     )
 
 
+def hnp_condition(
+    lane: PurchaseLane, condition: str, *, agent_key: str, service: str, operator: str
+) -> dict[str, str]:
+    """The variables that make an Agent of the `hnp` lane the HNP Agent of `condition`: AP2,
+    the Agent Key, the service and operator tokens, the deterministic selector and the D1 keys
+    (hnp-governed.md §6 and §11). Shared by `HnpAgent` and the browser's Agent."""
+    assert lane.profile == "hnp" and lane.agent_key is not None
+    variables = {
+        "AGENT_AP2_REQUIRED": "true",
+        # The provider key the Merchant and the provider trust signs the open mandates.
+        "AGENT_AP2_PRIVATE_KEY_PEM": lane.agent_key.get_secret_value(),
+        "AGENT_HNP_ENABLED": "true",
+        "AGENT_HNP_AGENT_KEY_PEM": agent_key,
+        "AGENT_HNP_SERVICE_TOKEN": service,
+        "AGENT_HNP_OPERATOR_TOKEN": operator,
+        "AGENT_HNP_SELECTOR": "deterministic",
+        "AGENT_D1_KEY_ID": "live-hnp",
+        "AGENT_D1_HMAC_KEY_HEX": secrets.token_hex(32),
+        "AGENT_D1_AES_KEY_HEX": secrets.token_hex(32),
+        "AGENT_GOVERNANCE_MODE": HNP_MODES[condition],
+    }
+    if condition == "B2-HNP":
+        # The HP policy set the enforce gate needs to start; HNP is evaluated with
+        # b2-hnp-v1, built in code (§7), and POL-02 allows this lane's Merchant (K11).
+        variables.update(
+            AGENT_HP_FLOW="governed",
+            AGENT_D1_POLICY_SET_ID="live-hnp-hp",
+            AGENT_D1_POLICY_REVISION="1",
+            AGENT_D1_ALLOWED_MERCHANT_ORIGINS=lane.origin,
+        )
+    return variables
+
+
 def delegation_request(
     variant_ids: list[str], total_max_minor: int, *, name: str, city: str = "Bogotá"
 ) -> dict[str, Any]:
@@ -627,29 +660,13 @@ class HnpAgent:
             # HNP requires jwt; `hnp_app` authenticates the buyer, so the issuer is never called.
             AGENT_AUTH_MODE="jwt",
             AGENT_AUTH_ISSUER="http://127.0.0.1:9",
-            AGENT_AP2_REQUIRED="true",
-            # The provider key the Merchant and the provider trust signs the open mandates.
-            AGENT_AP2_PRIVATE_KEY_PEM=lane.agent_key.get_secret_value(),
-            AGENT_HNP_ENABLED="true",
-            AGENT_HNP_AGENT_KEY_PEM=agent_key,
-            AGENT_HNP_SERVICE_TOKEN=self._service,
-            AGENT_HNP_OPERATOR_TOKEN=self._operator,
-            AGENT_HNP_SELECTOR="deterministic",
-            AGENT_D1_KEY_ID="live-hnp",
-            AGENT_D1_HMAC_KEY_HEX=secrets.token_hex(32),
-            AGENT_D1_AES_KEY_HEX=secrets.token_hex(32),
-            AGENT_GOVERNANCE_MODE=HNP_MODES[condition],
             **{HNP_BUYER_ID: episode.actor_id, HNP_BUYER_TOKEN: self._buyer, HNP_CLOCK_OFFSET: "0"},
         )
-        if condition == "B2-HNP":
-            # The HP policy set the enforce gate needs to start; HNP is evaluated with
-            # b2-hnp-v1, built in code (§7), and POL-02 allows this lane's Merchant (K11).
-            env.update(
-                AGENT_HP_FLOW="governed",
-                AGENT_D1_POLICY_SET_ID="live-hnp-hp",
-                AGENT_D1_POLICY_REVISION="1",
-                AGENT_D1_ALLOWED_MERCHANT_ORIGINS=lane.origin,
+        env.update(
+            hnp_condition(
+                lane, condition, agent_key=agent_key, service=self._service, operator=self._operator
             )
+        )
         env.update({name.upper(): value for name, value in settings.items()})
         assert not any(name.startswith("OPENAI_") for name in env)
         self.server = ServiceServer(

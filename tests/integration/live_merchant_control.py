@@ -314,6 +314,24 @@ class Control:
 
         return self.rewrite_offer(command["run_id"], command["offer_id"], change)
 
+    def reprice_offer(self, command: dict[str, Any]) -> dict[str, Any]:
+        """HN03 (hnp-scenarios.json): the item price changes after the consent, in a new revision,
+        and the episode's feed is exported again, so a restarted Agent reads it."""
+
+        def change(value: dict[str, Any]) -> None:
+            pricing = value["pricing"]
+            value["revision"] += 1
+            pricing["items_total_minor"] = command["price_minor"]
+            pricing["total_minor"] = command["price_minor"] + pricing["shipping_total_minor"]
+
+        changed = self.rewrite_offer(command["run_id"], command["variant"], change)
+        exported = module("commerce_lab.feed").export_feed(
+            Path(command["feed_dir"]),
+            run_id=command["run_id"],
+            base_url=os.environ["ACP_API_BASE_URL"],
+        )
+        return {**changed, "products": exported["product_count"]}
+
     def projection(self, command: dict[str, Any]) -> dict[str, Any]:
         contracts = module("commerce_lab.contracts")
         feed = module("commerce_lab.feed")
@@ -357,6 +375,7 @@ def main() -> None:
             "alter_offer_fixture",
             "managed_catalog",
             "edit_offer",
+            "reprice_offer",
             "projection",
         )
     }
