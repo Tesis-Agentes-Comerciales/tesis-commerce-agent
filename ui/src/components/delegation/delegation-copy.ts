@@ -60,6 +60,9 @@ export const VALIDITY_OPTIONS = [
   { seconds: 86_400, label: "24 horas" },
 ] as const
 
+/** Encabezado de la traza en la tarjeta: la misma fila de actividad que la compra en el chat. */
+export const GOVERNANCE_LABEL = "Gobernanza de la compra"
+
 export const DELEGATIONS_COPY = {
   title: "Delegaciones",
   description:

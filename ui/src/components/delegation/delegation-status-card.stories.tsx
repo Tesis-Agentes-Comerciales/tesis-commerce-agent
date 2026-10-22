@@ -1,6 +1,6 @@
 import type { Meta, StoryContext, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
-import { expect, fn, waitFor } from "storybook/test"
+import { expect, fn, waitFor, within } from "storybook/test"
 
 import { formatDateTime, formatMoney } from "@/components/agent/agent-format"
 import { DelegationConsentCard } from "@/components/delegation/delegation-consent-card"
@@ -19,13 +19,17 @@ import {
   parseDelegationRevokeReceipt,
   parseDelegationView,
   type DelegationView,
+  type EscalationCode,
 } from "@/lib/delegation-contract"
+import type { PurchaseTrace } from "@/lib/trace-contract"
 import {
   DELEGATION_PROPOSAL,
   DELEGATIONS,
   REVOKE_RECEIPTS,
 } from "@/storybook/fixtures/delegation-fixtures"
-import { mouseClick } from "@/storybook/interactions"
+import { mouseClick, runningAnimations } from "@/storybook/interactions"
+import { withRunId } from "@/storybook/trace-fixtures"
+import { HNP_TRACES } from "@/storybook/trace-fixtures/hnp"
 
 const REVOKE = "Revocar"
 const [NO_EFFECT, , IN_FLIGHT] = REVOKE_RECEIPTS.receipts
@@ -347,6 +351,201 @@ export const Phone320: Story = {
     </div>
   ),
   play: async ({ canvasElement }) => {
+    await expectFitsPhoneColumn(canvasElement)
+  },
+}
+
+// La gobernanza de la compra delegada: la traza de `task.run_id` con la fila de actividad del chat.
+// Las trazas son las fixtures HNP con el `run_id` de la tarea, como las devuelve el backend.
+
+const GOVERNANCE = "Gobernanza de la compra"
+
+/** La traza de una fixture HNP para la compra de esta delegación. */
+function traceFor(delegation: DelegationView, trace: PurchaseTrace) {
+  if (!delegation.task.run_id) throw new Error(`${delegation.grant_id} has no purchase`)
+  return withRunId(trace, delegation.task.run_id)
+}
+
+/** Una delegación escalada por `reason`, con el texto que escribe el backend (§8.3). */
+function escalatedBy(reason: EscalationCode, message: string) {
+  const view = DELEGATIONS.escalated
+  return parseDelegationView({
+    ...view,
+    task: { ...view.task, outcome_code: reason },
+    escalation: { ...escalationOf(view), reason, message },
+  })
+}
+
+const SUFFIX =
+  "No firmé ni presenté ninguna autorización de pago, no se hizo ningún cobro y cerré la delegación. Si todavía quieres comprar, hazlo desde el chat y apruébala tú."
+
+/** La compra delegada en marcha: D2 ya verificó y falta reservar, cerrar y despachar. */
+const RUNNING_STEPS = HNP_TRACES.enforceCompleted.steps.slice(0, 6)
+const RUNNING_TRACE = traceFor(DELEGATIONS.running, {
+  ...HNP_TRACES.enforceCompleted,
+  status: "in_progress",
+  updated_at: RUNNING_STEPS.at(-1)?.at ?? HNP_TRACES.enforceCompleted.started_at,
+  steps: RUNNING_STEPS,
+})
+
+/** D2-HNP negó por POL-08 y la decisión volvió al comprador (`terms_out_of_scope`). */
+const POLICY_BLOCKED = escalatedBy(
+  "terms_out_of_scope",
+  `El total del comercio, con envío, o algún término quedó fuera de lo que autorizaste. ${SUFFIX}`,
+)
+/** La prueba del mandato abierto quedó sin resolver: D2 se detuvo sin reglas que fallen. */
+const ESCALATED = escalatedBy(
+  "authorization_profile_unresolved",
+  `No pude comprobar que la compra encaje en tu autorización. ${SUFFIX}`,
+)
+
+/** La sección de la gobernanza y su fila; al abrirla, los títulos de su línea de tiempo. */
+async function openGovernance({ canvas, userEvent }: PlayContext, summary: RegExp | string) {
+  const governance = within(canvas.getByRole("group", { name: GOVERNANCE }))
+  const row = governance.getByRole("button", { name: summary })
+  await userEvent.click(row)
+  await expect(row).toHaveAttribute("aria-expanded", "true")
+  // El contenido se abre con un fundido: visible cuando termina.
+  const timeline = governance.getByRole("list", { name: "Controles de la compra" })
+  await waitFor(() => expect(timeline).toBeVisible())
+  return Array.from(timeline.querySelectorAll(":scope > li")).map(
+    (item) => item.querySelector("p")?.textContent,
+  )
+}
+
+/**
+ * Compra en curso: la fila gira con «Comprando…» y ya muestra lo que pasó (consentimiento, D1,
+ * checkout, frescura y D2), sin inventar los controles que faltan.
+ */
+export const TraceRunning: Story = {
+  args: { delegation: DELEGATIONS.running, trace: RUNNING_TRACE },
+  play: async (context) => {
+    await expectStatus(context, "Compra en curso", true)
+    const titles = await openGovernance(context, /^Comprando…/)
+    await expect(titles).toEqual([
+      "Delegación autorizada",
+      "Compra delegada en marcha",
+      "Política de compra: permitida",
+      "Checkout creado en el comercio",
+      "Oferta vigente al cerrar",
+      "Autorización delegada verificada",
+    ])
+    await expect(context.canvas.queryByText("No se ejecutó")).toBeNull()
+  },
+}
+
+/**
+ * Comprada: la misma traza que verá la auditoría. Las tres decisiones de `b2-hnp-v1`, el uso único
+ * reservado y consumido, la orden y el detalle técnico con sus identificadores.
+ */
+export const TracePurchased: Story = {
+  args: {
+    delegation: DELEGATIONS.purchased,
+    trace: traceFor(DELEGATIONS.purchased, HNP_TRACES.enforceCompleted),
+  },
+  play: async (context) => {
+    await expectStatus(context, "Compra completada", false)
+    const titles = await openGovernance(context, /^Compra completada en /)
+    await expect(titles).toEqual([
+      "Delegación autorizada",
+      "Compra delegada en marcha",
+      "Política de compra: permitida",
+      "Checkout creado en el comercio",
+      "Oferta vigente al cerrar",
+      "Autorización delegada verificada",
+      "Uso único reservado",
+      "Autorización cerrada por el agente",
+      "Despacho autorizado",
+      "Orden confirmada",
+      "Uso único consumido",
+    ])
+    const governance = within(context.canvas.getByRole("group", { name: GOVERNANCE }))
+    await expect(governance.getByText("Activa: detiene la compra si no cumple")).toBeVisible()
+    await expect(governance.getByText("Detalle técnico")).toBeVisible()
+  },
+}
+
+/** La política detuvo la compra antes de reservar: qué regla no se cumplió y lo que no pasó. */
+export const TracePolicyBlocked: Story = {
+  args: {
+    delegation: POLICY_BLOCKED,
+    trace: traceFor(POLICY_BLOCKED, HNP_TRACES.d2Denied),
+  },
+  play: async (context) => {
+    await expect(context.canvas.getByRole("heading", { name: "Necesito tu decisión" })).toBeVisible()
+    const titles = await openGovernance(context, /^Bloqueada por la política de compra/)
+    await expect(titles.slice(5, 7)).toEqual(["La política no autorizó la compra", "Necesito tu decisión"])
+    await expect(context.canvas.getByText("Compra dentro de lo que autorizaste")).toBeVisible()
+    // Ni reserva, ni cierre, ni pago, ni orden: no se hizo ningún cobro.
+    await expect(titles.slice(7)).toEqual([
+      "Reservar el uso único",
+      "Cerrar la autorización",
+      "Autorizar el pago",
+      "Confirmar la orden",
+    ])
+  },
+}
+
+/** Escalada sin una regla que falle: la autorización no se pudo verificar y vuelve al comprador. */
+export const TraceEscalated: Story = {
+  args: { delegation: ESCALATED, trace: traceFor(ESCALATED, HNP_TRACES.escalated) },
+  play: async (context) => {
+    const { args, canvas, userEvent } = context
+    await expect(canvas.getByRole("heading", { name: "Necesito tu decisión" })).toBeVisible()
+    const titles = await openGovernance(context, /^Detenida por precaución/)
+    await expect(titles.slice(5, 7)).toEqual([
+      "No se pudo verificar la autorización",
+      "Necesito tu decisión",
+    ])
+    await userEvent.click(canvas.getByRole("button", { name: "Comprar desde el chat" }))
+    await expect(args.onBuyFromChat).toHaveBeenCalledWith(ESCALATED.escalation?.prefill_request)
+  },
+}
+
+/** Sin la traza (todavía no hay compra, o no se pudo leer) la tarjeta no muestra la gobernanza. */
+export const WithoutTrace: Story = {
+  args: { delegation: DELEGATIONS.running, trace: null },
+  play: async ({ canvas }) => {
+    await expect(canvas.queryByRole("group", { name: GOVERNANCE })).toBeNull()
+  },
+}
+
+/** A 320 px las tarjetas con su gobernanza abierta caben en el diálogo, reglas y detalle incluidos. */
+export const Phone320WithTrace: Story = {
+  render: (args) => (
+    <div className={`${PHONE_DIALOG_COLUMN} space-y-3`} data-testid="phone-column">
+      <DelegationStatusCard {...args} delegation={DELEGATIONS.running} trace={RUNNING_TRACE} />
+      <DelegationStatusCard
+        {...args}
+        delegation={DELEGATIONS.purchased}
+        trace={traceFor(DELEGATIONS.purchased, HNP_TRACES.enforceCompleted)}
+      />
+      <DelegationStatusCard
+        {...args}
+        delegation={POLICY_BLOCKED}
+        trace={traceFor(POLICY_BLOCKED, HNP_TRACES.d2Denied)}
+      />
+      <DelegationStatusCard
+        {...args}
+        delegation={ESCALATED}
+        trace={traceFor(ESCALATED, HNP_TRACES.escalated)}
+      />
+    </div>
+  ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    for (const region of canvas.getAllByRole("group", { name: GOVERNANCE })) {
+      await userEvent.click(within(region).getAllByRole("button")[0]!)
+      const details = region.querySelector("details")
+      if (details) details.open = true
+    }
+    await waitFor(() => expect(canvas.getAllByRole("list", { name: "Controles de la compra" })).toHaveLength(4))
+    // Medido con todo quieto: a medio giro, la flecha de la fila ocupa más que su caja. Solo
+    // siguen las que no terminan (el giro y el brillo de la compra en curso).
+    const finite = () =>
+      runningAnimations(canvasElement).filter(
+        (animation) => animation.effect?.getComputedTiming().iterations !== Infinity,
+      )
+    await waitFor(() => expect(finite()).toEqual([]))
     await expectFitsPhoneColumn(canvasElement)
   },
 }

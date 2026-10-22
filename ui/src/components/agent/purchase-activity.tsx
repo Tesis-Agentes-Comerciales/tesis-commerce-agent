@@ -30,6 +30,11 @@ export type PurchaseActivityProps = {
    * que aparece ya con su texto no siempre se lee.
    */
   announce?: boolean
+  /**
+   * Producto y comercio al lado del resumen. La tarjeta de una delegación ya los nombra en su
+   * encabezado y su alcance, y en el diálogo de un teléfono el nombre quedaría en una letra.
+   */
+  showNames?: boolean
   className?: string
 }
 
@@ -49,6 +54,7 @@ export function PurchaseActivity({
   stream,
   defaultOpen = false,
   announce = true,
+  showNames = true,
   className,
 }: PurchaseActivityProps) {
   const status = trace?.status ?? stream?.status ?? "in_progress"
@@ -96,7 +102,7 @@ export function PurchaseActivity({
         </span>
         {/* Producto y comercio por su nombre; sin nombre, solo el producto, nunca el origen. */}
         <span className="truncate text-xs text-[#6b6b6b]">
-          {label.filter(Boolean).join(" · ")}
+          {showNames && label.filter(Boolean).join(" · ")}
         </span>
         <ChevronRightIcon
           className="size-4 shrink-0 text-[#6b6b6b] transition-transform duration-200 group-disabled/trigger:opacity-40 group-data-[state=open]/trigger:rotate-90"

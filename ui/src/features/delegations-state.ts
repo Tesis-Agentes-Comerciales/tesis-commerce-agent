@@ -194,3 +194,13 @@ export function delegationsReducer(
 /** Las delegaciones que «Revocar todo» alcanzaría: las que siguen activas. */
 export const activeGrantIds = (state: DelegationsState) =>
   state.delegations.filter((item) => item.state === "active").map((item) => item.grant_id)
+
+/**
+ * Si alguna delegación todavía puede cambiar sola: su tarea espera el disparo o está comprando.
+ * Una tarea programada de una delegación revocada o vencida ya no corre; una que compra, aunque se
+ * haya revocado con el pago comprometido, sí termina (§8.4).
+ */
+export const hasTaskInFlight = (delegations: readonly DelegationView[]) =>
+  delegations.some(
+    ({ state, task }) => task.state === "running" || (task.state === "scheduled" && state === "active"),
+  )

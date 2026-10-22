@@ -7,6 +7,7 @@ import { DELEGATIONS_COPY } from "@/components/delegation/delegation-copy"
 import { ErrorNotice } from "@/components/delegation/delegation-parts"
 import { DelegationStatusCard } from "@/components/delegation/delegation-status-card"
 import type { DelegationView, RevokeReceipt } from "@/lib/delegation-contract"
+import type { PurchaseTrace } from "@/lib/trace-contract"
 
 /** Lo que pasa con la revocación de una delegación, desde su tarjeta o desde «Revocar todo». */
 export type DelegationRevocation = {
@@ -19,6 +20,8 @@ export type DelegationListProps = {
   /** `GET /me/delegations`, más recientes primero. */
   delegations: DelegationView[]
   revocations?: Record<string, DelegationRevocation>
+  /** Trazas leídas, por `run_id` de la tarea: cada tarjeta muestra la de su compra. */
+  traces?: Record<string, PurchaseTrace>
   loading?: boolean
   /** Mensaje saneado si no se pudo leer la lista. */
   error?: string | null
@@ -33,12 +36,13 @@ export type DelegationListProps = {
 }
 
 /**
- * «Mis delegaciones» (§2.1): cada delegación con su estado, alcance, vigencia y última actividad,
- * «Revocar» en las activas y «Revocar todo» mientras quede alguna.
+ * «Mis delegaciones» (§2.1): cada delegación con su estado, la gobernanza de su compra, alcance,
+ * vigencia y última actividad, «Revocar» en las activas y «Revocar todo» mientras quede alguna.
  */
 export function DelegationList({
   delegations,
   revocations = {},
+  traces = {},
   loading = false,
   error,
   revokingAll = false,
@@ -98,6 +102,7 @@ export function DelegationList({
               <li key={delegation.grant_id}>
                 <DelegationStatusCard
                   delegation={delegation}
+                  trace={delegation.task.run_id ? traces[delegation.task.run_id] : null}
                   revokeReceipt={revocation?.receipt}
                   revoking={revocation?.revoking}
                   error={revocation?.error}

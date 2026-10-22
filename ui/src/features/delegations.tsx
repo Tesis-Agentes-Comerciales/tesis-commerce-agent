@@ -9,10 +9,12 @@ import { DelegationConsentCard } from "@/components/delegation/delegation-consen
 import { DelegationForm } from "@/components/delegation/delegation-form"
 import { DelegationList } from "@/components/delegation/delegation-list"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { DELEGATION_POLL_MS, useDelegationTraces } from "@/features/delegation-traces"
 import { DelegationsHostContext, type DelegationsHost } from "@/features/delegations-host"
 import {
   activeGrantIds,
   delegationsReducer,
+  hasTaskInFlight,
   INITIAL_DELEGATIONS,
 } from "@/features/delegations-state"
 import { seenOffers } from "@/features/seen-offers"
@@ -52,7 +54,9 @@ const blankDraft = ({ addressLine, city, state }: BuyerProfile): DelegationDraft
 
 /**
  * El formulario, la propuesta con su consentimiento y «Mis delegaciones» (§3.2, §8.4), contra las
- * rutas del comprador (§5.1). Cada acción relee lo que cambió: el estado lo dice el backend.
+ * rutas del comprador (§5.1). Cada acción relee lo que cambió: el estado lo dice el backend. Con
+ * el diálogo abierto, la lista y la gobernanza de cada compra se releen cada 2 s mientras alguna
+ * tarea espera el disparo o está comprando: así se ve terminar la compra sin cerrar nada.
  */
 function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
   const [state, dispatch] = useReducer(delegationsReducer, INITIAL_DELEGATIONS)
@@ -61,15 +65,27 @@ function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
   const messages = useAuiState((aui) => aui.thread.messages)
   const offers = useMemo(() => seenOffers(messages), [messages])
   const aui = useAui()
-  const prefilled = useRef(false)
+  // Al cerrar para volver al chat (escalamiento), el foco va al compositor.
+  const toComposer = useRef(false)
+  // Lecturas de la lista empezadas y la más reciente aplicada: una lenta no pisa a una posterior.
+  const listReads = useRef({ started: 0, applied: 0 })
   const { flow } = state
+  const traces = useDelegationTraces(state.delegations, open)
+  const inFlight = hasTaskInFlight(state.delegations)
 
-  const reload = useCallback(async (signal?: AbortSignal) => {
-    dispatch({ type: "list-loading" })
+  const reload = useCallback(async (signal?: AbortSignal, { quiet = false } = {}) => {
+    const reads = listReads.current
+    const read = ++reads.started
+    if (!quiet) dispatch({ type: "list-loading" })
     try {
-      dispatch({ type: "list-loaded", delegations: (await myDelegations(signal)).delegations })
+      const { delegations } = await myDelegations(signal)
+      if (read < reads.applied) return
+      reads.applied = read
+      dispatch({ type: "list-loaded", delegations })
     } catch (error) {
-      if (!signal?.aborted) dispatch({ type: "list-failed", error: delegationErrorText(error) })
+      // Una relectura del sondeo que falla deja la lista como estaba; la siguiente reintenta.
+      if (signal?.aborted || quiet || read < reads.applied) return
+      dispatch({ type: "list-failed", error: delegationErrorText(error) })
     }
   }, [])
 
@@ -79,6 +95,23 @@ function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
     void reload(controller.signal)
     return () => controller.abort()
   }, [open, reload])
+
+  useEffect(() => {
+    if (!open || !inFlight) return
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = () => {
+      timer = setTimeout(async () => {
+        await reload(controller.signal, { quiet: true })
+        if (!controller.signal.aborted) poll()
+      }, DELEGATION_POLL_MS)
+    }
+    poll()
+    return () => {
+      controller.abort()
+      clearTimeout(timer)
+    }
+  }, [open, inFlight, reload])
 
   const propose = async (draft: DelegationDraft) => {
     const checked = proposalRequest(draft, profile)
@@ -128,11 +161,16 @@ function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
     await reload()
   }
 
+  /** De vuelta al chat, con el foco en el compositor, listo para escribir. */
+  const backToChat = () => {
+    toComposer.current = true
+    onOpenChange(false)
+  }
+
   /** §8.2: la decisión vuelve al comprador como una compra HP nueva, prellenada en el chat. */
   const buyFromChat = (prefillRequest: string) => {
     aui.composer().setText(prefillRequest)
-    prefilled.current = true
-    onOpenChange(false)
+    backToChat()
   }
 
   return (
@@ -140,8 +178,8 @@ function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
       <DialogContent
         data-testid="delegations"
         onCloseAutoFocus={(event) => {
-          if (!prefilled.current) return
-          prefilled.current = false
+          if (!toComposer.current) return
+          toComposer.current = false
           event.preventDefault()
           document.querySelector<HTMLElement>("[aria-label='Mensaje de compra']")?.focus()
         }}
@@ -193,6 +231,7 @@ function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
           <DelegationList
             delegations={state.delegations}
             revocations={state.revocations}
+            traces={traces}
             loading={state.list === "loading"}
             error={state.list === "failed" ? state.listError : null}
             revokingAll={state.revokingAll}
