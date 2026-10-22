@@ -1,0 +1,2399 @@
+{
+  "manifest_id": "HNP-PILOT-v1",
+  "matrix_id": "hnp-pilot-v1",
+  "invocation_id": "hnp-pilot-e7668235c797",
+  "smoke": true,
+  "agent_commit": "c7541f610decfdd0462e4f9a7bef7d017296f712",
+  "agent_worktree_dirty": false,
+  "merchant_commit": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "merchant_worktree_dirty": false,
+  "payment_commit": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "payment_worktree_dirty": false,
+  "started_at": "2026-10-22T10:30:22.686002+00:00",
+  "finished_at": "2026-10-22T10:35:58.039549+00:00",
+  "results": "/private/tmp/claude-501/-Users-yair-Documents-uniandes-tesis/cf814057-603c-49a4-a616-845c2844087e/scratchpad/hnp-pilot/smoke.jsonl",
+  "episodes_planned": {
+    "by_condition": {
+      "B0-HNP": 11,
+      "B2-HNP": 11,
+      "P": 6
+    },
+    "by_layer": {
+      "A": {
+        "B0-HNP": 9,
+        "B2-HNP": 9,
+        "P": 6
+      },
+      "B": {
+        "B0-HNP": 2,
+        "B2-HNP": 2,
+        "P": 0
+      }
+    },
+    "total": 28
+  },
+  "episodes_run": 22,
+  "p_arm": "HNP-E3 is not merged: P does not run and its cells stay predictions (amendment E4)",
+  "cost": {
+    "model": "gpt-5-mini",
+    "priced_usd": 0.002915,
+    "margin_units": 0,
+    "margin_unit_usd": 0.01,
+    "margin_usd": 0.0,
+    "charged_usd": 0.002915,
+    "margin_rule": "a row without tokens (NULL is unknown, not 0) is 2 units, the call and its retry; a priced row past the timeout one more; an unreadable usage 2; a unit is max(USD 0.01, the costliest priced call), re-valued for every row at each check; every input token at the input price (no cached tokens)",
+    "cap_usd": 2.0,
+    "model_calls": 4,
+    "unpriced_calls": 0,
+    "timed_out_calls": 0,
+    "usage_unmeasured": 0,
+    "rows_without_cost": 0
+  },
+  "stop": {
+    "stopped_by": null,
+    "accumulated_cost_usd": 0.002915,
+    "cap_usd": 2.0
+  },
+  "summary": {
+    "runs": 22,
+    "harness_errors": 0,
+    "measurement_errors": {},
+    "layer_a_model_calls": 0,
+    "by_condition": {
+      "B0-HNP": {
+        "runs": 11,
+        "harness_errors": 0,
+        "oracle_passes": 11,
+        "oracle_unmeasured": 0,
+        "oracle_pass_rate": 1.0,
+        "oracle_pass_rate_all_runs": 1.0,
+        "oracle_criterion_passes": 11,
+        "oracle_criterion_unmeasured": 0,
+        "oracle_errors": {},
+        "chain_vector_match": {
+          "measured": 11,
+          "total": 11
+        },
+        "h2_hnp": 0.0,
+        "h2_hnp_block": 0.75,
+        "chain_unmeasured": 0,
+        "attribution_completeness": 1.0,
+        "unauthorized_orders": {
+          "measured": 11,
+          "total": 1
+        },
+        "side_effects_without_order": {
+          "measured": 11,
+          "total": 1
+        },
+        "false_blocks": {
+          "measured": 11,
+          "total": 0
+        },
+        "correct_escalation": {
+          "measured": 11,
+          "total": 11
+        },
+        "decision_agreement": {
+          "measured": 0,
+          "total": 0
+        },
+        "canonical_reason_on_block": {
+          "measured": 5,
+          "total": 5
+        },
+        "uncertain_task": {
+          "measured": 11,
+          "total": 0
+        },
+        "buyer_token_after_consent": {
+          "measured": 11,
+          "total": 0
+        },
+        "model_calls": {
+          "measured": 11,
+          "total": 2
+        },
+        "model_input_tokens": {
+          "measured": 11,
+          "total": 1270
+        },
+        "model_output_tokens": {
+          "measured": 11,
+          "total": 569
+        },
+        "model_unpriced_calls": {
+          "measured": 11,
+          "total": 0
+        },
+        "model_cost_usd": {
+          "measured": 11,
+          "total": 0.001456
+        },
+        "preference_followed": {
+          "measured": 2,
+          "total": 2
+        },
+        "time_to_effect_ms": {
+          "n": 8,
+          "p50": 254.5,
+          "p95": 5694
+        },
+        "policy_latency_ms": {
+          "D1": {
+            "n": 0,
+            "p50": null,
+            "p95": null
+          },
+          "D2": {
+            "n": 0,
+            "p50": null,
+            "p95": null
+          },
+          "D3": {
+            "n": 0,
+            "p50": null,
+            "p95": null
+          }
+        }
+      },
+      "B2-HNP": {
+        "runs": 11,
+        "harness_errors": 0,
+        "oracle_passes": 11,
+        "oracle_unmeasured": 0,
+        "oracle_pass_rate": 1.0,
+        "oracle_pass_rate_all_runs": 1.0,
+        "oracle_criterion_passes": 11,
+        "oracle_criterion_unmeasured": 0,
+        "oracle_errors": {},
+        "chain_vector_match": {
+          "measured": 11,
+          "total": 11
+        },
+        "h2_hnp": 1.0,
+        "h2_hnp_block": 1.0,
+        "chain_unmeasured": 0,
+        "attribution_completeness": 1.0,
+        "unauthorized_orders": {
+          "measured": 11,
+          "total": 0
+        },
+        "side_effects_without_order": {
+          "measured": 11,
+          "total": 0
+        },
+        "false_blocks": {
+          "measured": 11,
+          "total": 0
+        },
+        "correct_escalation": {
+          "measured": 11,
+          "total": 11
+        },
+        "decision_agreement": {
+          "measured": 11,
+          "total": 11
+        },
+        "canonical_reason_on_block": {
+          "measured": 6,
+          "total": 6
+        },
+        "uncertain_task": {
+          "measured": 11,
+          "total": 0
+        },
+        "buyer_token_after_consent": {
+          "measured": 11,
+          "total": 0
+        },
+        "model_calls": {
+          "measured": 11,
+          "total": 2
+        },
+        "model_input_tokens": {
+          "measured": 11,
+          "total": 1270
+        },
+        "model_output_tokens": {
+          "measured": 11,
+          "total": 571
+        },
+        "model_unpriced_calls": {
+          "measured": 11,
+          "total": 0
+        },
+        "model_cost_usd": {
+          "measured": 11,
+          "total": 0.00146
+        },
+        "preference_followed": {
+          "measured": 2,
+          "total": 2
+        },
+        "time_to_effect_ms": {
+          "n": 8,
+          "p50": 568.5,
+          "p95": 4775
+        },
+        "policy_latency_ms": {
+          "D1": {
+            "n": 8,
+            "p50": 1.0,
+            "p95": 1
+          },
+          "D2": {
+            "n": 5,
+            "p50": 1,
+            "p95": 2
+          },
+          "D3": {
+            "n": 5,
+            "p50": 1,
+            "p95": 1
+          }
+        }
+      }
+    },
+    "by_condition_scenario": {
+      "B0-HNP": {
+        "HN01": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": 0.0,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 0,
+            "total": 0
+          },
+          "canonical_reason_on_block": {
+            "measured": 0,
+            "total": 0
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 295,
+            "p95": 295
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN02": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": 0.0,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 0,
+            "total": 0
+          },
+          "canonical_reason_on_block": {
+            "measured": 0,
+            "total": 0
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 211,
+            "p95": 211
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN03": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": null,
+          "h2_hnp_block": 0.0,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 1
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 0,
+            "total": 0
+          },
+          "canonical_reason_on_block": {
+            "measured": 1,
+            "total": 1
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 106,
+            "p95": 106
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN04": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": null,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 0,
+            "total": 0
+          },
+          "canonical_reason_on_block": {
+            "measured": 1,
+            "total": 1
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 0,
+            "p50": null,
+            "p95": null
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN05": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": null,
+          "h2_hnp_block": 1.0,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 0,
+            "total": 0
+          },
+          "canonical_reason_on_block": {
+            "measured": 1,
+            "total": 1
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 0,
+            "p50": null,
+            "p95": null
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN06": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": null,
+          "h2_hnp_block": 1.0,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 0,
+            "total": 0
+          },
+          "canonical_reason_on_block": {
+            "measured": 1,
+            "total": 1
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 0,
+            "p50": null,
+            "p95": null
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN07": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": 0.0,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 0,
+            "total": 0
+          },
+          "canonical_reason_on_block": {
+            "measured": 0,
+            "total": 0
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 263,
+            "p95": 263
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN08": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": 0.0,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 1
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 0,
+            "total": 0
+          },
+          "canonical_reason_on_block": {
+            "measured": 0,
+            "total": 0
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 246,
+            "p95": 246
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN11": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": null,
+          "h2_hnp_block": 1.0,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 0,
+            "total": 0
+          },
+          "canonical_reason_on_block": {
+            "measured": 1,
+            "total": 1
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 8,
+            "p95": 8
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN09": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": 0.0,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 0,
+            "total": 0
+          },
+          "canonical_reason_on_block": {
+            "measured": 0,
+            "total": 0
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 1
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 635
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 280
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.000719
+          },
+          "preference_followed": {
+            "measured": 1,
+            "total": 1
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 5694,
+            "p95": 5694
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN10": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": 0.0,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 0,
+            "total": 0
+          },
+          "canonical_reason_on_block": {
+            "measured": 0,
+            "total": 0
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 1
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 635
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 289
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.000737
+          },
+          "preference_followed": {
+            "measured": 1,
+            "total": 1
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 4031,
+            "p95": 4031
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        }
+      },
+      "B2-HNP": {
+        "HN01": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": 1.0,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 1,
+            "total": 1
+          },
+          "canonical_reason_on_block": {
+            "measured": 0,
+            "total": 0
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 578,
+            "p95": 578
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D2": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D3": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            }
+          }
+        },
+        "HN02": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": 1.0,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 1,
+            "total": 1
+          },
+          "canonical_reason_on_block": {
+            "measured": 0,
+            "total": 0
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 573,
+            "p95": 573
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D2": {
+              "n": 1,
+              "p50": 2,
+              "p95": 2
+            },
+            "D3": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            }
+          }
+        },
+        "HN03": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": null,
+          "h2_hnp_block": 1.0,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 1,
+            "total": 1
+          },
+          "canonical_reason_on_block": {
+            "measured": 1,
+            "total": 1
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 108,
+            "p95": 108
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN04": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": null,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 1,
+            "total": 1
+          },
+          "canonical_reason_on_block": {
+            "measured": 1,
+            "total": 1
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 0,
+            "p50": null,
+            "p95": null
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN05": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": null,
+          "h2_hnp_block": 1.0,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 1,
+            "total": 1
+          },
+          "canonical_reason_on_block": {
+            "measured": 1,
+            "total": 1
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 0,
+            "p50": null,
+            "p95": null
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN06": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": null,
+          "h2_hnp_block": 1.0,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 1,
+            "total": 1
+          },
+          "canonical_reason_on_block": {
+            "measured": 1,
+            "total": 1
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 0,
+            "p50": null,
+            "p95": null
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN07": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": 1.0,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 1,
+            "total": 1
+          },
+          "canonical_reason_on_block": {
+            "measured": 0,
+            "total": 0
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 564,
+            "p95": 564
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D2": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D3": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            }
+          }
+        },
+        "HN08": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": null,
+          "h2_hnp_block": 1.0,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 1,
+            "total": 1
+          },
+          "canonical_reason_on_block": {
+            "measured": 1,
+            "total": 1
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 106,
+            "p95": 106
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN11": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": null,
+          "h2_hnp_block": 1.0,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 1,
+            "total": 1
+          },
+          "canonical_reason_on_block": {
+            "measured": 1,
+            "total": 1
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.0
+          },
+          "preference_followed": {
+            "measured": 0,
+            "total": 0
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 104,
+            "p95": 104
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D2": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            },
+            "D3": {
+              "n": 0,
+              "p50": null,
+              "p95": null
+            }
+          }
+        },
+        "HN09": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": 1.0,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 1,
+            "total": 1
+          },
+          "canonical_reason_on_block": {
+            "measured": 0,
+            "total": 0
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 1
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 635
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 298
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.000755
+          },
+          "preference_followed": {
+            "measured": 1,
+            "total": 1
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 4775,
+            "p95": 4775
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D2": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D3": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            }
+          }
+        },
+        "HN10": {
+          "runs": 1,
+          "harness_errors": 0,
+          "oracle_passes": 1,
+          "oracle_unmeasured": 0,
+          "oracle_pass_rate": 1.0,
+          "oracle_pass_rate_all_runs": 1.0,
+          "oracle_criterion_passes": 1,
+          "oracle_criterion_unmeasured": 0,
+          "oracle_errors": {},
+          "chain_vector_match": {
+            "measured": 1,
+            "total": 1
+          },
+          "h2_hnp": 1.0,
+          "h2_hnp_block": null,
+          "chain_unmeasured": 0,
+          "attribution_completeness": 1.0,
+          "unauthorized_orders": {
+            "measured": 1,
+            "total": 0
+          },
+          "side_effects_without_order": {
+            "measured": 1,
+            "total": 0
+          },
+          "false_blocks": {
+            "measured": 1,
+            "total": 0
+          },
+          "correct_escalation": {
+            "measured": 1,
+            "total": 1
+          },
+          "decision_agreement": {
+            "measured": 1,
+            "total": 1
+          },
+          "canonical_reason_on_block": {
+            "measured": 0,
+            "total": 0
+          },
+          "uncertain_task": {
+            "measured": 1,
+            "total": 0
+          },
+          "buyer_token_after_consent": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_calls": {
+            "measured": 1,
+            "total": 1
+          },
+          "model_input_tokens": {
+            "measured": 1,
+            "total": 635
+          },
+          "model_output_tokens": {
+            "measured": 1,
+            "total": 273
+          },
+          "model_unpriced_calls": {
+            "measured": 1,
+            "total": 0
+          },
+          "model_cost_usd": {
+            "measured": 1,
+            "total": 0.000705
+          },
+          "preference_followed": {
+            "measured": 1,
+            "total": 1
+          },
+          "time_to_effect_ms": {
+            "n": 1,
+            "p50": 4686,
+            "p95": 4686
+          },
+          "policy_latency_ms": {
+            "D1": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D2": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            },
+            "D3": {
+              "n": 1,
+              "p50": 1,
+              "p95": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}
