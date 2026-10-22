@@ -201,6 +201,10 @@ macOS, `xdg-open` en Linux) y la traza con el visor de Playwright:
 uv run playwright show-trace .local/browser-journeys/hnp-escala/trace.zip
 ```
 
+El artefacto de `nightly.yml` solo lleva la captura final de cada recorrido (`browser.png`, en el
+directorio de su carril); el video y las capturas por paso quedan en el checkout que corrió la
+suite.
+
 Al terminar la sesión se detiene el Merchant (SIGTERM al grupo de procesos) y se elimina el
 contenedor con sus volúmenes. Si pytest muere con `kill -9`, la limpieza no corre; los restos se
 ven y se eliminan así:
