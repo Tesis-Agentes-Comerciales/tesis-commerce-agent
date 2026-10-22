@@ -227,6 +227,7 @@ def test_a_list_rejects_fields_beyond_the_contract() -> None:
 SPEC_MESSAGE_KEYS = {
     "escalation.budget_not_satisfiable",
     "escalation.no_candidate_in_scope",
+    "escalation.choice_not_confirmed",
     "escalation.offer_changed",
     "escalation.terms_out_of_scope",
     "escalation.authorization_profile_unresolved",
@@ -264,6 +265,7 @@ def test_the_canonical_texts_are_the_spec_table_plus_the_escalation_title_and_pr
     [
         ("budget_not_satisfiable", "suffix_before_presentation"),
         ("offer_changed", "suffix_before_presentation"),
+        ("choice_not_confirmed", "suffix_before_presentation"),
         ("verifier_unresolved_constraint", "suffix_rejected_by_psp"),
         ("verifier_mandates_not_supported", "suffix_rejected_by_psp"),
     ],

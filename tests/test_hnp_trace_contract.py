@@ -8,9 +8,11 @@ from typing import Any, get_args
 import pytest
 from pydantic import ValidationError
 
+from commerce_agent.application import hnp_intent_review
 from commerce_agent.delegation.contract import EscalationCode
 from commerce_agent.trace import PurchaseTrace
 from commerce_agent.trace.assembler import summarize
+from commerce_agent.trace import models
 from commerce_agent.trace.models import EscalationReason
 
 FIXTURES = Path(__file__).parents[1] / "ui" / "src" / "storybook" / "trace-fixtures"
@@ -19,7 +21,7 @@ HNP_FIXTURES = sorted((FIXTURES / "hnp").glob("*.json"))
 
 
 def test_every_hnp_ui_fixture_is_present() -> None:
-    assert len(HNP_FIXTURES) == 9
+    assert len(HNP_FIXTURES) == 10
 
 
 @pytest.mark.parametrize("name", ["enforce-completed", "off-completed"])
@@ -36,6 +38,28 @@ def test_a_completed_hnp_fixture_pays_the_single_use_before_its_order(name: str)
         reserved["currency"],
     )
     assert payment["at"] == fixture_step(trace, "order_confirmed")["at"]
+
+
+def test_a_choice_the_reviewer_did_not_confirm_escalates_before_the_policy() -> None:
+    """hnp-intent-review.md §6 and §8: the review goes after the claim and stops the run before D1,
+    so nothing else follows but the escalation; the trace is in enforce without a decision."""
+    raw = (FIXTURES / "hnp" / "enforce-review-not-confirmed.json").read_text(encoding="utf-8")
+    trace = PurchaseTrace.model_validate_json(raw)
+    assert [item.kind for item in trace.steps] == [
+        "delegation_consented",
+        "task_activated",
+        "choice_reviewed",
+        "escalated",
+    ]
+    review, escalated = trace.steps[2:]
+    assert (review.actor, review.state, review.decision) == ("agent", "blocked", "not_confirmed")
+    assert (escalated.state, escalated.reason) == ("blocked", "choice_not_confirmed")
+    assert (trace.status, trace.policy_mode, trace.total) == ("canceled", "enforce", None)
+
+
+def test_the_trace_review_codes_are_the_reviewer_codes() -> None:
+    assert get_args(models.ReviewDecision) == get_args(hnp_intent_review.ReviewDecision)
+    assert get_args(models.ReviewReason) == get_args(hnp_intent_review.ReviewReason)
 
 
 @pytest.mark.parametrize("path", HNP_FIXTURES, ids=lambda path: path.stem)
@@ -111,6 +135,21 @@ def hnp_fixture(name: str, change: Any) -> str:
             "d2-denied",
             lambda trace: fixture_step(trace, "escalated").update(reason="policy_denied"),
             id="reason",
+        ),
+        pytest.param(
+            "enforce-review-not-confirmed",
+            lambda trace: fixture_step(trace, "choice_reviewed").update(decision="rejected"),
+            id="review-decision",
+        ),
+        pytest.param(
+            "enforce-review-not-confirmed",
+            lambda trace: fixture_step(trace, "choice_reviewed").update(reason="model_said_no"),
+            id="review-reason",
+        ),
+        pytest.param(
+            "enforce-review-not-confirmed",
+            lambda trace: fixture_step(trace, "choice_reviewed").update(rationale="otra"),
+            id="review-rationale",
         ),
     ],
 )

@@ -1,0 +1,56 @@
+{
+  "run_id": "run_4e6a8c0b2d4f4a68b0c2e4f6a8b0d2e4",
+  "status": "canceled",
+  "policy_mode": "enforce",
+  "request": "Compra delegada",
+  "merchant": "http://127.0.0.1:4120",
+  "merchant_name": "Synthetic Commerce Merchant",
+  "total": null,
+  "started_at": "2026-10-21T14:58:10.204Z",
+  "updated_at": "2026-10-21T15:00:03.531Z",
+  "steps": [
+    {
+      "id": "delegation_consented",
+      "at": "2026-10-21T14:58:10.204Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "delegation_consented",
+      "grant_id": "dg_7c1e5a9b3d0f4e2a",
+      "total_max": {
+        "minor": 200000000,
+        "currency": "COP"
+      },
+      "expires_at": "2026-10-22T23:00:00.000Z"
+    },
+    {
+      "id": "task_activated",
+      "at": "2026-10-21T15:00:00.118Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "task_activated",
+      "trigger": "service"
+    },
+    {
+      "id": "choice_reviewed",
+      "at": "2026-10-21T15:00:03.512Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "blocked",
+      "kind": "choice_reviewed",
+      "decision": "not_confirmed",
+      "reason": "contradicts_preference"
+    },
+    {
+      "id": "escalated",
+      "at": "2026-10-21T15:00:03.531Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "blocked",
+      "kind": "escalated",
+      "reason": "choice_not_confirmed"
+    }
+  ],
+  "purchase_mode": "HNP"
+}
