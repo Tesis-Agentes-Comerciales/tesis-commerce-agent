@@ -453,6 +453,14 @@ Registradas (`amendments_recorded`):
   `stage_timings.elapsed_ms` en la capa B, por igual en B0-HNP y B2-HNP. C8
   (`buyer_token_after_consent`) se sigue midiendo antes de la copia del artefacto, sobre el
   directorio de la corrida, y no se vuelve a medir sobre el artefacto.
+- **H1 (22-oct-2026, enmienda del arnés, después del smoke y antes de cualquier repetición en
+  vivo).** El comprador sintético del arnés (`BuyerAccount`) espera y reintenta cuando el servidor de
+  auth local responde 429 (`X-Retry-After`, a lo sumo 6 intentos), en vez de terminar el episodio
+  como error de arnés. Motivo: el smoke sobre `c9e49f6` perdió 2 de sus primeros 6 episodios y una
+  medición por HTTP 429; la regla por defecto de Better Auth admite 3 inicios de sesión cada 10 s
+  desde una dirección y el comprador inicia sesión de nuevo para cada sesión (consentimiento,
+  revocación, vista). No cambian `src/`, `auth/` ni nada de lo no permitido; la etiqueta se mueve al
+  commit de la fusión (E5). Se le informó a Yair el 22-oct-2026.
 
 ## Decisiones aprobadas
 

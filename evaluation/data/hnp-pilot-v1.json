@@ -475,6 +475,15 @@
       "effect": "the model_requests INSERT runs inside timer.measure and adds about 1 ms per model request to stage_timings.elapsed_ms in layer B, equally in B0-HNP and B2-HNP; C8 is still measured before the artifact copy",
       "timing": "before the approval of the oracles and before any live repetition",
       "approval": "approved by Yair on 2026-10-22 (point M1)"
+    },
+    {
+      "id": "H1",
+      "date": "2026-10-22",
+      "scope": "harness only: BuyerAccount in evaluation/src/commerce_evaluation/hnp_pilot_episode.py",
+      "change": "a 429 from the local auth server's rate limiter is waited out (X-Retry-After, at most 6 attempts) instead of ending the episode as a harness error; src/ and auth/ do not change, nor anything allowed_amendments.not_allowed names",
+      "reason": "the smoke on c9e49f6 lost 2 of its first 6 episodes and one measurement to HTTP 429: Better Auth's default rule allows 3 sign-ins per 10 s from one address and the buyer signs in again for each session (consent, revocation, view)",
+      "timing": "after the smoke, which does not count as a result, and before any live repetition; execution.agent_ref moves to the merge commit under E5",
+      "approval": "harness fix inside allowed_amendments.rule; reported to Yair on 2026-10-22"
     }
   ],
   "decisions_pending": [
