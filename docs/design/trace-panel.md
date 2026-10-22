@@ -435,7 +435,8 @@ Una compra en `stale_terms` dice en la fila de actividad «Detenida: cambiaron l
 
 `ControlTimeline` usa otro orden de controles para una compra con `purchase_mode: "HNP"`
 (delegación, claim, política, checkout, reserva, cierre, pago y orden); el de HP no cambia. D2, D3,
-la frescura, la revocación y el escalamiento solo aparecen si la traza los trae.
+la frescura, la revocación, el escalamiento y la revisión de la elección solo aparecen si la traza
+los trae.
 
 La compra delegada no tiene mensaje en el chat: su `PurchaseActivity` va en la tarjeta de la
 delegación, bajo «Gobernanza de la compra» y sin el nombre del producto ni del comercio, que la
@@ -447,6 +448,7 @@ vez que la tarea avanza y cada 2 s mientras pueda cambiar, solo con el diálogo 
 | --- | --- | --- |
 | `delegation_consented` | «Delegación autorizada» | «Hasta $ 2.000.000,00 COP · vence …» |
 | `task_activated` | «Compra delegada en marcha»; el segundo, «Compra delegada reanudada» | «Sin tu intervención» |
+| `choice_reviewed` (solo con `AGENT_HNP_REVIEWER=llm`, `hnp-intent-review.md`) | «Revisión de la elección» | «Confirmada: coincide con lo que pediste.» o «No confirmada: » y el motivo; detenida, en la fila de actividad, «Detenida: elección sin confirmar» |
 | Frescura `fresh` al cerrar | «Oferta vigente al cerrar» | «Antes de cerrar la compra delegada»; bloqueada: «No se reservó el uso único. No se hizo ningún cobro.» |
 | `authorization_decision` (D2-HNP) | «Autorización delegada verificada» o los títulos de D2 | «Antes de reservar el uso único» o, detenida, lo que no pasó |
 | `reservation` | «Uso único reservado», «… liberado», «… consumido», «… por confirmar» | El monto |
