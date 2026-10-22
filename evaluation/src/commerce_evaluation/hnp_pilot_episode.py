@@ -49,6 +49,9 @@ HEALTH_HNP_FIELDS = (
     "hnp_uncertain_tasks",
 )
 TRIGGER_STATUSES = frozenset({200, 202, 409})
+# Better Auth refuses a fourth sign-in within 10 s from one address (its default special rule) with
+# 429 and `X-Retry-After`; the buyer waits that long and tries again, at most this many times.
+AUTH_ATTEMPTS = 6
 DECISION_POINTS = ("D1", "D2", "D3")
 
 
@@ -143,10 +146,13 @@ class AgentApi:
 class BuyerAccount:
     """The invocation's synthetic buyer on the local auth server. Each `session_token` signs in
     again, so the consent JWT, the revoking session and the later view are distinct sessions.
-    The password is generated here and never leaves memory; `Origin` goes only to auth."""
+    The password is generated here and never leaves memory; `Origin` goes only to auth. A 429
+    from auth's rate limiter is waited out (`AUTH_ATTEMPTS`): it is the harness's pace, never
+    something the episode measures."""
 
-    def __init__(self, auth_origin: str) -> None:
+    def __init__(self, auth_origin: str, *, sleep: Callable[[float], None] = time.sleep) -> None:
         self.origin = auth_origin
+        self._sleep = sleep
         self.email = f"hnp-pilot-{uuid4().hex[:12]}@example.test"
         self._password = f"HnpPilot-{secrets.token_urlsafe(18)}"
         self.user_id: str | None = None
@@ -158,8 +164,21 @@ class BuyerAccount:
             headers={"Content-Type": "application/json", "Origin": self.origin},
             method="POST",
         )
-        with opener.open(request, timeout=30) as response:
-            return json.load(response)
+        return self._open(opener, request)
+
+    def _open(
+        self, opener: urllib.request.OpenerDirector, request: urllib.request.Request | str
+    ) -> Any:
+        attempt = 1
+        while True:
+            try:
+                with opener.open(request, timeout=30) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError as error:
+                if error.code != 429 or attempt == AUTH_ATTEMPTS:
+                    raise
+                self._sleep(float(error.headers.get("X-Retry-After") or 10))
+                attempt += 1
 
     @staticmethod
     def _opener() -> urllib.request.OpenerDirector:
@@ -183,8 +202,7 @@ class BuyerAccount:
         self._post(
             opener, "/api/auth/sign-in/email", {"email": self.email, "password": self._password}
         )
-        with opener.open(f"{self.origin}/api/auth/token", timeout=30) as response:
-            token = json.load(response).get("token")
+        token = self._open(opener, f"{self.origin}/api/auth/token").get("token")
         if not isinstance(token, str):
             raise PilotError("Auth token response did not contain a token")
         return token

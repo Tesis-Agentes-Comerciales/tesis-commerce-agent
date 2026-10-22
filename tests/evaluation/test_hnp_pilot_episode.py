@@ -9,8 +9,10 @@ dispatch over the merchant's and the PSP's doubles.
 import json
 import sqlite3
 import threading
+import urllib.error
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +26,9 @@ from commerce_evaluation.governance_pilot import ConditionMismatchError, HttpRes
 from commerce_evaluation.hnp_pilot import load_pilot
 from commerce_evaluation.hnp_pilot_agent import scripted_selector
 from commerce_evaluation.hnp_pilot_episode import (
+    AUTH_ATTEMPTS,
     AgentApi,
+    BuyerAccount,
     EpisodeRun,
     EpisodeTimeout,
     SeededEpisodeError,
@@ -637,3 +641,87 @@ def test_observe_reads_the_effects_after_the_stop(
     )
     assert observed["evidence_chain"] == {"links": {"intent": "ok"}}
     assert observed["governance"] is None and errors == {}
+
+
+class RateLimitedAuth(BaseHTTPRequestHandler):
+    """Better Auth's default limiter: past three sign-ins in 10 s it answers 429 with
+    `X-Retry-After`. The first `refusals` sign-ins are refused."""
+
+    refusals = 0
+    refusal_status = 429
+    sign_ins = 0
+
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
+
+    def _send(self, status: int, body: object, headers: dict[str, str] | None = None) -> None:
+        self.send_response(status)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode())
+
+    def do_POST(self) -> None:
+        self.rfile.read(int(self.headers["Content-Length"]))
+        if self.path == "/api/auth/sign-up/email":
+            self._send(200, {"user": {"id": "buyer-1"}})
+            return
+        type(self).sign_ins += 1
+        if type(self).sign_ins <= type(self).refusals:
+            self._send(type(self).refusal_status, {"message": "Refused."}, {"X-Retry-After": "7"})
+            return
+        self._send(200, {"redirect": False}, {"Set-Cookie": "session=s1; Path=/"})
+
+    def do_GET(self) -> None:
+        signed_in = "session=s1" in (self.headers.get("Cookie") or "")
+        self._send(200 if signed_in else 401, {"token": "buyer.jwt" if signed_in else None})
+
+
+@pytest.fixture
+def auth_server() -> Any:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), RateLimitedAuth)
+    thread = threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
+def buyer_against(
+    server: ThreadingHTTPServer, refusals: int, status: int = 429
+) -> tuple[BuyerAccount, list[float]]:
+    RateLimitedAuth.refusals, RateLimitedAuth.refusal_status = refusals, status
+    RateLimitedAuth.sign_ins = 0
+    waits: list[float] = []
+    buyer = BuyerAccount(f"http://127.0.0.1:{server.server_address[1]}", sleep=waits.append)
+    return buyer, waits
+
+
+def test_the_buyer_waits_out_auth_s_rate_limit_and_signs_in(auth_server: Any) -> None:
+    buyer, waits = buyer_against(auth_server, refusals=2)
+
+    assert buyer.signup() == "buyer-1"
+    assert buyer.session_token() == "buyer.jwt"
+    assert waits == [7.0, 7.0]
+    assert RateLimitedAuth.sign_ins == 3
+
+
+def test_the_buyer_gives_up_after_its_attempts(auth_server: Any) -> None:
+    buyer, waits = buyer_against(auth_server, refusals=AUTH_ATTEMPTS)
+
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        buyer.session_token()
+
+    assert refused.value.code == 429
+    assert len(waits) == AUTH_ATTEMPTS - 1
+
+
+def test_any_other_auth_refusal_ends_the_sign_in_at_once(auth_server: Any) -> None:
+    buyer, waits = buyer_against(auth_server, refusals=1, status=401)
+
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        buyer.session_token()
+
+    assert refused.value.code == 401
+    assert waits == []
+    assert RateLimitedAuth.sign_ins == 1

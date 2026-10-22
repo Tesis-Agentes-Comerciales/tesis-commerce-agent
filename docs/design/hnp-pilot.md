@@ -453,6 +453,19 @@ Registradas (`amendments_recorded`):
   `stage_timings.elapsed_ms` en la capa B, por igual en B0-HNP y B2-HNP. C8
   (`buyer_token_after_consent`) se sigue midiendo antes de la copia del artefacto, sobre el
   directorio de la corrida, y no se vuelve a medir sobre el artefacto.
+- **H1 (22-oct-2026, enmienda del arnés, después del smoke y antes de cualquier repetición en
+  vivo).** El comprador sintético del arnés (`BuyerAccount`) espera y reintenta cuando el servidor de
+  auth local responde 429 (`X-Retry-After`, a lo sumo 6 intentos), en vez de terminar el episodio
+  como error de arnés. Además, cada 90 arranques del agente en una invocación, el arnés espera 61 s
+  entre episodios sin ningún agente corriendo (`JwksPace`), para que el contador de
+  `/api/auth/jwks` vuelva a cero. Motivo: el smoke sobre `c9e49f6` perdió 2 de sus primeros 6
+  episodios y una medición por HTTP 429. La regla especial por defecto de Better Auth admite 3
+  inicios de sesión cada 10 s desde una dirección, y el comprador inicia sesión de nuevo para cada
+  sesión (consentimiento, revocación, vista). Su regla general (100 cada 60 s, que solo vuelve a cero
+  tras 60 s sin peticiones a la ruta) rechazaría la descarga de llaves del agente cerca del arranque
+  101 de la corrida contada (unos 114), y eso es un 401 al consentir: un error de arnés que nunca se
+  reemplaza. No cambian `src/`, `auth/` ni nada de lo no permitido; la etiqueta se mueve al commit de
+  la fusión (E5). Se le informó a Yair el 22-oct-2026.
 
 ## Decisiones aprobadas
 

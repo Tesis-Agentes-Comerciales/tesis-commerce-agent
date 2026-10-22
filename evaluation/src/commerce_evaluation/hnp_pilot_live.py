@@ -11,7 +11,8 @@ import argparse
 import json
 import subprocess
 import sys
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
@@ -124,11 +125,30 @@ class CliMerchant:
         return dispatch_merchant_webhooks(self.repository, self.environment)
 
 
+class JwksPace:
+    """Each agent process fetches /api/auth/jwks once, and Better Auth's general rule (100 per
+    60 s) refuses a path's next request while they keep coming less than 60 s apart: a refused
+    fetch leaves the agent unable to verify the buyer's JWT, a harness error that is never
+    replaced. Every `every` starts of the invocation the harness waits 61 s with no agent running,
+    so that bucket starts over (amendment H1)."""
+
+    def __init__(self, every: int = 90, *, sleep: Callable[[float], None] = time.sleep) -> None:
+        self.every = every
+        self.starts = 0
+        self._sleep = sleep
+
+    def before_start(self) -> None:
+        if self.starts and self.starts % self.every == 0:
+            self._sleep(61.0)
+        self.starts += 1
+
+
 class UvicornAgent:
     """One agent process per start, on the episode's own agent.db; its log stays in the run."""
 
-    def __init__(self, *, port: int, log: TextIO, factory: str) -> None:
+    def __init__(self, *, port: int, log: TextIO, factory: str, pace: JwksPace) -> None:
         self.origin = f"http://127.0.0.1:{port}"
+        self.pace = pace
         self.port = port
         self.log = log
         self.factory = factory
@@ -138,6 +158,7 @@ class UvicornAgent:
         self.secrets: set[str] = set()
 
     def start(self, variables: Mapping[str, str]) -> dict[str, Any]:
+        self.pace.before_start()
         self.secrets |= {variables[name] for name in AGENT_SECRETS if variables.get(name)}
         self.process = subprocess.Popen(
             [
@@ -254,6 +275,7 @@ def run_live(
         payment_port=arguments.payment_port,
     ):
         buyer = BuyerAccount(environment["BETTER_AUTH_URL"])
+        pace = JwksPace()
         merchant = CliMerchant(merchant_repo, environment, buyer.signup())
         psp_database = Path(environment["PAYMENT_DATABASE_PATH"])
 
@@ -292,7 +314,7 @@ def run_live(
             }
             with (run_dir / "agent.log").open("w", encoding="utf-8") as log:
                 agent = UvicornAgent(
-                    port=arguments.agent_port, log=log, factory=row["agent_factory"]
+                    port=arguments.agent_port, log=log, factory=row["agent_factory"], pace=pace
                 )
                 api = AgentApi(
                     agent.origin,
