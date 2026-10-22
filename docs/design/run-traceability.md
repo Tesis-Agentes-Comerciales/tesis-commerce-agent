@@ -325,7 +325,8 @@ turno (`turn_run_id`, `conversation.py:165-167`), así que también cubre los tu
 HNP, el de la tarea. El router escribe una fila después de cada `_request_model`. Los reintentos los
 cuenta un hook de `httpx` que lee el encabezado, así que `responses.parse` no cambia y los dobles de
 `tests/test_conversation_router.py:40-55` siguen sirviendo. `stage_timings` tampoco cambia, y el
-tope de costo HNP la sigue leyendo.
+tope de costo HNP la sigue leyendo. El revisor de intención (`ModelHnpIntentReviewer`,
+`hnp-intent-review.md`) registra igual su etapa, `model.hnp_review`, bajo el `run_id` de la tarea.
 
 **Resúmenes de razonamiento.**
 - Hoy solo se piden en streaming hacia la UI (`OPENAI_REASONING_SUMMARY`) y no se guardan.
