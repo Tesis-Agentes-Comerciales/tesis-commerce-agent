@@ -33,6 +33,7 @@ export { ProductCarousel, type ProductCarouselProps } from "@/components/agent/p
 export {
   PurchaseActivity,
   type PurchaseActivityProps,
+  type StreamPurchase,
 } from "@/components/agent/purchase-activity"
 export {
   PurchaseApprovalCard,

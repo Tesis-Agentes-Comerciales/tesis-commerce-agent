@@ -96,9 +96,39 @@ function StreamingReasoning() {
   return <ReasoningStep text={text} streaming={!done} />
 }
 
-/** Razonamiento transmitiéndose con `append-text`; el título brilla mientras está activo. */
+/**
+ * Mientras corre, el grupo no se abre solo: el título brilla y cuenta los pasos, y abrirlo muestra
+ * cada paso a medida que llega.
+ */
+export const Running: Story = {
+  args: { active: true, elapsedMs: 3200, stepCount: 2 },
+  render: (args) => (
+    <ThinkingGroup {...args}>
+      <InterpretRequestStep status="complete" result={INTERPRET_PURCHASE} elapsedMs={1100} />
+      <SearchCatalogStep status="running" />
+    </ThinkingGroup>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const trigger = canvas.getByRole("button", { name: /Pensando…/ })
+    await expect(trigger).toHaveAttribute("aria-expanded", "false")
+    await expect(trigger).toHaveTextContent("2 pasos")
+    await userEvent.click(trigger)
+    await expect(trigger).toHaveAttribute("aria-expanded", "true")
+  },
+}
+
+/** Antes del primer paso: el mismo encabezado, sin nada que abrir todavía. */
+export const WaitingFirstStep: Story = {
+  args: { active: true, stepCount: 0 },
+  render: (args) => <ThinkingGroup {...args}>{null}</ThinkingGroup>,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByRole("button", { name: /Pensando…/ })).toBeDisabled()
+  },
+}
+
+/** Razonamiento transmitiéndose con `append-text`, con el grupo abierto por la persona. */
 export const Streaming: Story = {
-  args: { active: true, elapsedMs: 3200, stepCount: undefined },
+  args: { active: true, defaultOpen: true, elapsedMs: 3200, stepCount: undefined },
   render: (args) => (
     <ThinkingGroup {...args}>
       <StreamingReasoning />

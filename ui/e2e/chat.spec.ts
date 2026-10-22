@@ -58,6 +58,12 @@ function blockedRun(sse: string) {
 
 const BLOCKED_RUN = blockedRun(PURCHASE_BLOCKED)
 const NOTHING_CHARGED = "No se creó ningún checkout ni se hizo ningún cobro."
+// Distancia de la fila de actividad al borde de su mensaje, medida en el mismo cuadro: no cambia si
+// el chat se desplaza.
+const ROW_OFFSET = `(() => {
+  const row = document.querySelector("[data-testid='purchase-activity']")
+  return row.getBoundingClientRect().top - row.closest("[data-message-id]").getBoundingClientRect().top
+})()`
 
 // Términos que ya no valen (S04): el backend rechaza la aprobación o la compra restaurada llega con
 // `terms_status`. El `message` es el texto interno del backend, que la UI no debe mostrar.
@@ -435,11 +441,23 @@ test.describe("actividad de la compra", () => {
     await expect(page.getByRole("alert")).toHaveCount(0)
     await expect(page.getByText("Se detuvo por un error")).toHaveCount(0)
     await expect(page.getByTestId("product-card-hero")).toHaveCount(0)
+    // La fila de actividad ya está en su lugar, con lo que dice el stream, y el plan se detiene en
+    // el checkout sin irse.
+    const row = page.getByTestId("purchase-activity")
+    await expect(row).toHaveAttribute("data-source", "stream")
+    await expect(row).toHaveAttribute("data-status", "blocked")
+    await expect(page.getByTestId("agent-plan")).toContainText("La política la detuvo")
+    // Respecto del mensaje: el chat puede desplazarse cuando la tarjeta crece.
+    const offset = () => page.evaluate(ROW_OFFSET)
+    const rowTop = await offset()
 
     release()
     await expect(card).not.toHaveAttribute("aria-busy")
     await expect(card.getByText("Precio dentro de tu presupuesto")).toBeVisible()
-    await expect(page.getByTestId("purchase-activity")).toHaveAttribute("data-status", "blocked")
+    await expect(row).toHaveAttribute("data-source", "trace")
+    await expect(row).toHaveAttribute("data-status", "blocked")
+    // La traza completa la fila donde estaba: no entra después empujando la tarjeta.
+    expect(await offset()).toBe(rowTop)
     await expect(page.getByRole("alert")).toHaveCount(0)
     await expect(page.getByTestId("product-card-hero")).toHaveCount(0)
   })

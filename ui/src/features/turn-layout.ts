@@ -1,4 +1,8 @@
+import type { StreamPurchase } from "@/components/agent"
+import { streamPurchaseSummary } from "@/components/trace/trace-copy"
+import { asSelectResult } from "@/features/agent-results"
 import { policyBlockOf, stepErrorCode } from "@/features/policy-block"
+import { runIdOf } from "@/features/purchase-trace"
 
 // Qué ocupa cada lugar del mensaje mientras el turno corre (docs/design/trace-panel.md, «Mientras
 // carga un turno»). Funciones puras: el mensaje las llama con sus partes.
@@ -7,6 +11,7 @@ type MessagePart = {
   type: string
   toolName?: string
   text?: string
+  args?: unknown
   result?: unknown
   isError?: boolean
 }
@@ -41,4 +46,29 @@ export function productSlot({
   if (policyBlockOf(stepErrorCode(prepare))) return "none"
   if (messageRunning && (!prepare || prepare.result === undefined)) return "marker"
   return "card"
+}
+
+function toolPart(parts: readonly MessagePart[], toolName: string) {
+  return parts.find((part) => part.type === "tool-call" && part.toolName === toolName)
+}
+
+/**
+ * La fila de actividad según el stream, desde que `prepare_checkout` empieza con el `run_id` en sus
+ * `args`: sale a su altura final y la traza solo la completa. `null` si el mensaje no empezó una
+ * compra, o si el paso falló por otra cosa que la política (eso lo explica su aviso).
+ */
+export function streamPurchaseOf(parts: readonly MessagePart[]): StreamPurchase | null {
+  const prepare = toolPart(parts, "prepare_checkout")
+  if (!prepare || runIdOf(prepare.args) === null) return null
+  const select = toolPart(parts, "select_product")
+  const product = select?.isError ? null : (asSelectResult(select?.result)?.product ?? null)
+  // Como lo nombra la traza: la variante; sin ella, el producto.
+  const name = product?.variant_title || product?.title || null
+  const reason = policyBlockOf(stepErrorCode(prepare))
+  if (reason) return { status: "blocked", summary: streamPurchaseSummary("blocked", reason), product: name }
+  if (prepare.isError) return null
+  const approval = toolPart(parts, "request_approval")
+  const status =
+    approval && approval.result !== undefined && !approval.isError ? "awaiting_approval" : "in_progress"
+  return { status, summary: streamPurchaseSummary(status), product: name }
 }
