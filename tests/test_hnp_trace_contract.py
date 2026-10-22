@@ -10,9 +10,8 @@ from pydantic import ValidationError
 
 from commerce_agent.application import hnp_intent_review
 from commerce_agent.delegation.contract import EscalationCode
-from commerce_agent.trace import PurchaseTrace
+from commerce_agent.trace import PurchaseTrace, models
 from commerce_agent.trace.assembler import summarize
-from commerce_agent.trace import models
 from commerce_agent.trace.models import EscalationReason
 
 FIXTURES = Path(__file__).parents[1] / "ui" / "src" / "storybook" / "trace-fixtures"
@@ -52,6 +51,8 @@ def test_a_choice_the_reviewer_did_not_confirm_escalates_before_the_policy() -> 
         "escalated",
     ]
     review, escalated = trace.steps[2:]
+    assert isinstance(review, models.ChoiceReviewedStep)
+    assert isinstance(escalated, models.EscalatedStep)
     assert (review.actor, review.state, review.decision) == ("agent", "blocked", "not_confirmed")
     assert (escalated.state, escalated.reason) == ("blocked", "choice_not_confirmed")
     assert (trace.status, trace.policy_mode, trace.total) == ("canceled", "enforce", None)
