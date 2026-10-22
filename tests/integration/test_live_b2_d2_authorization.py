@@ -33,12 +33,12 @@ from commerce_evaluation.demo_stack import MODES, mode_environment
 from commerce_evaluation.governance_pilot import D1RunKeys
 from commerce_evaluation.verify_evidence import LINKS, verify_database
 from tests.integration.live_purchase import (
+    APPROVED_AT,
     PHONE_INTENT,
     PHONE_REQUEST,
     StaticConversationRouter,
     buyer_details,
 )
-from tests.integration.test_live_purchase import APPROVED_AT
 
 
 def settings_for(b0, episode, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:

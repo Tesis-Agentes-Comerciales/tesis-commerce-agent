@@ -22,12 +22,12 @@ from commerce_agent.trace.models import Money, PolicyDecisionStep
 from commerce_evaluation.demo_stack import MODES, mode_environment
 from commerce_evaluation.governance_pilot import D1RunKeys
 from tests.integration.live_purchase import (
+    APPROVED_AT,
     PHONE_INTENT,
     PHONE_REQUEST,
     StaticConversationRouter,
     buyer_details,
 )
-from tests.integration.test_live_purchase import APPROVED_AT
 
 # 100.000 COP in total: below the catalog price of every phone of the lane.
 TOTAL_BUDGET_MINOR = 100_000_00

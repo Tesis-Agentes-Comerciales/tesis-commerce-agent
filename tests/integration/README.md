@@ -48,7 +48,8 @@ Hay cinco grupos sobre el mismo PostgreSQL:
   orden.
 - Human Not Present (`test_live_hnp.py`, HNP-I1 de
   [`docs/design/hnp-governed.md`](../../docs/design/hnp-governed.md)): el carril `hnp` tiene el
-  Merchant y el proveedor AP2 de `b0`, y cada prueba levanta su propio Agent con
+  Merchant y el proveedor AP2 de `b0`, este también detrás de un `FaultProxy` (solo para el
+  Agent; el Merchant le habla directo), y cada prueba levanta su propio Agent con
   `AGENT_HNP_ENABLED` en un proceso aparte (`HnpAgent`: `create_app` de producción desde sus
   variables, selector determinista, sin modelo), en la condición B0-HNP (`off`) o B2-HNP
   (`enforce`). El comprador propone y consiente por la API con su token y el token de servicio
@@ -60,8 +61,14 @@ Hay cinco grupos sobre el mismo PostgreSQL:
   (reserva liberada, cero tokens y cero órdenes); un mandato abierto con una restricción fuera
   del perfil (B2-HNP escala en D2; en B0-HNP el PSP la rechaza con recibo firmado); la caída del
   Agent con `ap2/complete` en vuelo y su reanudación con las mismas claves; el timeout de
-  `ap2/complete` (`uncertain`, sin reintento), y las cadenas alteradas de la tabla dorada
-  enviadas directo al Merchant y al PSP, que las rechazan con su recibo de error y su código.
+  `ap2/complete` (`uncertain`, sin reintento); la revocación después del compromiso (efecto
+  `in_flight`, la orden llega y el grant sigue revocado); la caída después de la reserva
+  (`failed(state_conflict)` sin cerrar nunca), después de la fila del outbox y después del token
+  del PSP (reanudan con la misma clave: un token y una orden); el timeout del PSP (`uncertain`,
+  sin orden ni reintento), y las cadenas alteradas de la tabla dorada enviadas directo al
+  Merchant y al PSP, que las rechazan con su recibo de error y su código. Cada fallo inyectado
+  deja su resultado para `fail_open_rate` ([abajo](#fail_open_rate)). El carril se omite si el
+  checkout del Merchant no tiene HNP-M1 o el del proveedor no tiene HNP-P1.
 - Navegador (`test_live_browser.py`): sobre el carril `b0`, Chromium se registra en `auth/`,
   pide la compra en la UI servida por Vite, la aprueba en la tarjeta y ve la orden confirmada;
   el Agent atiende en este mismo proceso con el router guionado y guarda ambos recibos AP2.
@@ -77,7 +84,8 @@ Hay cinco grupos sobre el mismo PostgreSQL:
   (`uv run playwright install --only-shell chromium`); solo los usa la prueba del navegador.
 - Un checkout del Merchant y otro del proveedor de pagos, en cualquier rama o commit. No hay
   commits fijados: la suite valida los checkouts actuales y registra el `HEAD` y el estado del
-  Agent y del Merchant en la evidencia.
+  Agent y del Merchant en la evidencia. Las pruebas HNP necesitan además HNP-M1 en el Merchant
+  y HNP-P1 en el proveedor; sin ellos se omiten con el motivo (`hnp_requirements`).
 
 ## Variables
 
@@ -115,12 +123,12 @@ Un módulo o un escenario: pase su archivo, o filtre por el identificador que ll
 `-k b2` también eligen las pruebas HNP de las condiciones B0-HNP y B2-HNP; `-k "b2 and not hnp"`
 las deja fuera. Con `--basetemp=<dir>` la evidencia queda en un lugar conocido.
 
-La suite completa (81 pruebas) tarda unos 13 minutos en macOS con OrbStack. Casi todo es 07B-B
+La suite completa (86 pruebas) tarda unos 13 minutos en macOS con OrbStack. Casi todo es 07B-B
 (marker `slow`): cada escenario hace una selección nueva sobre el catálogo completo del Merchant
 (cientos de lecturas de Offer por fase) y el Merchant reconstruye el catálogo en cada lectura.
-`-m "not slow"` deja 70 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
-las ocho gobernadas B2, las once HNP y la del navegador) en unos 3 minutos. `test_live_hnp.py`
-solo (11 pruebas) tarda unos 40 segundos.
+`-m "not slow"` deja 75 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
+las ocho gobernadas B2, las dieciséis HNP y la del navegador) en unos 3 minutos.
+`test_live_hnp.py` solo (16 pruebas) tarda alrededor de 1 minuto.
 
 ## Evidencia y limpieza
 
@@ -128,7 +136,8 @@ Cada ejecución deja bajo `<basetemp>/live-stack0/`:
 
 - `evidence.jsonl`: una línea `bootstrap` (imagen, cluster, `data_directory`, `HEAD` y estado
   de ambos checkouts, migraciones) y una por escenario con sus conteos (POST, lookups, filas
-  del Merchant antes y después), más `shutdown`.
+  del Merchant antes y después), las líneas `hnp:fault` y `hnp:fail_open_rate`
+  ([abajo](#fail_open_rate)), más `shutdown`.
 - `merchant.log`, `merchant-control.log` y un log por proceso del Agent. Los workers solo
   exportan tipos y códigos de error, nunca mensajes, credenciales ni cuerpos.
 - `b0/`, `acp/` y `hnp/`: el `merchant.log`, `payment.log` y `merchant-control.log` de cada
@@ -191,7 +200,52 @@ pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
 | Caída del Agent | `AgentProcess.kill_at(cutpoint)`: el worker se detiene en un punto con nombre y el arnés envía SIGKILL. |
 | Caída del Agent HNP | `HnpAgent.crash()` desde un hook `before_forward` del proxy: SIGKILL al grupo con la petición en vuelo, que el proxy igual reenvía; `restart(clock_ahead_seconds=…)` levanta otro proceso sobre la misma SQLite. |
 | Revocación a mitad de corrida | Un hook `before_forward` envía la revocación del comprador antes de reenviar la petición del Agent. |
+| Fallos del PSP (HNP) | `hnp_lane.psp_proxy`, con los mismos hooks y fallos: `delay` en `delegate_payment` para el timeout; SIGKILL en `before_forward` con `status_503` (el PSP nunca recibe el envío) o en `after_answer` (el PSP ya emitió el token). |
 | SQLite alterado | Edición directa del archivo cerrado (sobre, evento antiguo, un byte de un sello). |
+
+## Cobertura HNP fuera de la matriz
+
+`docs/design/hnp-pilot.md` («Fuera de la matriz») y `out_of_matrix` de
+`evaluation/data/hnp-pilot-v1.json` dejan en HNP-I1 las carreras, los puntos de crash, los
+timeouts y las cadenas falsas. Esta suite cubre en vivo lo que tiene una petición HTTP donde el
+proxy pueda intervenir; dos puntos no la tienen y quedan solo en pruebas unitarias con SQLite
+real (sin red):
+
+| Caso | En vivo (`test_live_hnp.py`) | Unitaria |
+| --- | --- | --- |
+| Revocación entre D2 y D3 (después de UoW-1) | `test_hnp_revocation_while_the_checkout_is_signed_releases_without_order_or_token` | `tests/delegation/test_delegation_execution.py::test_revoking_before_the_commitment_leaves_no_outbox[between_d2_and_d3]` |
+| Revocación entre D3 y el compromiso (UoW-2) | **No**: entre UoW-C, D3 y UoW-2 no hay ninguna petición HTTP | `tests/delegation/test_delegation_execution.py::test_revoking_before_the_commitment_leaves_no_outbox[between_d3_and_cas]` |
+| Revocación después del compromiso (`in_flight`, 1 orden) | `test_hnp_revocation_after_the_commit_is_in_flight_and_the_order_stands` | `tests/delegation/test_delegation_execution.py::test_revoking_after_the_commitment_leaves_the_purchase_in_flight`, `tests/delegation/test_hnp_dispatcher.py::test_a_committed_dispatch_resumes_despite_revocation_kill_switch_and_expiry` |
+| Crash después de la reserva | `test_hnp_crash_after_the_reservation_fails_without_closing` | `tests/delegation/test_hnp_dispatcher.py::test_a_crash_after_the_reservation_never_closes` |
+| Crash después del cierre (UoW-C) | **No**: no hay petición HTTP entre UoW-C y UoW-2 | `tests/delegation/test_hnp_dispatcher.py::test_a_crash_resumes_with_the_same_keys_and_one_close[after-the-close]`, `tests/delegation/test_hnp_resume.py::test_a_reclaim_after_the_close_reuses_it_and_commits` |
+| Crash después de la fila del outbox | `test_hnp_crash_around_the_psp_token_resumes_with_the_same_key[outbox_row]` | `tests/delegation/test_hnp_dispatcher.py::test_a_crash_resumes_with_the_same_keys_and_one_close[after-outbox]` |
+| Crash después del token del PSP | `test_hnp_crash_around_the_psp_token_resumes_with_the_same_key[psp_token]` y `test_hnp_crash_after_the_merchant_took_the_order_resumes_with_the_same_keys` | `tests/delegation/test_hnp_dispatcher.py::test_a_crash_resumes_with_the_same_keys_and_one_close[after-the-token]` |
+| Timeout de un verificador | `test_hnp_merchant_timeout_leaves_the_task_uncertain_and_never_retries` (Merchant) y `test_hnp_psp_timeout_leaves_the_task_uncertain_without_an_order` (PSP) | `tests/delegation/test_hnp_dispatcher.py::test_the_psp_without_a_valid_receipt_leaves_the_purchase_uncertain`, `::test_the_merchant_without_an_order_leaves_the_purchase_uncertain` |
+| Cadena falsa, `cnf` ajeno y restricción desconocida al Merchant y al PSP | `test_hnp_altered_chains_sent_straight_to_the_merchant_and_the_psp_are_rejected` (seis alteraciones por verificador) y `test_hnp_open_mandate_beyond_the_profile_is_never_paid` (en el flujo del Agent) | `tests/support/ap2_hnp_fixtures.py` (tabla dorada) |
+
+La revocación entre D2 y D3 en vivo cae en la lectura del Checkout JWT, después de UoW-1 y antes
+de UoW-C. Inyectar en vivo los dos puntos sin HTTP exigiría un cutpoint dentro del proceso del
+Agent, como `live_agent_worker.py` hace para 06D-C y 07B-B, y eso queda fuera de este PR.
+
+## fail_open_rate
+
+Cada prueba HNP con un fallo inyectado lo envuelve en `hnp.fault(<caso>)` y, después de medir
+los efectos, registra si terminó **cerrado**: sin órdenes, tokens del PSP ni reenvíos más allá de
+los que permitía la autoridad vigente (por ejemplo, una orden en la revocación después del
+compromiso, ninguna en la revocación antes; un token y una orden tras un crash; un solo envío en
+un timeout; ningún token ni orden en una cadena alterada). Si la prueba se rompe antes de medir,
+el caso queda `unobserved` y no cuenta en N.
+
+En `<basetemp>/live-stack0/evidence.jsonl` quedan una línea `hnp:fault` por caso (`case`,
+`closed` y los conteos) y, al cerrar el carril `hnp`, una línea `hnp:fail_open_rate` con
+`fail_open_rate` = `open`/`n`, `open_cases`, `cases` y `unobserved`. Con la suite HNP completa
+hay 23 casos: doce cadenas alteradas (seis por verificador), dos restricciones desconocidas (B0-HNP
+y B2-HNP), dos revocaciones, el doble disparo, cuatro crashes y dos timeouts. Para leerlo:
+
+```sh
+grep '"hnp:fail_open_rate"' <basetemp>/live-stack0/evidence.jsonl
+grep '"hnp:fault"' <basetemp>/live-stack0/evidence.jsonl   # el detalle por caso
+```
 
 Los cutpoints son `verification_commit` (06D-C, en la fábrica de conexiones del verificador, antes
 del commit), `claimed_before_http_send` y `response_before_record` (07B-B, en el transporte que
