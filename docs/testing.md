@@ -32,7 +32,7 @@ clasificada por dónde se crea, sin `pytestmark` ni `skipif` propios:
 | 1. Autenticación | Registro, sesión y JWT verificable con JWKS contra el servidor real | `auth/test/` | Cada PR (`auth`) | `cd auth && npm ci && npm test` |
 | 2. Merchant + PostgreSQL | Persistencia, D17, ACP HTTP del Merchant | Repositorio del Merchant | Cada PR del Merchant | Ver su `docs/testing.md` |
 | 3. UI | Lint, build, historias de Storybook con interacción y axe en Chromium, y pruebas unitarias de Vitest en Node (`src/**/*.test.ts`, dentro de `test-storybook`) | `ui/` | Cada PR (`ui`) | `cd ui && npm ci && npm run lint && npm test && npm run build && npm run test-storybook` |
-| 4. Sistema | Agent ↔ Merchant ↔ proveedor de pagos con PostgreSQL desechable; gobernanza con fallos inyectados, compras B0 y ACP, compras Human Not Present (B0-HNP y B2-HNP), compra B0 desde el navegador | `tests/integration/` | Cada noche y a pedido (`nightly.yml`) | [`tests/integration/README.md`](../tests/integration/README.md) |
+| 4. Sistema | Agent ↔ Merchant ↔ proveedor de pagos con PostgreSQL desechable; gobernanza con fallos inyectados, compras B0 y ACP, compras Human Not Present (B0-HNP y B2-HNP), recorridos grabados de una persona en el navegador (compra B0, compra B2 gobernada, delegaciones HNP, también en teléfono) | `tests/integration/` | Cada noche y a pedido (`nightly.yml`) | [`tests/integration/README.md`](../tests/integration/README.md) |
 | 3. UI E2E | Recorridos de chat y de delegaciones en el navegador con Playwright, sobre el build y con backends simulados (las delegaciones reproducen secuencias reales de la API) | `ui/e2e/` | Cada PR (`ui`) | `cd ui && npm run e2e` |
 | 5. Evaluación | Experimento HNP y piloto de gobernanza sin red ni modelo (dry-run): forma de resultados, costos, trazas, guardas de gasto; `verify-evidence` HP y HNP sobre bases SQLite de corridas con el código del producto | `tests/evaluation/` y entrypoints | Cada PR, dentro de `python-tests` | `uv run pytest -m evaluation`, `uv run hnp-matrix --dry-run --env-file .env.example`, `uv run governance-pilot --dry-run`, `uv run hnp-pilot --dry-run` |
 
@@ -53,7 +53,7 @@ uv run pytest --cov --cov-report=term # con cobertura, como el CI
 | --- | --- |
 | `RUN_LIVE_STACK` | `1` activa la capa 4. Si falta un requisito, la suite falla con la lista; no omite en silencio. |
 | `MERCHANT_REPO`, `PAYMENT_REPO` | Checkouts del Merchant y del proveedor de pagos para la capa 4. |
-| `RUN_LIVE_LLM` | Manual: pone el modelo de OpenAI del entorno detrás de las pruebas conversacional y de navegador de la capa 4. Gasta dinero. |
+| `RUN_LIVE_LLM` | Manual: pone el modelo de OpenAI del entorno detrás de la prueba conversacional y de la compra B0 en el navegador de la capa 4 (los demás recorridos siempre usan el router guionado). Gasta dinero. |
 | `HNP_LIVE` | Manual: habilita llamadas reales en la evaluación HNP; además exige tope de costo. |
 
 No hay otras activaciones: las del E2E conjunto de septiembre y las de las suites live por ticket
@@ -77,8 +77,9 @@ prueba está en las secciones de equivalencia de [`tests/integration/README.md`]
 `nightly.yml` corre a las 06:23 UTC y con `workflow_dispatch`, donde se puede elegir la rama o
 commit del Merchant (`merchant_ref`) y del proveedor (`payment_ref`). Su job `live-stack` clona
 el Merchant y el proveedor, instala los tres proyectos, `auth/`, `ui/` y el Chromium de
-Playwright, corre `tests/integration` completo y sube la evidencia (JSONL, logs, captura del
-navegador y JUnit) como artefacto por 14 días.
+Playwright, corre `tests/integration` completo y sube la evidencia (JSONL, logs, la captura final
+de cada recorrido del navegador y JUnit) como artefacto por 14 días. Los videos y las capturas por
+paso de los recorridos quedan en `.local/browser-journeys/` de quien los corre.
 
 El Merchant y el proveedor son privados: `live-stack` necesita el secreto
 `MERCHANT_REPO_TOKEN`, un token de solo lectura (`contents: read`) sobre
@@ -111,14 +112,15 @@ para estas cifras: sus servicios corren en otros procesos.
 
 ## Tiempos de referencia
 
-En macOS con OrbStack, 2026-10-20; los conteos y la fila HNP, 2026-10-21:
+En macOS con OrbStack, 2026-10-20; los conteos y las filas HNP y del navegador, 2026-10-21:
 
 | Selección | Pruebas | Tiempo |
 | --- | --- | --- |
-| `uv run pytest` (capas 1 y 5) | ~3250: ~3165 pasan y 86 se omiten | ~1,5 min |
-| `tests/integration` completa | 86 | ~13 min |
-| `tests/integration -m "not slow"` | 75 | ~3 min |
+| `uv run pytest` (capas 1 y 5) | ~3255: ~3165 pasan y 92 se omiten | ~1,5 min |
+| `tests/integration` completa | 92 | ~13 min |
+| `tests/integration -m "not slow"` | 81 | ~3 min |
 | `tests/integration/test_live_hnp.py` | 16 | ~1 min |
+| `tests/integration -k browser` | 7 | ~40 s |
 
 Los conteos salen de `uv run pytest --collect-only -q` con la selección de cada fila.
 

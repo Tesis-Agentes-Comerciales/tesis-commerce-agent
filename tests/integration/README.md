@@ -6,7 +6,7 @@ la misma imagen y digest que el CI del Merchant (`postgres:18.4-alpine@sha256:9a
 Merchant real (`uvicorn commerce_lab.api:app`, lanzado con `uv run --project $MERCHANT_REPO` y
 su propio intérprete y lock), el proveedor de pagos real (`tesis_payment_provider`, desde
 `$PAYMENT_REPO`) y procesos del Agent de este checkout, incluidos su servicio de autenticación
-(`auth/`) y su UI (`ui/`) en la prueba del navegador. Todo el tráfico del Agent al Merchant
+(`auth/`) y su UI (`ui/`) en las pruebas del navegador. Todo el tráfico del Agent al Merchant
 pasa por HTTP real de loopback a través de `FaultProxy`, que es transparente salvo cuando una
 prueba arma un fallo etiquetado. La suite normal y `ci.yml` los omiten; el workflow
 `nightly.yml` los ejecuta cada noche y a pedido.
@@ -69,9 +69,37 @@ Hay cinco grupos sobre el mismo PostgreSQL:
   Merchant y al PSP, que las rechazan con su recibo de error y su código. Cada fallo inyectado
   deja su resultado para `fail_open_rate` ([abajo](#fail_open_rate)). El carril se omite si el
   checkout del Merchant no tiene HNP-M1 o el del proveedor no tiene HNP-P1.
-- Navegador (`test_live_browser.py`): sobre el carril `b0`, Chromium se registra en `auth/`,
-  pide la compra en la UI servida por Vite, la aprueba en la tarjeta y ve la orden confirmada;
-  el Agent atiende en este mismo proceso con el router guionado y guarda ambos recibos AP2.
+- Navegador (`test_live_browser.py` y `test_live_browser_journeys.py`): recorridos de una
+  persona en Chromium, cada uno grabado en video ([abajo](#recorridos-grabados)). Chromium se
+  registra en `auth/`, escribe en el chat de la UI servida por Vite, hace clic en las tarjetas y
+  crea y revoca delegaciones; el Agent atiende en este mismo proceso con el router guionado y el
+  selector determinista (nunca un modelo) y habla con el Merchant, el proveedor y el PostgreSQL
+  reales del carril. Del arnés solo salen el disparo del planificador (token de servicio) y el
+  cambio de precio del Merchant. Los recorridos:
+  - `b0-compra` (`b0`): pide la compra, la aprueba en la tarjeta y ve la orden confirmada con
+    ambos recibos AP2.
+  - `b2-compra` (`b0` con la condición `b2` de la demo, política `b2-hp-v2`): la misma compra
+    gobernada; la actividad muestra D1 y D2 en «Permitido» y la traza los guarda en `allow`.
+  - `b2-presupuesto`: con un presupuesto total menor que el precio, la tarjeta «La política de
+    compra detuvo esta compra» explica POL-11 con el precio del catálogo y el presupuesto, sin
+    tarjeta de aprobación ni POST de creación en el Merchant.
+  - `hnp-compra` (`hnp`, condición B2-HNP): busca en el chat, abre «Delegaciones», llena el
+    formulario con las opciones vistas (total máximo, «6 horas»), autoriza en la tarjeta de
+    consentimiento y la ve activa con su vigencia; el disparo compra una vez y la tarjeta muestra
+    la compra y la orden.
+  - `hnp-escala`: tras consentir, el Merchant sube el precio sobre el máximo y el Agent se
+    reinicia sobre el feed nuevo (HN03); el disparo escala por POL-11, la UI muestra «Necesito tu
+    decisión» y «Comprar desde el chat» prellena el compositor con el texto exacto, sin enviarlo.
+  - `hnp-revoca`: «Revocar» en la tarjeta deja su recibo; el disparo responde 409 sin tocar el
+    Merchant ni el proveedor y la UI la muestra revocada.
+  - `hnp-compra-telefono`: `hnp-compra` en un teléfono de 390 × 844; después de cada paso, con
+    las animaciones quietas, la página no se desplaza de lado y nada se sale del diálogo.
+
+  Lo que un recorrido espera y el producto aún no hace es un `ProductGap`: el recorrido corre
+  completo, anota cada brecha en `evidence.jsonl` (`browser:<recorrido>`) y falla al final con
+  ese tipo; esos recorridos están marcados `xfail(strict=True, raises=ProductGap)` con el motivo,
+  así que cualquier otra falla los pone en rojo y, si el producto cierra la brecha, el `XPASS`
+  también.
 
 ## Requisitos
 
@@ -81,7 +109,8 @@ Hay cinco grupos sobre el mismo PostgreSQL:
   Engine en Linux). La primera ejecución descarga la imagen fijada.
 - `uv`.
 - Node.js 24 con `npm ci` hecho en `auth/` y en `ui/`, y el Chromium de Playwright para Python
-  (`uv run playwright install --only-shell chromium`); solo los usa la prueba del navegador.
+  (`uv run playwright install --only-shell chromium`, que instala también el ffmpeg de los
+  videos); solo los usan las pruebas del navegador.
 - Un checkout del Merchant y otro del proveedor de pagos, en cualquier rama o commit. No hay
   commits fijados: la suite valida los checkouts actuales y registra el `HEAD` y el estado del
   Agent y del Merchant en la evidencia. Las pruebas HNP necesitan además HNP-M1 en el Merchant
@@ -94,16 +123,19 @@ Hay cinco grupos sobre el mismo PostgreSQL:
 | `RUN_LIVE_STACK` | `1` activa la suite. Con cualquier otro valor, cada prueba se omite e indica el motivo. |
 | `MERCHANT_REPO` | Ruta del checkout del Merchant. |
 | `PAYMENT_REPO` | Ruta del checkout del proveedor de pagos; solo la usan las compras. |
-| `RUN_LIVE_LLM` | Opcional y manual: `1` pone el modelo de OpenAI del entorno (`OPENAI_API_KEY`, `OPENAI_MODEL` exportados; el `.env` no se lee) detrás de la prueba conversacional y la del navegador en vez del router estático. Gasta dinero. |
+| `RUN_LIVE_LLM` | Opcional y manual: `1` pone el modelo de OpenAI del entorno (`OPENAI_API_KEY`, `OPENAI_MODEL` exportados; el `.env` no se lee) detrás de la prueba conversacional y de `b0-compra` en vez del router estático. Los recorridos de `test_live_browser_journeys.py` siempre usan el router guionado. Gasta dinero. |
 
 No hay más variables. Si se activa la suite y falta un requisito (`MERCHANT_REPO`, `docker`,
 `uv` o un sistema POSIX), la fixture `stack` falla con la lista de lo que falta en vez de omitir
-en silencio; lo mismo hacen cada carril de compras sin `PAYMENT_REPO` y la prueba del navegador
-sin `node` o sin `npm ci`. Los puertos los asigna el kernel en `127.0.0.1` (PostgreSQL
+en silencio; lo mismo hacen cada carril de compras sin `PAYMENT_REPO` y las pruebas del
+navegador sin `node`, sin `npm ci` o sin el Chromium de Playwright. Los puertos los asigna el kernel en `127.0.0.1` (PostgreSQL
 publicado, Merchant y proxy; `auth/` y Vite reciben uno libre) y las credenciales y claves AP2
 son sintéticas y aleatorias por ejecución; nunca se imprimen. Los procesos hijos reciben un entorno limpio (`clean_environment`: sin `OPENAI_*`, `DATABASE_URL`,
 `PG*`, `VIRTUAL_ENV`, etc.) y el Merchant corre con el directorio de la ejecución como `cwd`,
-así que no lee el `.env` de su checkout.
+así que no lee el `.env` de su checkout. El Agent de las pruebas del navegador corre en el
+proceso de pytest con `Settings` explícitos (`ExplicitSettings`: solo los valores que le pasa la
+prueba, sin el entorno ni el `.env`), y `BuyerUi` comprueba que `auth/` y Vite no reciben ninguna
+variable `OPENAI_*` y que, con el router guionado, el Agent no tiene clave ni modelo.
 
 ## Ejecución en macOS y Linux
 
@@ -123,12 +155,13 @@ Un módulo o un escenario: pase su archivo, o filtre por el identificador que ll
 `-k b2` también eligen las pruebas HNP de las condiciones B0-HNP y B2-HNP; `-k "b2 and not hnp"`
 las deja fuera. Con `--basetemp=<dir>` la evidencia queda en un lugar conocido.
 
-La suite completa (86 pruebas) tarda unos 13 minutos en macOS con OrbStack. Casi todo es 07B-B
+La suite completa (92 pruebas) tarda unos 13 minutos en macOS con OrbStack. Casi todo es 07B-B
 (marker `slow`): cada escenario hace una selección nueva sobre el catálogo completo del Merchant
 (cientos de lecturas de Offer por fase) y el Merchant reconstruye el catálogo en cada lectura.
-`-m "not slow"` deja 75 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
-las ocho gobernadas B2, las dieciséis HNP y la del navegador) en unos 3 minutos.
-`test_live_hnp.py` solo (16 pruebas) tarda alrededor de 1 minuto.
+`-m "not slow"` deja 81 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
+las ocho gobernadas B2, las dieciséis HNP y los siete recorridos del navegador) en unos 3 minutos.
+`test_live_hnp.py` solo (16 pruebas) tarda alrededor de 1 minuto y `-k browser` (7 recorridos)
+menos de 1 minuto.
 
 ## Evidencia y limpieza
 
@@ -142,8 +175,35 @@ Cada ejecución deja bajo `<basetemp>/live-stack0/`:
   exportan tipos y códigos de error, nunca mensajes, credenciales ni cuerpos.
 - `b0/`, `acp/` y `hnp/`: el `merchant.log`, `payment.log` y `merchant-control.log` de cada
   carril, sus feeds exportados y sus SQLite (Agent y proveedor). En `hnp/agent-<actor>/` quedan
-  el `agent.log` y la SQLite del Agent HNP de cada prueba. La prueba del navegador deja en
-  `b0/browser-<actor>/` el `auth.log`, el `ui.log`, sus SQLite y `browser.png`, la captura final.
+  el `agent.log` y la SQLite del Agent HNP de cada prueba. Cada recorrido del navegador deja en
+  `b0/browser-<actor>/` o `hnp/browser-<actor>/` el `auth.log`, el `ui.log`, sus SQLite y
+  `browser.png`, la captura final (la que sube el artefacto de `nightly.yml`).
+
+### Recorridos grabados
+
+La grabación está siempre activa. Cada recorrido deja en `.local/browser-journeys/<recorrido>/`
+(fuera de git; se reemplaza en cada ejecución):
+
+- `video.webm`: el recorrido completo, a la resolución de la ventana (1440 × 900, o 390 × 844 en
+  el teléfono).
+- `NN-<paso>.png`: una captura por paso de lo que la persona ve, numerada en orden (por ejemplo
+  `03-formulario.png`, `07-compra-hecha.png`). Antes de cada captura la página se desplaza solo
+  hacia arriba o hacia abajo, como lo haría la persona, así que lo que una caja recorta de lado
+  se ve cortado.
+- `trace.zip`: solo si el recorrido falló en el camino (una aserción o una espera vencida), con
+  capturas, DOM y red de cada acción. Un `ProductGap` se levanta al final, con el recorrido
+  completo, y no deja traza: sus brechas quedan en `evidence.jsonl`.
+
+El video se abre con cualquier navegador (`open .local/browser-journeys/hnp-compra/video.webm` en
+macOS, `xdg-open` en Linux) y la traza con el visor de Playwright:
+
+```sh
+uv run playwright show-trace .local/browser-journeys/hnp-escala/trace.zip
+```
+
+El artefacto de `nightly.yml` solo lleva la captura final de cada recorrido (`browser.png`, en el
+directorio de su carril); el video y las capturas por paso quedan en el checkout que corrió la
+suite.
 
 Al terminar la sesión se detiene el Merchant (SIGTERM al grupo de procesos) y se elimina el
 contenedor con sus volúmenes. Si pytest muere con `kill -9`, la limpieza no corre; los restos se
@@ -172,11 +232,16 @@ pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
   `on_checkout`, que arma los hooks y fallos de las rutas con el id del checkout antes de que el
   Agent las pida.
 - `live_browser.py`: `BuyerUi` (`auth/` y Vite como `NodeServer`, el Agent como `AgentServer`,
-  uvicorn en un hilo de este proceso) para un episodio de un carril.
+  uvicorn en un hilo de este proceso con `ExplicitSettings`) para un episodio de un carril y una
+  condición; puede reiniciar el Agent en el mismo puerto y disparar una tarea HNP con el token de
+  servicio. `Journey` graba un recorrido (video, capturas por paso y traza si falla) y
+  `ProductGap` marca lo que el producto aún no hace. `hnp_condition` (en `live_purchase.py`) da
+  las variables de una condición HNP que comparten `HnpAgent` y `BuyerUi`.
 - `live_merchant_control.py`: corre con el intérprete del Merchant. Aprovisiona con las
   funciones del propio Merchant (migraciones, episodios, sesiones, catálogo gestionado) y toma
   instantáneas y contadores de efectos; para las compras siembra episodios B0, exporta su feed,
-  despacha webhooks y avanza órdenes. Rechaza cualquier DSN, base, rol o `cluster_name` que no
+  despacha webhooks y avanza órdenes, y `reprice_offer` sube el precio de una oferta y
+  reexporta su feed. Rechaza cualquier DSN, base, rol o `cluster_name` que no
   sean los de la ejecución.
 - `live_agent_worker.py`: proceso del Agent para reinicios y caídas. Un audit hook limita sus
   sockets al proxy y sus escrituras al directorio de la ejecución.
