@@ -43,7 +43,8 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | `src/commerce_evaluation/hnp_pilot_episode.py` | un episodio HNP sobre el stack del piloto de gobernanza y lo que se lee después |
 | `src/commerce_evaluation/hnp_pilot_live.py` | corrida en vivo de `hnp-pilot`: servicios, agente por episodio, tope de costo y resumen |
 | `src/commerce_evaluation/hnp_pilot_scoring.py` | oráculo, métricas y costo de cada fila del piloto HNP |
-| `src/commerce_evaluation/hnp_pilot_agent.py` | agente de HN11 con el selector guionado inyectado por código |
+| `src/commerce_evaluation/hnp_pilot_agent.py` | agentes de los escenarios guionados (HN11, HR02, HR03) con el selector inyectado por código |
+| `src/commerce_evaluation/hnp_review_pilot.py`, `hnp_review_live.py`, `hnp_review_scoring.py` | piloto del revisor de intención HNP: plan, guardas, `--dry-run`, corrida en vivo, oráculo y resumen por hipótesis ([spec](../docs/design/hnp-review-pilot.md)) |
 | `src/commerce_evaluation/run_artifacts.py` | artefacto local de cada corrida de `governance-pilot` y `hnp-pilot` ([spec](../docs/design/run-traceability.md), T1) |
 | `src/commerce_evaluation/redaction.py` | redacción común de logs, errores y campos de fila (secretos conocidos y formas de secreto) |
 | `src/commerce_evaluation/flow_trace.py` | bloque `flow_trace` de cada fila de `hnp-pilot` y de `governance-pilot`: qué decidió y por qué, de `agent.db` y, en HP, `agent.graph.db` ([spec](../docs/design/run-traceability.md) §4.1, T3 y T4) |
@@ -428,6 +429,7 @@ La spec es [`hnp-pilot.md`](../docs/design/hnp-pilot.md) y el pre-registro,
 uv run hnp-pilot --dry-run                     # valida manifiesto y matriz, plan de 133 episodios y preparación
 uv run hnp-pilot --dry-run --scenario HN11     # un escenario: es un smoke
 HNP_PILOT_MAX_COST_USD=2 uv run hnp-pilot      # en vivo: lo corre el líder, con permiso de Yair
+uv run hnp-pilot --rescore results/hnp-pilot-v1/corrida1-hnp-pilot-069a0ec8adfe.jsonl  # puntúa de nuevo solo desde las filas
 ```
 
 - **`--dry-run`** no arranca servicios ni llama al modelo. Imprime el plan en el orden registrado
@@ -477,6 +479,38 @@ HNP_PILOT_MAX_COST_USD=2 uv run hnp-pilot      # en vivo: lo corre el líder, co
   `flow_trace` en la fila (arriba). El resumen suma `measurement_errors`: cuántas filas tienen cada
   clave de error de medición (`run_artifact`, `flow_trace`, …).
 
+## Piloto del revisor de intención HNP: B2-HNP y B2-HNP-R
+
+La spec es [`hnp-review-pilot.md`](../docs/design/hnp-review-pilot.md) y el pre-registro,
+[`data/hnp-review-pilot-v1.json`](data/hnp-review-pilot-v1.json) con
+[`data/hnp-review-scenarios.json`](data/hnp-review-scenarios.json). Corre sobre el runner
+`hnp-pilot` y su arnés (episodio, comprador, comercio CLI, medidor de costo): el manifiesto elige
+el piloto.
+
+```sh
+M=evaluation/data/hnp-review-pilot-v1.json
+uv run hnp-pilot --manifest $M --dry-run                          # 60 episodios, entorno y guardas
+uv run hnp-pilot --manifest $M --dry-run --smoke                  # una repetición por celda (6)
+uv run hnp-pilot --manifest $M --rescore results/<archivo>.jsonl  # puntúa de nuevo desde las filas
+HNP_REVIEW_PILOT_MAX_COST_USD=1 HNP_LIVE=1 uv run hnp-pilot --manifest $M  # en vivo: solo el líder
+```
+
+- **Condiciones.** Las dos son B2-HNP (`enforce`); solo cambia `AGENT_HNP_REVIEWER` (`off` y
+  `llm`). `/health` debe reportar `hnp_reviewer` con ese valor en cada repetición y la fila lo
+  guarda; sin él la invocación aborta.
+- **Escenarios.** HR01 (preferencia blanda, selector LLM), HR02 (preferencia firme, selector
+  guionado que devuelve `BBOnePlus11-128GB`) y HR03 (preferencia firme, guionado que devuelve el
+  Pixel 8). Los guionados arrancan `commerce_evaluation.hnp_pilot_agent:scenario.<id>`.
+- **Plan.** HR02, HR03 y HR01; por repetición las dos condiciones intercaladas, B2-HNP primero en
+  las impares y B2-HNP-R en las pares.
+- **Guardas.** Las del v1, con la aprobación `plan_approved` del manifiesto, su propio tope
+  (`HNP_REVIEW_PILOT_MAX_COST_USD`, máximo USD 1) y además R1 (`Settings.agent_hnp_reviewer`,
+  `Health.hnp_reviewer`, `choice_not_confirmed`) y las fábricas guionadas.
+- **Salida.** Cada fila suma `hnp_reviewer`, `agent_factory`, `observed.review` (eventos
+  `choice_reviewed` del ledger y los pasos de la traza HNP del producto) y métricas de revisión; el
+  resumen trae cada hipótesis (H-capture, H-utility, H-safety, H-trace, H-cost) con su conteo, su
+  umbral y si se cumple.
+
 ## Archivos
 
 - `data/b0-baseline.json`: commits, etiquetas, toolchain, modelo, fixtures y evidencia disponible.
@@ -492,6 +526,9 @@ HNP_PILOT_MAX_COST_USD=2 uv run hnp-pilot      # en vivo: lo corre el líder, co
 - `data/hnp-pilot-v1.json`, `data/hnp-scenarios.json`: pre-registro del piloto HNP v1 (EC-HNP-03)
   con las condiciones B0-HNP, B2-HNP y P y los escenarios HN01–HN11; runner `hnp-pilot`
   ([spec](../docs/design/hnp-pilot.md)).
+- `data/hnp-review-pilot-v1.json`, `data/hnp-review-scenarios.json`: pre-registro del piloto del
+  revisor de intención HNP con B2-HNP y B2-HNP-R y los escenarios HR01–HR03
+  ([spec](../docs/design/hnp-review-pilot.md)).
 - `data/hnp/cases.json`, `data/hnp/oracle.json`: corpus HNP de 27 casos y su oráculo separado.
 - `results/b0-pilot-v1.jsonl`: las 25 ejecuciones del piloto B0.
 - `results/b0-pilot-v1.summary.json`: agregado generado por el runner.
