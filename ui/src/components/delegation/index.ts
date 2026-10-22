@@ -20,3 +20,7 @@ export {
   DelegationStatusCard,
   type DelegationStatusCardProps,
 } from "@/components/delegation/delegation-status-card"
+export {
+  DelegationSearchFirst,
+  type DelegationSearchFirstProps,
+} from "@/components/delegation/delegation-search-first"

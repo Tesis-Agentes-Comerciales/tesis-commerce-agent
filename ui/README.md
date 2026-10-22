@@ -51,16 +51,25 @@ La aplicación queda en `http://127.0.0.1:5173` y espera la API del agente en
   recuperación gobernada (por qué el agente no siguió).
 - Los `result` de cada paso se validan antes de dibujarlos (`src/features/agent-results.ts`): el feed
   y las respuestas ACP no son confiables.
-- Delegaciones (Human Not Present, HNP-10): el botón «Delegaciones» de la cabecera solo aparece si
-  `GET /health` trae `hnp_enabled: true`; apagado, la UI no llama a ninguna ruta de delegaciones.
-  `src/features/delegations.tsx` abre un diálogo dentro del runtime con el formulario (las opciones
-  son las que el chat ya mostró en `search_catalog`), la propuesta con su consentimiento y «Mis
-  delegaciones» con «Revocar» y «Revocar todo», contra las rutas del comprador
-  (`src/lib/delegation-api.ts`, [`docs/design/hnp-governed.md`](../docs/design/hnp-governed.md)
-  §5.1). Cada acción relee lo que cambió; el destino viaja tal como lo escribió el comprador, y los
-  errores `{code, message}` muestran el `message` del backend salvo
-  `delegation_destination_unsupported`, que la UI explica. «Comprar desde el chat» de un
-  escalamiento escribe la compra HP en el compositor.
+- Delegaciones (Human Not Present, HNP-10): el selector «Modo de compra» de la cabecera
+  (`src/components/purchase-mode-switch.tsx`, radios nativos: Tab y flechas) solo aparece si
+  `GET /health` trae `hnp_enabled: true`; apagado, la cabecera es la de antes y la UI no llama a
+  ninguna ruta de delegaciones. «Comprar conmigo» es el chat (HP); «Delegar» abre el diálogo
+  «Delegaciones» de `src/features/delegations.tsx`, dentro del runtime, y al cerrarlo se vuelve a
+  «Comprar conmigo». El diálogo trae el formulario (las opciones son las que el chat ya mostró en
+  `search_catalog`; sin ninguna, una guía lleva de vuelta al chat a buscar; el total máximo lo
+  escribe el comprador, §3.2), la propuesta con su consentimiento y «Mis delegaciones» con
+  «Revocar» y «Revocar todo», contra las rutas del comprador (`src/lib/delegation-api.ts`,
+  [`docs/design/hnp-governed.md`](../docs/design/hnp-governed.md) §5.1). Cada acción relee lo que
+  cambió; el destino viaja tal como lo escribió el comprador, y los errores `{code, message}`
+  muestran el `message` del backend salvo `delegation_destination_unsupported`, que la UI explica.
+  «Comprar desde el chat» de un escalamiento escribe la compra HP en el compositor.
+- Gobernanza de una compra delegada: la tarjeta de una delegación cuya tarea ya tiene `run_id`
+  muestra «Gobernanza de la compra», la misma fila de actividad del chat con la línea de tiempo HNP
+  (`GET /purchases/{run_id}/trace`, `src/features/delegation-traces.ts`). Con el diálogo abierto,
+  la lista y las trazas se releen cada 2 s mientras una tarea está programada o en curso o una
+  traza no terminó; al cerrarlo se aborta lo que iba en camino y no queda ningún temporizador. Una
+  lectura que falla conserva la traza anterior o no muestra la gobernanza.
 
 ## Storybook
 

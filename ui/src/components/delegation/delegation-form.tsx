@@ -197,8 +197,12 @@ export function DelegationForm({
 
         {error && <ErrorNotice>{error}</ErrorNotice>}
 
-        {/* `aria-disabled` y no `disabled`: el botón pulsado conserva el foco. */}
-        <div className="grid grid-cols-1 gap-2 @xs:grid-cols-[auto_1fr]">
+        {/*
+          `aria-disabled` y no `disabled`: el botón pulsado conserva el foco. Lado a lado miden unos
+          370 px (más con DejaVu Sans en Linux): van juntos solo desde 28rem de tarjeta. A 390 px de
+          teléfono la tarjeta mide 324 y «Preparar la autorización» quedaba cortado (#134).
+        */}
+        <div className="grid grid-cols-1 gap-2 @md:grid-cols-[auto_1fr]">
           <button
             type="button"
             onClick={submitting ? undefined : onCancel}
