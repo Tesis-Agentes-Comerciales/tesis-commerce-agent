@@ -4,24 +4,36 @@ import io
 import json
 import os
 import signal
+import socket
+import sqlite3
 import subprocess
+import threading
 import time
 from argparse import Namespace
-from collections.abc import Mapping, Sequence
-from contextlib import suppress
-from dataclasses import replace
-from datetime import UTC, datetime
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import closing, contextmanager, suppress
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 
 from commerce_agent.config import Settings
-from commerce_agent.governance.bootstrap import build_enforce_gate, configured_d1
+from commerce_agent.delegation.bootstrap import load_hnp_trust
+from commerce_agent.delegation.models import TaskState
+from commerce_agent.governance.bootstrap import (
+    build_enforce_gate,
+    build_hnp_d1_gate,
+    configured_d1,
+)
 from commerce_agent.governance.evaluator import verify_artifact
 from commerce_agent.governance.provenance import merchant_pseudonym
+from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger, utc_text
 from commerce_evaluation import demo_stack
 from commerce_evaluation.demo_stack import (
+    HNP_SCHEDULED,
     OFFER_ID,
     OFFER_PRICE_MINOR,
     OFFER_STOCK,
@@ -30,6 +42,7 @@ from commerce_evaluation.demo_stack import (
     S04_PRICE_MINOR,
     DemoError,
     DemoPlan,
+    HnpKeys,
     Launcher,
     Ports,
     Service,
@@ -37,6 +50,8 @@ from commerce_evaluation.demo_stack import (
     base_environment,
     build_plan,
     describe,
+    hnp_problems,
+    preflight,
     read_model_settings,
     s04,
 )
@@ -68,7 +83,7 @@ def plan_for(mode: str, tmp_path: Path) -> DemoPlan:
         merchant_repo=tmp_path / "merchant",
         payment_repo=tmp_path / "payment",
         env_file=tmp_path / ".env",
-        secrets=StackSecrets.generate(governed=mode != "b0"),
+        secrets=StackSecrets.generate(governed=mode != "b0", hnp=demo_stack.MODES[mode].hnp),
         model={"OPENAI_API_KEY": MODEL_KEY, "OPENAI_MODEL": "gpt-5-mini"},
         base=base_environment(SHELL),
     )
@@ -147,6 +162,57 @@ def test_b0_turns_governance_off_without_d1_keys(
     assert not [name for name in plan.agent_env(MERCHANT_TOKEN) if name.startswith("AGENT_D1_")]
 
 
+def test_b2_hnp_is_b2_with_hnp_enabled_and_credentials_of_its_own(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = plan_for("b2-hnp", tmp_path)
+    keys = plan.secrets.hnp
+    assert keys is not None
+
+    settings = agent_settings(plan, monkeypatch)
+
+    # The same B2 (HP governed, b2-hp-v2) plus HNP, which the same agent process serves.
+    assert (settings.agent_governance_mode, settings.agent_hp_flow) == ("enforce", "governed")
+    assert d1_rules(settings) == ("b2-hp-v2", 1, ("POL-01", "POL-02", "POL-11"))
+    assert allowed_refs(settings) == ("http://127.0.0.1:5120", True)
+    assert settings.agent_hnp_enabled and settings.agent_hnp_selector == "llm"
+    assert settings.agent_hnp_agent_key_pem is not None
+    assert settings.agent_hnp_agent_key_pem.get_secret_value() != plan.secrets.agent_ap2_pem
+    assert len({keys.service_token, keys.operator_token}) == 2
+    assert min(len(keys.service_token), len(keys.operator_token)) >= 32
+    # The agent's own startup accepts it: trust, the HP enforce gate and D1-HNP.
+    load_hnp_trust(settings)
+    build_enforce_gate(settings, None)
+    build_hnp_d1_gate(settings, None)
+
+
+def test_b2_hnp_takes_the_deterministic_selector_as_the_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = replace(plan_for("b2-hnp", tmp_path), hnp_selector="deterministic")
+
+    settings = agent_settings(plan, monkeypatch)
+
+    assert settings.agent_hnp_selector == "deterministic"
+    load_hnp_trust(settings)
+
+
+@pytest.mark.parametrize("mode", ["b2", "b0", "pol02-deny"])
+def test_only_b2_hnp_turns_hnp_on(mode: str, tmp_path: Path) -> None:
+    plan = plan_for(mode, tmp_path)
+
+    assert plan.secrets.hnp is None
+    assert not [name for name in plan.agent_env(MERCHANT_TOKEN) if "HNP" in name]
+
+
+def test_each_launch_generates_new_hnp_credentials() -> None:
+    first, second = HnpKeys.generate(), HnpKeys.generate()
+
+    assert set(first.values()).isdisjoint(second.values())
+    assert "BEGIN PRIVATE KEY" in first.agent_key_pem
+    assert first.service_token not in repr(first) and first.agent_key_pem not in repr(first)
+
+
 @pytest.mark.parametrize("mode", sorted(demo_stack.MODES))
 def test_every_agent_variable_is_an_agent_setting(mode: str, tmp_path: Path) -> None:
     plan = plan_for(mode, tmp_path)
@@ -156,13 +222,17 @@ def test_every_agent_variable_is_an_agent_setting(mode: str, tmp_path: Path) -> 
 
 
 def test_each_secret_reaches_only_the_services_that_need_it(tmp_path: Path) -> None:
-    plan = plan_for("b2", tmp_path)
+    # b2-hnp carries every secret a launch can have: b2's and the HNP ones.
+    plan = plan_for("b2-hnp", tmp_path)
     keys = plan.secrets
-    assert keys.d1 is not None
+    assert keys.d1 is not None and keys.hnp is not None
     environments = {
         service.name: set(service.env.values()) for service in plan.services(MERCHANT_TOKEN)
     }
     owners = {
+        keys.hnp.agent_key_pem: {"agent"},
+        keys.hnp.service_token: {"agent"},
+        keys.hnp.operator_token: {"agent"},
         keys.d1.hmac_hex: {"agent"},
         keys.d1.aes_hex: {"agent"},
         MODEL_KEY: {"agent"},
@@ -178,6 +248,8 @@ def test_each_secret_reaches_only_the_services_that_need_it(tmp_path: Path) -> N
         keys.auth_secret: {"auth"},
     }
 
+    # A new secret of the launch cannot be left out of this table.
+    assert set(keys.values()) <= set(owners)
     for secret, expected in owners.items():
         assert {name for name, values in environments.items() if secret in values} == expected
     # The presenter's shell never reaches a service: no stray key, token, DSN or virtualenv.
@@ -219,6 +291,8 @@ def test_each_launch_gets_its_own_directory_and_agent_database(tmp_path: Path) -
         env_file=tmp_path / ".env",
         skip_postgres_start=True,
         keep_offer=False,
+        hnp_selector=None,
+        hnp_trigger_delay=None,
     )
 
     first = build_plan(arguments, now=datetime(2026, 10, 23, 14, 0, 0, tzinfo=UTC))
@@ -229,6 +303,44 @@ def test_each_launch_gets_its_own_directory_and_agent_database(tmp_path: Path) -
     assert first.agent_env("x")["AGENT_DATABASE_PATH"] == str(first.run_dir / "agent.db")
     assert first.secrets.values() != second.secrets.values()
     assert [label for label, _ in first.setup_steps()] == ["Migraciones del comercio"]
+
+
+def test_b2_hnp_options_default_to_the_model_selector_and_five_seconds(tmp_path: Path) -> None:
+    parse = demo_stack._up_parser().parse_args
+    common = ["--mode", "b2-hnp", "--env-file", str(tmp_path / ".env")]
+
+    default = build_plan(parse(common))
+    fallback = build_plan(
+        parse([*common, "--hnp-selector", "deterministic", "--hnp-trigger-delay", "2.5"])
+    )
+
+    assert (default.hnp_selector, default.hnp_trigger_delay) == ("llm", 5.0)
+    assert default.secrets.hnp is not None and default.secrets.d1 is not None
+    assert (fallback.hnp_selector, fallback.hnp_trigger_delay) == ("deterministic", 2.5)
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--hnp-selector", "deterministic"],
+        ["--mode", "pol02-deny", "--hnp-trigger-delay", "2"],
+        ["--mode", "b2-hnp", "--hnp-trigger-delay", "-1"],
+    ],
+    ids=["selector-without-hnp", "delay-without-hnp", "negative-delay"],
+)
+def test_hnp_options_are_refused_outside_b2_hnp_or_below_zero(
+    arguments: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def never(arguments: Namespace) -> DemoPlan:
+        raise AssertionError("no plan is built from refused options")
+
+    monkeypatch.setattr(demo_stack, "build_plan", never)
+
+    with pytest.raises(SystemExit) as exited:
+        demo_stack.up(arguments)
+
+    assert exited.value.code == 2
+    assert "--hnp" in capsys.readouterr().err
 
 
 def test_scripted_offer_is_the_pilot_target_and_the_s04_price_fits_the_budget() -> None:
@@ -270,7 +382,7 @@ class FakeProcess:
 class FakeLauncher(Launcher):
     """Merchant CLI, services and HTTP replaced; everything else is the real launcher."""
 
-    def __init__(self, plan: DemoPlan, *, health: dict[str, str], failing: str | None = None):
+    def __init__(self, plan: DemoPlan, *, health: dict[str, Any], failing: str | None = None):
         self.calls: list[tuple[str, ...]] = []
         self.spawned: dict[str, FakeProcess] = {}
         self.fake_health = health
@@ -366,6 +478,7 @@ def test_a_full_launch_prints_urls_and_mode_but_never_a_secret(tmp_path: Path) -
     assert "Comercios permitidos por POL-02: http://127.0.0.1:5120" in output
     assert "Política D1: b2-hp-v2 · revisión 1" in output
     assert "UI:    http://127.0.0.1:5174" in output and "Auth:  http://127.0.0.1:5215" in output
+    assert "HNP" not in output
     assert "[redactado]" in (plan.run_dir / "setup.log").read_text("utf-8")
     assert list(launcher.spawned) == ["payment", "merchant", "auth", "agent", "ui"]
     assert all(process.signals for process in launcher.spawned.values())
@@ -613,6 +726,42 @@ def test_dry_run_names_variables_but_shows_no_value(tmp_path: Path) -> None:
     assert "AGENT_D1_HMAC_KEY_HEX=[redactado]" in text
     assert "AGENT_GOVERNANCE_MODE=enforce" in text
     assert "✗ el puerto 5120 (comercio) está ocupado" in text
+    assert "HNP" not in text
+
+
+def test_dry_run_describes_b2_hnp_without_its_credentials(tmp_path: Path) -> None:
+    plan = plan_for("b2-hnp", tmp_path)
+    out = io.StringIO()
+
+    describe(plan, [], out)
+
+    text = out.getvalue()
+    assert_no_secret(text, plan)
+    for name in ("AGENT_HNP_AGENT_KEY_PEM", "AGENT_HNP_SERVICE_TOKEN", "AGENT_HNP_OPERATOR_TOKEN"):
+        assert f"{name}=[redactado]" in text
+    assert "AGENT_HNP_ENABLED=true" in text and "AGENT_HNP_SELECTOR=llm" in text
+    assert "AGENT_D1_POLICY_SET_ID=b2-hp-v2" in text
+    assert "HNP: selector llm · disparo automático a los 5 s (hnp.log)" in text
+
+
+def test_the_preflight_runs_the_agents_hnp_startup_check_without_starting_it(
+    tmp_path: Path,
+) -> None:
+    plan = plan_for("b2-hnp", tmp_path)
+    keys = plan.secrets.hnp
+    assert keys is not None
+    # Two equal tokens: the agent's HNP startup refuses them.
+    equal = replace(keys, operator_token=keys.service_token)
+    broken = replace(plan, secrets=replace(plan.secrets, hnp=equal))
+
+    assert hnp_problems(plan) == []
+    assert hnp_problems(plan_for("b2", tmp_path)) == []
+    [problem] = hnp_problems(broken)
+    assert problem.startswith("HNP: el agente no arrancaría")
+    assert "AGENT_HNP_OPERATOR_TOKEN must differ" in problem
+    assert problem in preflight(broken)
+    assert_no_secret(problem, broken)
+    assert not plan.run_dir.exists()
 
 
 @pytest.mark.parametrize(
@@ -941,3 +1090,300 @@ def test_s04_reports_an_unexpected_answer_without_a_traceback(
     assert "El comercio respondió con una oferta inesperada" in shown_error
     assert "Traceback" not in shown_error and "hunter2" not in shown_error
     assert out.getvalue() == ""
+
+
+# b2-hnp: /health at startup and the automatic trigger of delegated tasks --------------------------
+
+HNP_HEALTH = {
+    "governance_mode": "enforce",
+    "hp_flow": "governed",
+    "hnp_enabled": True,
+    "hnp_kill_switch": False,
+}
+NOW = datetime(2026, 10, 23, 15, 0, 0, tzinfo=UTC)
+TASK = "ht_" + "1" * 32
+RUNNING = {"task_id": TASK, "state": "running", "outcome_code": None, "run_id": "run_1"}
+
+
+def test_a_b2_hnp_launch_checks_hnp_in_health_and_announces_the_trigger(tmp_path: Path) -> None:
+    plan = plan_for("b2-hnp", tmp_path)
+    launcher = FakeLauncher(plan, health=HNP_HEALTH)
+
+    launcher.start()
+    launcher.stop()
+    launcher.close()
+
+    output = shown(launcher)
+    assert_no_secret(output, plan)
+    assert "Demo local · modo b2-hnp" in output
+    assert "governance_mode=enforce · hp_flow=governed" in output
+    assert "Política D1: b2-hp-v2 · revisión 1" in output
+    assert "HNP: activo · selector llm · disparo automático a los 5 s" in output
+    assert "ui" in launcher.spawned
+
+
+@pytest.mark.parametrize(
+    "hnp",
+    [{}, {"hnp_enabled": True, "hnp_kill_switch": True}, {"hnp_enabled": 1, "hnp_kill_switch": 0}],
+    ids=["hnp-off", "kill-switch-on", "not-booleans"],
+)
+def test_a_b2_hnp_launch_stops_if_health_does_not_report_hnp_ready(
+    hnp: dict[str, Any], tmp_path: Path
+) -> None:
+    plan = plan_for("b2-hnp", tmp_path)
+    launcher = FakeLauncher(
+        plan, health={"governance_mode": "enforce", "hp_flow": "governed", **hnp}
+    )
+
+    with pytest.raises(DemoError, match="hnp_enabled=True y hnp_kill_switch=False"):
+        launcher.start()
+    launcher.stop()
+    launcher.close()
+
+    assert "ui" not in launcher.spawned
+    assert launcher.spawned["agent"].signals
+
+
+def test_watch_runs_the_hnp_trigger_and_no_failure_of_it_stops_the_demo(tmp_path: Path) -> None:
+    plan = plan_for("b2-hnp", tmp_path)
+    launcher = FakeLauncher(plan, health=HNP_HEALTH)
+    launcher.start()
+    passes: list[datetime | None] = []
+
+    def trigger(now: datetime | None = None) -> list[str]:
+        passes.append(now)
+        raise RuntimeError("unexpected")
+
+    launcher.trigger_hnp_tasks = trigger  # type: ignore[method-assign]
+    launcher.spawned["agent"].poll = stops_after(2)  # type: ignore[method-assign]
+
+    with pytest.raises(DemoError, match="Agente se detuvo"):
+        launcher.watch(interval=0)
+    launcher.stop()
+    launcher.close()
+
+    assert len(passes) == 2
+    assert "RuntimeError" in (plan.run_dir / "hnp.log").read_text("utf-8")
+
+
+def test_watch_never_runs_the_hnp_trigger_outside_b2_hnp(tmp_path: Path) -> None:
+    plan = plan_for("b2", tmp_path)
+    launcher = FakeLauncher(plan, health={"governance_mode": "enforce", "hp_flow": "governed"})
+    launcher.start()
+    passes: list[datetime | None] = []
+    launcher.trigger_hnp_tasks = lambda now=None: passes.append(now) or []  # type: ignore[method-assign]
+    launcher.spawned["agent"].poll = stops_after(2)  # type: ignore[method-assign]
+
+    with pytest.raises(DemoError, match="Agente se detuvo"):
+        launcher.watch(interval=0)
+    launcher.stop()
+    launcher.close()
+
+    assert passes == []
+    assert not (plan.run_dir / "hnp.log").exists()
+
+
+@dataclass
+class AgentDouble:
+    """A local HTTP server in place of the agent: records each request, answers in order."""
+
+    port: int
+    requests: list[dict[str, Any]]
+    answers: list[tuple[int, dict[str, Any]]]
+
+
+@contextmanager
+def agent_double(*answers: tuple[int, dict[str, Any]]) -> Iterator[AgentDouble]:
+    double = AgentDouble(0, [], list(answers))
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length") or 0)
+            double.requests.append(
+                {
+                    "path": self.path,
+                    "headers": {name.lower(): value for name, value in self.headers.items()},
+                    "body": self.rfile.read(length),
+                }
+            )
+            status, body = double.answers.pop(0) if double.answers else (500, {})
+            data = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            return None
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    double.port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield double
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def hnp_plan(tmp_path: Path, agent_port: int, *, delay: float = 5.0) -> DemoPlan:
+    plan = plan_for("b2-hnp", tmp_path)
+    return replace(plan, ports=replace(plan.ports, agent=agent_port), hnp_trigger_delay=delay)
+
+
+def hnp_database(plan: DemoPlan) -> Path:
+    """The agent's database with the HNP ledger's own schema (persistence/delegation_sqlite.py)."""
+    database = plan.run_dir / "agent.db"
+    SqliteDelegationLedger(database).initialize()
+    return database
+
+
+def add_task(
+    database: Path, task_id: str, *, created_at: datetime, state: str = "scheduled"
+) -> None:
+    """A task row as the ledger writes it at consent (`scheduled`) or after a claim (`running`)."""
+    created = utc_text(created_at)
+    lease = ("lease_1", utc_text(created_at + timedelta(minutes=5)))
+    lease_id, lease_expires_at = lease if state == "running" else (None, None)
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute(
+            "INSERT INTO hnp_tasks (task_id, grant_id, owner_id, run_id, state, outcome_code, "
+            "claim_count, lease_id, lease_expires_at, created_at, updated_at, finished_at) "
+            "VALUES (?, ?, 'owner_1', NULL, ?, NULL, 0, ?, ?, ?, ?, NULL)",
+            (task_id, f"grant_{task_id}", state, lease_id, lease_expires_at, created, created),
+        )
+
+
+def hnp_shown(launcher: Launcher) -> tuple[str, str]:
+    """What the launcher printed (and logged in launcher.log), and its hnp.log."""
+    assert isinstance(launcher.out, io.StringIO)
+    run_dir = launcher.plan.run_dir
+    printed = launcher.out.getvalue() + (run_dir / "launcher.log").read_text("utf-8")
+    log = run_dir / "hnp.log"
+    return printed, log.read_text("utf-8") if log.is_file() else ""
+
+
+def free_port() -> int:
+    """A loopback port nobody listens on: connecting to it is refused."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def test_the_trigger_reads_a_state_the_agents_tasks_really_have() -> None:
+    assert HNP_SCHEDULED in get_args(TaskState)
+
+
+def test_the_hnp_trigger_runs_a_due_task_once_with_the_service_token_and_no_origin(
+    tmp_path: Path,
+) -> None:
+    with agent_double((202, RUNNING)) as agent:
+        plan = hnp_plan(tmp_path, agent.port)
+        launcher = Launcher(plan, io.StringIO())
+        database = hnp_database(plan)
+        add_task(database, TASK, created_at=NOW - timedelta(seconds=6))
+        # Only `scheduled` tasks are due: one already claimed or finished is not run from here.
+        add_task(database, "ht_claimed", created_at=NOW - timedelta(minutes=1), state="running")
+        add_task(database, "ht_done", created_at=NOW - timedelta(minutes=2), state="purchased")
+        before = database.read_bytes()
+
+        first = launcher.trigger_hnp_tasks(now=NOW)
+        # The task is still `scheduled` in this database, yet the launcher never runs it again.
+        later = launcher.trigger_hnp_tasks(now=NOW + timedelta(seconds=10))
+        launcher.close()
+
+    assert (first, later) == ([TASK], [])
+    assert [request["path"] for request in agent.requests] == [f"/internal/hnp/tasks/{TASK}/run"]
+    headers = agent.requests[0]["headers"]
+    assert plan.secrets.hnp is not None
+    assert headers["authorization"] == f"Bearer {plan.secrets.hnp.service_token}"
+    assert "origin" not in headers and agent.requests[0]["body"] == b""
+    # Read-only: the agent's database is left as it was.
+    assert database.read_bytes() == before
+    printed, log = hnp_shown(launcher)
+    assert f"{TASK} http=202 state=running" in log
+    assert f"· HNP: tarea {TASK} disparada (HTTP 202, running)" in printed
+    assert_no_secret(printed + log, plan)
+
+
+def test_the_hnp_trigger_waits_for_the_delay_after_the_consent(tmp_path: Path) -> None:
+    with agent_double((202, RUNNING)) as agent:
+        plan = hnp_plan(tmp_path, agent.port, delay=5)
+        launcher = Launcher(plan, io.StringIO())
+        add_task(hnp_database(plan), TASK, created_at=NOW)
+
+        early = launcher.trigger_hnp_tasks(now=NOW + timedelta(seconds=4.9))
+        sent_early = len(agent.requests)
+        due = launcher.trigger_hnp_tasks(now=NOW + timedelta(seconds=5))
+        launcher.close()
+
+    assert (early, sent_early, due) == ([], 0, [TASK])
+    assert len(agent.requests) == 1
+
+
+def test_a_refused_trigger_is_logged_and_never_retried(tmp_path: Path) -> None:
+    with agent_double() as agent:
+        plan = hnp_plan(tmp_path, agent.port)
+        assert plan.secrets.hnp is not None
+        # Even an answer that echoed the credential would reach neither the log nor the terminal.
+        echoed = f"no {plan.secrets.hnp.service_token}"
+        agent.answers.append((409, {"code": "hnp_task_not_runnable", "message": echoed}))
+        launcher = Launcher(plan, io.StringIO())
+        add_task(hnp_database(plan), TASK, created_at=NOW - timedelta(seconds=30))
+
+        rounds = [launcher.trigger_hnp_tasks(now=NOW + timedelta(seconds=s)) for s in (0, 2, 4)]
+        launcher.close()
+
+    assert rounds == [[TASK], [], []]
+    assert len(agent.requests) == 1
+    printed, log = hnp_shown(launcher)
+    assert log.count(TASK) == 1 and "http=409" in log and "code=hnp_task_not_runnable" in log
+    assert f"Aviso: la tarea HNP {TASK} no se pudo disparar (HTTP 409" in printed
+    assert "no se reintenta" in printed
+    assert_no_secret(printed + log, plan)
+
+
+def test_an_agent_that_does_not_answer_is_logged_and_the_task_is_not_retried(
+    tmp_path: Path,
+) -> None:
+    plan = hnp_plan(tmp_path, free_port())
+    launcher = Launcher(plan, io.StringIO())
+    add_task(hnp_database(plan), TASK, created_at=NOW - timedelta(seconds=30))
+
+    rounds = [launcher.trigger_hnp_tasks(now=NOW + timedelta(seconds=s)) for s in (0, 2)]
+    launcher.close()
+
+    assert rounds == [[TASK], []]
+    printed, log = hnp_shown(launcher)
+    assert log.count(TASK) == 1 and "error=ConnectError" in log
+    assert f"Aviso: la tarea HNP {TASK} no se pudo disparar (ConnectError" in printed
+    assert_no_secret(printed + log, plan)
+
+
+def test_an_unreadable_agent_database_is_announced_once_and_never_raises(tmp_path: Path) -> None:
+    with agent_double((202, RUNNING)) as agent:
+        plan = hnp_plan(tmp_path, agent.port)
+        launcher = Launcher(plan, io.StringIO())
+        database = plan.run_dir / "agent.db"
+
+        # Before the agent creates its database there is nothing to read, nor anything to say.
+        missing = launcher.trigger_hnp_tasks(now=NOW)
+        quiet = hnp_shown(launcher)
+        database.write_bytes(b"not a database, " * 64)
+        rounds = [launcher.trigger_hnp_tasks(now=NOW) for _ in range(3)]
+        database.unlink()
+        add_task(hnp_database(plan), TASK, created_at=NOW - timedelta(minutes=1))
+        recovered = launcher.trigger_hnp_tasks(now=NOW)
+        launcher.close()
+
+    assert (missing, quiet) == ([], ("", ""))
+    assert rounds == [[], [], []] and recovered == [TASK] and len(agent.requests) == 1
+    printed, log = hnp_shown(launcher)
+    terminal = launcher.out.getvalue()  # type: ignore[attr-defined]
+    assert terminal.count("Aviso: el lanzador no pudo leer las tareas HNP") == 1
+    assert "· HNP: lectura de las tareas restablecida" in terminal
+    assert_no_secret(printed + log, plan)
+    assert log.count("DatabaseError") == 3
