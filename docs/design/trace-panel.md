@@ -496,11 +496,31 @@ Las reglas, con su historia en `chat/Thread` y `agent/*`:
   Nunca hay aviso rojo ni «Se detuvo por un error». En el grupo, el paso es «Compra detenida antes
   del checkout», en ámbar, con «No se creó ningún checkout ni se hizo ningún cobro.».
 - **El producto de una compra bloqueada** va dentro de la tarjeta de bloqueo (imagen, nombre y
-  precio de catálogo); no hay tarjeta grande del producto. El orden final es «Pensó durante N s», la
-  fila de actividad y la tarjeta de bloqueo. Sin plan: la compra no siguió.
+  precio de catálogo); no hay tarjeta grande del producto. El orden final es el plan, «Pensó durante
+  N s», la fila de actividad y la tarjeta de bloqueo. El plan queda detenido en «Checkout», en ámbar
+  y con «La política la detuvo»: no es un error, así que no va en rojo.
 - **Seguimiento al aprobar o cancelar.** El mensaje que solo trae `purchase_update` no muestra plan
-  ni grupo «Pensando…»: solo la línea viva y, al terminar, su texto. El plan de la compra se retira
-  cuando la compra se resuelve, en vez de quedarse en el mensaje anterior.
+  ni grupo «Pensando…»: solo la línea viva y, al terminar, su texto. El plan de la compra sigue en
+  su propio mensaje.
+- **El plan no se quita a la vista.** Al terminar el turno (compra resuelta, bloqueo o pregunta), el
+  plan queda en su último estado («6 de 6», «Cancelaste la compra», «Esperando tu respuesta»). Se
+  retira cuando la persona vuelve a escribir, que es cuando el chat se mueve igual. Quitarlo al
+  aprobar subía de golpe el recibo unos 120 px. Un turno cortado (error o «Detener») no lo deja: su
+  paso quedó a medias. Así quieto, el paso que espera no late: con la página quieta nada se anima.
+  Solo late mientras una compra abierta espera la aprobación.
+- **El grupo no se abre solo.** Mientras corre, «Pensando…» queda plegado, con la cantidad de pasos
+  al lado, y la persona puede abrirlo. Abierto, cada paso que llegaba (el carrusel mide unos 600 px)
+  empujaba la línea viva, y al terminar el grupo se plegaba de golpe. El encabezado no repite el
+  paso actual: ya lo dicen la línea viva y el plan, y una tercera copia sería otra cosa pegada.
+- **La fila de actividad sale con el stream.** Aparece cuando empieza `prepare_checkout`, con el
+  `run_id` de sus `args`, ya a su altura final: «Comprando…», «Esperando tu aprobación» o «Bloqueada
+  por la política de compra», con el producto. No se abre hasta que llega la traza, que la completa
+  en su lugar con el comercio y la línea de tiempo. Si la traza no llega, la fila se va, salvo con un
+  bloqueo, que el stream ya da por terminado.
+- **Al enviar.** Mientras llega el primer frame, la librería muestra un mensaje provisional. Ese
+  mensaje ya lleva el encabezado «Pensando…» (todavía sin nada que abrir) y la línea viva, en el
+  mismo lugar que tendrán en el mensaje del servidor. La primera etiqueta de la línea entra sin
+  fundido; solo se funden los cambios.
 
 ### Auditoría (`ui/src/components/audit/`)
 
