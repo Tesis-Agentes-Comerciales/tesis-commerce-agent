@@ -148,7 +148,7 @@ function RereadTrace({ trace: initial }: { trace: PurchaseTrace }) {
 /** Al releer la traza cambia el estado: un lector de pantalla lo oye sin mover el foco. */
 export const AnnouncesStatusChanges: Story = {
   args: { trace: TRACES.awaitingApproval },
-  render: (args) => <RereadTrace trace={args.trace} />,
+  render: () => <RereadTrace trace={TRACES.awaitingApproval} />,
   play: async ({ canvas, userEvent }) => {
     const status = canvas.getByRole("status")
     await expect(status).toHaveTextContent("Esperando tu aprobación")
@@ -173,7 +173,7 @@ export const BlockedWithCard: Story = {
   render: (args) => (
     <div className="space-y-3">
       <PurchaseActivity {...args} />
-      <PolicyBlockedCard decision={decisionOf(args.trace)} />
+      <PolicyBlockedCard decision={decisionOf(TRACES.blockedMerchant)} />
     </div>
   ),
 }
@@ -436,4 +436,78 @@ export const Phone320Open: Story = {
 export const Mobile: Story = {
   args: { trace: TRACES.completedShadow, defaultOpen: true },
   globals: { viewport: { value: "mobile", isRotated: false } },
+}
+
+/**
+ * Antes de la traza: la fila sale con lo que dice el stream, a su altura final, y no se abre
+ * todavía. El comercio llega con la traza.
+ */
+export const FromStream: Story = {
+  args: {
+    trace: null,
+    stream: { status: "in_progress", summary: "Comprando…", product: "Sony WH-1000XM6 negro" },
+  },
+  play: async ({ canvas }) => {
+    const trigger = canvas.getByRole("button", { name: /Comprando…/ })
+    await expect(trigger).toBeDisabled()
+    await expect(canvas.getByText("Sony WH-1000XM6 negro")).toBeVisible()
+  },
+}
+
+export const FromStreamBlocked: Story = {
+  args: {
+    trace: null,
+    stream: {
+      status: "blocked",
+      summary: "Bloqueada por la política de compra",
+      product: "Sony WH-1000XM6 negro",
+    },
+  },
+}
+
+function TraceArrives() {
+  const [trace, setTrace] = useState<PurchaseTrace | null>(null)
+  return (
+    <div className="space-y-3">
+      <PurchaseActivity
+        trace={trace}
+        stream={{
+          status: "blocked",
+          summary: "Bloqueada por la política de compra",
+          product: "Sony WH-1000XM6 negro",
+        }}
+      />
+      <button type="button" onClick={() => setTrace(TRACES.blockedMerchant)}>
+        Llega la traza
+      </button>
+    </div>
+  )
+}
+
+/** Al llegar la traza, la fila se completa en su lugar: la misma altura, ahora se puede abrir. */
+export const TraceArrivesInPlace: Story = {
+  render: () => <TraceArrives />,
+  play: async ({ canvas, userEvent }) => {
+    const row = canvas.getByTestId("purchase-activity")
+    const before = row.getBoundingClientRect().height
+    await expect(row).toHaveAttribute("data-source", "stream")
+    await userEvent.click(canvas.getByRole("button", { name: "Llega la traza" }))
+    await expect(row).toHaveAttribute("data-source", "trace")
+    await expect(row.getBoundingClientRect().height).toBe(before)
+    await expect(
+      canvas.getByRole("button", { name: /Bloqueada por la política de compra/ }),
+    ).toBeEnabled()
+  },
+}
+
+export const FromStreamPhone320: Story = {
+  args: FromStreamBlocked.args,
+  render: (args) => (
+    <div className="w-[288px] px-2" data-testid="phone-column">
+      <PurchaseActivity {...args} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    await expectNoHorizontalOverflow(canvasElement, 288)
+  },
 }

@@ -1,11 +1,12 @@
 import { useAuiState, type ToolCallMessagePartProps } from "@assistant-ui/react"
+import { useEffect, useState } from "react"
 
 import {
   InterpretRequestStep,
   PrepareCheckoutStep,
   ProductCard,
-  ProductCardSkeleton,
   ProductCarousel,
+  ProductChoiceMarker,
   PurchaseApprovalCardSkeleton,
   PurchaseUpdateStep,
   SearchCatalogStep,
@@ -22,9 +23,12 @@ import {
   asPurchaseUpdateResult,
   asSearchResult,
   asSelectResult,
+  isRecord,
 } from "@/features/agent-results"
+import { policyBlockOf, stepErrorCode } from "@/features/policy-block"
 import { PurchaseApproval, StaleTermsApproval } from "@/features/purchase-approval"
 import { staleApprovalOf } from "@/features/stale-terms"
+import { productSlot } from "@/features/turn-layout"
 import type { AgentMessageStatus, AgentToolName } from "@/lib/agent-contract"
 
 type StepProps = ToolCallMessagePartProps<Record<string, unknown>, unknown>
@@ -45,6 +49,33 @@ function useSiblingResult(toolName: AgentToolName) {
   })
 }
 
+/** Otro paso del mismo mensaje, en el estado que tenga (en curso, terminado o fallido). */
+function useSiblingPart(toolName: AgentToolName) {
+  return useAuiState((state) => {
+    const part = state.message.parts.find(
+      (item) => item.type === "tool-call" && item.toolName === toolName,
+    )
+    return part?.type === "tool-call" ? part : undefined
+  })
+}
+
+/** `true` solo cuando `on` lleva `delayMs` seguidos: un estado breve no alcanza a pintarse. */
+function useAfterDelay(on: boolean, delayMs: number) {
+  const [late, setLate] = useState(false)
+  useEffect(() => {
+    if (!on) return
+    const timer = setTimeout(() => setLate(true), delayMs)
+    return () => {
+      clearTimeout(timer)
+      setLate(false)
+    }
+  }, [on, delayMs])
+  return on && late
+}
+
+// Una búsqueda rápida no pinta el esqueleto del carrusel: duraba un cuadro y se iba.
+const CAROUSEL_SKELETON_DELAY_MS = 300
+
 function successfulResult(part: StepProps) {
   return part.isError ? undefined : part.result
 }
@@ -64,9 +95,10 @@ export function SearchCatalogTool(part: StepProps) {
   const status = useStepStatus(part)
   const result = asSearchResult(successfulResult(part))
   const selected = asSelectResult(useSiblingResult("select_product"))
+  const slowSearch = useAfterDelay(status === "running", CAROUSEL_SKELETON_DELAY_MS)
   return (
     <SearchCatalogStep status={status} result={result} error={toolErrorMessage(part)}>
-      {status === "running" ? (
+      {slowSearch ? (
         // El paso ya se titula "Buscando en el catálogo…": el carrusel no lo repite en pantalla.
         <ProductCarousel products={[]} matches={0} loading quietHeading />
       ) : result && result.products.length > 0 ? (
@@ -87,6 +119,7 @@ export function PrepareCheckoutTool(part: StepProps) {
       status={status}
       result={asPrepareResult(successfulResult(part))}
       error={toolErrorMessage(part)}
+      blocked={policyBlockOf(stepErrorCode(part)) !== null}
     />
   )
 }
@@ -111,13 +144,24 @@ function ProminentStepError({ toolName, part }: { toolName: AgentToolName; part:
   )
 }
 
+/** Cuántas variantes compara el agente, de los `args` de `select_product`. */
+function candidateCount(args: unknown) {
+  const ids = isRecord(args) ? args.candidate_variant_ids : null
+  return Array.isArray(ids) ? ids.length : 0
+}
+
 export function SelectProductTool(part: StepProps) {
   const status = useStepStatus(part)
-  if (status === "running") return <ProductCardSkeleton />
+  const prepare = useSiblingPart("prepare_checkout")
+  const messageRunning = useAuiState((state) => state.message.status?.type === "running")
+  if (status === "running") return <ProductChoiceMarker candidates={candidateCount(part.args)} />
   if (status === "error") return <ProminentStepError toolName="select_product" part={part} />
   const result = asSelectResult(part.result)
   // Con `clarify` no hay producto: el texto final pide los detalles que faltan.
   if (result?.decision !== "select" || !result.product) return null
+  const slot = productSlot({ select: status, prepare, messageRunning })
+  if (slot === "none") return null
+  if (slot === "marker") return <ProductChoiceMarker product={result.product} />
   // Sin `rationale`: el texto final del turno ya dice por qué se eligió, y repetirlo en la tarjeta
   // hacía leer la misma frase dos veces en el mismo mensaje.
   return <ProductCard product={result.product} />

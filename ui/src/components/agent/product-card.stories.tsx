@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect } from "storybook/test"
 
 import { formatMoneyParts } from "@/components/agent/agent-format"
-import { ProductCard, ProductCardSkeleton } from "@/components/agent/product-card"
+import { ProductCard, ProductCardSkeleton, ProductChoiceMarker } from "@/components/agent/product-card"
 import { expectFitsPhoneColumn, PHONE_COLUMN } from "@/components/delegation/story-helpers"
 import {
   BRISA,
@@ -135,13 +135,36 @@ export const WithoutLink: Story = {
   },
 }
 
+/**
+ * Mientras el agente elige, el lugar de la tarjeta lo ocupa un marcador bajo y rotulado, no un
+ * esqueleto grande sin texto (trace-panel.md, «Mientras carga un turno»).
+ */
 export const Loading: Story = {
-  render: (args) => <ProductCardSkeleton variant={args.variant} />,
+  render: () => <ProductChoiceMarker candidates={3} />,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Eligiendo entre 3 opciones")).toBeVisible()
+    await expect(canvas.queryByTestId("product-card-hero")).toBeNull()
+  },
+}
+
+/** Producto elegido y checkout en preparación: el marcador ya lo nombra, con su precio. */
+export const LoadingChosen: Story = {
+  render: (args) => <ProductChoiceMarker product={args.product} />,
+  play: async ({ args, canvas }) => {
+    await expect(canvas.getByText(args.product.title)).toBeVisible()
+    const { amount } = formatMoneyParts(
+      args.product.observed_unit_amount_minor,
+      args.product.currency,
+    )
+    await expect(canvas.getByText(/Precio de catálogo/)).toHaveTextContent(
+      amount.replace(/\s+/g, " "),
+    )
+  },
 }
 
 export const CompactLoading: Story = {
   args: { variant: "compact" },
-  render: (args) => <ProductCardSkeleton variant={args.variant} />,
+  render: () => <ProductCardSkeleton />,
 }
 
 export const Mobile: Story = {

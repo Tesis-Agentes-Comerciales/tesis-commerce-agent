@@ -1,6 +1,7 @@
 import { cn } from "cn"
+import { useState } from "react"
 
-import { formatElapsed } from "@/components/agent/agent-format"
+import { formatLiveElapsed } from "@/components/agent/agent-format"
 
 import "./agent.css"
 
@@ -12,11 +13,16 @@ export type ThinkingIndicatorProps = {
 }
 
 /**
- * Línea de estado en vivo. La etiqueta se monta de nuevo cuando cambia, así entra con un fundido
- * y los lectores de pantalla la anuncian; el tiempo queda fuera de la región viva.
+ * Línea de estado en vivo: el paso actual y el tiempo. La etiqueta se monta de nuevo cuando cambia,
+ * así entra con un fundido y los lectores de pantalla la anuncian; el tiempo queda fuera de la región
+ * viva, con formato y ancho fijos para que no salte en cada tic. La primera etiqueta no se funde: al
+ * enviar, el mensaje provisional cede su lugar al del servidor y la línea no debe parpadear.
  */
 export function ThinkingIndicator({ label, elapsedMs, className }: ThinkingIndicatorProps) {
-  const elapsed = elapsedMs === undefined ? null : formatElapsed(elapsedMs)
+  const elapsed = elapsedMs === undefined ? null : formatLiveElapsed(elapsedMs)
+  const [firstLabel] = useState(label)
+  const [changed, setChanged] = useState(false)
+  if (!changed && label !== firstLabel) setChanged(true)
 
   return (
     <div
@@ -27,13 +33,16 @@ export function ThinkingIndicator({ label, elapsedMs, className }: ThinkingIndic
         <span className="agent-pulse-dot size-2.5 rounded-full bg-[#0d0d0d]" />
       </span>
       <span role="status" className="min-w-0 truncate font-medium">
-        <span key={label} className="agent-enter inline-block max-w-full truncate align-bottom">
+        <span
+          key={label}
+          className={cn("inline-block max-w-full truncate align-bottom", changed && "agent-enter")}
+        >
           <span className="agent-shimmer">{label}</span>
         </span>
       </span>
       {elapsed && (
         <span
-          className="shrink-0 rounded-full bg-[#f2f2f2] px-2 py-0.5 text-xs text-[#525252] tabular-nums"
+          className="min-w-[6ch] shrink-0 rounded-full bg-[#f2f2f2] px-2 py-0.5 text-center text-xs text-[#525252] tabular-nums"
           aria-hidden
         >
           {elapsed}
