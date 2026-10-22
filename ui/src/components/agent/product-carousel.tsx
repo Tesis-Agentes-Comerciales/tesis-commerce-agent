@@ -187,7 +187,7 @@ export function ProductCarousel({
           {loading
             ? Array.from({ length: 3 }, (_, index) => (
                 <li key={index} data-carousel-item className="w-[min(14rem,68vw)] shrink-0 snap-start">
-                  <ProductCardSkeleton variant="compact" />
+                  <ProductCardSkeleton />
                 </li>
               ))
             : products.map((product) => (

@@ -99,27 +99,32 @@ export const PLAN_STEPS = [
 ] as const
 
 export type PlanStepId = (typeof PLAN_STEPS)[number]["id"]
-export type PlanStepState = "pending" | "active" | "done" | "error"
+/** `stopped`: la política de compra detuvo la compra en ese paso; no es un error. */
+export type PlanStepState = "pending" | "active" | "done" | "error" | "stopped"
 
 export type PlanProgress = {
   /** Paso en curso; los anteriores se consideran hechos. `"done"` marca todo como hecho. */
   current: PlanStepId | "done" | null
   /** Paso que falló o se detuvo; los siguientes quedan pendientes. */
   failed?: PlanStepId | null
+  /** Paso en que la política de compra detuvo la compra; los siguientes quedan pendientes. */
+  stopped?: PlanStepId | null
   /** El paso en curso espera a la persona (por ejemplo, la aprobación) en vez de trabajar. */
   waiting?: boolean
 }
 
-export function planStepStates({ current, failed }: PlanProgress) {
+export function planStepStates({ current, failed, stopped }: PlanProgress) {
   const ids = PLAN_STEPS.map((step) => step.id)
-  const failedIndex = failed ? ids.indexOf(failed) : -1
+  const end = failed ?? stopped
+  const failedIndex = end ? ids.indexOf(end) : -1
+  const endState: PlanStepState = failed ? "error" : "stopped"
   const currentIndex =
     current === "done" ? ids.length : current === null ? -1 : ids.indexOf(current)
 
   return Object.fromEntries(
     ids.map((id, index): [PlanStepId, PlanStepState] => {
       if (failedIndex >= 0) {
-        return [id, index < failedIndex ? "done" : index === failedIndex ? "error" : "pending"]
+        return [id, index < failedIndex ? "done" : index === failedIndex ? endState : "pending"]
       }
       if (index < currentIndex) return [id, "done"]
       if (index === currentIndex) return [id, "active"]

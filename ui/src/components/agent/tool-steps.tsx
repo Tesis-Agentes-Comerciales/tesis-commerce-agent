@@ -1,5 +1,5 @@
 import { cn } from "cn"
-import { CheckIcon, LoaderCircleIcon, TriangleAlertIcon, XIcon } from "lucide-react"
+import { CheckIcon, LoaderCircleIcon, ShieldXIcon, TriangleAlertIcon, XIcon } from "lucide-react"
 import type { ReactNode } from "react"
 
 import {
@@ -14,7 +14,7 @@ import {
 import { toolStepLabel, type StepStatus } from "@/components/agent/agent-steps"
 import { chip } from "@/components/agent/agent-styles"
 import { ReasoningText } from "@/components/agent/reasoning-text"
-import { purchaseStageLabel } from "@/components/trace/trace-copy"
+import { NOTHING_CHARGED, purchaseStageLabel } from "@/components/trace/trace-copy"
 import type {
   InterpretRequestResult,
   PrepareCheckoutResult,
@@ -24,13 +24,17 @@ import type {
 
 import "./agent.css"
 
-const STATUS_TEXT: Record<StepStatus, string> = {
+/** `blocked`: el paso se detuvo a propósito (la política de compra), no falló. */
+type RowStatus = StepStatus | "blocked"
+
+const STATUS_TEXT: Record<RowStatus, string> = {
   running: "En curso",
   complete: "Completado",
   error: "Con error",
+  blocked: "Detenido",
 }
 
-function StatusIcon({ status }: { status: StepStatus }) {
+function StatusIcon({ status }: { status: RowStatus }) {
   return (
     <span
       className={cn(
@@ -38,18 +42,20 @@ function StatusIcon({ status }: { status: StepStatus }) {
         status === "complete" && "bg-[#ececec] text-[#0d0d0d]",
         status === "running" && "bg-white text-[#0d0d0d]",
         status === "error" && "bg-red-50 text-red-700",
+        status === "blocked" && "bg-amber-50 text-amber-900",
       )}
       aria-hidden
     >
       {status === "complete" && <CheckIcon className="size-3" strokeWidth={2.5} />}
       {status === "running" && <LoaderCircleIcon className="size-4 motion-safe:animate-spin" />}
       {status === "error" && <XIcon className="size-3" strokeWidth={2.5} />}
+      {status === "blocked" && <ShieldXIcon className="size-3.5" strokeWidth={2.25} />}
     </span>
   )
 }
 
 export type StepRowProps = {
-  status: StepStatus
+  status: RowStatus
   title: ReactNode
   /** Línea breve bajo el título. */
   summary?: ReactNode
@@ -235,9 +241,24 @@ export function PrepareCheckoutStep({
   result,
   elapsedMs,
   error,
+  blocked = false,
   children,
-}: StepProps<PrepareCheckoutResult>) {
+}: StepProps<PrepareCheckoutResult> & {
+  /** La política de compra detuvo la compra: no es un error, y la tarjeta de bloqueo lo explica. */
+  blocked?: boolean
+}) {
   const ready = result?.checkout_status === "ready_for_payment"
+
+  if (blocked) {
+    return (
+      <StepRow
+        status="blocked"
+        title="Compra detenida antes del checkout"
+        summary={NOTHING_CHARGED}
+        elapsedMs={elapsedMs}
+      />
+    )
+  }
 
   return (
     <StepRow
