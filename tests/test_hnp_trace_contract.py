@@ -22,6 +22,22 @@ def test_every_hnp_ui_fixture_is_present() -> None:
     assert len(HNP_FIXTURES) == 9
 
 
+@pytest.mark.parametrize("name", ["enforce-completed", "off-completed"])
+def test_a_completed_hnp_fixture_pays_the_single_use_before_its_order(name: str) -> None:
+    """As the assembler writes it: the payment receipt shares UoW-3 with the order, first."""
+    trace = json.loads((FIXTURES / "hnp" / f"{name}.json").read_text(encoding="utf-8"))
+    kinds = [item["kind"] for item in trace["steps"]]
+    payment = fixture_step(trace, "payment_authorized")
+    reserved = fixture_step(trace, "reservation")["amount"]
+    assert kinds.index("payment_authorized") + 1 == kinds.index("order_confirmed")
+    assert (payment["actor"], payment["max_minor"], payment["currency"]) == (
+        "payment",
+        reserved["minor"],
+        reserved["currency"],
+    )
+    assert payment["at"] == fixture_step(trace, "order_confirmed")["at"]
+
+
 @pytest.mark.parametrize("path", HNP_FIXTURES, ids=lambda path: path.stem)
 def test_hnp_ui_fixture_validates_and_round_trips(path: Path) -> None:
     raw = path.read_text(encoding="utf-8")
@@ -75,6 +91,11 @@ def hnp_fixture(name: str, change: Any) -> str:
             "enforce-completed",
             lambda trace: fixture_step(trace, "dispatch_decision").pop("decision"),
             id="no-decision",
+        ),
+        pytest.param(
+            "enforce-completed",
+            lambda trace: fixture_step(trace, "payment_authorized").update(max_minor=-1),
+            id="payment-amount",
         ),
         pytest.param(
             "revoked-in-flight",

@@ -30,6 +30,7 @@ from tests.governance.test_hnp_gate import GRANT, RUN, Delegated, delegated
 from tests.governance.test_shadow_integration import OWNER
 from tests.support import hnp_executor
 from tests.support.delegation import START
+from tests.support.hnp_dispatch import MerchantApi, Psp, dispatching
 from tests.support.hnp_executor import Bench, Merchant
 from tests.test_purchase_service import details
 
@@ -96,8 +97,41 @@ def ticking(monkeypatch: pytest.MonkeyPatch) -> Ticking:
     return clock
 
 
+@pytest.fixture
+def one_instant(monkeypatch: pytest.MonkeyPatch) -> Ticking:
+    """As in a run, the purchase writes at the ledger's last instant: UoW-3 records the receipts
+    and, in the same transaction, the order, both within one millisecond."""
+    clock = Ticking()
+    monkeypatch.setattr(hnp_executor, "AuthorityClock", lambda: clock)
+    monkeypatch.setattr(
+        "commerce_agent.persistence.sqlite._timestamp",
+        lambda: clock.now.isoformat().replace("+00:00", "Z"),
+    )
+    return clock
+
+
 def bench_trace(bench: Bench) -> PurchaseTrace:
     return PurchaseTraces(bench_settings(bench.path)).trace(bench.run_id())
+
+
+def dispatching_bench(tmp_path: Path, psp: Psp | None = None, **options: Any) -> Bench:
+    """The executor with the product's mandates and the dispatcher over the PSP and merchant
+    doubles: UoW-3 records both verified receipts and completes the purchase."""
+    return Bench(
+        tmp_path,
+        real_chains=True,
+        dispatcher=dispatching(psp or Psp(), MerchantApi()),
+        **options,
+    )
+
+
+def recorded_receipts(bench: Bench) -> list[tuple[str, str, str]]:
+    """(kind, status, recorded_at) of each `receipt_recorded` of the grant, in ledger order."""
+    return [
+        (event.body["kind"], event.body["status"], event.recorded_at)
+        for event in bench.ledger.events(bench.grant_id)
+        if event.event_type == "receipt_recorded"
+    ]
 
 
 # B2-HNP: the consent replaces the request; the policy decides three times, the buyer never.
@@ -154,7 +188,7 @@ def test_b2_hnp_shows_the_consent_the_three_decisions_and_the_single_use(governe
     (d3,) = of(trace, "dispatch_decision")
     assert (d3.actor, d3.decision.outcome, d3.decision.effect) == ("policy", "allow", "continued")
     assert rules(d3) == [("POL-09", "pass"), ("POL-10", "pass")]
-    # 09b (payment, receipts, order) is not on main: the dispatch is the last step so far.
+    # Nothing was sent yet: without the payment receipt there is no payment and no order.
     assert (trace.status, trace.policy_mode, trace.purchase_mode) == (
         "in_progress",
         "enforce",
@@ -387,6 +421,71 @@ def test_a_payment_attempt_without_its_receipt_shows_no_payment(
     assert not of(trace, "payment_authorized")
     assert not of(trace, "order_confirmed")
     assert (kinds(trace)[-1], trace.status) == ("mandates_closed", "in_progress")
+
+
+# The payment receipt `success` (UoW-3): the only proof of the PSP's token.
+
+
+@pytest.mark.parametrize("mode", ["off", "enforce"])
+def test_a_completed_purchase_shows_its_payment_receipt_before_the_order(
+    tmp_path: Path, ticking: Ticking, mode: str
+) -> None:
+    bench = dispatching_bench(tmp_path, mode=mode)
+    assert bench.run().status == "closed"
+    assert (bench.ended(), bench.purchase()) == (("purchased", None), ("completed", None))
+
+    trace = bench_trace(bench)
+
+    (payment,) = of(trace, "payment_authorized")
+    reserved, consumed = of(trace, "reservation")
+    # The checkout receipt is not a payment: one step, from the payment receipt, at its time.
+    [(_, _, paid_at), (kind, _, _)] = recorded_receipts(bench)
+    assert kind == "checkout"
+    assert (payment.id, payment.at, payment.actor, payment.state) == (
+        "payment_authorized",
+        paid_at,
+        "payment",
+        "done",
+    )
+    # Same shape as HP: the single use it paid, in COP.
+    assert (payment.max_minor, payment.currency, payment.duration_ms) == (
+        reserved.amount.minor,
+        "COP",
+        None,
+    )
+    assert trace.total == reserved.amount == consumed.amount
+    order = kinds(trace).index("order_confirmed")
+    assert kinds(trace).index("mandates_closed") < kinds(trace).index("payment_authorized") < order
+    assert (trace.status, trace.purchase_mode) == ("completed", "HNP")
+
+
+def test_the_payment_goes_before_the_order_it_shares_uow3_with(
+    tmp_path: Path, one_instant: Ticking
+) -> None:
+    """UoW-3 writes the receipts, the consumed single use and the order in one transaction: they
+    share their millisecond, and the payment the order needed goes first."""
+    bench = dispatching_bench(tmp_path)
+    assert bench.run().status == "closed"
+
+    trace = bench_trace(bench)
+
+    payment, order = of(trace, "payment_authorized")[0], of(trace, "order_confirmed")[0]
+    assert payment.at == order.at
+    assert kinds(trace)[-3:] == ["payment_authorized", "order_confirmed", "reservation"]
+    assert trace.steps[-1].id == "reservation:2"
+
+
+def test_a_psp_error_receipt_is_not_an_authorized_payment(tmp_path: Path, ticking: Ticking) -> None:
+    bench = dispatching_bench(tmp_path, Psp("invalid_credential"), mode="enforce")
+    bench.run()
+    assert bench.ended() == ("failed", "verifier_invalid_credential")
+    assert [receipt[:2] for receipt in recorded_receipts(bench)] == [("payment", "error")]
+
+    trace = bench_trace(bench)
+
+    assert not of(trace, "payment_authorized")
+    assert not of(trace, "order_confirmed")
+    assert trace.status == "failed"
 
 
 def test_k15_a_task_failed_with_the_purchase_selected_waits_for_d1(

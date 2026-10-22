@@ -656,7 +656,7 @@ La compra HNP vive en las mismas tablas que HP, para que la traza, `/me/purchase
 | --- | --- | --- |
 | `PurchaseService.start` con `purchase_mode=HNP` | `received` → `selected` → `checkout_prepared`, y ahí se detiene (HP sigue a `awaiting_confirmation`) | HNP-05 |
 | UoW-2 | `checkout_prepared` → `completing` | 09a, con el hook de HNP-05 |
-| Despacho, justo antes del primer envío al PSP | Sigue `completing`; `operation_keys` anota `payment.delegate` con la clave `<operation_id>:payment` y su hora, como HP antes de delegar. La traza toma de ahí `payment_authorized`; un reintento conserva la primera hora y una petición que no coincide con su digest no la anota | 09b |
+| Despacho, justo antes del primer envío al PSP | Sigue `completing`; `operation_keys` anota `payment.delegate` con la clave `<operation_id>:payment` y su hora, como HP antes de delegar. Un reintento conserva la primera hora y una petición que no coincide con su digest no la anota. La traza no toma de ahí `payment_authorized`: sale del recibo de pago `success` (§10) | 09b |
 | UoW-3 | `completing` → `completed` | 09b |
 | Tarea `uncertain` | `completing` → `uncertain` | 09b |
 | Deny de D1 o D1 no disponible dentro de `start` | Queda `received`: no hay checkout. El terminal de la tarea la pasa a `failed` con `failure_code` = `outcome_code`, o a `canceled` si escala (POL-11) | `start` (HNP-05); el terminal, 09a con el hook de HNP-05 |
@@ -1210,10 +1210,10 @@ historias.
 - **Lo que fijó HNP-11:** tampoco hay pasos `request` ni `selection` (el campo `request` es el texto
   del ejecutor, «Compra delegada»). `canceled.by` agrega `"expiry"` (`grant_expired`). Si la tarea
   falla con otro código que la compra (#93), su fallo es un segundo `failed` con id `failed:task`.
-  `escalated` va con `state: "blocked"`. `payment_authorized` HNP queda para 09b y solo sale con
-  la prueba del token, el recibo de pago `success` (`completion_results` o `receipt_recorded` del
-  pago); nunca de la etapa (`completing` desde UoW-2) ni de `payment.delegate`, que se anota antes
-  del primer envío al PSP. Fuentes y estados: `docs/design/trace-panel.md`, «Compra delegada».
+  `escalated` va con `state: "blocked"`. `payment_authorized` HNP solo sale con la prueba del
+  token: el `receipt_recorded` del pago con `status: "success"`, que anota la UoW-3, con el monto
+  reservado; nunca de la etapa (`completing` desde UoW-2) ni de `payment.delegate`, que se anota
+  antes del primer envío al PSP. Fuentes y estados: `docs/design/trace-panel.md`, «Compra delegada».
 
 ## 11. Condiciones
 

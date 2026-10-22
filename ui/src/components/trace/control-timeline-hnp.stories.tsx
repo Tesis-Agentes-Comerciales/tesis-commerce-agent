@@ -57,10 +57,13 @@ export const EnforceCompleted: Story = {
       "Uso único reservado",
       "Autorización cerrada por el agente",
       "Despacho autorizado",
+      "Pago autorizado",
       "Orden confirmada",
       "Uso único consumido",
     ])
     await expect(canvas.getByText(/^Hasta \$\s?2\.000\.000(,00)? COP · vence /)).toBeVisible()
+    // El recibo de pago del PSP: el monto del uso único, como el pago de HP.
+    await expect(rows(canvasElement)[9]).toHaveTextContent(/Hasta \$\s?1\.924\.000(,00)? COP/)
     await expect(canvas.getByText("Antes de cerrar la compra delegada")).toBeVisible()
     await expect(canvas.getByText("Antes de reservar el uso único")).toBeVisible()
     await expect(canvas.getByText("Antes de enviar el pago")).toBeVisible()
@@ -80,6 +83,7 @@ export const OffCompleted: Story = {
       "Checkout creado en el comercio",
       "Uso único reservado",
       "Autorización cerrada por el agente",
+      "Pago autorizado",
       "Orden confirmada",
       "Uso único consumido",
     ])

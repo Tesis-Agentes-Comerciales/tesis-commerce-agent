@@ -19,6 +19,7 @@ const HNP_KINDS: StepKind[] = [
   "reservation",
   "mandates_closed",
   "dispatch_decision",
+  "payment_authorized",
   "order_confirmed",
   "revoked",
   "escalated",
@@ -117,6 +118,9 @@ export const RejectsInvalidDelegatedSteps: Story = {
     )
     await expect(rejects(happy, (trace) => delete step(trace, "dispatch_decision").decision)).toThrow(
       `${at("dispatch_decision")}.decision`,
+    )
+    await expect(rejects(happy, (trace) => (step(trace, "payment_authorized").max_minor = -1))).toThrow(
+      `${at("payment_authorized")}.max_minor`,
     )
 
     const revoked = HNP_TRACES.revokedInFlight
