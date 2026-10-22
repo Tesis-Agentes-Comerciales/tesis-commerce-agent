@@ -38,3 +38,11 @@ El piloto B2 gobernado v2 (manifiesto `B2-PILOT-v2`) está en `b2-pilot-v2/`.
 - Contiene el lote 1, el lote 2 (S05, S06 y S08, una invocación por escenario) y la combinación que cuenta, con `SHA256SUMS`.
 - `b2-pilot-v2-report.md` resume los resultados frente a los criterios pre-registrados y explica la regla del lote de completitud.
 - En estos resúmenes, el campo `output` conserva la ruta absoluta que guardó el runner. No se reescribió.
+
+El piloto HNP v1 (manifiesto `HNP-PILOT-v1`, EC-HNP-03) está en `hnp-pilot-v1/`.
+- Contiene tres conjuntos de archivos, con `SHA256SUMS`:
+  - la corrida 1, que es la registrada;
+  - una réplica completa, que se reporta aparte;
+  - el smoke sobre `c7541f6`, que no cuenta como resultado.
+- `hnp-pilot-v1-report.md` resume cada corrida frente a los criterios pre-registrados y explica por qué hay dos. Ninguna reemplaza a la otra.
+- Los archivos se copiaron byte por byte. En estos resúmenes, el campo `results` conserva la ruta absoluta y el nombre que les dio el runner. No se reescribió.
