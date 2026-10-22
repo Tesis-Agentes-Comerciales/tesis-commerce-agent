@@ -342,12 +342,13 @@ def guards(manifest: dict[str, Any], **changes: Any) -> dict[str, dict[str, Any]
 
 def test_a_live_run_needs_every_guard(pilot: tuple[dict, dict]) -> None:
     manifest, _ = pilot
+    # Yair approved the registered manifest on 2026-10-22; a pending approval refuses a live run.
+    assert manifest["approval"]["status"] == "approved"
     approved = copy.deepcopy(manifest)
-    approved["approval"]["status"] = "approved"
     assert all(guard["ok"] for guard in guards(approved).values())
-    # The registered manifest is still pending Yair's approval: a live run refuses.
-    assert manifest["approval"]["status"] == "pending"
-    assert guards(manifest)["approval"]["ok"] is False
+    pending = copy.deepcopy(manifest)
+    pending["approval"]["status"] = "pending"
+    assert guards(pending)["approval"]["ok"] is False
     assert guards(approved, cost=CostCap.read(manifest, {}))["cost_cap"]["ok"] is False
     missing = {name: {"ready": name != "HNP-09b"} for name in hnp_pilot.REQUIRED_READINESS}
     assert guards(approved, readiness=missing)["integrations"]["missing"] == ["HNP-09b"]
@@ -367,7 +368,9 @@ def test_the_live_run_refuses_and_starts_nothing(
     monkeypatch.delenv("HNP_LIVE", raising=False)
     assert hnp_pilot.main([]) == 1
     error = capsys.readouterr().err
-    assert "refuses to start" in error and '"approval"' in error and '"hnp_live"' in error
+    assert "refuses to start" in error and '"hnp_live"' in error
+    # The registered manifest is approved, so the approval is not among the refused guards.
+    assert '"approval"' not in error
 
 
 def test_no_flag_relaxes_a_guard() -> None:
