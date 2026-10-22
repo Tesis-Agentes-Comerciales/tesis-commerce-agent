@@ -39,8 +39,9 @@ from commerce_evaluation.hnp_pilot_scoring import TERMINAL_TASK_STATES, escalati
 from commerce_evaluation.pilot_measures import read_only, read_psp_payments
 from commerce_evaluation.redaction import error_text
 
-GOVERNANCE_MODES = {"B0-HNP": "off", "B2-HNP": "enforce"}
-MERCHANT_LABELS = {"B0-HNP": "B0", "B2-HNP": "B2"}
+# B2-HNP-R is the review pilot's B2-HNP with the intent reviewer on (hnp-review-pilot.md).
+GOVERNANCE_MODES = {"B0-HNP": "off", "B2-HNP": "enforce", "B2-HNP-R": "enforce"}
+MERCHANT_LABELS = {"B0-HNP": "B0", "B2-HNP": "B2", "B2-HNP-R": "B2"}
 HEALTH_HNP_FIELDS = (
     "hnp_enabled",
     "hnp_kill_switch",
@@ -235,19 +236,28 @@ class Buyer(Protocol):
 Verifier = Callable[..., Mapping[str, Any] | None]
 
 
-def verify_health(condition: str, health: Mapping[str, Any]) -> dict[str, Any]:
-    """The condition `/health` reports; another one aborts the invocation (manifest)."""
+def verify_health(
+    condition: str, health: Mapping[str, Any], *, expected_reviewer: str | None = None
+) -> dict[str, Any]:
+    """The condition `/health` reports; another one aborts the invocation (manifest). With
+    `expected_reviewer` (the review pilot) the intent reviewer it reports must be that one too, and
+    the reading keeps it."""
     reported = {"governance_mode": health.get("governance_mode"), "hp_flow": health.get("hp_flow")}
     reported |= {name: health.get(name) for name in HEALTH_HNP_FIELDS}
+    required = f"governance_mode={GOVERNANCE_MODES[condition]}"
+    if expected_reviewer is not None:
+        reported["hnp_reviewer"] = health.get("hnp_reviewer")
+        required += f", hnp_reviewer={expected_reviewer}"
     if (
         reported["governance_mode"] != GOVERNANCE_MODES[condition]
         or reported["hnp_enabled"] is not True
         or reported["hnp_kill_switch"] is not False
         or any(reported[name] is None for name in HEALTH_HNP_FIELDS)
+        or (expected_reviewer is not None and reported["hnp_reviewer"] != expected_reviewer)
     ):
         raise ConditionMismatchError(
-            f"Agent /health reports {reported}, but {condition} requires governance_mode="
-            f"{GOVERNANCE_MODES[condition]}, hnp_enabled=true and hnp_kill_switch=false"
+            f"Agent /health reports {reported}, but {condition} requires {required}, "
+            "hnp_enabled=true and hnp_kill_switch=false"
         )
     return reported
 
@@ -327,8 +337,10 @@ def run_episode(
     poll_interval_seconds: float = 0.5,
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    expected_reviewer: str | None = None,
 ) -> EpisodeRun:
-    """Seed, start, consent, stimulate, trigger, poll; the agent is stopped on the way out."""
+    """Seed, start, consent, stimulate, trigger, poll; the agent is stopped on the way out.
+    `expected_reviewer` is the intent reviewer `/health` must report (the review pilot only)."""
     run_dir.mkdir(parents=True, exist_ok=True)
     feed = run_dir / "feed"
     run = EpisodeRun(merchant_run_id=merchant.seed(MERCHANT_LABELS[condition]))
@@ -343,7 +355,11 @@ def run_episode(
     except Exception as error:
         raise SeededEpisodeError(run, error) from error
     try:
-        run.health.append(verify_health(condition, agent.start(agent_variables)))
+        run.health.append(
+            verify_health(
+                condition, agent.start(agent_variables), expected_reviewer=expected_reviewer
+            )
+        )
         _consent(run, scenario, api, buyer)
         for stimulus in scenario.get("stimuli", []):
             _apply(
@@ -849,7 +865,7 @@ def observe(
         escalation = run.delegation_view.get("escalation")
         observed["escalation"] = escalation
         observed["escalation_view"] = escalation_view_shown(escalation)
-    if condition == "B2-HNP":
+    if GOVERNANCE_MODES[condition] == "enforce":
         governance = _measure(
             errors, "governance_evidence", lambda: read_governance(database, task_row.get("run_id"))
         )
