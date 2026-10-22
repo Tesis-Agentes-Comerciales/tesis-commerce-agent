@@ -461,6 +461,7 @@ const GOVERNED_STEPS = [
   "Uso único reservado",
   "Autorización cerrada por el agente",
   "Despacho autorizado",
+  "Pago autorizado",
   "Orden confirmada",
 ]
 
@@ -495,7 +496,7 @@ async function delegateAndWatchTheGovernance(page: Page, check: (step: string) =
   const governance = status.getByRole("group", { name: "Gobernanza de la compra" })
   await expect(governance.getByRole("button", { name: /^Comprando…/ })).toBeVisible()
 
-  // Terminó: la orden, el uso único consumido y las tres decisiones de la política.
+  // Terminó: el pago, la orden, el uso único consumido y las tres decisiones de la política.
   backend.traces.set(RUN_ID, { ...COMPLETED_TRACE, run_id: RUN_ID })
   backend.publish(consentedWith(PURCHASED.state, PURCHASED.task))
   await expect(status).toHaveAttribute("data-status", "purchased")

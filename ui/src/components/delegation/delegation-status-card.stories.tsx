@@ -436,7 +436,7 @@ export const TraceRunning: Story = {
 
 /**
  * Comprada: la misma traza que verá la auditoría. Las tres decisiones de `b2-hnp-v1`, el uso único
- * reservado y consumido, la orden y el detalle técnico con sus identificadores.
+ * reservado y consumido, el pago, la orden y el detalle técnico con sus identificadores.
  */
 export const TracePurchased: Story = {
   args: {
@@ -456,6 +456,7 @@ export const TracePurchased: Story = {
       "Uso único reservado",
       "Autorización cerrada por el agente",
       "Despacho autorizado",
+      "Pago autorizado",
       "Orden confirmada",
       "Uso único consumido",
     ])

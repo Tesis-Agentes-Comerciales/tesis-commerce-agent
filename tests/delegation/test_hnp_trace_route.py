@@ -19,6 +19,7 @@ from commerce_agent.trace.models import (
     AuthorizationDecisionStep,
     DispatchDecisionStep,
     OrderConfirmedStep,
+    PaymentAuthorizedStep,
     PolicyDecisionStep,
     PurchaseTrace,
     ReservationStep,
@@ -27,8 +28,8 @@ from tests.delegation.test_hnp_runtime import governed_hnp
 from tests.support.hnp_dispatch import HNP_ORDER_ID, HnpMerchant, Psp
 from tests.test_delegation_api import MERCHANT, SERVICE_TOKEN, TwoBuyers, bearer, buyer, delegated
 
-# What the owner sees of a B2-HNP purchase, in order. `payment_authorized` is left out on purpose:
-# whether the HNP trace emits it is a separate change (trace-panel.md, «Pendiente de 09b»).
+# What the owner sees of a B2-HNP purchase, in order, up to the payment (trace-panel.md, «Compra
+# delegada»): UoW-3 records the payment before the order, in the same millisecond.
 DELEGATED_STEPS = [
     "delegation_consented",
     "task_activated",
@@ -39,8 +40,9 @@ DELEGATED_STEPS = [
     "reservation",
     "mandates_closed",
     "dispatch_decision",
+    "payment_authorized",
 ]
-# The completion writes these together (UoW-3): only their set is fixed.
+# UoW-3 writes these with the payment: only their set is fixed.
 COMPLETION_STEPS = {"order_confirmed", "reservation"}
 
 
@@ -76,7 +78,7 @@ def test_the_owner_reads_the_governance_of_the_delegated_purchase(client: TestCl
     trace = PurchaseTrace.model_validate_json(response.text)
     assert (trace.run_id, trace.purchase_mode, trace.status) == (run_id, "HNP", "completed")
     assert (trace.policy_mode, trace.request) == ("enforce", "Compra delegada")
-    kinds = [step.kind for step in trace.steps if step.kind != "payment_authorized"]
+    kinds = [step.kind for step in trace.steps]
     assert kinds[: len(DELEGATED_STEPS)] == DELEGATED_STEPS
     assert sorted(kinds[len(DELEGATED_STEPS) :]) == sorted(COMPLETION_STEPS)
     # D1, D2-HNP and D3-HNP of b2-hnp-v1 allowed the purchase; the single use ends consumed.
@@ -90,8 +92,12 @@ def test_the_owner_reads_the_governance_of_the_delegated_purchase(client: TestCl
         ("authorization_decision", "b2-hnp-v1", "allow", "continued"),
         ("dispatch_decision", "b2-hnp-v1", "allow", "continued"),
     ]
-    outcomes = [step.outcome for step in trace.steps if isinstance(step, ReservationStep)]
-    assert outcomes == ["reserved", "consumed"]
+    reservations = [step for step in trace.steps if isinstance(step, ReservationStep)]
+    assert [step.outcome for step in reservations] == ["reserved", "consumed"]
+    # The delegated payment, from the PSP's success receipt: up to the single use's amount.
+    [payment] = [step for step in trace.steps if isinstance(step, PaymentAuthorizedStep)]
+    assert payment.actor == "payment"
+    assert (payment.max_minor, payment.currency) == (reservations[0].amount.minor, "COP")
     [order] = [step for step in trace.steps if isinstance(step, OrderConfirmedStep)]
     assert order.order_id == HNP_ORDER_ID
 

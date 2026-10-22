@@ -94,7 +94,7 @@ DELEGATED_STEPS = [
     "order_confirmed",
 ]
 # What the card's governance shows of a delegated purchase that completed (trace-panel.md,
-# «Compra delegada»); «Pago autorizado» is checked in the trace, where it is still missing.
+# «Compra delegada»); «Pago autorizado» is checked in the trace, with its own xfail.
 PURCHASED_CONTROLS = [
     "Delegación autorizada",
     "Compra delegada en marcha",
