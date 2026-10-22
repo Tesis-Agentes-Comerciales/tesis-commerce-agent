@@ -8,93 +8,30 @@ September joint E2E; the mapping is in tests/integration/README.md.
 
 import os
 import sqlite3
-from collections.abc import Iterator
-from contextlib import closing, contextmanager
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from contextlib import closing
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from commerce_agent.acp import ACPClient, ACPClientError, load_product_feed
-from commerce_agent.ap2 import AgentMandateSigner
+from commerce_agent.acp import ACPClientError, load_product_feed
 from commerce_agent.api import create_app
-from commerce_agent.application import PurchaseService
-from commerce_agent.approval import ApprovalService
-from commerce_agent.completion import CompletionError, CompletionService
+from commerce_agent.completion import CompletionError
 from commerce_agent.config import Settings
-from commerce_agent.delegated_payment import DelegatedPaymentClient
 from commerce_agent.domain import PurchaseIntent
-from commerce_agent.persistence import SqliteAgentStore
 from tests.integration.live_purchase import (
-    APPROVED_CARD,
+    APPROVED_AT,
     DECLINED_CARD,
+    OTHER_PHONE,
+    PHONE,
     PHONE_INTENT,
     PHONE_REQUEST,
-    Episode,
     PurchaseLane,
     StaticConversationRouter,
+    agent,
     buyer_details,
+    payments,
 )
-
-# The Human Present approval happens on the episode's synthetic clock.
-APPROVED_AT = datetime(2026, 9, 10, 14, 5, tzinfo=UTC)
-# Variants of the seeded B0 catalog (Sony Xperia 5 II and OnePlus 8T, 256 GB, new).
-PHONE = "Q100286751-256GB"
-OTHER_PHONE = "Q100348826-256GB"
-
-
-@dataclass
-class Agent:
-    """The Agent's purchase services for one episode, on the lane's Merchant origin."""
-
-    purchases: PurchaseService
-    approvals: ApprovalService
-    gateway: ACPClient
-    store: SqliteAgentStore
-
-    def completion(self, payments: DelegatedPaymentClient) -> CompletionService:
-        return CompletionService(self.gateway, self.approvals, payments, self.store)
-
-    def approve(self, run_id: str):
-        terms = self.purchases.approval_terms(run_id)
-        return self.purchases.approve(
-            run_id=run_id,
-            actor_id="human-live",
-            expected_fingerprint=terms.fingerprint,
-            checkout_jwt=terms.checkout_jwt,
-        )
-
-
-@contextmanager
-def agent(lane: PurchaseLane, episode: Episode) -> Iterator[Agent]:
-    signer = None
-    if lane.agent_key is not None:
-        signer = AgentMandateSigner(
-            lane.agent_key.get_secret_value(),
-            merchant_id="tesis_merchant",
-            merchant_name="Tesis Commerce Merchant",
-        )
-    approvals = ApprovalService(
-        lane.store,
-        lane.approval_secret,
-        merchant_origin=lane.origin,
-        clock=lambda: APPROVED_AT,
-        mandate_signer=signer,
-    )
-    with ACPClient(lane.origin, episode.bearer, timeout_seconds=10) as gateway:
-        purchases = PurchaseService(
-            feed=load_product_feed(episode.feed),
-            checkout=gateway,
-            store=lane.store,
-            approvals=approvals,
-        )
-        yield Agent(purchases, approvals, gateway, lane.store)
-
-
-def payments(lane: PurchaseLane, card: str = APPROVED_CARD) -> closing[DelegatedPaymentClient]:
-    return closing(DelegatedPaymentClient(lane.payment.origin, lane.payment_token, test_card=card))
 
 
 def receipts(lane: PurchaseLane, run_id: str) -> tuple[str | None, str | None] | None:

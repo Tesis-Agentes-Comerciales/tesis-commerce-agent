@@ -115,10 +115,10 @@ En macOS con OrbStack, 2026-10-20; los conteos y la fila HNP, 2026-10-21:
 
 | Selección | Pruebas | Tiempo |
 | --- | --- | --- |
-| `uv run pytest` (capas 1 y 5) | ~3250: ~3165 pasan y 81 se omiten | ~1,5 min |
-| `tests/integration` completa | 81 | ~13 min |
-| `tests/integration -m "not slow"` | 70 | ~3 min |
-| `tests/integration/test_live_hnp.py` | 11 | ~40 s |
+| `uv run pytest` (capas 1 y 5) | ~3250: ~3165 pasan y 86 se omiten | ~1,5 min |
+| `tests/integration` completa | 86 | ~13 min |
+| `tests/integration -m "not slow"` | 75 | ~3 min |
+| `tests/integration/test_live_hnp.py` | 16 | ~1 min |
 
 Los conteos salen de `uv run pytest --collect-only -q` con la selección de cada fila.
 

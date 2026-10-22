@@ -5,9 +5,9 @@ plus AP2 Human Present: signed mandates and receipts, order webhooks); `acp` is 
 completion the Agent still runs when AGENT_AP2_REQUIRED is off; `hnp` is Human Not Present
 (docs/design/hnp-governed.md): the same AP2 Merchant and provider, and an Agent API with
 AGENT_HNP_ENABLED in a process of its own (`HnpAgent`). Each lane owns a Merchant process behind
-its own FaultProxy, a payment provider from PAYMENT_REPO, the Agent's webhook receiver and a
-Merchant control worker with the same settings. Keys, tokens and secrets are synthetic, created
-per run and never written to the evidence.
+its own FaultProxy, a payment provider from PAYMENT_REPO (behind a second FaultProxy in `hnp`),
+the Agent's webhook receiver and a Merchant control worker with the same settings. Keys, tokens
+and secrets are synthetic, created per run and never written to the evidence.
 """
 
 import hmac
@@ -35,12 +35,17 @@ from fastapi.testclient import TestClient
 from jwcrypto.jwk import JWK
 from pydantic import SecretStr
 
+from commerce_agent.acp import ACPClient, load_product_feed
 from commerce_agent.acp.feed import ProductCandidate
 from commerce_agent.acp.models import Address, Buyer, FulfillmentDetails
+from commerce_agent.ap2 import AgentMandateSigner
 from commerce_agent.api import create_app
-from commerce_agent.application import CheckoutDetails
+from commerce_agent.application import CheckoutDetails, PurchaseService
+from commerce_agent.approval import ApprovalService
 from commerce_agent.buyer_auth import BuyerPrincipal
+from commerce_agent.completion import CompletionService
 from commerce_agent.config import Settings
+from commerce_agent.delegated_payment import DelegatedPaymentClient
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
 from commerce_agent.llm import (
     CandidateDecision,
@@ -52,6 +57,7 @@ from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.webhooks import create_webhook_app
 from tests.integration.live_stack import (
     AGENT,
+    MERCHANT_REPO,
     FaultProxy,
     LiveStack,
     MerchantControl,
@@ -84,6 +90,26 @@ PURCHASE_ROUTES = frozenset(
 )
 # Human Not Present sends the same, plus the cancel of its own checkout when it escalates (§8.2).
 HNP_ROUTES = PURCHASE_ROUTES | {("POST", "/checkout_sessions/*/cancel")}
+# What the HNP Agent sends the payment provider, behind the `hnp` lane's second FaultProxy.
+DELEGATE_PAYMENT = "/agentic_commerce/delegate_payment"
+PAYMENT_ROUTES = frozenset(
+    {
+        ("POST", DELEGATE_PAYMENT),
+        ("POST", "/agentic_commerce/payment_receipt"),
+        ("GET", "/.well-known/ap2/jwks.json"),
+    }
+)
+# A source line each verifier gained with its HNP chain support (HNP-M1 and HNP-P1).
+HNP_MERCHANT: tuple[Path, str, str] = (
+    Path("src/commerce_lab/ap2_checkout.py"),
+    'CHAIN_SEPARATOR = "~~"',
+    "HNP-M1",
+)
+HNP_PROVIDER: tuple[Path, str, str] = (
+    Path("src/tesis_payment_provider/ap2.py"),
+    "def is_mandate_chain(",
+    "HNP-P1",
+)
 # The conditions of hnp-governed.md §11 the product runs, and their governance mode.
 HNP_MODES = {"B0-HNP": "off", "B2-HNP": "enforce"}
 HNP_TERMINAL_STATES = frozenset({"purchased", "escalated", "failed", "canceled", "uncertain"})
@@ -119,6 +145,24 @@ def payment_requirements() -> list[str]:
     if not (Path(repository).expanduser() / "src" / "tesis_payment_provider").is_dir():
         return [f"{PAYMENT_REPO} pointing to a payment-provider checkout"]
     return []
+
+
+def hnp_requirements(merchant: Path) -> list[str]:
+    """Why the `hnp` lane cannot run on these checkouts: a Merchant without HNP-M1 or a provider
+    without HNP-P1 cannot verify `open~~closed` chains. The lane skips then; a missing
+    PAYMENT_REPO still fails, through `payment_requirements`."""
+    repository = os.environ.get(PAYMENT_REPO)
+    checkouts: list[tuple[Path, tuple[Path, str, str], str]] = [
+        (merchant, HNP_MERCHANT, MERCHANT_REPO)
+    ]
+    if repository:
+        checkouts.append((Path(repository).expanduser(), HNP_PROVIDER, PAYMENT_REPO))
+    missing = []
+    for root, (source, marker, ticket), variable in checkouts:
+        path = root / source
+        if not path.is_file() or marker not in path.read_text(encoding="utf-8"):
+            missing.append(f"{variable} with {ticket} (no `{marker}` in {source})")
+    return missing
 
 
 def ap2_key() -> tuple[str, str]:
@@ -232,6 +276,11 @@ class PurchaseLane:
         self.root = stack.root / profile
         self.root.mkdir()
         self.proxy = FaultProxy(HNP_ROUTES if profile == "hnp" else PURCHASE_ROUTES)
+        # HNP also puts a proxy between its Agents and the provider; the Merchant reaches the
+        # provider directly, as it would in production.
+        self.psp_proxy = FaultProxy(PAYMENT_ROUTES) if profile == "hnp" else None
+        # Injected faults and whether each ended closed, for `fail_open_rate` (`fault`).
+        self.faults: dict[str, bool | None] = {}
         self.database = self.root / "agent.sqlite"
         self.store = SqliteAgentStore(self.database)
         self.store.initialize()
@@ -284,6 +333,7 @@ class PurchaseLane:
             ("tesis_payment_provider.api:app_factory", "--factory"),
             payment_env,
             "/health",
+            self.psp_proxy,
         )
         self.merchant = ServiceServer(
             self.root,
@@ -299,6 +349,11 @@ class PurchaseLane:
     @property
     def origin(self) -> str:
         return self.proxy.origin
+
+    @property
+    def payment_origin(self) -> str:
+        """The provider as the lane's Agents reach it: through its proxy when there is one."""
+        return self.payment.origin if self.psp_proxy is None else self.psp_proxy.origin
 
     def start(self) -> None:
         self.payment.start()
@@ -325,15 +380,112 @@ class PurchaseLane:
         ) as db:
             return db.execute("SELECT count(*) FROM delegations").fetchone()[0]
 
+    @contextmanager
+    def fault(self, case: str) -> Iterator[Callable[..., None]]:
+        """One injected fault for `fail_open_rate` (hnp-pilot-v1.json, `out_of_matrix`). Once
+        the block measured the effects it calls `observe(closed=..., **facts)`: closed when the
+        fault left no order, token or send beyond what the authority in force allowed, open
+        otherwise. Facts are public counts and codes only. A block that ends before observing
+        (the test broke first) leaves the case unobserved."""
+        assert case not in self.faults, case
+
+        def observe(*, closed: bool, **facts: Any) -> None:
+            assert case not in self.faults, case
+            self.faults[case] = closed
+            self.stack.record(f"{self.profile}:fault", case=case, closed=closed, **facts)
+
+        try:
+            yield observe
+        finally:
+            if case not in self.faults:
+                self.faults[case] = None
+                self.stack.record(f"{self.profile}:fault", case=case, closed=None)
+
+    def fail_open_rate(self) -> dict[str, Any]:
+        """Open faults over the observed ones, with the cases behind both numbers."""
+        observed = {case: closed for case, closed in self.faults.items() if closed is not None}
+        opened = sorted(case for case, closed in observed.items() if not closed)
+        return {
+            "fail_open_rate": len(opened) / len(observed) if observed else None,
+            "open": len(opened),
+            "n": len(observed),
+            "open_cases": opened,
+            "cases": sorted(observed),
+            "unobserved": sorted(case for case, closed in self.faults.items() if closed is None),
+        }
+
     def close(self) -> None:
         try:
+            if self.faults:
+                self.stack.record(f"{self.profile}:fail_open_rate", **self.fail_open_rate())
             self.merchant.stop()
             self.payment.stop()
             if self.control is not None:
                 self.control.close()
         finally:
             self.proxy.close()
+            if self.psp_proxy is not None:
+                self.psp_proxy.close()
             self.receiver.close()
+
+
+# The Human Present approval happens on the episode's synthetic clock.
+APPROVED_AT = datetime(2026, 9, 10, 14, 5, tzinfo=UTC)
+# Variants of the seeded B0 catalog (Sony Xperia 5 II and OnePlus 8T, 256 GB, new).
+PHONE = "Q100286751-256GB"
+OTHER_PHONE = "Q100348826-256GB"
+
+
+@dataclass
+class Agent:
+    """The Agent's purchase services for one episode, on the lane's Merchant origin."""
+
+    purchases: PurchaseService
+    approvals: ApprovalService
+    gateway: ACPClient
+    store: SqliteAgentStore
+
+    def completion(self, payments: DelegatedPaymentClient) -> CompletionService:
+        return CompletionService(self.gateway, self.approvals, payments, self.store)
+
+    def approve(self, run_id: str):
+        terms = self.purchases.approval_terms(run_id)
+        return self.purchases.approve(
+            run_id=run_id,
+            actor_id="human-live",
+            expected_fingerprint=terms.fingerprint,
+            checkout_jwt=terms.checkout_jwt,
+        )
+
+
+@contextmanager
+def agent(lane: PurchaseLane, episode: Episode) -> Iterator[Agent]:
+    signer = None
+    if lane.agent_key is not None:
+        signer = AgentMandateSigner(
+            lane.agent_key.get_secret_value(),
+            merchant_id="tesis_merchant",
+            merchant_name="Tesis Commerce Merchant",
+        )
+    approvals = ApprovalService(
+        lane.store,
+        lane.approval_secret,
+        merchant_origin=lane.origin,
+        clock=lambda: APPROVED_AT,
+        mandate_signer=signer,
+    )
+    with ACPClient(lane.origin, episode.bearer, timeout_seconds=10) as gateway:
+        purchases = PurchaseService(
+            feed=load_product_feed(episode.feed),
+            checkout=gateway,
+            store=lane.store,
+            approvals=approvals,
+        )
+        yield Agent(purchases, approvals, gateway, lane.store)
+
+
+def payments(lane: PurchaseLane, card: str = APPROVED_CARD) -> closing[DelegatedPaymentClient]:
+    return closing(DelegatedPaymentClient(lane.payment.origin, lane.payment_token, test_card=card))
 
 
 class StaticConversationRouter:
@@ -464,7 +616,7 @@ class HnpAgent:
             MERCHANT_BEARER_TOKEN=episode.bearer.get_secret_value(),
             MERCHANT_WEBHOOK_SECRET=lane.webhook_secret.get_secret_value(),
             AGENT_APPROVAL_SECRET=lane.approval_secret.get_secret_value(),
-            PAYMENT_PROVIDER_URL=lane.payment.origin,
+            PAYMENT_PROVIDER_URL=lane.payment_origin,
             PAYMENT_AGENT_BEARER_TOKEN=lane.payment_token.get_secret_value(),
             AGENT_DATABASE_PATH=str(self.database),
             AGENT_FEED_SOURCE="file",

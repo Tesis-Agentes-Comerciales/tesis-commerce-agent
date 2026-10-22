@@ -5,7 +5,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from tests.integration.live_purchase import PurchaseLane, payment_requirements
+from tests.integration.live_purchase import PurchaseLane, hnp_requirements, payment_requirements
 from tests.integration.live_stack import FaultProxy, LiveStack, missing_requirements
 
 
@@ -76,11 +76,15 @@ def acp(acp_lane: PurchaseLane):
 
 @pytest.fixture(scope="session")
 def hnp_lane(stack: LiveStack):
+    if problems := hnp_requirements(stack.merchant):
+        pytest.skip("Human Not Present needs " + "; ".join(problems))
     yield from lane(stack, "hnp")
 
 
 @pytest.fixture
 def hnp(hnp_lane: PurchaseLane):
-    """Human Not Present: the B0 Merchant and provider, and an HNP Agent per episode."""
-    with checked(hnp_lane.proxy):
+    """Human Not Present: the B0 Merchant and provider, and an HNP Agent per episode. Both
+    proxies (Merchant and provider) start transparent and are checked after the test."""
+    assert hnp_lane.psp_proxy is not None
+    with checked(hnp_lane.proxy), checked(hnp_lane.psp_proxy):
         yield hnp_lane

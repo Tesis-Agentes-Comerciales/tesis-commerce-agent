@@ -1,15 +1,18 @@
 """Human Not Present purchases on the live stack (docs/design/hnp-governed.md §12, HNP-I1).
 
-The `hnp` lane: the real Merchant behind its FaultProxy, the real payment provider and, per
-episode, the Agent API with AGENT_HNP_ENABLED in a process of its own (`HnpAgent`), assembled by
-production `create_app` from its variables. The buyer proposes and consents by API with its token;
-the service token triggers the task; the deterministic selector picks. No model is configured.
+The `hnp` lane: the real Merchant and the real payment provider, each behind a FaultProxy, and
+per episode the Agent API with AGENT_HNP_ENABLED in a process of its own (`HnpAgent`), assembled
+by production `create_app` from its variables. The buyer proposes and consents by API with its
+token; the service token triggers the task; the deterministic selector picks. No model is
+configured. Every injected fault records whether it ended closed (`hnp.fault`), and the lane
+writes `hnp:fail_open_rate` to the evidence when it closes (tests/integration/README.md).
 """
 
 import re
 import sqlite3
 import threading
-from contextlib import closing
+from collections.abc import Callable, Iterator
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -62,16 +65,20 @@ from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenc
 from commerce_evaluation.verify_evidence import verify_database
 from commerce_evaluation.verify_evidence_hnp import HNP_LINKS
 from tests.integration.live_purchase import (
+    DELEGATE_PAYMENT,
+    OTHER_PHONE,
+    PHONE,
     HnpAgent,
     PurchaseLane,
+    agent,
     ap2_key,
     await_call,
     buyer_details,
     delegation_request,
     hnp_agent,
     on_checkout,
+    payments,
 )
-from tests.integration.test_live_purchase import OTHER_PHONE, PHONE, agent, payments
 from tests.support.ap2_hnp_fixtures import (
     INSTRUMENT,
     OTHER_MERCHANT,
@@ -84,6 +91,10 @@ from tests.support.ap2_hnp_fixtures import (
 COP = re.compile(r"\$\N{NO-BREAK SPACE}(\d{1,3}(?:\.\d{3})*),(\d{2}) COP")
 # Room over the catalog price for shipping: the scope's maximum includes it (§4.2).
 SHIPPING_ROOM_MINOR = 500_000_00
+# The Agent's Merchant timeout in the timeout case, set explicitly (MERCHANT_TIMEOUT_SECONDS).
+MERCHANT_TIMEOUT_SECONDS = 5.0
+# The provider client's own timeout, fixed in the product (`DelegatedPaymentClient`, 5 s).
+PSP_TIMEOUT_SECONDS = 5.0
 
 
 def catalog(feed: Path, variant: str) -> tuple[str, int]:
@@ -122,6 +133,14 @@ def mandates(agent: HnpAgent, grant_id: str) -> list[str]:
     )
 
 
+def closed_mandates(agent: HnpAgent) -> list[tuple[str, str]]:
+    """The Agent Key closures of the episode, as UoW-C wrote them."""
+    return agent.rows(
+        "SELECT kind, token_digest FROM delegation_mandates WHERE reservation_id IS NOT NULL "
+        "ORDER BY kind"
+    )
+
+
 def effects(lane: PurchaseLane) -> dict[str, int]:
     """What only an order or a payment leaves: Merchant orders and checkouts, and PSP tokens."""
     merchant = lane.rpc("effects")
@@ -147,6 +166,12 @@ def reservations(agent: HnpAgent, grant_id: str) -> list[tuple[str, str | None, 
         "SELECT state, release_basis, uncertain_reason FROM grant_reservations WHERE grant_id = ?",
         grant_id,
     )
+
+
+def within(delta: dict[str, int], *, orders: int, tokens: int) -> bool:
+    """No more orders or PSP tokens than the authority in force allowed: a fault that ends
+    within them is closed for `fail_open_rate`."""
+    return delta["orders"] <= orders and delta["tokens"] <= tokens
 
 
 def sent(lane: PurchaseLane, suffix: str) -> int:
@@ -296,7 +321,7 @@ def test_hnp_price_over_the_limit_escalates_without_signing(hnp, condition):
 def test_hnp_two_triggers_at_once_make_one_order(hnp):
     """The scheduler fires twice at the same moment: one claim wins the lease, the other gets
     409 `hnp_task_not_runnable`, and the Merchant and the PSP see a single purchase."""
-    with hnp_agent(hnp, "double", "B2-HNP") as agent:
+    with hnp.fault("double_trigger") as observe, hnp_agent(hnp, "double", "B2-HNP") as agent:
         _, price = catalog(agent.episode.feed, PHONE)
         before = effects(hnp)
         grant_id, task_id = scheduled(agent, price + SHIPPING_ROOM_MINOR, "hnp-double")
@@ -305,6 +330,8 @@ def test_hnp_two_triggers_at_once_make_one_order(hnp):
         [refused] = [answer for answer in answers if answer.status_code == 409]
         assert refused.json()["code"] == "hnp_task_not_runnable"
         task = agent.finished(task_id)
+        delta = grown(hnp, before)
+        observe(closed=within(delta, orders=1, tokens=1), state=task["state"], **delta)
         assert task["state"] == "purchased", task
         again = agent.trigger(task_id)
         assert (again.status_code, again.json()["code"]) == (409, "hnp_task_not_runnable")
@@ -320,7 +347,10 @@ def test_hnp_revocation_while_the_checkout_is_signed_releases_without_order_or_t
     """The buyer revokes while the Agent fetches the Checkout JWT, after UoW-1 reserved: the
     revocation releases the reservation, the closed mandates are never written, and neither the
     PSP nor the Merchant hears of a payment."""
-    with hnp_agent(hnp, "revoke", "B2-HNP") as agent:
+    with (
+        hnp.fault("revocation_between_d2_and_d3") as observe,
+        hnp_agent(hnp, "revoke", "B2-HNP") as agent,
+    ):
         _, price = catalog(agent.episode.feed, PHONE)
         before = effects(hnp)
         grant_id, task_id = scheduled(agent, price + SHIPPING_ROOM_MINOR, "hnp-revoke")
@@ -335,6 +365,8 @@ def test_hnp_revocation_while_the_checkout_is_signed_releases_without_order_or_t
         on_checkout(hnp.proxy, prepare)
         assert agent.trigger(task_id).status_code == 202
         task = agent.finished(task_id)
+        delta = grown(hnp, before)
+        observe(closed=within(delta, orders=0, tokens=0), outcome=task["outcome_code"], **delta)
         assert (task["state"], task["outcome_code"]) == ("canceled", "revoked_by_owner"), task
         assert task["message"] == HNP_MESSAGES["task.revoked_by_owner"]
         [answer] = receipts
@@ -428,7 +460,10 @@ def test_hnp_open_mandate_beyond_the_profile_is_never_paid(hnp, condition):
     """An unknown constraint in the open payment mandate. B2-HNP's D2 finds the authorization
     profile unresolved and escalates before reserving; B0-HNP has no PDP, so the PSP is the one
     that refuses it with a signed `unresolved_constraint` receipt (§8.2). No token, no order."""
-    with hnp_agent(hnp, f"beyond-{condition.lower()}", condition) as agent:
+    with (
+        hnp.fault(f"unknown_constraint:{condition}") as observe,
+        hnp_agent(hnp, f"beyond-{condition.lower()}", condition) as agent,
+    ):
         _, price = catalog(agent.episode.feed, PHONE)
         total_max = price + SHIPPING_ROOM_MINOR
         before = effects(hnp)
@@ -436,10 +471,18 @@ def test_hnp_open_mandate_beyond_the_profile_is_never_paid(hnp, condition):
         beyond_the_profile(agent, hnp, grant_id, total_max)
         assert agent.trigger(task_id).status_code == 202
         task = agent.finished(task_id)
+        delta = grown(hnp, before)
+        observe(closed=within(delta, orders=0, tokens=0), outcome=task["outcome_code"], **delta)
         delegation = agent.delegation(grant_id)
         if condition == "B2-HNP":
             expected = ("escalated", "authorization_profile_unresolved")
             assert (task["state"], task["outcome_code"]) == expected, task
+            # D2's runtime guard denies before any rule: the profile is unresolved (§8.1).
+            d1, d2 = [item.decision for item in decisions(agent, task["run_id"])]
+            assert (d1.phase, d1.outcome) == ("D1", "allow")
+            assert (d2.phase, d2.outcome, d2.origin) == ("D2", "deny", "runtime_guard")
+            assert d2.reason_codes == ("GOV_AUTHORIZATION_PROFILE_UNRESOLVED",)
+            assert d2.rule_results == ()
             assert delegation["escalation"]["message"] == escalation_message(expected[1])
             assert (delegation["state"], delegation["revoked_reason"]) == ("revoked", "escalated")
             assert reservations(agent, grant_id) == []
@@ -463,7 +506,10 @@ def test_hnp_crash_after_the_merchant_took_the_order_resumes_with_the_same_keys(
     never saw. A new process re-claims once the dead run's lease lapsed (its authority clock runs
     ahead instead of waiting) and resumes the outbox with the same keys: the PSP and the Merchant
     replay, so there is one token and one order, and nothing is closed again."""
-    with hnp_agent(hnp, "crash", "B2-HNP") as agent:
+    with (
+        hnp.fault("crash_with_complete_in_flight") as observe,
+        hnp_agent(hnp, "crash", "B2-HNP") as agent,
+    ):
         _, price = catalog(agent.episode.feed, PHONE)
         before = effects(hnp)
         grant_id, task_id = scheduled(agent, price + SHIPPING_ROOM_MINOR, "hnp-crash")
@@ -486,24 +532,17 @@ def test_hnp_crash_after_the_merchant_took_the_order_resumes_with_the_same_keys(
         await_call(hnp.proxy, "POST", f"/checkout_sessions/{checkout_id}/ap2/complete")
         assert agent.rows("SELECT state FROM dispatch_outbox") == [("complete_sent",)]
         assert grown(hnp, before)["orders"] == 1
-        closed = agent.rows(
-            "SELECT kind, token_digest FROM delegation_mandates WHERE reservation_id IS NOT NULL "
-            "ORDER BY kind"
-        )
+        closed = closed_mandates(agent)
 
         agent.restart(clock_ahead_seconds=LEASE_SECONDS + 30)
         assert agent.trigger(task_id).status_code == 202
         task = agent.finished(task_id)
+        delta = grown(hnp, before)
+        observe(closed=within(delta, orders=1, tokens=1), state=task["state"], **delta)
         assert task["state"] == "purchased", task
         assert len(keys) == 2 and keys[0] == keys[1], keys
         assert agent.rows("SELECT claim_count FROM hnp_tasks WHERE task_id = ?", task_id) == [(2,)]
-        assert (
-            agent.rows(
-                "SELECT kind, token_digest FROM delegation_mandates "
-                "WHERE reservation_id IS NOT NULL ORDER BY kind"
-            )
-            == closed
-        )
+        assert closed_mandates(agent) == closed
         assert grown(hnp, before) == {"orders": 1, "checkout_sessions": 1, "tokens": 1}
         assert hnp.proxy.count("POST", "/checkout_sessions") == 1
         with hnp.receiver.delivering_to(SqliteAgentStore(agent.database)):
@@ -514,10 +553,19 @@ def test_hnp_crash_after_the_merchant_took_the_order_resumes_with_the_same_keys(
 
 
 def test_hnp_merchant_timeout_leaves_the_task_uncertain_and_never_retries(hnp):
-    """`ap2/complete` answers after the Agent's 5 s timeout. The Merchant did take the order; the
-    Agent cannot know, so the task and the reservation stay `uncertain(dispatch_timeout)`, the
-    grant stays active and no second authorization is tried (manual reconciliation, §4.4)."""
-    with hnp_agent(hnp, "timeout", "B2-HNP") as agent:
+    """`ap2/complete` answers after the Agent's Merchant timeout, set here to 5 s. The Merchant did
+    take the order; the Agent cannot know, so the task and the reservation stay
+    `uncertain(dispatch_timeout)`, the grant stays active and no second authorization is tried
+    (manual reconciliation, §4.4)."""
+    with (
+        hnp.fault("merchant_timeout") as observe,
+        hnp_agent(
+            hnp,
+            "timeout",
+            "B2-HNP",
+            merchant_timeout_seconds=str(MERCHANT_TIMEOUT_SECONDS),
+        ) as agent,
+    ):
         _, price = catalog(agent.episode.feed, PHONE)
         before = effects(hnp)
         grant_id, task_id = scheduled(agent, price + SHIPPING_ROOM_MINOR, "hnp-timeout")
@@ -527,7 +575,7 @@ def test_hnp_merchant_timeout_leaves_the_task_uncertain_and_never_retries(hnp):
             paths.append(f"/checkout_sessions/{checkout_id}/ap2/complete")
             hnp.proxy.faults[paths[0]] = "delay"
 
-        hnp.proxy.delay_seconds = 6.5  # over AGENT's MERCHANT_TIMEOUT_SECONDS default of 5
+        hnp.proxy.delay_seconds = MERCHANT_TIMEOUT_SECONDS + 1.5
         on_checkout(hnp.proxy, prepare)
         assert agent.trigger(task_id).status_code == 202
         task = agent.finished(task_id)
@@ -539,11 +587,197 @@ def test_hnp_merchant_timeout_leaves_the_task_uncertain_and_never_retries(hnp):
         again = agent.trigger(task_id)
         assert (again.status_code, again.json()["code"]) == (409, "hnp_task_not_runnable")
         await_call(hnp.proxy, "POST", paths[0])
-        assert hnp.proxy.count("POST", paths[0]) == 1
+        delta = grown(hnp, before)
+        retried = hnp.proxy.count("POST", paths[0]) > 1
+        observe(
+            closed=within(delta, orders=1, tokens=1) and not retried,
+            outcome=task["outcome_code"],
+            **delta,
+        )
+        assert not retried
         assert agent.rows("SELECT count(*) FROM completion_results") == [(0,)]
         # The order the Agent never heard of: what the manual reconciliation has to find.
         assert grown(hnp, before) == {"orders": 1, "checkout_sessions": 1, "tokens": 1}
     hnp.stack.record("hnp:B2-HNP:timeout", outcome=task["outcome_code"])
+
+
+def test_hnp_revocation_after_the_commit_is_in_flight_and_the_order_stands(hnp):
+    """The buyer revokes once UoW-2 committed the outbox row, while `ap2/complete` is on its way
+    to the Merchant: the receipt says `in_flight` (no promise to cancel), the order arrives, the
+    reservation is consumed and the grant stays revoked (§4.4). One order, one token."""
+    with (
+        hnp.fault("revocation_after_commit") as observe,
+        hnp_agent(hnp, "revoke-late", "B2-HNP") as agent,
+    ):
+        _, price = catalog(agent.episode.feed, PHONE)
+        before = effects(hnp)
+        grant_id, task_id = scheduled(agent, price + SHIPPING_ROOM_MINOR, "hnp-revoke-late")
+        receipts: list[httpx.Response] = []
+
+        def revoke(_: bytes, __: dict[str, str]) -> None:
+            receipts.append(agent.revoke(grant_id))
+
+        def prepare(checkout_id: str) -> None:
+            hnp.proxy.before_forward[f"/checkout_sessions/{checkout_id}/ap2/complete"] = revoke
+
+        on_checkout(hnp.proxy, prepare)
+        assert agent.trigger(task_id).status_code == 202
+        task = agent.finished(task_id)
+        delta = grown(hnp, before)
+        observe(closed=within(delta, orders=1, tokens=1), state=task["state"], **delta)
+        [answer] = receipts
+        assert answer.status_code == 200, answer.text
+        receipt = answer.json()
+        assert (receipt["revoked_reason"], receipt["effect"]) == ("owner", "in_flight")
+        assert receipt["message"] == HNP_MESSAGES["revoke.in_flight"]
+        assert task["state"] == "purchased", task
+        delegation = agent.delegation(grant_id)
+        assert (delegation["state"], delegation["revoked_reason"]) == ("revoked", "owner")
+        assert reservations(agent, grant_id) == [("consumed", None, None)]
+        assert len(mandates(agent, grant_id)) == 4
+        assert sent(hnp, "/ap2/complete") == 1
+        assert delta == {"orders": 1, "checkout_sessions": 1, "tokens": 1}
+    hnp.stack.record("hnp:B2-HNP:revocation_after_commit", effect=receipt["effect"])
+
+
+def test_hnp_crash_after_the_reservation_fails_without_closing(hnp):
+    """SIGKILL while the Agent fetches the Checkout JWT, after UoW-1 reserved and before UoW-C
+    closed anything. The re-claim finds a reservation without its closed mandates and never
+    closes again: `failed(state_conflict)`, the reservation released, no token, no order."""
+    with (
+        hnp.fault("crash_after_reservation") as observe,
+        hnp_agent(hnp, "crash-reserved", "B2-HNP") as agent,
+    ):
+        _, price = catalog(agent.episode.feed, PHONE)
+        before = effects(hnp)
+        grant_id, task_id = scheduled(agent, price + SHIPPING_ROOM_MINOR, "hnp-crash-reserved")
+        crashed = threading.Event()
+
+        def crash(_: bytes, __: dict[str, str]) -> None:
+            agent.crash()  # the read still goes on to the Merchant; nothing awaits it
+            crashed.set()
+
+        def prepare(checkout_id: str) -> None:
+            hnp.proxy.before_forward[f"/checkout_sessions/{checkout_id}/ap2/checkout-jwt"] = crash
+
+        on_checkout(hnp.proxy, prepare)
+        assert agent.trigger(task_id).status_code == 202
+        assert crashed.wait(60)
+        assert reservations(agent, grant_id) == [("reserved", None, None)]
+        assert closed_mandates(agent) == []
+
+        agent.restart(clock_ahead_seconds=LEASE_SECONDS + 30)
+        assert agent.trigger(task_id).status_code == 202
+        task = agent.finished(task_id)
+        delta = grown(hnp, before)
+        closures = len(closed_mandates(agent))
+        observe(
+            closed=within(delta, orders=0, tokens=0) and closures == 0,
+            outcome=task["outcome_code"],
+            closures=closures,
+            **delta,
+        )
+        assert (task["state"], task["outcome_code"]) == ("failed", "state_conflict"), task
+        assert reservations(agent, grant_id) == [("released", "no_outbox", None)]
+        assert closures == 0
+        assert agent.rows("SELECT count(*) FROM dispatch_outbox") == [(0,)]
+        assert hnp.psp_proxy is not None and hnp.psp_proxy.count("POST", DELEGATE_PAYMENT) == 0
+        assert sent(hnp, "/ap2/complete") == 0
+        assert delta == {"orders": 0, "checkout_sessions": 1, "tokens": 0}
+    hnp.stack.record("hnp:B2-HNP:crash_after_reservation", outcome=task["outcome_code"])
+
+
+@pytest.mark.parametrize("point", ["outbox_row", "psp_token"])
+def test_hnp_crash_around_the_psp_token_resumes_with_the_same_key(hnp, point):
+    """SIGKILL once UoW-2 committed the outbox row: before the PSP got the request (`outbox_row`:
+    the provider's proxy kills the Agent and never forwards) or once the PSP issued the token
+    the Agent never received (`psp_token`). The re-claim resumes the dispatch with the same key:
+    the PSP issues the token once or replays it, and there is one order."""
+    psp = hnp.psp_proxy
+    assert psp is not None
+    with (
+        hnp.fault(f"crash_after_{point}") as observe,
+        hnp_agent(hnp, f"crash-{point.replace('_', '-')}", "B2-HNP") as agent,
+    ):
+        _, price = catalog(agent.episode.feed, PHONE)
+        before = effects(hnp)
+        grant_id, task_id = scheduled(agent, price + SHIPPING_ROOM_MINOR, f"hnp-crash-{point}")
+        keys: list[str] = []
+        crashed = threading.Event()
+
+        def crash() -> None:
+            agent.crash()
+            crashed.set()
+
+        def delegate(_: bytes, headers: dict[str, str]) -> None:
+            keys.append({name.lower(): value for name, value in headers.items()}["idempotency-key"])
+            if len(keys) == 1 and point == "outbox_row":
+                crash()
+
+        def answered() -> None:
+            if len(keys) == 1 and point == "psp_token":
+                crash()
+
+        psp.before_forward[DELEGATE_PAYMENT] = delegate
+        psp.after_answer[DELEGATE_PAYMENT] = answered
+        if point == "outbox_row":
+            psp.faults[DELEGATE_PAYMENT] = "status_503"  # answered by the proxy, never forwarded
+        assert agent.trigger(task_id).status_code == 202
+        assert crashed.wait(60)
+        assert agent.rows("SELECT state FROM dispatch_outbox") == [("payment_sent",)]
+        assert grown(hnp, before)["tokens"] == (1 if point == "psp_token" else 0)
+        closed = closed_mandates(agent)
+        assert len(closed) == 2
+
+        psp.faults.clear()
+        agent.restart(clock_ahead_seconds=LEASE_SECONDS + 30)
+        assert agent.trigger(task_id).status_code == 202
+        task = agent.finished(task_id)
+        delta = grown(hnp, before)
+        observe(closed=within(delta, orders=1, tokens=1), state=task["state"], **delta)
+        assert task["state"] == "purchased", task
+        assert len(keys) == 2 and keys[0] == keys[1], keys
+        assert agent.rows("SELECT claim_count FROM hnp_tasks WHERE task_id = ?", task_id) == [(2,)]
+        assert closed_mandates(agent) == closed
+        assert sent(hnp, "/ap2/complete") == 1
+        assert delta == {"orders": 1, "checkout_sessions": 1, "tokens": 1}
+        assert agent.delegation(grant_id)["state"] == "consumed"
+    hnp.stack.record(f"hnp:B2-HNP:crash_after_{point}", orders_created=1, claims=2)
+
+
+def test_hnp_psp_timeout_leaves_the_task_uncertain_without_an_order(hnp):
+    """`delegate_payment` answers after the provider client's 5 s timeout. The PSP issued a
+    token the Agent never received; the Agent cannot know, so the task and the reservation stay
+    `uncertain(dispatch_timeout)`, nothing reaches the Merchant and nothing is retried."""
+    psp = hnp.psp_proxy
+    assert psp is not None
+    with hnp.fault("psp_timeout") as observe, hnp_agent(hnp, "psp-timeout", "B2-HNP") as agent:
+        _, price = catalog(agent.episode.feed, PHONE)
+        before = effects(hnp)
+        grant_id, task_id = scheduled(agent, price + SHIPPING_ROOM_MINOR, "hnp-psp-timeout")
+        psp.faults[DELEGATE_PAYMENT] = "delay"
+        psp.delay_seconds = PSP_TIMEOUT_SECONDS + 1.5
+        assert agent.trigger(task_id).status_code == 202
+        task = agent.finished(task_id)
+        await_call(psp, "POST", DELEGATE_PAYMENT)
+        delta = grown(hnp, before)
+        retried = psp.count("POST", DELEGATE_PAYMENT) > 1
+        observe(
+            closed=within(delta, orders=0, tokens=1) and not retried,
+            outcome=task["outcome_code"],
+            **delta,
+        )
+        assert (task["state"], task["outcome_code"]) == ("uncertain", "dispatch_timeout"), task
+        assert reservations(agent, grant_id) == [("uncertain", None, "dispatch_timeout")]
+        assert agent.rows("SELECT state FROM dispatch_outbox") == [("uncertain",)]
+        assert agent.delegation(grant_id)["state"] == "active"
+        again = agent.trigger(task_id)
+        assert (again.status_code, again.json()["code"]) == (409, "hnp_task_not_runnable")
+        assert not retried
+        assert sent(hnp, "/ap2/complete") == 0
+        # The token the Agent never received: a side effect without an order, never charged.
+        assert delta == {"orders": 0, "checkout_sessions": 1, "tokens": 1}
+    hnp.stack.record("hnp:B2-HNP:psp_timeout", outcome=task["outcome_code"])
 
 
 class LiveChains:
@@ -647,15 +881,16 @@ class LiveChains:
         return datetime.now(UTC)
 
 
-def psp_rejects(
+def psp_verdict(
     provider: DelegatedPaymentClient,
     checkout: CheckoutSession,
     token: str,
     chains: tuple[str, str],
     key: str,
 ) -> str:
-    """The AP2 code of the PSP's signed error receipt for `chains`; it issues no token."""
-    with pytest.raises(DelegationError) as rejected:
+    """The AP2 code of the PSP's signed error receipt for `chains`, or `accepted` if it issued
+    a token."""
+    try:
         provider.hnp_payment_data(
             checkout=checkout,
             idempotency_key=key,
@@ -663,20 +898,38 @@ def psp_rejects(
             payment_mandate=chains[1],
             checkout_mandate=chains[0],
         )
-    error = rejected.value
-    assert error.status_code == 422 and error.receipt is not None, error.code
-    return provider.verify_error_receipt(error.receipt, mandate=chains[1])["error"]
+    except DelegationError as error:
+        assert error.status_code == 422 and error.receipt is not None, error.code
+        return provider.verify_error_receipt(error.receipt, mandate=chains[1])["error"]
+    return "accepted"
 
 
-def merchant_rejects(
+def merchant_verdict(
     gateway: ACPClient, checkout_id: str, payment: SandboxPaymentData, chain: str, key: str
 ) -> str:
-    """The AP2 code of the Merchant's signed error receipt for the checkout `chain`."""
-    with pytest.raises(ACPClientError) as rejected:
+    """The AP2 code of the Merchant's signed error receipt for the checkout `chain`, or
+    `accepted` if it completed the checkout."""
+    try:
         gateway.complete_checkout_ap2(checkout_id, payment, chain, idempotency_key=key)
-    error = rejected.value
-    assert error.status_code == 422 and error.receipt is not None, error.code
-    return gateway.verify_checkout_error_receipt(error.receipt, mandate=chain)["error"]
+    except ACPClientError as error:
+        assert error.status_code == 422 and error.receipt is not None, error.code
+        return gateway.verify_checkout_error_receipt(error.receipt, mandate=chain)["error"]
+    return "accepted"
+
+
+@contextmanager
+def judged(lane: PurchaseLane, verifier: str, name: str) -> Iterator[Callable[[str], None]]:
+    """One altered chain sent straight to one verifier, for `fail_open_rate`: closed when the
+    verifier refused it and it left neither a token nor an order."""
+    with lane.fault(f"altered:{verifier}:{name}") as observe:
+        before = effects(lane)
+
+        def verdict(code: str) -> None:
+            delta = grown(lane, before)
+            closed = code != "accepted" and within(delta, orders=0, tokens=0)
+            observe(closed=closed, verdict=code, **delta)
+
+        yield verdict
 
 
 def test_hnp_altered_chains_sent_straight_to_the_merchant_and_the_psp_are_rejected(hnp):
@@ -757,10 +1010,11 @@ def test_hnp_altered_chains_sent_straight_to_the_merchant_and_the_psp_are_reject
                 "unresolved_constraint",
             ),
         }
-        psp = {
-            name: psp_rejects(provider, checkout, token, chains, f"altered-{name}")
-            for name, (chains, _) in to_psp.items()
-        }
+        psp: dict[str, str] = {}
+        for name, (chains, _) in to_psp.items():
+            with judged(hnp, "psp", name) as verdict:
+                psp[name] = psp_verdict(provider, checkout, token, chains, f"altered-{name}")
+                verdict(psp[name])
         assert psp == {name: code for name, (_, code) in to_psp.items()}
         assert grown(hnp, before)["tokens"] == 0
 
@@ -790,10 +1044,13 @@ def test_hnp_altered_chains_sent_straight_to_the_merchant_and_the_psp_are_reject
                 "unresolved_constraint",
             ),
         }
-        merchant = {
-            name: merchant_rejects(buyer.gateway, checkout_id, payment, chain, f"altered-{name}")
-            for name, (checkout_id, chain, _) in to_merchant.items()
-        }
+        merchant: dict[str, str] = {}
+        for name, (checkout_id, chain, _) in to_merchant.items():
+            with judged(hnp, "merchant", name) as verdict:
+                merchant[name] = merchant_verdict(
+                    buyer.gateway, checkout_id, payment, chain, f"altered-{name}"
+                )
+                verdict(merchant[name])
         assert merchant == {name: code for name, (_, _, code) in to_merchant.items()}
         assert grown(hnp, before) == {"orders": 0, "checkout_sessions": 2, "tokens": 1}
 
