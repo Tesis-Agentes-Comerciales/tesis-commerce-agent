@@ -45,7 +45,8 @@ class IntentReview:
 def is_valid(review: object) -> bool:
     if not isinstance(review, IntentReview):
         return False
-    decision, reason = review.decision, review.reason
+    # A review built around its own check (no `__init__`) may lack either field.
+    decision, reason = getattr(review, "decision", None), getattr(review, "reason", None)
     if decision not in _DECISIONS or reason not in _REASONS:
         return False
     return (decision == "confirmed") == (reason == "matches_request")
