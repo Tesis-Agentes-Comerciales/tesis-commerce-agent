@@ -20,16 +20,17 @@ from commerce_agent.delegation.models import ReservationRequest
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
 from commerce_agent.trace import PurchaseTrace, PurchaseTraces, TraceUnavailable
-from commerce_agent.trace.assembler import summarize
+from commerce_agent.trace.assembler import by_time, step, summarize
 from commerce_agent.trace.models import Money, PolicySummary
 from tests.assistant_support import settings as bench_settings
 from tests.delegation.test_hnp_executor import started
+from tests.delegation.test_hnp_intent_review import CONFIRMED, CONTRADICTS, FakeReviewer
 from tests.governance import test_hnp_gate
 from tests.governance.test_d1_hnp_gate import settings_for
 from tests.governance.test_hnp_gate import GRANT, RUN, Delegated, delegated
 from tests.governance.test_shadow_integration import OWNER
 from tests.support import hnp_executor
-from tests.support.delegation import START
+from tests.support.delegation import START, AuthorityClock
 from tests.support.hnp_dispatch import MerchantApi, Psp, dispatching
 from tests.support.hnp_executor import Bench, Merchant
 from tests.test_purchase_service import details
@@ -534,3 +535,99 @@ def test_a_purchase_failure_keeps_its_code_next_to_the_task_failure(
         ("failed:task", "checkout_failed"),
     ]
     assert trace.status == "failed"
+
+
+# The intent reviewer (docs/design/hnp-intent-review.md §8)
+
+
+def test_a_choice_not_confirmed_shows_its_review_and_the_escalation(
+    tmp_path: Path, ticking: Ticking
+) -> None:
+    bench = Bench(tmp_path, mode="enforce", reviewer=FakeReviewer(CONTRADICTS))
+    bench.run()
+    assert bench.ended() == ("escalated", "choice_not_confirmed")
+
+    trace = bench_trace(bench)
+
+    # The shape of ui/src/storybook/trace-fixtures/hnp/enforce-review-not-confirmed.json.
+    assert kinds(trace) == [
+        "delegation_consented",
+        "task_activated",
+        "choice_reviewed",
+        "escalated",
+    ]
+    (review,) = of(trace, "choice_reviewed")
+    assert (review.actor, review.state, review.decision, review.reason) == (
+        "agent",
+        "blocked",
+        "not_confirmed",
+        "contradicts_preference",
+    )
+    (escalated,) = of(trace, "escalated")
+    assert (escalated.state, escalated.reason) == ("blocked", "choice_not_confirmed")
+    # No decision was taken, but the reviewer only runs in B2-HNP.
+    assert (trace.status, trace.policy_mode, trace.total) == ("canceled", "enforce", None)
+    assert summarize(trace).policy is None
+
+
+def test_a_confirmed_review_goes_after_the_claim_and_before_the_checkout(
+    tmp_path: Path, ticking: Ticking
+) -> None:
+    bench = Bench(tmp_path, mode="enforce", reviewer=FakeReviewer(CONFIRMED))
+    assert bench.run().status == "applied"
+
+    trace = bench_trace(bench)
+
+    order = kinds(trace)
+    assert order[:4] == [
+        "delegation_consented",
+        "task_activated",
+        "choice_reviewed",
+        "checkout_created",
+    ]
+    (review,) = of(trace, "choice_reviewed")
+    assert (review.state, review.decision, review.reason) == (
+        "done",
+        "confirmed",
+        "matches_request",
+    )
+    assert trace.policy_mode == "enforce"
+
+
+def test_b0_hnp_without_a_reviewer_shows_no_review(tmp_path: Path, ticking: Ticking) -> None:
+    bench = Bench(tmp_path)
+    bench.run()
+
+    assert not of(bench_trace(bench), "choice_reviewed")
+
+
+def test_in_b2_hnp_the_review_goes_before_d1(governed) -> None:
+    run = governed()
+    flow = run.flow
+    # The executor reviews right after the claim (at the flow's consent time) and before `start`.
+    claimed = flow.ledger.execution(flow.task_id)
+    assert claimed is not None
+    at = datetime.fromisoformat(claimed.task.updated_at.replace("Z", "+00:00"))
+    reviewing = SqliteDelegationLedger(flow.path, clock=AuthorityClock(at + timedelta(seconds=1)))
+    body = {"decision": "confirmed", "reason": "matches_request", "prompt_id": "p", "model": "m"}
+    assert reviewing.record_choice_review(flow.task_id, flow.lease_id, body).status == "reused"
+
+    trace = run.trace()
+
+    assert kinds(trace)[:4] == [
+        "delegation_consented",
+        "task_activated",
+        "choice_reviewed",
+        "policy_decision",
+    ]
+
+
+def test_a_review_in_the_same_millisecond_goes_before_d1_and_the_checkout() -> None:
+    at = "2026-10-22T15:00:00.000Z"
+    d1 = step("checkout_created", at, "merchant", checkout_id="cs_1")
+    review = step("choice_reviewed", at, "agent", decision="confirmed", reason="matches_request")
+
+    assert [item.kind for item in by_time([d1], [review])] == [
+        "choice_reviewed",
+        "checkout_created",
+    ]
