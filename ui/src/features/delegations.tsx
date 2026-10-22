@@ -8,6 +8,7 @@ import { DELEGATIONS_COPY } from "@/components/delegation/delegation-copy"
 import { DelegationConsentCard } from "@/components/delegation/delegation-consent-card"
 import { DelegationForm } from "@/components/delegation/delegation-form"
 import { DelegationList } from "@/components/delegation/delegation-list"
+import { DelegationSearchFirst } from "@/components/delegation/delegation-search-first"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { DELEGATION_POLL_MS, useDelegationTraces } from "@/features/delegation-traces"
 import { DelegationsHostContext, type DelegationsHost } from "@/features/delegations-host"
@@ -65,7 +66,7 @@ function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
   const messages = useAuiState((aui) => aui.thread.messages)
   const offers = useMemo(() => seenOffers(messages), [messages])
   const aui = useAui()
-  // Al cerrar para volver al chat (escalamiento), el foco va al compositor.
+  // Al cerrar para volver al chat (escalamiento o «Buscar en el chat»), el foco va al compositor.
   const toComposer = useRef(false)
   // Lecturas de la lista empezadas y la más reciente aplicada: una lenta no pisa a una posterior.
   const listReads = useRef({ started: 0, applied: 0 })
@@ -196,7 +197,11 @@ function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
         </div>
 
         <div className="space-y-6 p-4">
-          {flow.step === "idle" && (
+          {/* Sin búsqueda no hay opciones que delegar: primero se busca en el chat. */}
+          {flow.step === "idle" && offers.length === 0 && (
+            <DelegationSearchFirst onGoToChat={backToChat} />
+          )}
+          {flow.step === "idle" && offers.length > 0 && (
             <button
               type="button"
               onClick={() => dispatch({ type: "form-opened" })}
