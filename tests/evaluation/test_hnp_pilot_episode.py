@@ -648,6 +648,7 @@ class RateLimitedAuth(BaseHTTPRequestHandler):
     `X-Retry-After`. The first `refusals` sign-ins are refused."""
 
     refusals = 0
+    refusal_status = 429
     sign_ins = 0
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -667,7 +668,7 @@ class RateLimitedAuth(BaseHTTPRequestHandler):
             return
         type(self).sign_ins += 1
         if type(self).sign_ins <= type(self).refusals:
-            self._send(429, {"message": "Too many requests."}, {"X-Retry-After": "7"})
+            self._send(type(self).refusal_status, {"message": "Refused."}, {"X-Retry-After": "7"})
             return
         self._send(200, {"redirect": False}, {"Set-Cookie": "session=s1; Path=/"})
 
@@ -679,15 +680,18 @@ class RateLimitedAuth(BaseHTTPRequestHandler):
 @pytest.fixture
 def auth_server() -> Any:
     server = ThreadingHTTPServer(("127.0.0.1", 0), RateLimitedAuth)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True)
     thread.start()
     yield server
     server.shutdown()
     server.server_close()
 
 
-def buyer_against(server: ThreadingHTTPServer, refusals: int) -> tuple[BuyerAccount, list[float]]:
-    RateLimitedAuth.refusals, RateLimitedAuth.sign_ins = refusals, 0
+def buyer_against(
+    server: ThreadingHTTPServer, refusals: int, status: int = 429
+) -> tuple[BuyerAccount, list[float]]:
+    RateLimitedAuth.refusals, RateLimitedAuth.refusal_status = refusals, status
+    RateLimitedAuth.sign_ins = 0
     waits: list[float] = []
     buyer = BuyerAccount(f"http://127.0.0.1:{server.server_address[1]}", sleep=waits.append)
     return buyer, waits
@@ -710,3 +714,14 @@ def test_the_buyer_gives_up_after_its_attempts(auth_server: Any) -> None:
 
     assert refused.value.code == 429
     assert len(waits) == AUTH_ATTEMPTS - 1
+
+
+def test_any_other_auth_refusal_ends_the_sign_in_at_once(auth_server: Any) -> None:
+    buyer, waits = buyer_against(auth_server, refusals=1, status=401)
+
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        buyer.session_token()
+
+    assert refused.value.code == 401
+    assert waits == []
+    assert RateLimitedAuth.sign_ins == 1

@@ -18,6 +18,7 @@ from commerce_evaluation.governance_pilot import RepositoryProvenance, services_
 from commerce_evaluation.hnp_pilot import prepare, stack_variables
 from commerce_evaluation.hnp_pilot_live import (
     CliMerchant,
+    JwksPace,
     UvicornAgent,
     summary_document,
     verify_task,
@@ -180,10 +181,32 @@ def test_the_agent_s_log_tail_hides_what_it_was_started_with(
         lambda *args, **kwargs: governance_pilot.HttpResult(200, {"status": "ok"}, 1),
     )
     with (tmp_path / "agent.log").open("w", encoding="utf-8") as log:
-        agent = UvicornAgent(port=1, log=log, factory="f")
+        agent = UvicornAgent(port=1, log=log, factory="f", pace=JwksPace())
         agent.start({"MERCHANT_BEARER_TOKEN": "session-1", "PATH": "/bin"})
         agent.start({"MERCHANT_BEARER_TOKEN": "session-1", "AGENT_D1_HMAC_KEY_HEX": "ab"})
     assert agent.secrets == {"session-1", "ab"}
     (tmp_path / "agent.log").write_text("token session-1 in a traceback\n", encoding="utf-8")
     tail = governance_pilot._tail(tmp_path / "agent.log", tuple(agent.secrets))
     assert "session-1" not in tail
+
+
+def test_every_so_many_agent_starts_the_harness_lets_auth_s_window_lapse(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Each agent process fetches /api/auth/jwks once; Better Auth refuses a path's 101st request
+    while they keep coming less than 60 s apart, so the pace waits 61 s with no agent running."""
+    monkeypatch.setattr(hnp_pilot_live.subprocess, "Popen", lambda *args, **kwargs: object())
+    monkeypatch.setattr(hnp_pilot_live, "_wait_http", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        hnp_pilot_live,
+        "_request_json",
+        lambda *args, **kwargs: governance_pilot.HttpResult(200, {"status": "ok"}, 1),
+    )
+    waits: list[float] = []
+    pace = JwksPace(every=2, sleep=waits.append)
+    with (tmp_path / "agent.log").open("w", encoding="utf-8") as log:
+        for _ in range(5):
+            UvicornAgent(port=1, log=log, factory="f", pace=pace).start({})
+
+    assert waits == [61.0, 61.0]
+    assert JwksPace().every < 100
