@@ -8,6 +8,10 @@ catalog with the real clock. While the stack runs, the merchant's CLI delivers i
 webhooks to the agent every few seconds: the merchant has no worker of its own. `uv run demo-stack
 s04` changes the scripted offer's price during the demo.
 
+`--mode b2-hnp` is B2 plus Human Not Present (docs/design/hnp-governed.md): the same agent serves
+the governed chat purchase and delegations. HNP has no scheduler, so the launcher, the only holder
+of the service token, runs each scheduled task once a few seconds after the buyer's consent.
+
 Secrets live only in this process and in the children that need them: they are never printed and
 never written. Each launch gets its own directory under .local/demo/ with a new agent database,
 the auth and payment databases and every log. Script: docs/demo/guion-2026-10-23.md.
@@ -23,20 +27,23 @@ import secrets
 import shutil
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
 from collections.abc import Iterable, Mapping, Sequence
-from contextlib import suppress
+from contextlib import closing, suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, NoReturn, Protocol, TextIO
+from urllib.parse import quote
 
 import httpx
 from jwcrypto.jwk import JWK
 
 from commerce_agent.llm.prices import format_minor_amount
+from commerce_agent.persistence.delegation_sqlite import utc_text
 from commerce_evaluation.governance_pilot import (
     CONDITIONS,
     ConditionMismatchError,
@@ -119,6 +126,18 @@ GROUP_POLL_SECONDS = 0.05
 # Closing the terminal (SIGHUP) or `kill` (SIGTERM) shut the stack down like Ctrl-C.
 SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 STOP_SIGNALS = (signal.SIGINT, *SHUTDOWN_SIGNALS)
+# b2-hnp. `llm` picks the delegated variant with the model, as layer B of the HNP pilot;
+# `deterministic` is the fallback if the model fails during the demo.
+HNP_SELECTORS = ("llm", "deterministic")
+HNP_TRIGGER_DELAY_SECONDS = 5.0
+HNP_TRIGGER_TIMEOUT_SECONDS = 5.0
+HNP_RUN_ROUTE = "/internal/hnp/tasks/{task_id}/run"
+# The state a task has from the buyer's consent until a claim (persistence/delegation_sqlite.py).
+HNP_SCHEDULED = "scheduled"
+# `created_at` is `utc_text` (milliseconds and Z), so text order is time order.
+HNP_DUE_TASKS = (
+    "SELECT task_id FROM hnp_tasks WHERE state = ? AND created_at <= ? ORDER BY created_at, task_id"
+)
 
 
 class DemoError(RuntimeError):
@@ -132,6 +151,8 @@ class DemoMode:
     # Whether the POL-02 allowlist contains the demo merchant (governed modes only).
     allows_merchant: bool
     description: str
+    # Human Not Present on top of the condition (b2-hnp-v1, built by the agent in code).
+    hnp: bool = False
 
 
 MODES = {
@@ -152,6 +173,13 @@ MODES = {
         CONDITIONS["B2"],
         allows_merchant=False,
         description="B2 con una lista de comercios que excluye al comercio de la demo (POL-02)",
+    ),
+    "b2-hnp": DemoMode(
+        "b2-hnp",
+        CONDITIONS["B2"],
+        allows_merchant=True,
+        description="B2 y además Human Not Present: compras delegadas con la política b2-hnp-v1",
+        hnp=True,
     ),
 }
 
@@ -185,6 +213,24 @@ def ap2_key_pair() -> tuple[str, str]:
 
 
 @dataclass(frozen=True)
+class HnpKeys:
+    """HNP credentials of one launch (hnp-governed.md §6): the Agent Key that closes the open
+    mandates, never the AP2 provider key, and the service and operator tokens."""
+
+    agent_key_pem: str = field(repr=False)
+    service_token: str = field(repr=False)
+    operator_token: str = field(repr=False)
+
+    @classmethod
+    def generate(cls) -> HnpKeys:
+        # 43 characters each; the agent requires at least 32 and two different tokens.
+        return cls(_ap2_private_key(), secrets.token_urlsafe(32), secrets.token_urlsafe(32))
+
+    def values(self) -> tuple[str, ...]:
+        return (self.agent_key_pem, self.service_token, self.operator_token)
+
+
+@dataclass(frozen=True)
 class StackSecrets:
     """Every credential and key of one launch. Values never appear in repr, output or files."""
 
@@ -200,9 +246,10 @@ class StackSecrets:
     agent_jwk: str
     merchant_jwk: str
     d1: D1RunKeys | None = field(repr=False)
+    hnp: HnpKeys | None = field(default=None, repr=False)
 
     @classmethod
-    def generate(cls, *, governed: bool) -> StackSecrets:
+    def generate(cls, *, governed: bool, hnp: bool = False) -> StackSecrets:
         agent_pem, agent_jwk = ap2_key_pair()
         merchant_pem, merchant_jwk = ap2_key_pair()
         payment_pem, _ = ap2_key_pair()
@@ -219,10 +266,12 @@ class StackSecrets:
             agent_jwk=agent_jwk,
             merchant_jwk=merchant_jwk,
             d1=D1RunKeys.generate() if governed else None,
+            hnp=HnpKeys.generate() if hnp else None,
         )
 
     def values(self) -> tuple[str, ...]:
         d1 = (self.d1.hmac_hex, self.d1.aes_hex) if self.d1 is not None else ()
+        hnp = self.hnp.values() if self.hnp is not None else ()
         return (
             self.merchant_webhook,
             self.approval,
@@ -234,6 +283,7 @@ class StackSecrets:
             self.merchant_ap2_pem,
             self.payment_ap2_pem,
             *d1,
+            *hnp,
         )
 
 
@@ -288,6 +338,17 @@ def mode_environment(
     return agent_environment(mode.condition, allowed, keys, HP_V2_POLICY)
 
 
+def hnp_environment(keys: HnpKeys, selector: str) -> dict[str, str]:
+    """HNP on the agent (config.py, delegation/bootstrap.py); the rest is B2's environment."""
+    return {
+        "AGENT_HNP_ENABLED": "true",
+        "AGENT_HNP_AGENT_KEY_PEM": keys.agent_key_pem,
+        "AGENT_HNP_SERVICE_TOKEN": keys.service_token,
+        "AGENT_HNP_OPERATOR_TOKEN": keys.operator_token,
+        "AGENT_HNP_SELECTOR": selector,
+    }
+
+
 @dataclass(frozen=True)
 class Service:
     name: str
@@ -322,6 +383,9 @@ class DemoPlan:
     skip_postgres_start: bool = False
     keep_offer: bool = False
     base: Mapping[str, str] = field(default_factory=base_environment, repr=False)
+    # b2-hnp only.
+    hnp_selector: str = "llm"
+    hnp_trigger_delay: float = HNP_TRIGGER_DELAY_SECONDS
 
     @property
     def merchant_origin(self) -> str:
@@ -336,7 +400,17 @@ class DemoPlan:
         return (*self.secrets.values(), model_secret, *extra)
 
     def mode_environment(self) -> dict[str, str]:
-        return mode_environment(self.mode, self.merchant_origin, self.secrets.d1)
+        environment = mode_environment(self.mode, self.merchant_origin, self.secrets.d1)
+        if not self.mode.hnp:
+            return environment
+        if self.secrets.hnp is None:
+            raise DemoError(f"El modo {self.mode.name} necesita las credenciales HNP del arranque")
+        return environment | hnp_environment(self.secrets.hnp, self.hnp_selector)
+
+    def hnp_line(self) -> str:
+        return (
+            f"selector {self.hnp_selector} · disparo automático a los {self.hnp_trigger_delay:g} s"
+        )
 
     def warnings(self) -> list[str]:
         """What differs from the pilot without stopping the demo."""
@@ -570,6 +644,32 @@ def port_in_use(port: int) -> bool:
     return False
 
 
+def hnp_problems(plan: DemoPlan) -> list[str]:
+    """Whether the agent's HNP startup accepts this launch (`load_hnp_trust` and the enforce D1
+    configuration), checked like the HNP pilot's dry run: nothing starts and nothing is written."""
+    if not plan.mode.hnp:
+        return []
+    # Only b2-hnp needs the HNP pilot (it imports the whole Agent API).
+    from commerce_evaluation.hnp_pilot import startup_check
+
+    check = startup_check(plan.agent_env(REDACTED), {})
+    if check["ok"]:
+        return []
+    return [f"HNP: el agente no arrancaría ({redact(str(check['error']), plan.secret_values())})"]
+
+
+def due_hnp_tasks(database: Path, delay: float, now: datetime) -> list[str]:
+    """The `scheduled` tasks created at least `delay` seconds before `now`, read from the agent's
+    database in read-only mode. None while the agent has not created it."""
+    if not database.is_file():
+        return []
+    cutoff = utc_text(now - timedelta(seconds=delay))
+    uri = f"{database.resolve().as_uri()}?mode=ro"
+    with closing(sqlite3.connect(uri, uri=True, timeout=1.0)) as connection:
+        rows = connection.execute(HNP_DUE_TASKS, (HNP_SCHEDULED, cutoff)).fetchall()
+    return [str(task_id) for (task_id,) in rows]
+
+
 def preflight(plan: DemoPlan) -> list[str]:
     """Why the stack cannot start here; empty when it can. Names only, never values."""
     problems = [
@@ -600,7 +700,7 @@ def preflight(plan: DemoPlan) -> list[str]:
         for name, port in named.items()
         if port_in_use(port)
     ]
-    return problems
+    return problems + hnp_problems(plan)
 
 
 class Process(Protocol):
@@ -621,6 +721,9 @@ class Launcher:
         self.health: dict[str, str] | None = None
         self._relay_down = False
         self._dispatcher: subprocess.Popen[str] | None = None
+        # Tasks the HNP trigger already ran: each one once, whatever the answer.
+        self._hnp_triggered: set[str] = set()
+        self._hnp_unreadable = False
         self._secrets = list(plan.secret_values())
         plan.run_dir.mkdir(parents=True, exist_ok=True)
         self._log = (plan.run_dir / "launcher.log").open("a", encoding="utf-8")
@@ -697,6 +800,15 @@ class Launcher:
                 response = client.get(url)
         except httpx.HTTPError:
             return 0, None
+        try:
+            return response.status_code, response.json()
+        except ValueError:
+            return response.status_code, None
+
+    def _post(self, url: str, token: str) -> tuple[int, Any]:
+        """A bearer POST without Origin: the agent's internal routes refuse a browser's."""
+        with httpx.Client(trust_env=False, timeout=HNP_TRIGGER_TIMEOUT_SECONDS) as client:
+            response = client.post(url, headers={"Authorization": f"Bearer {token}"})
         try:
             return response.status_code, response.json()
         except ValueError:
@@ -816,6 +928,8 @@ class Launcher:
                     self.health = verify_agent_condition(plan.mode.condition, health)
                 except ConditionMismatchError as error:
                     raise DemoError(str(error)) from None
+                if plan.mode.hnp:
+                    verify_hnp_health(health)
         assert self.health is not None
         self.summary()
         return self.health
@@ -836,6 +950,8 @@ class Launcher:
                 f"Política D1: {environment['AGENT_D1_POLICY_SET_ID']} · "
                 f"revisión {environment['AGENT_D1_POLICY_REVISION']}"
             )
+        if plan.mode.hnp:
+            self.say(f"HNP: activo · {plan.hnp_line()} (hnp.log)")
         self.say(f"UI:    {plan.ui_origin}")
         self.say(f"Auth:  {plan.ports.origin('auth')}")
         self.say(f"Logs:  {plan.run_dir}")
@@ -861,6 +977,12 @@ class Launcher:
                 # Nothing the relay does (launching, its output, its log, the terminal) may stop
                 # the demo or delay noticing a service that stopped.
                 self._relay_failed(f"error: {type(error).__name__}", str(error))
+            if self.plan.mode.hnp:
+                try:
+                    self.trigger_hnp_tasks()
+                except Exception as error:
+                    # Nothing the trigger does, not even an unexpected error, stops the demo.
+                    self._hnp_log(f"error del disparo: {type(error).__name__}")
             time.sleep(interval)
 
     def relay_webhooks(self) -> list[dict[str, Any]]:
@@ -911,6 +1033,71 @@ class Launcher:
                     f"La compra sigue; detalle en {log}"
                 )
 
+    def trigger_hnp_tasks(self, now: datetime | None = None) -> list[str]:
+        """One pass of the HNP trigger: each task still `scheduled` `hnp_trigger_delay` seconds
+        after the consent is run once, never again, whatever the answer. Returns the tasks run
+        in this pass. Every attempt goes to hnp.log; a failure is announced, never fatal."""
+        plan = self.plan
+        if not plan.mode.hnp or plan.secrets.hnp is None:
+            return []
+        try:
+            due = due_hnp_tasks(
+                plan.run_dir / "agent.db", plan.hnp_trigger_delay, now or datetime.now(UTC)
+            )
+        except sqlite3.Error as error:
+            self._hnp_log(f"lectura de agent.db: {type(error).__name__}: {error}")
+            if not self._hnp_unreadable:
+                self._hnp_unreadable = True
+                self.say(
+                    "Aviso: el lanzador no pudo leer las tareas HNP en agent.db "
+                    f"({type(error).__name__}); sigue intentando. Detalle en {self._hnp_path}"
+                )
+            return []
+        if self._hnp_unreadable:
+            self._hnp_unreadable = False
+            self.say("· HNP: lectura de las tareas restablecida")
+        pending = [task_id for task_id in due if task_id not in self._hnp_triggered]
+        for task_id in pending:
+            # Recorded before the request: a task that fails here is never retried in a loop.
+            self._hnp_triggered.add(task_id)
+            self._trigger_hnp_task(task_id, plan.secrets.hnp.service_token)
+        return pending
+
+    @property
+    def _hnp_path(self) -> Path:
+        return self.plan.run_dir / "hnp.log"
+
+    def _hnp_log(self, line: str) -> None:
+        with suppress(OSError), self._hnp_path.open("a", encoding="utf-8") as log:
+            log.write(f"{datetime.now(UTC).isoformat()} {redact(line, self._secrets)}\n")
+
+    def _trigger_hnp_task(self, task_id: str, token: str) -> None:
+        url = self.plan.ports.origin("agent") + HNP_RUN_ROUTE.format(
+            task_id=quote(task_id, safe="")
+        )
+        try:
+            status, body = self._post(url, token)
+        except httpx.HTTPError as error:
+            self._hnp_log(f"{task_id} error={type(error).__name__}: {error}")
+            self.say(
+                f"Aviso: la tarea HNP {task_id} no se pudo disparar ({type(error).__name__}); no "
+                f"se reintenta. Detalle en {self._hnp_path}"
+            )
+            return
+        answer = body if isinstance(body, dict) else {}
+        state, code = answer.get("state"), answer.get("code")
+        self._hnp_log(
+            f"{task_id} http={status} state={state} outcome={answer.get('outcome_code')} "
+            f"code={code}"
+        )
+        if status in (200, 202):
+            self.say(f"· HNP: tarea {task_id} disparada (HTTP {status}, {state})")
+        else:
+            self.say(
+                f"Aviso: la tarea HNP {task_id} no se pudo disparar (HTTP {status}, {code}); no "
+                f"se reintenta. Detalle en {self._hnp_path}"
+            )
+
     def stop(self) -> None:
         """SIGTERM to every group first; when every group is gone or the deadline passes,
         SIGKILL to every group that got SIGTERM. Nothing it prints can stop it: after SIGHUP
@@ -949,6 +1136,16 @@ class Launcher:
 
     def close(self) -> None:
         self._log.close()
+
+
+def verify_hnp_health(health: Mapping[str, Any]) -> None:
+    """b2-hnp needs the agent to report HNP on and its kill switch off."""
+    enabled, kill_switch = health.get("hnp_enabled"), health.get("hnp_kill_switch")
+    if enabled is not True or kill_switch is not False:
+        raise DemoError(
+            f"El agente reporta en /health hnp_enabled={enabled} y hnp_kill_switch={kill_switch}, "
+            "pero el modo b2-hnp exige hnp_enabled=True y hnp_kill_switch=False"
+        )
 
 
 def _deliveries(stdout: str) -> list[dict[str, Any]] | None:
@@ -1030,6 +1227,24 @@ def _up_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="mostrar el plan y las comprobaciones sin arrancar nada",
     )
+    parser.add_argument(
+        "--hnp-selector",
+        choices=HNP_SELECTORS,
+        help=(
+            "solo con --mode b2-hnp: quién elige la variante de una compra delegada (por defecto "
+            "llm, con el modelo; deterministic es el respaldo si falla el modelo)"
+        ),
+    )
+    parser.add_argument(
+        "--hnp-trigger-delay",
+        type=float,
+        metavar="SEGUNDOS",
+        help=(
+            "solo con --mode b2-hnp: segundos entre la autorización de la delegación y el "
+            "momento en que el lanzador ejecuta la compra "
+            f"(por defecto {HNP_TRIGGER_DELAY_SECONDS:g})"
+        ),
+    )
     return parser
 
 
@@ -1055,10 +1270,18 @@ def build_plan(arguments: argparse.Namespace, *, now: datetime | None = None) ->
         merchant_repo=arguments.merchant_repo.expanduser().resolve(),
         payment_repo=arguments.payment_repo.expanduser().resolve(),
         env_file=arguments.env_file.expanduser().resolve(),
-        secrets=StackSecrets.generate(governed=mode.condition.governance_mode != "off"),
+        secrets=StackSecrets.generate(
+            governed=mode.condition.governance_mode != "off", hnp=mode.hnp
+        ),
         model=read_model_settings(arguments.env_file.expanduser()),
         skip_postgres_start=arguments.skip_postgres_start,
         keep_offer=arguments.keep_offer,
+        hnp_selector=arguments.hnp_selector or "llm",
+        hnp_trigger_delay=(
+            HNP_TRIGGER_DELAY_SECONDS
+            if arguments.hnp_trigger_delay is None
+            else arguments.hnp_trigger_delay
+        ),
     )
 
 
@@ -1068,6 +1291,8 @@ def describe(plan: DemoPlan, problems: list[str], out: TextIO) -> None:
     for name, value in sorted(plan.mode_environment().items()):
         shown = REDACTED if value in plan.secret_values() else value
         print(f"  {name}={shown}", file=out)
+    if plan.mode.hnp:
+        print(f"HNP: {plan.hnp_line()} (hnp.log)", file=out)
     print(f"Directorio del arranque: {plan.run_dir}", file=out)
     for warning in plan.warnings():
         print(f"Aviso: {warning}", file=out)
@@ -1080,7 +1305,13 @@ def describe(plan: DemoPlan, problems: list[str], out: TextIO) -> None:
 
 
 def up(argv: Sequence[str]) -> int:
-    arguments = _up_parser().parse_args(argv)
+    parser = _up_parser()
+    arguments = parser.parse_args(argv)
+    hnp_options = (arguments.hnp_selector, arguments.hnp_trigger_delay)
+    if not MODES[arguments.mode].hnp and hnp_options != (None, None):
+        parser.error("--hnp-selector y --hnp-trigger-delay solo valen con --mode b2-hnp")
+    if arguments.hnp_trigger_delay is not None and arguments.hnp_trigger_delay < 0:
+        parser.error("--hnp-trigger-delay no puede ser negativo")
     plan = build_plan(arguments)
     problems = preflight(plan)
     if arguments.dry_run:
