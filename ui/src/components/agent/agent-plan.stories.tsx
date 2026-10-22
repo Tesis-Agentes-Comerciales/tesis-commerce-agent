@@ -8,6 +8,7 @@ import {
   AGENT_STATE_AWAITING_APPROVAL,
   AGENT_STATE_CHECKOUT_ERROR,
 } from "@/storybook/agent-fixtures"
+import { runningAnimations } from "@/storybook/interactions"
 
 const meta = {
   title: "Agent/AgentPlan",
@@ -117,6 +118,40 @@ export const Canceled: Story = {
   play: async (context) => {
     await expect(step(context, "Aprobación")).toHaveTextContent("(detenido)")
     await expect(within(step(context, "Aprobación")).getByText("Cancelaste la compra")).toBeVisible()
+  },
+}
+
+/**
+ * La política de compra detuvo la compra en el checkout: el paso queda en ámbar, no en rojo, porque
+ * no es un error. La tarjeta de bloqueo dice qué regla no se cumplió.
+ */
+export const StoppedByPolicy: Story = {
+  args: { current: "checkout", stopped: "checkout" },
+  play: async (context) => {
+    const checkout = step(context, "Checkout")
+    await expect(checkout).toHaveTextContent("(detenido por la política de compra)")
+    await expect(within(checkout).getByText("La política la detuvo")).toBeVisible()
+    await expect(step(context, "Aprobación")).toHaveTextContent("(pendiente)")
+    await expect(context.canvasElement.querySelector(".text-red-700, .bg-red-600")).toBeNull()
+    await expectProgress(context, 3)
+  },
+}
+
+export const WideStoppedByPolicy: Story = {
+  args: { current: "checkout", stopped: "checkout" },
+  parameters: { wide: true },
+}
+
+/**
+ * El turno terminó con una pregunta y el plan queda a la vista esperando a la persona: el punto no
+ * late. Con la página quieta nada se anima.
+ */
+export const WaitingAfterTurn: Story = {
+  args: { current: "search", waiting: true, still: true },
+  play: async (context) => {
+    await expect(step(context, "Buscar")).toHaveAttribute("aria-current", "step")
+    await expect(context.canvas.getByText("Esperando tu respuesta")).toBeVisible()
+    await expect(runningAnimations(context.canvasElement)).toHaveLength(0)
   },
 }
 

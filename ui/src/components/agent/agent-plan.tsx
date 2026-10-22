@@ -1,5 +1,5 @@
 import { cn } from "cn"
-import { CheckIcon, LoaderCircleIcon, XIcon } from "lucide-react"
+import { CheckIcon, LoaderCircleIcon, ShieldXIcon, XIcon } from "lucide-react"
 import { useId } from "react"
 
 import {
@@ -16,15 +16,26 @@ const STATE_TEXT: Record<PlanStepState, string> = {
   active: "en curso",
   done: "hecho",
   error: "detenido",
+  stopped: "detenido por la política de compra",
 }
 
 export type AgentPlanProps = PlanProgress & {
   /** Nota bajo el paso detenido, por ejemplo "Cancelaste la compra". */
   failedNote?: string
+  /** El turno terminó y el plan queda como su último estado: el paso que espera no late. */
+  still?: boolean
   className?: string
 }
 
-function StepIcon({ state, waiting }: { state: PlanStepState; waiting: boolean }) {
+function StepIcon({
+  state,
+  waiting,
+  still,
+}: {
+  state: PlanStepState
+  waiting: boolean
+  still: boolean
+}) {
   return (
     <span
       className={cn(
@@ -34,25 +45,37 @@ function StepIcon({ state, waiting }: { state: PlanStepState; waiting: boolean }
         state === "active" && waiting && "ring-[1.5px] ring-[#0d0d0d] ring-inset",
         state === "pending" && "ring-[1.5px] ring-[#8e8e8e] ring-inset",
         state === "error" && "bg-red-600 text-white",
+        state === "stopped" && "bg-amber-50 text-amber-900",
       )}
       aria-hidden
     >
       {state === "done" && <CheckIcon className="size-3" strokeWidth={3} />}
       {state === "active" &&
         (waiting ? (
-          <span className="agent-pulse-dot size-2 rounded-full bg-[#0d0d0d]" />
+          <span
+            className={cn("size-2 rounded-full bg-[#0d0d0d]", !still && "agent-pulse-dot")}
+          />
         ) : (
           <LoaderCircleIcon className="size-5 motion-safe:animate-spin" strokeWidth={2.25} />
         ))}
       {state === "error" && <XIcon className="size-3" strokeWidth={3} />}
+      {state === "stopped" && <ShieldXIcon className="size-3.5" strokeWidth={2.25} />}
     </span>
   )
 }
 
 /** Recorrido de la compra: Entender, Buscar, Elegir, Checkout, Aprobación y Completar. */
-export function AgentPlan({ current, failed, waiting = false, failedNote, className }: AgentPlanProps) {
+export function AgentPlan({
+  current,
+  failed,
+  stopped,
+  waiting = false,
+  failedNote,
+  still = false,
+  className,
+}: AgentPlanProps) {
   const titleId = useId()
-  const states = planStepStates({ current, failed })
+  const states = planStepStates({ current, failed, stopped })
   const doneCount = PLAN_STEPS.filter((step) => states[step.id] === "done").length
   const percent = Math.round((doneCount / PLAN_STEPS.length) * 100)
 
@@ -97,7 +120,9 @@ export function AgentPlan({ current, failed, waiting = false, failedNote, classN
           const note =
             state === "error"
               ? failedNote
-              : state === "active"
+              : state === "stopped"
+                ? "La política la detuvo"
+                : state === "active"
                 ? waiting
                   ? step.id === "approval"
                     ? "Esperando tu aprobación"
@@ -118,11 +143,12 @@ export function AgentPlan({ current, failed, waiting = false, failedNote, classN
                   state === "active" && "bg-[#0d0d0d]/35",
                   state === "pending" && "bg-[#ececec]",
                   state === "error" && "bg-red-600",
+                  state === "stopped" && "bg-amber-900",
                 )}
                 aria-hidden
               />
               <div className="flex min-w-0 items-center gap-2.5 @xl:gap-1.5">
-                <StepIcon state={state} waiting={waiting} />
+                <StepIcon state={state} waiting={waiting} still={still} />
                 <div className="min-w-0">
                   <p
                     className={cn(
@@ -131,6 +157,7 @@ export function AgentPlan({ current, failed, waiting = false, failedNote, classN
                       state === "done" && "text-[#0d0d0d]",
                       state === "pending" && "text-[#6b6b6b]",
                       state === "error" && "font-semibold text-red-700",
+                      state === "stopped" && "font-semibold text-amber-900",
                     )}
                   >
                     {step.label}
@@ -140,7 +167,11 @@ export function AgentPlan({ current, failed, waiting = false, failedNote, classN
                     <p
                       className={cn(
                         "text-xs leading-4 @xl:hidden",
-                        state === "error" ? "text-red-700" : "text-[#6b6b6b]",
+                        state === "error"
+                          ? "text-red-700"
+                          : state === "stopped"
+                            ? "text-amber-900"
+                            : "text-[#6b6b6b]",
                       )}
                     >
                       {note}

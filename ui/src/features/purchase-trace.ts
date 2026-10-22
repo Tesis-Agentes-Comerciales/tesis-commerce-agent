@@ -56,12 +56,13 @@ function traceRevision(
  * Pide la traza cuando aparece el `run_id`, cuando termina cada paso del stream y después de aprobar,
  * completar o cancelar. Un 404, un 503, la red caída o una traza fuera de contrato no rompen el chat:
  * se conserva la última traza leída o, si no hay ninguna, la fila no aparece. `pending` dice si la
- * primera traza viene en camino: la tarjeta de bloqueo deja de esperarla si la lectura falló.
+ * primera traza viene en camino y `failed`, si su lectura falló: la tarjeta de bloqueo y la fila del
+ * stream dejan de esperarla.
  */
 export function useMessagePurchaseTrace(
   parts: readonly MessagePart[],
   status: AgentMessageStatus | undefined,
-): { trace: PurchaseTrace | null; pending: boolean } {
+): { trace: PurchaseTrace | null; pending: boolean; failed: boolean } {
   const runId = messagePurchaseRunId(parts)
   const stage = useAssistantTransportState((state) =>
     state.purchase && state.purchase.run_id === runId ? state.purchase.stage : null,
@@ -88,7 +89,8 @@ export function useMessagePurchaseTrace(
   }, [runId, revision, recordTrace])
 
   const trace = runId === null ? null : (traces[runId] ?? null)
-  return { trace, pending: runId !== null && trace === null && failedRun !== runId }
+  const failed = runId !== null && trace === null && failedRun === runId
+  return { trace, pending: runId !== null && trace === null && !failed, failed }
 }
 
 /** La decisión que detuvo la compra, para la tarjeta de bloqueo. */

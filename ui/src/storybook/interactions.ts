@@ -24,3 +24,10 @@ export function mouseClick(element: HTMLElement) {
   element.focus({ focusVisible: false })
   element.click()
 }
+
+/** Las animaciones que siguen corriendo dentro del elemento: con la página quieta, ninguna. */
+export function runningAnimations(element: HTMLElement) {
+  return element
+    .getAnimations({ subtree: true })
+    .filter((animation) => animation.playState === "running")
+}

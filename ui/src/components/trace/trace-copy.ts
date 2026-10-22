@@ -808,6 +808,18 @@ export function purchaseSummary(trace: PurchaseTrace) {
   return elapsed ? `${PURCHASE_SUMMARY.completed} en ${elapsed}` : PURCHASE_SUMMARY.completed
 }
 
+/**
+ * Resumen de la fila con lo que dice el stream, antes de la traza: las mismas palabras que
+ * `purchaseSummary` dará para ese estado, así la fila no cambia de texto al completarse.
+ */
+export function streamPurchaseSummary(
+  status: "in_progress" | "awaiting_approval" | "blocked",
+  reason?: PolicyBlockReason,
+) {
+  if (status === "blocked" && reason === "allow_unapplied") return ALLOW_NOT_APPLIED_SUMMARY
+  return PURCHASE_SUMMARY[status]
+}
+
 // Etapas de SQLite (`state.purchase`, paso `purchase_update`). Las que coinciden con un estado de la
 // traza usan sus mismas palabras; las intermedias dicen qué paso de la compra ya ocurrió.
 const STAGE_LABEL: Record<PurchaseStage, string> = {

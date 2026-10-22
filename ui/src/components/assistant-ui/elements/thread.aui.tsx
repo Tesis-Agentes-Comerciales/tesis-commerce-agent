@@ -21,6 +21,7 @@ import { cn } from "cn"
 import {
   AgentPlan,
   derivePlanProgress,
+  type PlanProgress,
   PolicyBlockedCard,
   PurchaseActivity,
   ReasoningStep,
@@ -41,7 +42,7 @@ import {
   useMessagePurchaseTrace,
 } from "@/features/purchase-trace"
 import { messageHasPurchaseCard, useMessageStaleTerms } from "@/features/stale-terms"
-import { isFollowUpOnly } from "@/features/turn-layout"
+import { isFollowUpOnly, streamPurchaseOf } from "@/features/turn-layout"
 import {
   AGENT_TOOL_NAMES,
   MAX_MESSAGE_CHARS,
@@ -137,7 +138,17 @@ function useActiveElapsed(active: boolean) {
   return useElapsedMs(span.start, active, span.end)
 }
 
-function AgentProgress({ parts, active }: { parts: readonly PartState[]; active: boolean }) {
+type AgentProgressProps = {
+  parts: readonly PartState[]
+  active: boolean
+  status: AgentMessageStatus | undefined
+  /** La política detuvo la compra en el checkout (código del stream). */
+  blocked: boolean
+  /** La persona no volvió a escribir después de este mensaje. */
+  latest: boolean
+}
+
+function AgentProgress({ parts, active, status, blocked, latest }: AgentProgressProps) {
   const purchase = useAssistantTransportState((state) => state.purchase)
   const tools = parts.filter(isAgentTool)
   const interpreted = tools.find((part) => part.toolName === "interpret_request")?.result
@@ -156,12 +167,27 @@ function AgentProgress({ parts, active }: { parts: readonly PartState[]; active:
       : undefined
   const own = purchase && purchase.run_id === runId ? purchase : null
   // El plan acompaña al turno en curso y, después, a la compra que sigue abierta: es el contexto
-  // de la decisión de aprobar, y sigue mientras se aprueba (el seguimiento no lleva el suyo). Se
-  // retira cuando la compra termina: completada, cancelada o fallida.
+  // de la decisión de aprobar, y sigue mientras se aprueba (el seguimiento no lleva el suyo).
   const pending = own !== null && !SETTLED_STAGES.has(own.stage)
-  if (!active && !pending) return null
-  const progress = derivePlanProgress({ parts: tools, purchase: own, running: active })
-  return <AgentPlan {...progress} className="mb-4" />
+  // Al terminar (compra resuelta, bloqueo, pregunta) queda en su último estado hasta que la persona
+  // vuelve a escribir: quitarlo a la vista subiría de golpe todo lo de abajo. Un turno cortado no
+  // lo deja: su paso quedó a medias.
+  const settled = own !== null && SETTLED_STAGES.has(own.stage)
+  const lastWord = latest && (blocked || settled || status?.type === "complete")
+  if (!active && !pending && !lastWord) return null
+  const progress: PlanProgress = blocked
+    ? { current: "checkout", stopped: "checkout" }
+    : derivePlanProgress({ parts: tools, purchase: own, running: active })
+  const failedNote = own?.stage === "canceled" ? "Cancelaste la compra" : undefined
+  // Con la página quieta nada se anima: el plan que queda como última palabra no late.
+  return (
+    <AgentPlan
+      {...progress}
+      failedNote={failedNote}
+      still={!active && !pending}
+      className="mb-4"
+    />
+  )
 }
 
 function AssistantMessage() {
@@ -181,7 +207,11 @@ function AssistantMessage() {
     const part = parts[index]
     return part?.type === "tool-call" && toolStepStatus(part, status) === "error"
   })
-  const { trace: purchaseTrace, pending: tracePending } = useMessagePurchaseTrace(parts, status)
+  const {
+    trace: purchaseTrace,
+    pending: tracePending,
+    failed: traceFailed,
+  } = useMessagePurchaseTrace(parts, status)
   // Un bloqueo de la política no es un error: lo explica su tarjeta, no el aviso rojo. El código del
   // stream ya lo dice, así que la tarjeta sale desde el primer cuadro y la traza solo la completa.
   // Tampoco unos términos que ya no valen: su tarjeta lo dice y ofrece cancelar.
@@ -194,20 +224,47 @@ function AssistantMessage() {
   // Mientras el turno corre, una sola línea viva al pie con el paso y el tiempo, aunque el grupo
   // esté abierto: es lo que queda a la vista cuando el chat baja con el mensaje.
   const activity = active ? currentActivity(parts) : null
-  // El grupo se abre solo mientras el turno corre, hasta que la persona lo toque.
+  // El grupo no se abre solo: abierto, cada paso que llega empujaría el mensaje mientras corre.
   const [userTraceOpen, setUserTraceOpen] = useState<boolean | null>(null)
   const hasTrace = layout.trace.length > 0
-  const traceOpen = hasTrace && (userTraceOpen ?? active)
+  const traceOpen = hasTrace && (userTraceOpen ?? false)
+  // El mensaje provisional que sigue a un envío ya lleva el encabezado del grupo: el del servidor
+  // llega con su primer paso y ocupa el mismo lugar, sin que la línea viva salte.
+  const repliesToUser = useAuiState(
+    (state) => state.thread.messages[state.message.index - 1]?.role === "user",
+  )
+  const awaitingFirstStep = active && parts.length === 0 && repliesToUser
+  const latest = useAuiState(
+    (state) => !state.thread.messages.slice(state.message.index + 1).some((m) => m.role === "user"),
+  )
+  // La fila de actividad sale con el `run_id` del stream, a su altura final; la traza la completa.
+  // Sin traza solo se queda el bloqueo, que el stream ya da por terminado.
+  const streamPurchase = purchaseTrace ? null : streamPurchaseOf(parts)
+  const streamRow =
+    streamPurchase !== null &&
+    !staleTerms &&
+    (!traceFailed || streamPurchase.status === "blocked") &&
+    !(streamPurchase.status === "in_progress" && status?.type === "incomplete")
 
   return (
     <MessagePrimitive.Root className="group/message px-2 leading-7 wrap-break-word">
       {/* Encabezado solo para lectores de pantalla: mantiene el orden h1 › h2 › h3 de las tarjetas. */}
       <h2 className="sr-only">Respuesta del agente</h2>
-      {/* El plan esperaría una aprobación que ya no es posible: lo dice la tarjeta de términos o la
-          de bloqueo. El seguimiento de aprobar no lleva plan: el de la compra sigue en su mensaje. */}
-      {!staleTerms && !policyBlocked && !followUp && <AgentProgress parts={parts} active={active} />}
+      {/* Con términos que ya no valen, el plan esperaría una aprobación que ya no es posible: lo dice
+          su tarjeta. Un bloqueo del stream lo deja detenido en el checkout, en ámbar; uno que solo
+          trae la traza (al aprobar) lo dice su tarjeta. El seguimiento de aprobar no lleva plan: el
+          de la compra sigue en su mensaje. */}
+      {!staleTerms && !(blockedBy && !streamBlock) && !followUp && (
+        <AgentProgress
+          parts={parts}
+          active={active}
+          status={status}
+          blocked={streamBlock !== null}
+          latest={latest}
+        />
+      )}
 
-      {hasTrace && (
+      {(hasTrace || awaitingFirstStep) && (
         <ThinkingGroup
           active={active}
           failed={(failedStep || failedStatus) && !explained}
@@ -235,6 +292,14 @@ function AssistantMessage() {
           announce={
             purchaseTrace.status === "awaiting_approval" || !messageHasPurchaseCard(parts)
           }
+          className="mb-3"
+        />
+      )}
+      {streamRow && (
+        <PurchaseActivity
+          trace={null}
+          stream={streamPurchase}
+          announce={streamPurchase.status === "awaiting_approval" || !messageHasPurchaseCard(parts)}
           className="mb-3"
         />
       )}

@@ -10,8 +10,9 @@ import "./agent.css"
 
 export type ThinkingGroupProps = {
   /**
-   * El mensaje sigue generándose: el grupo se abre y el título brilla. El tiempo no va aquí: lo
-   * lleva la línea viva al pie del mensaje, la única con contador.
+   * El mensaje sigue generándose: el título brilla. El grupo no se abre solo, así sus pasos no
+   * empujan el mensaje mientras corre. El tiempo tampoco va aquí: lo lleva la línea viva al pie del
+   * mensaje, la única con contador.
    */
   active: boolean
   /** Algún paso falló o el mensaje terminó con error. */
@@ -20,7 +21,7 @@ export type ThinkingGroupProps = {
   stopped?: boolean
   /** Cuánto pensó el agente, para el resumen al terminar. */
   elapsedMs?: number
-  /** Cantidad de pasos, para el resumen al plegar. */
+  /** Cantidad de pasos, al lado del título. Con 0 todavía no hay qué abrir. */
   stepCount?: number
   /** Abierto al terminar; por defecto se pliega. */
   defaultOpen?: boolean
@@ -44,9 +45,10 @@ export function ThinkingGroup({
   children,
   className,
 }: ThinkingGroupProps) {
-  // Mientras nadie lo toque, abierto durante la generación y plegado al terminar.
+  // Mientras nadie lo toque, plegado: también durante la generación.
   const [userOpen, setUserOpen] = useState<boolean | null>(null)
-  const open = controlledOpen ?? userOpen ?? (active || defaultOpen)
+  const empty = stepCount === 0
+  const open = !empty && (controlledOpen ?? userOpen ?? defaultOpen)
   const elapsed = elapsedMs === undefined ? null : formatElapsed(elapsedMs)
 
   const label = active
@@ -66,12 +68,13 @@ export function ThinkingGroup({
         setUserOpen(next)
         onOpenChange?.(next)
       }}
+      disabled={empty}
       className={cn("min-w-0", className)}
       data-testid="thinking-group"
     >
       <Collapsible.Trigger
         className={cn(
-          "group/trigger -ml-2 inline-flex min-h-11 max-w-full items-center gap-2 rounded-full px-2 text-sm transition-colors hover:bg-[#f7f7f7] sm:min-h-9",
+          "group/trigger -ml-2 inline-flex min-h-11 max-w-full items-center gap-2 rounded-full px-2 text-sm transition-colors hover:bg-[#f7f7f7] disabled:hover:bg-transparent sm:min-h-9",
           focusRing,
         )}
         aria-busy={active || undefined}
@@ -86,7 +89,7 @@ export function ThinkingGroup({
         >
           {label}
         </span>
-        {!active && stepCount !== undefined && stepCount > 0 && (
+        {stepCount !== undefined && stepCount > 0 && (
           <span className="shrink-0 text-xs text-[#6b6b6b]">
             {pluralize(stepCount, "paso", "pasos")}
           </span>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { isFollowUpOnly, productSlot } from "@/features/turn-layout"
+import { isFollowUpOnly, productSlot, streamPurchaseOf } from "@/features/turn-layout"
 
 const tool = (toolName: string, extra: Record<string, unknown> = {}) => ({
   type: "tool-call",
@@ -66,5 +66,62 @@ describe("productSlot", () => {
       isError: true,
     })
     expect(productSlot({ select: "complete", prepare: failed, messageRunning: false })).toBe("card")
+  })
+})
+
+describe("streamPurchaseOf", () => {
+  const RUN = "run_0123456789abcdef"
+  const selected = tool("select_product", {
+    result: {
+      decision: "select",
+      product: {
+        product_id: "SON-XM6",
+        variant_id: "SON-XM6-BLK",
+        title: "Sony WH-1000XM6",
+        variant_title: "Sony WH-1000XM6 negro",
+        observed_unit_amount_minor: 189_900_000,
+        currency: "COP",
+      },
+    },
+  })
+  const preparing = tool("prepare_checkout", { args: { variant_id: "SON", run_id: RUN } })
+
+  it("sale cuando empieza prepare_checkout con el run_id en sus args, antes de la traza", () => {
+    expect(streamPurchaseOf([selected, preparing])).toEqual({
+      status: "in_progress",
+      summary: "Comprando…",
+      product: "Sony WH-1000XM6 negro",
+    })
+  })
+
+  it("con la aprobación pedida, espera a la persona", () => {
+    const approval = tool("request_approval", { result: {} })
+    expect(streamPurchaseOf([selected, { ...preparing, result: {} }, approval])?.status).toBe(
+      "awaiting_approval",
+    )
+  })
+
+  it("un bloqueo de la política ya es definitivo; el allow sin aplicar no culpa a la política", () => {
+    const denied = { ...blocked, args: { run_id: RUN } }
+    expect(streamPurchaseOf([selected, denied])).toMatchObject({
+      status: "blocked",
+      summary: "Bloqueada por la política de compra",
+    })
+    const unapplied = {
+      ...denied,
+      result: { error: { code: "d1_allow_unapplied", message: "x" } },
+    }
+    expect(streamPurchaseOf([selected, unapplied])?.summary).toBe("Detenida por precaución")
+  })
+
+  it("sin run_id, sin checkout o con otro error, no hay fila del stream", () => {
+    expect(streamPurchaseOf([selected])).toBeNull()
+    expect(streamPurchaseOf([selected, tool("prepare_checkout")])).toBeNull()
+    const failed = {
+      ...preparing,
+      result: { error: { code: "checkout_failed", message: "x" } },
+      isError: true,
+    }
+    expect(streamPurchaseOf([selected, failed])).toBeNull()
   })
 })
