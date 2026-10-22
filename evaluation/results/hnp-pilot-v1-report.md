@@ -425,7 +425,7 @@ Esto exige cambiar §3.3 y §8.1 de la spec. El pre-registro del próximo piloto
   - coincide con 6 errores de arnés (HN11) y 1 fila sin medir (HN08 r3); atribuirlos a la suspensión es una inferencia por el momento y el mensaje;
   - al despertar, sin red, deja 6 bloqueos falsos en HN09.
 - **El corte de internet en la réplica** (sección 1.4) deja 11 bloqueos falsos en HN09.
-- **Ninguna de esas filas indica un fallo del modelo, que no llegó a responder.** Sí muestran un límite del producto: una caída del selector termina en `selection_not_eligible`, con alerta al operador y sin reintento (sección 7).
+- **Ninguna de esas filas indica un fallo del modelo, que no llegó a responder.** Sí muestran un límite del producto: una caída del selector termina en `selection_not_eligible`, con alerta al operador y sin reintento de la tarea (sección 7).
 - **H1 se le informó a Yair, pero él no la aprobó de forma explícita.** Se apoya en `allowed_amendments.rule`: se registró antes de la primera repetición en vivo y después de un smoke, que no cuenta como resultado. No es ninguna de E1–E5, no toca nada de lo que lista `not_allowed`, y tampoco toca `src/` ni `auth/`.
 - **El texto de H1 no coincide con los datos.** Dice que el smoke sobre `c9e49f6` perdió «2 of its first 6 episodes», pero su JSONL local tiene 4 filas con `harness_error` 429 (sección 1.1). Ni ese JSONL ni el log del primer intento están en el repositorio.
 - **La réplica no estaba pre-registrada como tal.** Se reporta aparte con los mismos criterios, y las dos corridas no se combinan en una sola tasa.
