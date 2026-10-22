@@ -471,6 +471,37 @@ de que exista el paso `authorization_signed`. La tarjeta solo lo muestra con la 
 registrada. Los identificadores y códigos internos de la fila de actividad y de la tarjeta de
 bloqueo quedan en un desplegable «Detalle técnico», cerrado por defecto.
 
+#### Mientras carga un turno
+
+El mensaje no muestra nada que vaya a quitar un instante después, y siempre dice qué está haciendo.
+Las reglas, con su historia en `chat/Thread` y `agent/*`:
+
+- **Una línea viva.** Mientras el turno corre, al pie del mensaje hay una sola línea con el paso
+  actual («Buscando en el catálogo…», «Preparando el checkout…») y el tiempo, también con el grupo
+  «Pensando…» abierto. El contador tiene ancho fijo y un decimal por debajo de 10 s («2,0 s», no
+  «2 s»), así no salta entre un tic y otro. La cabecera del grupo ya no repite el tiempo.
+- **Elegir el producto.** Mientras el agente elige, y mientras prepara el checkout del producto
+  elegido, en el lugar del producto va un marcador bajo con rótulo (`ProductChoiceMarker`:
+  «Eligiendo entre 3 opciones», o el nombre y el precio del elegido), no un esqueleto anónimo del
+  tamaño de la tarjeta grande. La tarjeta grande entra con el checkout listo, o al terminar el turno
+  si no hubo checkout.
+- **Carrusel.** Su esqueleto sale solo si la búsqueda tarda más de 300 ms; una búsqueda rápida ya
+  no lo pinta un cuadro.
+- **Bloqueo de la política (D1).** La compra está explicada desde el primer cuadro en que
+  `prepare_checkout` falla con `d1_denied`, `d1_unavailable` o `d1_allow_unapplied`, como
+  `staleTermsOf` hace con los términos: no espera a la traza. `PolicyBlockedCard` sale con su título
+  y deja en esqueleto lo que solo la traza sabe (el resumen, la regla, el detalle técnico y el modo),
+  con `aria-busy`. Si la traza no llega, la tarjeta se queda con lo que dice el código: «No pude
+  mostrar qué regla no se cumplió.» con `d1_denied`, y el texto de precaución con los otros dos.
+  Nunca hay aviso rojo ni «Se detuvo por un error». En el grupo, el paso es «Compra detenida antes
+  del checkout», en ámbar, con «No se creó ningún checkout ni se hizo ningún cobro.».
+- **El producto de una compra bloqueada** va dentro de la tarjeta de bloqueo (imagen, nombre y
+  precio de catálogo); no hay tarjeta grande del producto. El orden final es «Pensó durante N s», la
+  fila de actividad y la tarjeta de bloqueo. Sin plan: la compra no siguió.
+- **Seguimiento al aprobar o cancelar.** El mensaje que solo trae `purchase_update` no muestra plan
+  ni grupo «Pensando…»: solo la línea viva y, al terminar, su texto. El plan de la compra se retira
+  cuando la compra se resuelve, en vez de quedarse en el mensaje anterior.
+
 ### Auditoría (`ui/src/components/audit/`)
 
 | Componente | Responsabilidad | Historias |
@@ -497,8 +528,9 @@ bloqueo quedan en un desplegable «Detalle técnico», cerrado por defecto.
     un `run_id` distinto) no rompen el chat. Se conserva la última traza leída; si no hay ninguna, la
     fila no aparece y queda el aviso del mensaje, que el backend ya redacta en español.
   - **En el mensaje:** la fila va debajo del grupo «Pensando…» y antes de las tarjetas. Con la compra
-    bloqueada, `PolicyBlockedCard` va después de las tarjetas y reemplaza al aviso rojo del mensaje;
-    el grupo «Pensando…» tampoco se marca como error. Una compra que sigue «en curso» en un mensaje
+    bloqueada, `PolicyBlockedCard` reemplaza al aviso rojo del mensaje y a la tarjeta del producto,
+    y sale del código del stream antes que la traza («Mientras carga un turno»); el grupo
+    «Pensando…» tampoco se marca como error. Una compra que sigue «en curso» en un mensaje
     que terminó con error o se detuvo no muestra la fila, porque ese turno ya no la moverá.
     Con términos que ya no valen (S04), aprobar responde 409 y la traza se relee: llega en
     `stale_terms`, así que la fila se ve con la comprobación que bloqueó y qué cambió, y la tarjeta
