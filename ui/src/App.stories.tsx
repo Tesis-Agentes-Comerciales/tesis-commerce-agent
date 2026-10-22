@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, waitFor, within } from "storybook/test"
+import { expect, fn, waitFor, within } from "storybook/test"
 
 import App from "@/App"
 import type { PendingPurchase as PendingPurchaseBody, PendingTermsStatus } from "@/lib/commerce-api"
@@ -11,6 +11,7 @@ import {
   scriptedAssistant,
 } from "@/storybook/assistant-transport"
 import { mouseClick, sendComposerMessage } from "@/storybook/interactions"
+import { DELEGATION_REPLAYS, replayed } from "@/storybook/fixtures/delegation-replays"
 import { TRACES, withRunId } from "@/storybook/trace-fixtures"
 
 const meta = {
@@ -507,5 +508,58 @@ export const AuthorizationDeniedOnApprove: Story = {
     ])
     await expect(context.canvas.queryByRole("alert")).toBeNull()
     await expect(context.canvas.queryByTestId("policy-blocked-card")).toBeNull()
+  },
+}
+
+// Modo de compra (HP/HNP): la cabecera lo muestra solo si `/health` trae `hnp_enabled: true`.
+
+/** `/health` con HNP encendido, tal como lo respondió el backend (secuencia `consent`). */
+const HNP_HEALTH = replayed(DELEGATION_REPLAYS.consent, "GET /health").body
+
+/**
+ * Con HNP: «Comprar conmigo» es el chat y «Delegar» abre «Delegaciones». Sin una búsqueda previa,
+ * el diálogo explica que primero se busca en el chat; al cerrarlo se vuelve a «Comprar conmigo».
+ */
+export const HnpModes: Story = {
+  parameters: {
+    agentApi: {
+      "GET /health": { body: HNP_HEALTH },
+      "GET /me/delegations": { body: { delegations: [] } },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    const present = await canvas.findByRole("radio", { name: "Comprar conmigo" })
+    await expect(present).toBeChecked()
+    await userEvent.click(canvas.getByText("Delegar", { exact: true }))
+    const page = within(document.body)
+    const dialog = await page.findByRole("dialog", { name: "Delegaciones" })
+    await expect(
+      within(dialog).getByRole("heading", { name: "Primero busca en el chat" }),
+    ).toBeVisible()
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() => expect(page.queryByRole("dialog")).toBeNull())
+    await expect(present).toBeChecked()
+  },
+}
+
+const healthAnswered = fn()
+
+/** Con HNP apagado la cabecera queda como siempre: sin modo de compra. */
+export const HnpOff: Story = {
+  parameters: {
+    agentApi: {
+      "GET /health": () => {
+        healthAnswered()
+        return { body: { status: "ok" } }
+      },
+    },
+  },
+  play: async ({ canvas }) => {
+    await waitFor(() => expect(healthAnswered).toHaveBeenCalled())
+    // Lo que la app hace con la respuesta llega en el siguiente render.
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    await expect(canvas.getByRole("button", { name: "Salir" })).toBeVisible()
+    await expect(canvas.queryByRole("group", { name: "Modo de compra" })).toBeNull()
+    await expect(canvas.queryByRole("radio")).toBeNull()
   },
 }

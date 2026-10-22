@@ -9,15 +9,18 @@ import { AGENT_API_URL, fitsViewport, routeSession, UI_ORIGIN } from "./support.
 // scripts/export_delegation_replays.py), en el orden en que el backend la respondió. `POST
 // /assistant` reproduce el stream real de una compra: de ahí salen las opciones del formulario.
 // Ningún cuerpo se escribe aquí, salvo la lista con una delegación escalada (la fixture del
-// contrato, delegation-escalated.json).
+// contrato, delegation-escalated.json) y, para ver terminar una compra delegada, la delegación
+// consentida con la tarea de las fixtures del contrato (delegation-running.json y
+// delegation-purchased.json) y su traza HNP (trace-fixtures/hnp/enforce-completed.json).
 
 type Exchange = { method: string; path: string; request: unknown; status: number; body: unknown }
+type View = { grant_id: string; state: string; task: Record<string, unknown> }
 
 const REPLAYS = new URL("../src/storybook/fixtures/delegation-api/", import.meta.url)
 const replay = (name: string): Exchange[] =>
   JSON.parse(readFileSync(new URL(`${name}.json`, REPLAYS), "utf8"))
 const fixture = (name: string) =>
-  JSON.parse(readFileSync(new URL(`../src/storybook/fixtures/${name}.json`, import.meta.url), "utf8"))
+  JSON.parse(readFileSync(new URL(`../src/storybook/${name}.json`, import.meta.url), "utf8"))
 const PURCHASE_SSE = readFileSync(
   new URL("../src/storybook/fixtures/assistant-transport/purchase.sse", import.meta.url),
   "utf8",
@@ -37,19 +40,52 @@ const HEALTH_ON = answer(CONSENT, "GET /health")
 const NO_DELEGATIONS = answer(CONSENT, "GET /me/delegations", 0)
 
 const isDelegationRoute = (path: string) => /^\/(me\/)?delegations(\/|$)/.test(path)
+const LIST = "GET /me/delegations"
+const isRead = (item: Exchange) => item.method === "GET"
 
 type Call = { method: string; path: string; authorization: string | null; body: unknown }
 
 /**
+ * Lo que el backend respondería ahora a una lectura. Las escrituras (POST) de la secuencia se
+ * consumen en orden; una lectura ve el estado que dejaron las escrituras ya hechas: la última lista
+ * de la secuencia hasta la próxima escritura pendiente, con las delegaciones releídas después. Así
+ * el sondeo de «Mis delegaciones» (cada 2 s) puede releer cuantas veces quiera sin adelantarse ni
+ * volver atrás.
+ */
+function currentRead(log: Exchange[], served: ReadonlySet<number>, route: string) {
+  const pending = log.findIndex((item, index) => !isRead(item) && !served.has(index))
+  const reached = pending < 0 ? log : log.slice(0, pending)
+  let found: Exchange | null = null
+  let delegations: View[] | null = null
+  for (const item of reached) {
+    const key = `${item.method} ${item.path}`
+    if (key === LIST && item.status === 200) {
+      delegations = [...(item.body as { delegations: View[] }).delegations]
+    } else if (isRead(item) && item.status === 200 && delegations) {
+      const view = item.body as View
+      delegations = delegations.map((known) => (known.grant_id === view.grant_id ? view : known))
+    }
+    if (key === route) found = item
+  }
+  if (!found) return null
+  if (route !== LIST || found.status !== 200) return { status: found.status, body: found.body }
+  return { status: 200, body: { delegations } }
+}
+
+/**
  * Agente simulado. `/health`, la compra pendiente y `/assistant` responden siempre lo mismo; cada
- * ruta de delegaciones consume, en orden, las respuestas de `exchanges` para su método y ruta. Una
- * llamada de delegaciones sin respuesta queda en `unexpected`, y cada prueba comprueba que no hubo
- * ninguna.
+ * escritura de delegaciones consume, en orden, la respuesta de `exchanges` para su método y ruta, y
+ * cada lectura responde el estado de ese momento (`currentRead`). `publish` agrega lecturas como si
+ * la tarea hubiera avanzado en el backend, y `traces` responde la traza de cada compra (sin ella,
+ * 404). Una llamada de delegaciones sin respuesta queda en `unexpected`, y cada prueba comprueba
+ * que no hubo ninguna.
  */
 async function routeAgent(page: Page, exchanges: Exchange[], health = HEALTH_ON) {
   const calls: Call[] = []
   const unexpected: string[] = []
-  const pending = [...exchanges]
+  const log = [...exchanges]
+  const served = new Set<number>()
+  const traces = new Map<string, unknown>()
   const cors = {
     "Access-Control-Allow-Origin": UI_ORIGIN,
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
@@ -72,18 +108,37 @@ async function routeAgent(page: Page, exchanges: Exchange[], health = HEALTH_ON)
     if (call.path === "/assistant") {
       return route.fulfill({ headers: cors, contentType: "text/event-stream", body: PURCHASE_SSE })
     }
-    // La traza de la compra no es parte de esto: responde como una compra que el agente no conoce.
+    const traced = /^\/purchases\/([^/]+)\/trace$/.exec(call.path)
+    if (traced && traces.has(traced[1]!)) return reply(200, traces.get(traced[1]!))
+    // Ninguna otra compra es parte de esto: responde como una que el agente no conoce.
     if (!isDelegationRoute(call.path)) return reply(404, { detail: "Not Found" })
-    const index = pending.findIndex((item) => item.method === call.method && item.path === call.path)
-    if (index < 0) {
-      unexpected.push(`${call.method} ${call.path}`)
-      return reply(404, { detail: "Not Found" })
+    const key = `${call.method} ${call.path}`
+    if (call.method === "GET") {
+      const read = currentRead(log, served, key)
+      if (read) return reply(read.status, read.body)
+    } else {
+      const index = log.findIndex(
+        (item, position) => !served.has(position) && `${item.method} ${item.path}` === key,
+      )
+      if (index >= 0) {
+        served.add(index)
+        return reply(log[index]!.status, log[index]!.body)
+      }
     }
-    const [next] = pending.splice(index, 1)
-    return reply(next!.status, next!.body)
+    unexpected.push(key)
+    return reply(404, { detail: "Not Found" })
   })
-  return { calls, unexpected }
+  /** El backend avanzó: estas lecturas responden desde ahora. */
+  const publish = (...reads: Exchange[]) => log.push(...reads)
+  return { calls, unexpected, traces, publish }
 }
+
+/**
+ * Las llamadas de delegaciones sin las relecturas del sondeo: una lista que se lee seguida varias
+ * veces cuenta una, como la que la app pide después de cada acción.
+ */
+const withoutPolls = (calls: string[]) =>
+  calls.filter((call, index) => !(call === LIST && calls[index - 1] === LIST))
 
 const delegationCalls = (calls: Call[]) => calls.filter((call) => isDelegationRoute(call.path))
 
@@ -95,26 +150,36 @@ async function searchInChat(page: Page) {
   await expect(page.getByTestId("purchase-approval-card")).toBeVisible()
 }
 
+/** El modo de compra de la cabecera: el radio se elige con un clic en su segmento. */
+const modeSwitch = (page: Page) => page.getByRole("group", { name: "Modo de compra" })
+
 async function openDelegations(page: Page) {
-  await page.getByRole("button", { name: "Delegaciones" }).click()
+  await modeSwitch(page).getByText("Delegar", { exact: true }).click()
+  // Detrás del diálogo modal, que oculta el resto de la página a los lectores, el modo es «Delegar».
+  await expect(page.getByRole("radio", { name: "Delegar", includeHidden: true })).toBeChecked()
   const dialog = page.getByTestId("delegations")
   await expect(dialog.getByRole("heading", { name: "Mis delegaciones" })).toBeVisible()
   return dialog
 }
 
-/** Llena el formulario como en la secuencia `consent`: dos opciones, $2.000.000 y una hora. */
-async function fillForm(page: Page, { city }: { city?: string } = {}) {
+/**
+ * Llena el formulario como en la secuencia `consent`: dos opciones, $2.000.000 y una hora. El
+ * total lo escribe el comprador: el formulario no lo prellena (hnp-governed.md §3.2).
+ */
+async function fillForm(page: Page, { city, submit = true }: { city?: string; submit?: boolean } = {}) {
   const dialog = page.getByTestId("delegations")
   await dialog.getByRole("button", { name: "Nueva delegación" }).click()
   const form = dialog.getByTestId("delegation-form")
   await form.getByRole("checkbox", { name: /Bose QuietComfort Ultra negro/ }).check()
   await form.getByRole("checkbox", { name: /Sony WH-1000XM6 negro/ }).check()
-  await form.getByLabel("Total máximo con envío (pesos)").fill("2.000.000")
+  const total = form.getByLabel("Total máximo con envío (pesos)")
+  await expect(total).toHaveValue("")
+  await total.fill("2.000.000")
   if (city !== undefined) await form.getByLabel("Ciudad").fill(city)
   await form
     .getByLabel("Tu indicación (opcional)")
     .fill("Si los dos están disponibles, prefiero los Sony.")
-  await form.getByRole("button", { name: "Preparar la autorización" }).click()
+  if (submit) await form.getByRole("button", { name: "Preparar la autorización" }).click()
   return form
 }
 
@@ -173,7 +238,8 @@ test("propone y autoriza una delegación; el destino viaja tal como se escribió
   expect(sent.find((call) => call.path === "/delegations")?.body).toEqual(
     answer(CONSENT, "POST /delegations").request,
   )
-  expect(sent.map((call) => `${call.method} ${call.path}`)).toEqual([
+  // Activa, la lista se relee cada 2 s hasta que la tarea termine: eso no cuenta aquí.
+  expect(withoutPolls(sent.map((call) => `${call.method} ${call.path}`))).toEqual([
     "GET /me/delegations",
     "POST /delegations/proposals",
     "POST /delegations",
@@ -277,10 +343,11 @@ test("revoca cada delegación y muestra qué pasó con el pago: sin efecto, libe
     "released",
     "in_flight",
   ])
-  // Cada revocación relee su delegación; nada más.
-  expect(delegationCalls(calls).map((call) => `${call.method} ${call.path}`)).toEqual(
-    exchanges.map((item) => `${item.method} ${item.path}`),
-  )
+  // Cada revocación relee su delegación; nada más. Con compras en curso, la lista se relee aparte.
+  const sent = delegationCalls(calls).map((call) => `${call.method} ${call.path}`)
+  const actions = (routes: string[]) => routes.filter((route) => route !== LIST)
+  expect(sent[0]).toBe(LIST)
+  expect(actions(sent)).toEqual(actions(exchanges.map((item) => `${item.method} ${item.path}`)))
   expect(unexpected).toEqual([])
 })
 
@@ -314,7 +381,7 @@ test("«Revocar todo» deja un recibo en cada delegación activa y relee la list
   const cards = dialog.getByTestId("delegation-status-card")
   await expect(cards).toHaveCount(4)
   for (const card of await cards.all()) await expect(card).toHaveAttribute("data-status", "revoked")
-  expect(delegationCalls(calls).map((call) => `${call.method} ${call.path}`)).toEqual([
+  expect(withoutPolls(delegationCalls(calls).map((call) => `${call.method} ${call.path}`))).toEqual([
     "GET /me/delegations",
     "POST /me/delegations/revoke-all",
     "GET /me/delegations",
@@ -323,7 +390,7 @@ test("«Revocar todo» deja un recibo en cada delegación activa y relee la list
 })
 
 test("una delegación escalada lleva su compra al compositor del chat", async ({ page }) => {
-  const escalated = fixture("delegation-escalated")
+  const escalated = fixture("fixtures/delegation-escalated")
   const { unexpected } = await routeAgent(page, [
     { method: "GET", path: "/me/delegations", request: null, status: 200, body: { delegations: [escalated] } },
   ])
@@ -338,14 +405,163 @@ test("una delegación escalada lleva su compra al compositor del chat", async ({
   expect(unexpected).toEqual([])
 })
 
-test("con HNP apagado no hay «Delegaciones» ni llamadas a sus rutas", async ({ page }) => {
+test("con HNP apagado la cabecera es la de siempre: sin modo de compra ni llamadas a sus rutas", async ({
+  page,
+}) => {
   const { calls, unexpected } = await routeAgent(page, [], answer(FLAG_OFF, "GET /health"))
   await page.goto("/")
   await searchInChat(page)
+  await expect(modeSwitch(page)).toHaveCount(0)
+  await expect(page.getByRole("radio")).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Delegaciones" })).toHaveCount(0)
+  // La misma cabecera que antes de HNP: sus clases, «Salir» y los datos de entrega.
+  const header = page.locator("header")
+  await expect(header).toHaveClass("flex h-14 shrink-0 items-center justify-end gap-2 px-3 sm:px-5")
+  await expect(header.getByRole("button")).toHaveCount(2)
+  await expect(header.getByRole("button", { name: "Salir" })).toBeVisible()
+  await expect(header.getByRole("button", { name: "Datos de entrega" })).toBeVisible()
   expect(calls.some((call) => call.path === "/health")).toBe(true)
   expect(delegationCalls(calls)).toEqual([])
   expect(unexpected).toEqual([])
+})
+
+// Una compra delegada de punta a punta: «Delegar», autorizar, el disparo y la gobernanza en la tarjeta.
+
+const GRANTED = answer(CONSENT, "POST /delegations").body as View
+const RUNNING_TASK = fixture("fixtures/delegation-running").task as Record<string, unknown>
+const PURCHASED = fixture("fixtures/delegation-purchased") as View
+const COMPLETED_TRACE = fixture("trace-fixtures/hnp/enforce-completed") as {
+  steps: { at: string }[]
+}
+const RUN_ID = RUNNING_TASK.run_id as string
+
+/** La delegación consentida con su tarea en otro momento, como la relee el backend. */
+function consentedWith(state: string, task: Record<string, unknown>): Exchange {
+  const view = { ...GRANTED, state, task: { ...task, task_id: GRANTED.task.task_id }, last_activity_at: task.updated_at }
+  return { method: "GET", path: "/me/delegations", request: null, status: 200, body: { delegations: [view] } }
+}
+
+/** La traza a mitad de camino: D2 ya verificó; faltan la reserva, el cierre, D3 y la orden. */
+const RUNNING_TRACE = {
+  ...COMPLETED_TRACE,
+  run_id: RUN_ID,
+  status: "in_progress",
+  updated_at: COMPLETED_TRACE.steps[5]!.at,
+  steps: COMPLETED_TRACE.steps.slice(0, 6),
+}
+
+/** Los controles que la tarjeta muestra de la compra completada, en orden. */
+const GOVERNED_STEPS = [
+  "Delegación autorizada",
+  "Compra delegada en marcha",
+  "Política de compra: permitida",
+  "Checkout creado en el comercio",
+  "Oferta vigente al cerrar",
+  "Autorización delegada verificada",
+  "Uso único reservado",
+  "Autorización cerrada por el agente",
+  "Despacho autorizado",
+  "Pago autorizado",
+  "Orden confirmada",
+]
+
+/**
+ * Elige «Delegar», autoriza y, mientras el diálogo sigue abierto, el backend dispara la tarea y la
+ * compra termina: la tarjeta pasa sola de activa a en curso y a completada, con su gobernanza. Al
+ * cerrar se vuelve a «Comprar conmigo» y nada se sigue releyendo.
+ */
+async function delegateAndWatchTheGovernance(page: Page, check: (step: string) => Promise<void>) {
+  const backend = await routeAgent(page, CONSENT.slice(1))
+  await page.goto("/")
+  await searchInChat(page)
+  const dialog = await openDelegations(page)
+  await check("delegaciones")
+  const form = await fillForm(page, { city: "Bogotá", submit: false })
+  // «Preparar la autorización» entero dentro del formulario (#134, brecha 4).
+  const submit = form.getByRole("button", { name: "Preparar la autorización" })
+  const [formBox, submitBox] = [await form.boundingBox(), await submit.boundingBox()]
+  expect(submitBox!.x + submitBox!.width).toBeLessThanOrEqual(formBox!.x + formBox!.width)
+  await check("formulario")
+  await submit.click()
+  await consentCard(page).getByRole("button", { name: "Autorizar" }).click()
+  const status = dialog.getByTestId("delegation-status-card")
+  await expect(status).toHaveAttribute("data-status", "scheduled")
+  // Sin compra todavía, la tarjeta no muestra gobernanza.
+  await expect(status.getByRole("group", { name: "Gobernanza de la compra" })).toHaveCount(0)
+
+  // El disparo: la tarea compra; la traza ya trae D1, la frescura y D2.
+  backend.traces.set(RUN_ID, RUNNING_TRACE)
+  backend.publish(consentedWith("active", RUNNING_TASK))
+  await expect(status).toHaveAttribute("data-status", "running")
+  const governance = status.getByRole("group", { name: "Gobernanza de la compra" })
+  await expect(governance.getByRole("button", { name: /^Comprando…/ })).toBeVisible()
+
+  // Terminó: el pago, la orden, el uso único consumido y las tres decisiones de la política.
+  backend.traces.set(RUN_ID, { ...COMPLETED_TRACE, run_id: RUN_ID })
+  backend.publish(consentedWith(PURCHASED.state, PURCHASED.task))
+  await expect(status).toHaveAttribute("data-status", "purchased")
+  const row = governance.getByRole("button", { name: /^Compra completada en / })
+  await row.click()
+  const steps = governance.getByRole("list", { name: "Controles de la compra" }).locator(":scope > li > div > div > p")
+  await expect(steps).toHaveText([...GOVERNED_STEPS, "Uso único consumido"])
+  await expect(governance.getByText("Activa: detiene la compra si no cumple")).toBeVisible()
+  await expect(governance.getByText("Detalle técnico")).toBeVisible()
+  await check("gobernanza")
+
+  // Cerrar es volver al chat: el modo de compra lo dice y el sondeo se detiene.
+  await page.keyboard.press("Escape")
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole("radio", { name: "Comprar conmigo" })).toBeChecked()
+  const before = backend.calls.length
+  await page.waitForTimeout(4_500)
+  expect(backend.calls.slice(before).map((call) => call.path)).toEqual([])
+  expect(backend.calls.some((call) => call.path === `/purchases/${RUN_ID}/trace`)).toBe(true)
+  expect(backend.unexpected).toEqual([])
+}
+
+test("elige «Delegar», autoriza y ve la gobernanza cuando la compra delegada termina", async ({
+  page,
+}) => {
+  await delegateAndWatchTheGovernance(page, async () => {})
+})
+
+test("«Delegar» sin haber buscado explica que primero se busca y vuelve al chat", async ({ page }) => {
+  const { calls, unexpected } = await routeAgent(page, [NO_DELEGATIONS])
+  await page.goto("/")
+  const dialog = await openDelegations(page)
+  const guide = dialog.getByTestId("delegation-search-first")
+  await expect(guide.getByRole("heading", { name: "Primero busca en el chat" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Nueva delegación" })).toHaveCount(0)
+  await guide.getByRole("button", { name: "Buscar en el chat" }).click()
+
+  await expect(dialog).toBeHidden()
+  await expect(page.getByLabel("Mensaje de compra")).toBeFocused()
+  await expect(page.getByRole("radio", { name: "Comprar conmigo" })).toBeChecked()
+  expect(delegationCalls(calls).map((call) => `${call.method} ${call.path}`)).toEqual([LIST])
+  expect(unexpected).toEqual([])
+})
+
+test.describe("teléfono de 390 × 844", () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test("el modo de compra va en su fila y la compra delegada cabe de punta a punta", async ({
+    page,
+  }) => {
+    const fits = async (step: string) => {
+      expect(await page.evaluate(DIALOG_FITS), step).toEqual({ width: 358, scroll: 0, outside: 0 })
+      expect(await fitsViewport(page), step).toBe(true)
+    }
+    await delegateAndWatchTheGovernance(page, fits)
+    // De vuelta en el chat: el selector ocupa su fila, a todo el ancho, debajo de «Salir».
+    const [header, switchBox, signOut] = await Promise.all([
+      page.locator("header").boundingBox(),
+      modeSwitch(page).boundingBox(),
+      page.getByRole("button", { name: "Salir" }).boundingBox(),
+    ])
+    expect(switchBox!.y).toBeGreaterThanOrEqual(signOut!.y + signOut!.height)
+    expect(switchBox!.width).toBeGreaterThan(header!.width - 32)
+    expect(await fitsViewport(page)).toBe(true)
+  })
 })
 
 test.describe("móvil", () => {

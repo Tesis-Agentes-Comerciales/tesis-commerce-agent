@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   activeGrantIds,
   delegationsReducer,
+  hasTaskInFlight,
   INITIAL_DELEGATIONS,
   type DelegationsAction,
   type DelegationsState,
@@ -142,5 +143,26 @@ describe("las revocaciones", () => {
     const state = run([{ type: "delegation-read", delegation: reread }], listed)
     expect(state.delegations.map((item) => item.grant_id)).toEqual(LISTED.map((item) => item.grant_id))
     expect(state.delegations[1]).toBe(reread)
+  })
+})
+
+describe("hasTaskInFlight", () => {
+  const view = (state: string, task: string) =>
+    parseDelegationView({ ...GRANTED, state, task: { ...GRANTED.task, state: task } })
+
+  it("relee mientras una tarea espera el disparo o compra", () => {
+    expect(hasTaskInFlight([GRANTED])).toBe(true)
+    expect(hasTaskInFlight([view("active", "running")])).toBe(true)
+  })
+
+  it("una compra comprometida sigue aunque la delegación se haya revocado (§8.4)", () => {
+    expect(hasTaskInFlight([{ ...view("active", "running"), state: "revoked", revoked_reason: "owner" }])).toBe(true)
+  })
+
+  it("no relee lo que ya no corre: tareas terminadas o programadas de una delegación cerrada", () => {
+    expect(hasTaskInFlight([])).toBe(false)
+    expect(hasTaskInFlight([{ ...GRANTED, state: "expired" }])).toBe(false)
+    expect(hasTaskInFlight([{ ...GRANTED, state: "revoked", revoked_reason: "owner" }])).toBe(false)
+    expect(hasTaskInFlight(LISTED.filter((item) => item.task.state === "canceled"))).toBe(false)
   })
 })

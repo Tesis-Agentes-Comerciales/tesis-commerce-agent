@@ -1,6 +1,7 @@
 import { chip, focusRing } from "@/components/agent"
 import { Thread } from "@/components/assistant-ui/elements/thread.aui"
 import { CommerceWelcome } from "@/components/commerce-welcome"
+import { PurchaseModeSwitch } from "@/components/purchase-mode-switch"
 import { SessionGate } from "@/components/session-gate"
 import {
   Dialog,
@@ -16,7 +17,7 @@ import { authClient } from "@/lib/auth-client"
 import { INITIAL_AGENT_STATE, type AgentAssistantPart, type AgentState } from "@/lib/agent-contract"
 import { AGENT_API_URL, health, pendingPurchase, type PendingPurchase } from "@/lib/commerce-api"
 import { DEMO_PROFILE } from "@/lib/commerce-types"
-import { Settings2Icon, ShieldCheckIcon } from "lucide-react"
+import { Settings2Icon } from "lucide-react"
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react"
 
 const BuyerProfileCard = lazy(() =>
@@ -26,6 +27,14 @@ const BuyerProfileCard = lazy(() =>
 )
 
 type ConnectionStatus = "checking" | "online" | "offline"
+
+const HEADER = "flex h-14 shrink-0 items-center justify-end gap-2 px-3 sm:px-5"
+/**
+ * Con HNP la cabecera suma el modo de compra: a la izquierda en una pantalla ancha y, en un
+ * teléfono, en una fila propia debajo de «Salir», a todo el ancho (a 320 px no cabe al lado).
+ */
+const HEADER_WITH_MODES =
+  "flex shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 px-3 pt-2 pb-1 sm:h-14 sm:flex-nowrap sm:px-5 sm:py-0"
 
 // Elemento estable: `CommerceRuntime` solo puede recibir props que no cambien entre renders.
 // «Delegaciones» vive dentro del runtime y recibe lo que cambia por contexto.
@@ -146,22 +155,20 @@ function CommerceApp({ userId }: { userId: string }) {
     <>
       <main className="flex h-svh min-h-0 flex-col overflow-hidden bg-white text-[#0d0d0d]">
         {/* Solo se anuncia la conexión cuando falla: conectado es el caso normal y no necesita aviso. */}
-        <header className="flex h-14 shrink-0 items-center justify-end gap-2 px-3 sm:px-5">
+        <header className={hnpEnabled ? HEADER_WITH_MODES : HEADER}>
+          {/* «Delegar» abre «Delegaciones»; al cerrarlas se vuelve a comprar en el chat. */}
+          {hnpEnabled && (
+            <PurchaseModeSwitch
+              mode={delegationsOpen ? "delegated" : "present"}
+              onModeChange={(mode) => setDelegationsOpen(mode === "delegated")}
+              className="order-last w-full sm:order-none sm:mr-auto sm:w-auto"
+            />
+          )}
           {connection === "offline" && (
             <span className={chip({ tone: "danger" })} title={AGENT_API_URL} role="status">
               <span className="size-1.5 rounded-full bg-red-600" aria-hidden />
               Agente sin conexión
             </span>
-          )}
-          {hnpEnabled && (
-            <button
-              type="button"
-              onClick={() => setDelegationsOpen(true)}
-              className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm hover:bg-[#f2f2f2] ${focusRing}`}
-            >
-              <ShieldCheckIcon className="size-4" aria-hidden />
-              Delegaciones
-            </button>
           )}
           <button
             type="button"

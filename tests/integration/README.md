@@ -83,13 +83,15 @@ Hay cinco grupos sobre el mismo PostgreSQL:
   - `b2-presupuesto`: con un presupuesto total menor que el precio, la tarjeta «La política de
     compra detuvo esta compra» explica POL-11 con el precio del catálogo y el presupuesto, sin
     tarjeta de aprobación ni POST de creación en el Merchant.
-  - `hnp-compra` (`hnp`, condición B2-HNP): busca en el chat, abre «Delegaciones», llena el
-    formulario con las opciones vistas (total máximo, «6 horas»), autoriza en la tarjeta de
-    consentimiento y la ve activa con su vigencia; el disparo compra una vez y la tarjeta muestra
-    la compra y la orden.
+  - `hnp-compra` (`hnp`, condición B2-HNP): busca en el chat, elige «Delegar» en el modo de
+    compra de la cabecera, llena el formulario con las opciones vistas (escribe el total máximo,
+    que arranca vacío, y «6 horas»), autoriza en la tarjeta de consentimiento y la ve activa con
+    su vigencia; el disparo compra una vez y la tarjeta muestra la compra, la orden y su
+    «Gobernanza de la compra» (la traza HNP, de la delegación a la orden).
   - `hnp-escala`: tras consentir, el Merchant sube el precio sobre el máximo y el Agent se
     reinicia sobre el feed nuevo (HN03); el disparo escala por POL-11, la UI muestra «Necesito tu
-    decisión» y «Comprar desde el chat» prellena el compositor con el texto exacto, sin enviarlo.
+    decisión» con su gobernanza y «Comprar desde el chat» prellena el compositor con el texto
+    exacto, sin enviarlo.
   - `hnp-revoca`: «Revocar» en la tarjeta deja su recibo; el disparo responde 409 sin tocar el
     Merchant ni el proveedor y la UI la muestra revocada.
   - `hnp-compra-telefono`: `hnp-compra` en un teléfono de 390 × 844; después de cada paso, con

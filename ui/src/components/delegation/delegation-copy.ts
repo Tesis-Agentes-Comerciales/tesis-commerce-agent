@@ -60,6 +60,19 @@ export const VALIDITY_OPTIONS = [
   { seconds: 86_400, label: "24 horas" },
 ] as const
 
+/**
+ * «Delegar» antes de buscar en el chat: el formulario solo ofrece opciones que el agente ya mostró,
+ * así que primero se busca (§3.2).
+ */
+export const SEARCH_FIRST_COPY = {
+  title: "Primero busca en el chat",
+  body: "Pídele al agente lo que quieres comprar. Las opciones que te muestre aparecen aquí para que delegues la compra.",
+  action: "Buscar en el chat",
+} as const
+
+/** Encabezado de la traza en la tarjeta: la misma fila de actividad que la compra en el chat. */
+export const GOVERNANCE_LABEL = "Gobernanza de la compra"
+
 export const DELEGATIONS_COPY = {
   title: "Delegaciones",
   description:

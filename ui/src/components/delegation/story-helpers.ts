@@ -16,14 +16,18 @@ export const PHONE_COLUMN = "w-[288px]"
  */
 export const PHONE_DIALOG_COLUMN = "w-[254px]"
 
+/** En el teléfono de 390 × 844 de las pruebas en vivo, el diálogo mide 358 px y deja 324. */
+export const PHONE_390_DIALOG_COLUMN = "w-[324px]"
+
 /** Un nodo legible en el mensaje de un fallo: etiqueta, test id y el inicio de su texto. */
 const describe = (element: HTMLElement) =>
   `<${element.tagName.toLowerCase()}${element.dataset.testid ? ` ${element.dataset.testid}` : ""}> ${element.textContent?.slice(0, 40) ?? ""}`
 
 /**
  * Nada de la columna se sale por la derecha: ni scroll horizontal, ni texto cortado, ni contenido
- * que se mete en el padding de su contenedor. Un `overflow-hidden` (la superficie de las tarjetas,
- * `truncate`) esconde lo que se sale sin mover ningún borde, así que también se mira por dentro.
+ * que se mete en el padding de su contenedor sin un margen negativo que lo pida. Un
+ * `overflow-hidden` (la superficie de las tarjetas, `truncate`) esconde lo que se sale sin mover
+ * ningún borde, así que también se mira por dentro.
  */
 export async function expectFitsPhoneColumn(canvasElement: HTMLElement) {
   const column = canvasElement.querySelector<HTMLElement>("[data-testid='phone-column']")
@@ -40,6 +44,9 @@ export async function expectFitsPhoneColumn(canvasElement: HTMLElement) {
     }
     const parent = element.parentElement
     if (!parent || style.position === "absolute" || style.position === "fixed") continue
+    // Un margen negativo es un sangrado a propósito (el plegable de la traza deja sitio a los
+    // anillos de foco): solo cuenta que no se salga de la columna.
+    if (parseFloat(style.marginRight) < 0) continue
     const parentBox = parent.getBoundingClientRect()
     const contentRight = parentBox.right - parseFloat(getComputedStyle(parent).paddingRight)
     await expect(box.right, describe(element)).toBeLessThanOrEqual(contentRight + 1)

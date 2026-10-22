@@ -5,6 +5,7 @@ import { DelegationForm } from "@/components/delegation/delegation-form"
 import {
   expectFitsPhoneColumn,
   expectKeyboardFocus,
+  PHONE_390_DIALOG_COLUMN,
   PHONE_DIALOG_COLUMN,
 } from "@/components/delegation/story-helpers"
 import { seenOffers } from "@/features/seen-offers"
@@ -162,5 +163,26 @@ export const Phone320: Story = {
   ),
   play: async ({ canvasElement }) => {
     await expectFitsPhoneColumn(canvasElement)
+  },
+}
+
+/**
+ * A 390 px (#134, brecha 4) la tarjeta pasa de 320 px y antes ponía los dos botones lado a lado:
+ * «Preparar la autorización» no cabía y la tarjeta lo cortaba. Ahora van uno sobre otro, enteros.
+ */
+export const Phone390: Story = {
+  render: (args) => (
+    <div className={PHONE_390_DIALOG_COLUMN} data-testid="phone-column">
+      <DelegationForm {...args} />
+    </div>
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    await expectFitsPhoneColumn(canvasElement)
+    const submit = canvas.getByRole("button", { name: "Preparar la autorización" })
+    const cancel = canvas.getByRole("button", { name: "Cancelar" })
+    await expect(submit.scrollWidth).toBeLessThanOrEqual(submit.clientWidth)
+    await expect(submit.getBoundingClientRect().top).toBeGreaterThan(
+      cancel.getBoundingClientRect().bottom,
+    )
   },
 }
