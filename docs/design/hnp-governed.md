@@ -1038,8 +1038,11 @@ por confirmar» (un escalamiento usa `escalation.title`); filas «Total máximo�
 
 Textos fijos del chat (HNP-10, mismo archivo): la tarjeta de consentimiento suma «Puedes autorizarla
 hasta el <fecha y hora>», el menor entre `expires_at` de la propuesta y del alcance (el mismo límite
-que aplica `POST /delegations`). Diálogo «Delegaciones» con «Nueva delegación», «Mis delegaciones»,
-«Todavía no tienes delegaciones.» y «Revocar todo». Formulario «Delegar una compra»: «Opciones que
+que aplica `POST /delegations`). Selector «Modo de compra» de la cabecera con «Comprar conmigo»
+(el chat) y «Delegar», que abre el diálogo «Delegaciones» con «Nueva delegación», «Mis
+delegaciones», «Todavía no tienes delegaciones.» y «Revocar todo»; sin opciones vistas en el chat,
+«Primero busca en el chat» con «Buscar en el chat». La tarjeta de una tarea con `run_id` suma
+«Gobernanza de la compra», su traza (§10). Formulario «Delegar una compra»: «Opciones que
 puede comprar» (las que el chat ya mostró), «Total máximo con envío (pesos)», «Vigencia» (1, 6 o 24
 horas), «Entrega» con «Dirección», «Ciudad» y «Departamento», «Por ahora el comercio solo entrega en
 Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autorización». Los errores

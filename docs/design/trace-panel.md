@@ -437,6 +437,12 @@ Una compra en `stale_terms` dice en la fila de actividad «Detenida: cambiaron l
 (delegación, claim, política, checkout, reserva, cierre, pago y orden); el de HP no cambia. D2, D3,
 la frescura, la revocación y el escalamiento solo aparecen si la traza los trae.
 
+La compra delegada no tiene mensaje en el chat: su `PurchaseActivity` va en la tarjeta de la
+delegación, bajo «Gobernanza de la compra» y sin el nombre del producto ni del comercio, que la
+tarjeta ya muestra (`showNames={false}`). La traza se lee al aparecer el `run_id` de la tarea, cada
+vez que la tarea avanza y cada 2 s mientras pueda cambiar, solo con el diálogo abierto
+(`ui/src/features/delegation-traces.ts`).
+
 | Paso | Título | Detalle |
 | --- | --- | --- |
 | `delegation_consented` | «Delegación autorizada» | «Hasta $ 2.000.000,00 COP · vence …» |

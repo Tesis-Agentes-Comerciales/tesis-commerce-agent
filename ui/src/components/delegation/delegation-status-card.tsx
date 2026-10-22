@@ -15,10 +15,12 @@ import { useId } from "react"
 
 import { formatMoney } from "@/components/agent/agent-format"
 import { pillButton } from "@/components/agent/agent-styles"
+import { PurchaseActivity } from "@/components/agent/purchase-activity"
 import { useCardFocus } from "@/components/agent/use-card-focus"
 import {
   delegationStatus,
   delegationTitle,
+  GOVERNANCE_LABEL,
   REVOKE_LABEL,
   SCOPE_LABEL,
   type DelegationStatus,
@@ -40,6 +42,7 @@ import {
 } from "@/components/delegation/delegation-parts"
 import { DelegationRevokeReceipt } from "@/components/delegation/delegation-revoke-receipt"
 import type { DelegationView, RevokeReceipt } from "@/lib/delegation-contract"
+import type { PurchaseTrace } from "@/lib/trace-contract"
 
 const STATUS_VIEW: Record<DelegationStatus, { Icon: LucideIcon; tone: HeaderTone }> = {
   scheduled: { Icon: ShieldCheckIcon, tone: "ink" },
@@ -55,6 +58,11 @@ const STATUS_VIEW: Record<DelegationStatus, { Icon: LucideIcon; tone: HeaderTone
 
 export type DelegationStatusCardProps = {
   delegation: DelegationView
+  /**
+   * Traza de la compra de la tarea (`GET /purchases/{task.run_id}/trace`, `purchase_mode: "HNP"`):
+   * los mismos controles que la compra en el chat. Sin ella, la tarjeta no muestra la gobernanza.
+   */
+  trace?: PurchaseTrace | null
   /** Recibo de `POST /delegations/{id}/revoke`, cuando se acaba de revocar desde esta tarjeta. */
   revokeReceipt?: RevokeReceipt | null
   /** Mientras revocar responde, «Revocar» conserva el foco con `aria-disabled`. */
@@ -71,12 +79,13 @@ export type DelegationStatusCardProps = {
 }
 
 /**
- * Una delegación y su tarea: qué pasó, con el mensaje del backend, y el alcance que se consintió.
- * Un escalamiento muestra su texto canónico y «Comprar desde el chat»; una delegación activa,
- * «Revocar» y, al revocar, su recibo.
+ * Una delegación y su tarea: qué pasó, con el mensaje del backend, la gobernanza de su compra y el
+ * alcance que se consintió. Un escalamiento muestra su texto canónico y «Comprar desde el chat»;
+ * una delegación activa, «Revocar» y, al revocar, su recibo.
  */
 export function DelegationStatusCard({
   delegation,
+  trace,
   revokeReceipt,
   revoking = false,
   error,
@@ -138,6 +147,8 @@ export function DelegationStatusCard({
             )
           )}
 
+          {trace && <DelegationGovernance trace={trace} />}
+
           <VariantList variants={scope.variants} />
           {scope.preference_text && <PreferenceQuote text={scope.preference_text} />}
 
@@ -185,5 +196,28 @@ export function DelegationStatusCard({
         </div>
       </article>
     </>
+  )
+}
+
+/**
+ * La gobernanza de la compra delegada: la fila de actividad del chat, plegada, y al abrirla la
+ * línea de tiempo con el consentimiento, las tres decisiones de la política, el uso único y la
+ * orden, con su detalle técnico (docs/design/trace-panel.md, «Compra delegada»).
+ */
+function DelegationGovernance({ trace }: { trace: PurchaseTrace }) {
+  const labelId = useId()
+  // Un grupo y no una región: cada tarjeta de «Mis delegaciones» tiene el suyo, con el mismo nombre.
+  return (
+    <div
+      role="group"
+      aria-labelledby={labelId}
+      data-testid="delegation-governance"
+      className="rounded-[16px] border border-[#ececec] px-3.5 pt-2.5 pb-1.5"
+    >
+      <h4 id={labelId} className="text-xs leading-5 font-medium text-[#6b6b6b]">
+        {GOVERNANCE_LABEL}
+      </h4>
+      <PurchaseActivity trace={trace} showNames={false} />
+    </div>
   )
 }
