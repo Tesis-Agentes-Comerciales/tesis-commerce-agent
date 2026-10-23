@@ -23,7 +23,7 @@ from commerce_agent.application.governed_recovery import (
     RecoveryEvidenceUnavailable,
     outside_shortlist,
 )
-from commerce_agent.application.product_cards import product_card
+from commerce_agent.application.product_cards import ProductCard, product_card
 from commerce_agent.application.purchase import (
     CheckoutDetails,
     PurchasePreparation,
@@ -60,6 +60,20 @@ LOCAL_OWNER_ID = "local-human"
 PENDING_PURCHASE_MESSAGE = (
     "Ya hay una compra pendiente. Revísala o cancélala antes de iniciar otra."
 )
+DELEGATION_CURRENCY = "COP"
+NO_DELEGATION_OFFERS_MESSAGE = (
+    "No encontré opciones del catálogo que cumplan lo que pediste, así que todavía no hay nada "
+    "que delegar. Ajusta la búsqueda (por ejemplo, el modelo o el presupuesto) y vuelvo a buscar."
+)
+
+
+def delegation_offers_message(count: int) -> str:
+    options = "1 opción" if count == 1 else f"{count} opciones"
+    return (
+        f"Encontré {options} del catálogo para lo que pediste. Abajo puedes delegar la compra: "
+        "revisa las opciones y el total máximo y autorízala; después el agente compra solo."
+    )
+
 
 # Etapas de una compra que todavía ocupa un checkout en el comercio: mientras haya una, no se
 # empieza otra. `selected` y `checkout_prepared` solo sobreviven a una caída a mitad de turno.
@@ -102,6 +116,20 @@ class ConversationTurnResponse(BaseModel):
         return self
 
 
+class DelegationDraftView(BaseModel):
+    """What a delegate turn found, for the in-chat form (docs/design/hnp-chat-delegate.md).
+
+    Display data only: `POST /delegations/proposals` validates every variant and the total again.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    offers: tuple[ProductCard, ...]
+    budget_minor: int | None = Field(default=None, gt=0)
+    currency: Literal["COP"] = "COP"
+    preference_text: str = Field(min_length=1)
+
+
 class TurnObserver(Protocol):
     """Receives pipeline progress. Called from the worker thread that runs the turn."""
 
@@ -141,6 +169,8 @@ class GraphState(TypedDict):
     response: dict[str, Any] | None
     approval_action: str
     completion_result: dict[str, Any]
+    delegate: NotRequired[bool]
+    delegation_draft: NotRequired[dict[str, Any] | None]
 
 
 class GraphInput(TypedDict):
@@ -156,6 +186,8 @@ class GraphContext:
     owner_id: str = LOCAL_OWNER_ID
     feed: ProductFeed | None = None
     router: ConversationRouter | None = None
+    # A delegate turn stops after the search: no selection, checkout or purchase run.
+    delegate: bool = False
 
 
 def request_sha256(payload: object) -> str:
@@ -386,6 +418,54 @@ class ConversationService:
         observer: TurnObserver | None = None,
         owner_id: str = LOCAL_OWNER_ID,
     ) -> ConversationTurnResponse:
+        state = self._run(
+            messages,
+            details,
+            turn_id=turn_id,
+            conversation_id=conversation_id,
+            observer=observer,
+            owner_id=owner_id,
+        )
+        return ConversationTurnResponse.model_validate_json(json.dumps(state["response"]))
+
+    def draft_delegation(
+        self,
+        messages: tuple[ConversationMessage, ...],
+        details: CheckoutDetails,
+        *,
+        turn_id: str,
+        conversation_id: str | None = None,
+        observer: TurnObserver | None = None,
+        owner_id: str = LOCAL_OWNER_ID,
+    ) -> tuple[ConversationTurnResponse, DelegationDraftView | None]:
+        """Interpret and search only; the shortlist goes to the in-chat delegation form."""
+        state = self._run(
+            messages,
+            details,
+            turn_id=turn_id,
+            conversation_id=conversation_id,
+            observer=observer,
+            owner_id=owner_id,
+            delegate=True,
+        )
+        response = ConversationTurnResponse.model_validate_json(json.dumps(state["response"]))
+        draft = state.get("delegation_draft")
+        if not isinstance(draft, dict):
+            return response, None
+        return response, DelegationDraftView.model_validate_json(json.dumps(draft))
+
+    def _run(
+        self,
+        messages: tuple[ConversationMessage, ...],
+        details: CheckoutDetails,
+        *,
+        turn_id: str,
+        conversation_id: str | None,
+        observer: TurnObserver | None,
+        owner_id: str,
+        delegate: bool = False,
+    ) -> dict[str, Any]:
+        """Run one turn through the graph and return its final state values."""
         if not messages or messages[-1].role != "user":
             raise IntentInterpretationError("Conversation must end with a user message")
         if self._router is None and self._router_factory is None:
@@ -397,16 +477,15 @@ class ConversationService:
         config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
         snapshot = self._graph.get_state(config)
         if snapshot.values.get("last_turn_id") == internal_turn_id:
-            return ConversationTurnResponse.model_validate_json(
-                json.dumps(snapshot.values["response"])
-            )
+            return dict(snapshot.values)
         if snapshot.next in {("await_approval",), ("complete_purchase",)}:
-            return ConversationTurnResponse(
+            pending = ConversationTurnResponse(
                 action="clarify",
                 assistant_message=(
                     "Ya hay una compra pendiente. Revísala o cancélala antes de continuar."
                 ),
             )
+            return {"response": pending.model_dump(mode="json")}
         listener = observer.reasoning_delta if observer is not None else None
         try:
             with (
@@ -430,6 +509,7 @@ class ConversationService:
                         owner_id=owner_id,
                         feed=feed,
                         router=router,
+                        delegate=delegate,
                     ),
                 )
         finally:
@@ -437,7 +517,7 @@ class ConversationService:
                 close = getattr(router, "close", None)
                 if callable(close):
                     close()
-        return ConversationTurnResponse.model_validate_json(json.dumps(state["response"]))
+        return state
 
     def _build_graph(self, checkpointer: SqliteSaver | None):
         builder = StateGraph(GraphState, input_schema=GraphInput, context_schema=GraphContext)
@@ -445,6 +525,7 @@ class ConversationService:
         builder.add_node("interpret_request", self._interpret_request)
         builder.add_node("search_catalog", self._search_catalog)
         builder.add_node("recover_no_candidate", self._recover_no_candidate)
+        builder.add_node("offer_delegation", self._offer_delegation)
         builder.add_node("select_product", self._select_product)
         builder.add_node("prepare_checkout", self._prepare_checkout)
         builder.add_node("request_approval", self._request_approval)
@@ -462,12 +543,11 @@ class ConversationService:
         )
         builder.add_conditional_edges(
             "search_catalog",
-            lambda state: (
-                "select_product" if state["ranked_candidates"] else "recover_no_candidate"
-            ),
-            ["select_product", "recover_no_candidate"],
+            _after_search,
+            ["select_product", "recover_no_candidate", "offer_delegation"],
         )
         builder.add_edge("recover_no_candidate", "finalize")
+        builder.add_edge("offer_delegation", "finalize")
         builder.add_conditional_edges(
             "select_product",
             lambda state: "prepare_checkout" if state["selected_variant_id"] else "finalize",
@@ -525,6 +605,8 @@ class ConversationService:
             "active_turn_id": turn_id,
             "selected_variant_id": None,
             "response": None,
+            "delegate": runtime.context.delegate,
+            "delegation_draft": None,
         }
 
     def _interpret_request(
@@ -584,6 +666,36 @@ class ConversationService:
                 item.model_dump(mode="json") for item in selection.ranked[:MAX_MODEL_CANDIDATES]
             ],
             "rejection_counts": selection.rejection_counts,
+        }
+
+    def _offer_delegation(
+        self, state: GraphState, runtime: Runtime[GraphContext]
+    ) -> dict[str, Any]:
+        """End a delegate turn with the shortlist: no selection, checkout or purchase run.
+
+        Without offers the reply is fixed: the model recovery and the governed explanation write
+        under a purchase run, and a delegate turn has none.
+        """
+        feed = runtime.context.feed or self._feed
+        variant_ids = [item["candidate"]["variant_id"] for item in state["ranked_candidates"]]
+        offers = tuple(
+            card
+            for variant_id in variant_ids[:MAX_SEARCH_PRODUCTS]
+            if (card := product_card(feed, variant_id)) is not None
+            and card.available
+            and card.currency.upper() == DELEGATION_CURRENCY
+        )
+        hard = self._intent(state).hard
+        budget = hard.max_total_amount_minor or hard.max_unit_amount_minor or None
+        draft = DelegationDraftView(
+            offers=offers,
+            budget_minor=budget,
+            preference_text=self._messages(state)[-1].content,
+        )
+        message = delegation_offers_message(len(offers)) if offers else NO_DELEGATION_OFFERS_MESSAGE
+        return {
+            "delegation_draft": draft.model_dump(mode="json"),
+            **_explained(message),
         }
 
     def _recover_no_candidate(
@@ -842,6 +954,12 @@ class ConversationService:
     def _cards(self, variant_ids: Any, feed: ProductFeed | None = None) -> list[dict[str, Any]]:
         cards = (self._card(variant_id, feed) for variant_id in variant_ids)
         return [card for card in cards if card is not None]
+
+
+def _after_search(state: GraphState) -> str:
+    if state.get("delegate"):
+        return "offer_delegation"
+    return "select_product" if state["ranked_candidates"] else "recover_no_candidate"
 
 
 def _explained(message: str) -> dict[str, Any]:

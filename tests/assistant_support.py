@@ -13,13 +13,15 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from commerce_agent.acp.feed import ProductCandidate
 from commerce_agent.api import create_app
-from commerce_agent.buyer_auth import BuyerAuthenticator
+from commerce_agent.buyer_auth import BuyerAuthenticator, BuyerPrincipal
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
 from commerce_agent.llm import (
@@ -316,6 +318,40 @@ POLICY_BLOCKS_MERCHANT: dict[str, Any] = {
 }
 
 
+def _pem() -> str:
+    key = ec.generate_private_key(ec.SECP256R1())
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+
+
+# HNP switched on, as tests/test_delegation_api.py does: fixture-only keys generated per session.
+# They sign nothing in `/assistant`, so the delegate stream stays byte-for-byte reproducible.
+HNP_ON: dict[str, Any] = {
+    "agent_auth_mode": "jwt",
+    "agent_auth_issuer": "http://127.0.0.1:5173",
+    "agent_ap2_required": True,
+    "agent_ap2_private_key_pem": SecretStr(_pem()),
+    "agent_hnp_enabled": True,
+    "agent_hnp_agent_key_pem": SecretStr(_pem()),
+    "agent_hnp_service_token": SecretStr("service-token-" + "s" * 32),
+    "agent_hnp_operator_token": SecretStr("operator-token-" + "o" * 32),
+    "agent_d1_key_id": "fixture-key",
+    "agent_d1_hmac_key_hex": SecretStr("1" * 64),
+    "agent_d1_aes_key_hex": SecretStr("2" * 64),
+}
+
+
+class TwoBuyers:
+    """`Bearer buyer-a` and `Bearer buyer-b`; no header is buyer-a, as the fixtures send none."""
+
+    def authenticate(self, authorization: str | None) -> BuyerPrincipal | None:
+        buyers = {None: "buyer-a", "Bearer buyer-a": "buyer-a", "Bearer buyer-b": "buyer-b"}
+        return BuyerPrincipal(buyers[authorization]) if authorization in buyers else None
+
+
 def build_app(
     database: Path,
     *,
@@ -343,8 +379,15 @@ def assistant_client(
     router: Any | None = None,
     merchant: Merchant | None = None,
     governance: dict[str, Any] | None = None,
+    buyer_authenticator: BuyerAuthenticator | None = None,
 ) -> Iterator[TestClient]:
-    app = build_app(database, router=router, merchant=merchant, governance=governance)
+    app = build_app(
+        database,
+        router=router,
+        merchant=merchant,
+        governance=governance,
+        buyer_authenticator=buyer_authenticator,
+    )
     with TestClient(app) as client:
         yield client
 
@@ -472,9 +515,10 @@ def render_fixtures(workdir: Path) -> list[Fixture]:
         *,
         state: Any = None,
         starts_from: str | None = None,
+        **extra: Any,
     ) -> Any:
         body, final_state = post_assistant(
-            client, assistant_body(commands, turn_id=f"turn-{name}", state=state)
+            client, assistant_body(commands, turn_id=f"turn-{name}", state=state, **extra)
         )
         fixtures.append(Fixture(name, description, commands, starts_from, body))
         return final_state
@@ -564,6 +608,20 @@ def render_fixtures(workdir: Path) -> list[Fixture]:
             "Sin candidatos: `search_catalog` devuelve `products: []` y el texto final es la "
             "recuperación conversacional.",
             [add_message(NO_CANDIDATE_REQUEST)],
+        )
+
+    with assistant_client(
+        workdir / "delegate.db", governance=HNP_ON, buyer_authenticator=TwoBuyers()
+    ) as client:
+        record(
+            client,
+            "delegate",
+            'Compra delegada en el chat (`mode: "delegate"`, HNP encendido): '
+            "`interpret_request` y `search_catalog`, sin elegir producto ni crear checkout. El "
+            "estado termina con `purchase: null` y `delegation_draft` con las opciones, el "
+            "presupuesto del mensaje y el mensaje como preferencia.",
+            [add_message(PURCHASE_REQUEST)],
+            mode="delegate",
         )
 
     with assistant_client(workdir / "blocked.db", governance=POLICY_BLOCKS_MERCHANT) as client:

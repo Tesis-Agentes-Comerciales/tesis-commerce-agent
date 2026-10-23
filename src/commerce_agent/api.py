@@ -295,7 +295,11 @@ def create_app(
         return purchase
 
     app.state.assistant_transport = register_assistant_transport(
-        app, service=conversation, new_id=id_factory, current_buyer=current_buyer
+        app,
+        service=conversation,
+        new_id=id_factory,
+        current_buyer=current_buyer,
+        delegation_enabled=runtime.delegations is not None,
     )
     if runtime.delegations is not None:
         # The bootstrap required both tokens and built the executor (delegation/bootstrap.py).

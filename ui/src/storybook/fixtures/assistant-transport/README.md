@@ -201,6 +201,32 @@ Sin candidatos: `search_catalog` devuelve `products: []` y el texto final es la 
 ]
 ```
 
+## `delegate.sse`
+
+Compra delegada en el chat (`mode: "delegate"`, HNP encendido): `interpret_request` y `search_catalog`, sin elegir producto ni crear checkout. El estado termina con `purchase: null` y `delegation_draft` con las opciones, el presupuesto del mensaje y el mensaje como preferencia.
+
+- Estado enviado: `{messages: [], purchase: null}`.
+- Comandos:
+
+```json
+[
+  {
+    "type": "add-message",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Quiero audífonos negros por menos de 2 millones"
+        }
+      ]
+    },
+    "parentId": null,
+    "sourceId": null
+  }
+]
+```
+
 ## `purchase-blocked.sse`
 
 Bloqueo de la política de compra en modo activo: la lista de comercios no incluye la tienda, `prepare_checkout` queda con `isError` y el código `d1_denied`, y el mensaje termina en `incomplete`/`error`. Los `args` del paso traen el `run_id` de la compra.
