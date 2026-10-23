@@ -534,22 +534,42 @@ const HNP_API = {
   },
 }
 
+/** Desde ahora, si el plan HP («Plan de compra») entra al DOM, aunque sea un instante. */
+function watchPurchasePlan(root: HTMLElement) {
+  const plan = "[data-testid='agent-plan']"
+  let seen = false
+  const observer = new MutationObserver((records) => {
+    seen ||= records.some((record) =>
+      [...record.addedNodes].some(
+        (node) => node instanceof Element && (node.matches(plan) || node.querySelector(plan) !== null),
+      ),
+    )
+  })
+  observer.observe(root, { childList: true, subtree: true })
+  return () => {
+    observer.disconnect()
+    return seen || root.querySelector(plan) !== null
+  }
+}
+
 /**
  * Con HNP, «Delegar» cambia el modo del chat y no abre nada. El pedido busca sin crear checkout
  * (`delegate.sse`) y deja debajo el formulario prellenado: las opciones marcadas, el total con el
  * presupuesto del mensaje y el mensaje como indicación. «Preparar» lleva al consentimiento y
- * «Autorizar» al estado de la delegación, todo en el mismo hilo.
+ * «Autorizar» al estado de la delegación, todo en el mismo hilo. El plan HP no sale en ningún
+ * momento: ni mientras el turno corre ni al terminar.
  */
 export const HnpDelegateInChat: Story = {
   parameters: HNP_API,
   play: async (context) => {
-    const { canvas, userEvent } = context
+    const { canvas, canvasElement, userEvent } = context
     const present = await canvas.findByRole("radio", { name: "Comprar conmigo" })
     await expect(present).toBeChecked()
     await userEvent.click(canvas.getByText("Delegar", { exact: true }))
     await expect(canvas.getByRole("radio", { name: "Delegar" })).toBeChecked()
     await expect(within(document.body).queryByRole("dialog")).toBeNull()
 
+    const planShown = watchPurchasePlan(canvasElement)
     await sendComposerMessage(context, FIXTURE_REQUESTS.delegate)
     const thread = within(await canvas.findByTestId("delegation-in-chat", {}, STREAM_TIMEOUT))
     const form = within(thread.getByTestId("delegation-form"))
@@ -567,6 +587,7 @@ export const HnpDelegateInChat: Story = {
       await thread.findByRole("heading", { name: "Delegación activa" }),
     ).toBeVisible()
     await expect(thread.queryByTestId("delegation-consent-card")).toBeNull()
+    await expect(planShown()).toBe(false)
   },
 }
 

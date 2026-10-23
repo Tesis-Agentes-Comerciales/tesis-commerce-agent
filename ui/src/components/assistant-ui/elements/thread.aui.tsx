@@ -14,7 +14,15 @@ import {
   type TextMessagePartComponent,
 } from "@assistant-ui/react"
 import { ArrowDownIcon, ArrowUpIcon, CheckIcon, CopyIcon, SquareIcon } from "lucide-react"
-import { useEffect, useMemo, useRef, useState, type ComponentType, type FC } from "react"
+import {
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type FC,
+} from "react"
 
 import { cn } from "cn"
 
@@ -35,6 +43,7 @@ import {
 import { traceMerchant } from "@/components/trace/trace-copy"
 import { asSelectResult } from "@/features/agent-results"
 import { PROMINENT_TOOLS } from "@/features/agent-toolkit"
+import { DelegationsHostContext } from "@/features/delegations-host"
 import { messagePolicyBlock } from "@/features/policy-block"
 import {
   activityVisible,
@@ -42,7 +51,7 @@ import {
   useMessagePurchaseTrace,
 } from "@/features/purchase-trace"
 import { messageHasPurchaseCard, useMessageStaleTerms } from "@/features/stale-terms"
-import { isFollowUpOnly, streamPurchaseOf } from "@/features/turn-layout"
+import { isDelegateTurn, isFollowUpOnly, streamPurchaseOf } from "@/features/turn-layout"
 import {
   AGENT_TOOL_NAMES,
   MAX_MESSAGE_CHARS,
@@ -152,6 +161,8 @@ type AgentProgressProps = {
 
 function AgentProgress({ parts, active, status, blocked, latest }: AgentProgressProps) {
   const purchase = useAssistantTransportState((state) => state.purchase)
+  const drafted = useAssistantTransportState((state) => state.delegation_draft !== undefined)
+  const delegating = useContext(DelegationsHostContext)?.purchaseMode === "delegated"
   const tools = parts.filter(isAgentTool)
   const interpreted = tools.find((part) => part.toolName === "interpret_request")?.result
   const purchaseTurn =
@@ -160,6 +171,9 @@ function AgentProgress({ parts, active, status, blocked, latest }: AgentProgress
       interpreted !== null &&
       (interpreted as { action?: unknown }).action === "purchase")
   if (!purchaseTurn) return null
+  // «Delegar» no termina en una aprobación: su seguimiento es la tarjeta del hilo, no este plan. Ni
+  // un instante mientras corre: el borrador llega al final del turno.
+  if (isDelegateTurn({ latest, active, delegating, drafted })) return null
 
   // La etapa de SQLite solo aplica si es la compra de este mensaje, no una anterior.
   const prepared = tools.find((part) => part.toolName === "prepare_checkout")?.result

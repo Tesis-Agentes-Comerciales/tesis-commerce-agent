@@ -25,6 +25,30 @@ export function isFollowUpOnly(parts: readonly MessagePart[]) {
   return tools.length > 0 && tools.every((part) => part.toolName === "purchase_update")
 }
 
+/**
+ * El turno es «Delegar» (docs/design/hnp-chat-delegate.md): no lleva el plan HP, porque nadie
+ * aprueba al final y su seguimiento es la tarjeta del hilo. Mientras corre lo dice el modo del chat;
+ * al terminar, el borrador que dejó en el estado (`delegating` ya puede haber vuelto a «Comprar
+ * conmigo»). Solo el último mensaje: una compra HP de un mensaje anterior conserva su plan.
+ */
+export function isDelegateTurn({
+  latest,
+  active,
+  delegating,
+  drafted,
+}: {
+  /** La persona no volvió a escribir después de este mensaje. */
+  latest: boolean
+  /** El mensaje está en curso. */
+  active: boolean
+  /** El chat está en «Delegar». */
+  delegating: boolean
+  /** El estado trae `delegation_draft`, aunque sea `null`: lo deja todo turno `delegate`. */
+  drafted: boolean
+}) {
+  return latest && (drafted || (active && delegating))
+}
+
 export type ProductSlot = "marker" | "card" | "none"
 
 /**
