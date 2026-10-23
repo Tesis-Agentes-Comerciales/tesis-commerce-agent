@@ -233,6 +233,7 @@ class GovernedRecoveryStep(StepBase):
 EscalationReason = Literal[
     "budget_not_satisfiable",
     "no_candidate_in_scope",
+    "choice_not_confirmed",
     "offer_changed",
     "terms_out_of_scope",
     "authorization_profile_unresolved",
@@ -255,6 +256,28 @@ class TaskActivatedStep(StepBase):
 
     kind: Literal["task_activated"]
     trigger: Literal["service"]
+
+
+# Mirror of `application/hnp_intent_review.py` (hnp-intent-review.md).
+ReviewDecision = Literal["confirmed", "not_confirmed"]
+ReviewReason = Literal[
+    "matches_request",
+    "contradicts_preference",
+    "outside_request",
+    "unclear",
+    "review_unavailable",
+]
+
+
+class ChoiceReviewedStep(StepBase):
+    """The intent reviewer checked the selector's choice against what the buyer asked, before D1.
+
+    `state` is `blocked` when it did not confirm it: the task escalated, nothing was created.
+    """
+
+    kind: Literal["choice_reviewed"]
+    decision: ReviewDecision
+    reason: ReviewReason
 
 
 class ReservationStep(StepBase):
@@ -304,6 +327,7 @@ TraceStep = Annotated[
     | GovernedRecoveryStep
     | DelegationConsentedStep
     | TaskActivatedStep
+    | ChoiceReviewedStep
     | ReservationStep
     | MandatesClosedStep
     | DispatchDecisionStep

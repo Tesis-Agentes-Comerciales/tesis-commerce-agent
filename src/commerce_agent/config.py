@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     agent_hnp_proposal_ttl_seconds: int = Field(default=600, ge=60, le=1_800)
     # Who picks the variant of the grant's shortlist (hnp-governed.md §3.3, step 2).
     agent_hnp_selector: Literal["deterministic", "llm"] = "deterministic"
+    # A second model reviews that choice against the buyer's request, B2-HNP only
+    # (docs/design/hnp-intent-review.md §9). Off by default: the flow is main's.
+    agent_hnp_reviewer: Literal["off", "llm"] = "off"
     payment_provider_url: str = "http://127.0.0.1:4130"
     payment_agent_bearer_token: SecretStr | None = Field(default=None, repr=False)
     agent_database_path: Path = Path(".local/agent.db")

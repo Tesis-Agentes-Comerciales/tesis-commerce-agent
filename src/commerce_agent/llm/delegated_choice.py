@@ -44,6 +44,20 @@ them.
 """
 
 
+def candidate_payloads(candidates: tuple[RankedCandidate, ...]) -> list[dict[str, object]]:
+    """What a delegated purchase's model sees of each candidate: the closed channel's structured
+    catalog observations with their ranking signals, never a free feed description. The intent
+    reviewer sees exactly these (docs/design/hnp-intent-review.md §3)."""
+    return [
+        {
+            **_candidate_payload(item.candidate),
+            "preference_score": item.preference_score,
+            "matched_preferences": item.matched_preferences,
+        }
+        for item in candidates
+    ]
+
+
 @dataclass(frozen=True)
 class DelegatedChoice:
     variant_id: str
@@ -88,14 +102,7 @@ class OpenAIDelegatedChooser:
         payload = {
             "intent": intent.model_dump(mode="json"),
             "preference_text": preference_text,
-            "candidates": [
-                {
-                    **_candidate_payload(item.candidate),
-                    "preference_score": item.preference_score,
-                    "matched_preferences": item.matched_preferences,
-                }
-                for item in candidates
-            ],
+            "candidates": candidate_payloads(candidates),
         }
         options: dict[str, Any] = {}
         if self._reasoning_effort is not None:

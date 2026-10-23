@@ -129,6 +129,8 @@ STOP_SIGNALS = (signal.SIGINT, *SHUTDOWN_SIGNALS)
 # b2-hnp. `llm` picks the delegated variant with the model, as layer B of the HNP pilot;
 # `deterministic` is the fallback if the model fails during the demo.
 HNP_SELECTORS = ("llm", "deterministic")
+# b2-hnp. `llm` adds the intent reviewer (docs/design/hnp-intent-review.md); off by default.
+HNP_REVIEWERS = ("off", "llm")
 HNP_TRIGGER_DELAY_SECONDS = 5.0
 HNP_TRIGGER_TIMEOUT_SECONDS = 5.0
 HNP_RUN_ROUTE = "/internal/hnp/tasks/{task_id}/run"
@@ -338,7 +340,7 @@ def mode_environment(
     return agent_environment(mode.condition, allowed, keys, HP_V2_POLICY)
 
 
-def hnp_environment(keys: HnpKeys, selector: str) -> dict[str, str]:
+def hnp_environment(keys: HnpKeys, selector: str, reviewer: str = "off") -> dict[str, str]:
     """HNP on the agent (config.py, delegation/bootstrap.py); the rest is B2's environment."""
     return {
         "AGENT_HNP_ENABLED": "true",
@@ -346,6 +348,7 @@ def hnp_environment(keys: HnpKeys, selector: str) -> dict[str, str]:
         "AGENT_HNP_SERVICE_TOKEN": keys.service_token,
         "AGENT_HNP_OPERATOR_TOKEN": keys.operator_token,
         "AGENT_HNP_SELECTOR": selector,
+        "AGENT_HNP_REVIEWER": reviewer,
     }
 
 
@@ -386,6 +389,7 @@ class DemoPlan:
     # b2-hnp only.
     hnp_selector: str = "llm"
     hnp_trigger_delay: float = HNP_TRIGGER_DELAY_SECONDS
+    hnp_reviewer: str = "off"
 
     @property
     def merchant_origin(self) -> str:
@@ -405,11 +409,13 @@ class DemoPlan:
             return environment
         if self.secrets.hnp is None:
             raise DemoError(f"El modo {self.mode.name} necesita las credenciales HNP del arranque")
-        return environment | hnp_environment(self.secrets.hnp, self.hnp_selector)
+        return environment | hnp_environment(self.secrets.hnp, self.hnp_selector, self.hnp_reviewer)
 
     def hnp_line(self) -> str:
+        reviewer = " · revisor llm" if self.hnp_reviewer == "llm" else ""
         return (
-            f"selector {self.hnp_selector} · disparo automático a los {self.hnp_trigger_delay:g} s"
+            f"selector {self.hnp_selector}{reviewer} · disparo automático a los "
+            f"{self.hnp_trigger_delay:g} s"
         )
 
     def warnings(self) -> list[str]:
@@ -929,7 +935,7 @@ class Launcher:
                 except ConditionMismatchError as error:
                     raise DemoError(str(error)) from None
                 if plan.mode.hnp:
-                    verify_hnp_health(health)
+                    verify_hnp_health(health, plan.hnp_reviewer)
         assert self.health is not None
         self.summary()
         return self.health
@@ -1138,13 +1144,20 @@ class Launcher:
         self._log.close()
 
 
-def verify_hnp_health(health: Mapping[str, Any]) -> None:
-    """b2-hnp needs the agent to report HNP on and its kill switch off."""
+def verify_hnp_health(health: Mapping[str, Any], reviewer: str = "off") -> None:
+    """b2-hnp needs the agent to report HNP on and its kill switch off, and the intent reviewer
+    the launch asked for (an agent that does not report it has none)."""
     enabled, kill_switch = health.get("hnp_enabled"), health.get("hnp_kill_switch")
     if enabled is not True or kill_switch is not False:
         raise DemoError(
             f"El agente reporta en /health hnp_enabled={enabled} y hnp_kill_switch={kill_switch}, "
             "pero el modo b2-hnp exige hnp_enabled=True y hnp_kill_switch=False"
+        )
+    reported = health.get("hnp_reviewer", "off")
+    if reported != reviewer:
+        raise DemoError(
+            f"El agente reporta en /health hnp_reviewer={reported}, pero el arranque pidió "
+            f"--hnp-reviewer {reviewer}"
         )
 
 
@@ -1236,6 +1249,14 @@ def _up_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--hnp-reviewer",
+        choices=HNP_REVIEWERS,
+        help=(
+            "solo con --mode b2-hnp: llm agrega el revisor de intención, que revisa la elección "
+            "contra lo que pidió el comprador y escala si no la confirma (por defecto off)"
+        ),
+    )
+    parser.add_argument(
         "--hnp-trigger-delay",
         type=float,
         metavar="SEGUNDOS",
@@ -1277,6 +1298,7 @@ def build_plan(arguments: argparse.Namespace, *, now: datetime | None = None) ->
         skip_postgres_start=arguments.skip_postgres_start,
         keep_offer=arguments.keep_offer,
         hnp_selector=arguments.hnp_selector or "llm",
+        hnp_reviewer=arguments.hnp_reviewer or "off",
         hnp_trigger_delay=(
             HNP_TRIGGER_DELAY_SECONDS
             if arguments.hnp_trigger_delay is None
@@ -1307,9 +1329,11 @@ def describe(plan: DemoPlan, problems: list[str], out: TextIO) -> None:
 def up(argv: Sequence[str]) -> int:
     parser = _up_parser()
     arguments = parser.parse_args(argv)
-    hnp_options = (arguments.hnp_selector, arguments.hnp_trigger_delay)
-    if not MODES[arguments.mode].hnp and hnp_options != (None, None):
-        parser.error("--hnp-selector y --hnp-trigger-delay solo valen con --mode b2-hnp")
+    hnp_options = (arguments.hnp_selector, arguments.hnp_trigger_delay, arguments.hnp_reviewer)
+    if not MODES[arguments.mode].hnp and hnp_options != (None, None, None):
+        parser.error(
+            "--hnp-selector, --hnp-reviewer y --hnp-trigger-delay solo valen con --mode b2-hnp"
+        )
     if arguments.hnp_trigger_delay is not None and arguments.hnp_trigger_delay < 0:
         parser.error("--hnp-trigger-delay no puede ser negativo")
     plan = build_plan(arguments)

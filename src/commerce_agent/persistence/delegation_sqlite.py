@@ -249,6 +249,7 @@ _ESCALATIONS = frozenset(
     {
         "budget_not_satisfiable",
         "no_candidate_in_scope",
+        "choice_not_confirmed",
         "offer_changed",
         "terms_out_of_scope",
         "authorization_profile_unresolved",
@@ -555,6 +556,29 @@ class SqliteDelegationLedger:
             if ex is None:
                 return Step("lease_lost")
             return _renewed(connection, ex, now)
+
+    def record_choice_review(self, task_id: str, lease_id: str, review: Mapping[str, str]) -> Step:
+        """The intent reviewer's verdict on the selector's choice, confirmed or not
+        (hnp-intent-review.md §7): `reused` with the lease renewed, or `lease_lost` once another
+        claim took the task, without the event."""
+        with self._fenced(task_id, lease_id) as (connection, now, ex):
+            if ex is None:
+                return Step("lease_lost")
+            _event(connection, ex, "choice_reviewed", "service", review, utc_text(now))
+            return _renewed(connection, ex, now)
+
+    def admits_choice_review(self) -> bool:
+        """Whether this database's `CHECK`s admit the review's event and escalation: a ledger
+        created before them keeps its old lists (`CREATE TABLE IF NOT EXISTS`)."""
+        with self._read() as connection:
+            tables = dict(
+                connection.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE type = 'table' "
+                    "AND name IN ('delegation_events', 'hnp_tasks')"
+                ).fetchall()
+            )
+        events, tasks = tables.get("delegation_events", ""), tables.get("hnp_tasks", "")
+        return "'choice_reviewed'" in events and "'choice_not_confirmed'" in tasks
 
     def reserve(
         self, request: ReservationRequest, *, hooks: Sequence[TransactionHook] = ()

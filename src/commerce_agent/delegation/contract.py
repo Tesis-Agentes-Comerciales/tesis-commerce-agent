@@ -34,6 +34,8 @@ TaskState = Literal[
 EscalationCode = Literal[
     "budget_not_satisfiable",
     "no_candidate_in_scope",
+    # The intent reviewer did not confirm the choice (hnp-intent-review.md).
+    "choice_not_confirmed",
     "offer_changed",
     "terms_out_of_scope",
     "authorization_profile_unresolved",
@@ -85,6 +87,9 @@ HNP_MESSAGES: Mapping[str, str] = MappingProxyType(
         ),
         "escalation.no_candidate_in_scope": (
             "Ninguna de las opciones que autorizaste está disponible ahora."
+        ),
+        "escalation.choice_not_confirmed": (
+            "No pude confirmar que la opción elegida sea la que pediste."
         ),
         "escalation.offer_changed": "La oferta del comercio cambió antes de que cerrara la compra.",
         "escalation.terms_out_of_scope": (

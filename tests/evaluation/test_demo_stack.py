@@ -186,6 +186,23 @@ def test_b2_hnp_is_b2_with_hnp_enabled_and_credentials_of_its_own(
     build_hnp_d1_gate(settings, None)
 
 
+def test_b2_hnp_turns_the_intent_reviewer_on_for_the_agent_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """docs/design/hnp-intent-review.md §9: off by default, explicitly, and `llm` on request."""
+    default = plan_for("b2-hnp", tmp_path)
+    plan = replace(default, hnp_reviewer="llm")
+
+    assert agent_settings(default, monkeypatch).agent_hnp_reviewer == "off"
+    settings = agent_settings(plan, monkeypatch)
+
+    assert (settings.agent_hnp_reviewer, settings.agent_governance_mode) == ("llm", "enforce")
+    others = [item for item in plan.services(merchant_token=MERCHANT_TOKEN) if item.name != "agent"]
+    assert others and not [item.name for item in others if "AGENT_HNP_REVIEWER" in item.env]
+    # The agent's own startup accepts it: B2-HNP with the model.
+    assert hnp_problems(plan) == []
+
+
 def test_b2_hnp_takes_the_deterministic_selector_as_the_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -293,6 +310,7 @@ def test_each_launch_gets_its_own_directory_and_agent_database(tmp_path: Path) -
         keep_offer=False,
         hnp_selector=None,
         hnp_trigger_delay=None,
+        hnp_reviewer=None,
     )
 
     first = build_plan(arguments, now=datetime(2026, 10, 23, 14, 0, 0, tzinfo=UTC))
@@ -317,6 +335,8 @@ def test_b2_hnp_options_default_to_the_model_selector_and_five_seconds(tmp_path:
     assert (default.hnp_selector, default.hnp_trigger_delay) == ("llm", 5.0)
     assert default.secrets.hnp is not None and default.secrets.d1 is not None
     assert (fallback.hnp_selector, fallback.hnp_trigger_delay) == ("deterministic", 2.5)
+    reviewed = build_plan(parse([*common, "--hnp-reviewer", "llm"]))
+    assert (default.hnp_reviewer, reviewed.hnp_reviewer) == ("off", "llm")
 
 
 @pytest.mark.parametrize(
@@ -325,8 +345,16 @@ def test_b2_hnp_options_default_to_the_model_selector_and_five_seconds(tmp_path:
         ["--hnp-selector", "deterministic"],
         ["--mode", "pol02-deny", "--hnp-trigger-delay", "2"],
         ["--mode", "b2-hnp", "--hnp-trigger-delay", "-1"],
+        ["--hnp-reviewer", "llm"],
+        ["--mode", "b2", "--hnp-reviewer", "off"],
     ],
-    ids=["selector-without-hnp", "delay-without-hnp", "negative-delay"],
+    ids=[
+        "selector-without-hnp",
+        "delay-without-hnp",
+        "negative-delay",
+        "reviewer-without-hnp",
+        "reviewer-off-without-hnp",
+    ],
 )
 def test_hnp_options_are_refused_outside_b2_hnp_or_below_zero(
     arguments: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -742,6 +770,19 @@ def test_dry_run_describes_b2_hnp_without_its_credentials(tmp_path: Path) -> Non
     assert "AGENT_HNP_ENABLED=true" in text and "AGENT_HNP_SELECTOR=llm" in text
     assert "AGENT_D1_POLICY_SET_ID=b2-hp-v2" in text
     assert "HNP: selector llm · disparo automático a los 5 s (hnp.log)" in text
+    assert "AGENT_HNP_REVIEWER=off" in text and "revisor" not in text
+
+
+def test_dry_run_names_the_intent_reviewer_when_it_is_on(tmp_path: Path) -> None:
+    plan = replace(plan_for("b2-hnp", tmp_path), hnp_reviewer="llm")
+    out = io.StringIO()
+
+    describe(plan, [], out)
+
+    text = out.getvalue()
+    assert_no_secret(text, plan)
+    assert "AGENT_HNP_REVIEWER=llm" in text
+    assert "HNP: selector llm · revisor llm · disparo automático a los 5 s (hnp.log)" in text
 
 
 def test_the_preflight_runs_the_agents_hnp_startup_check_without_starting_it(
@@ -1120,6 +1161,32 @@ def test_a_b2_hnp_launch_checks_hnp_in_health_and_announces_the_trigger(tmp_path
     assert "Política D1: b2-hp-v2 · revisión 1" in output
     assert "HNP: activo · selector llm · disparo automático a los 5 s" in output
     assert "ui" in launcher.spawned
+
+
+def test_a_reviewed_b2_hnp_launch_checks_the_reviewer_in_health(tmp_path: Path) -> None:
+    plan = replace(plan_for("b2-hnp", tmp_path), hnp_reviewer="llm")
+    launcher = FakeLauncher(plan, health={**HNP_HEALTH, "hnp_reviewer": "llm"})
+
+    launcher.start()
+    launcher.stop()
+    launcher.close()
+
+    assert "HNP: activo · selector llm · revisor llm · disparo automático" in shown(launcher)
+
+
+@pytest.mark.parametrize("reported", [{}, {"hnp_reviewer": "off"}], ids=["absent", "off"])
+def test_a_reviewed_b2_hnp_launch_stops_if_the_agent_does_not_review(
+    reported: dict[str, Any], tmp_path: Path
+) -> None:
+    plan = replace(plan_for("b2-hnp", tmp_path), hnp_reviewer="llm")
+    launcher = FakeLauncher(plan, health={**HNP_HEALTH, **reported})
+
+    with pytest.raises(DemoError, match="hnp_reviewer"):
+        launcher.start()
+    launcher.stop()
+    launcher.close()
+
+    assert "ui" not in launcher.spawned
 
 
 @pytest.mark.parametrize(

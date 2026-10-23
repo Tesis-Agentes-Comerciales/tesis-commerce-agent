@@ -4,8 +4,10 @@ docs/design/hnp-governed.md §3.3 (steps 1 to 10), §4.5 and §8.1. Nobody is pr
 reads the grant from the ledger, never from a model or a buyer token, and the model at most picks
 a variant of the grant's shortlist. Each external effect waits for the step before it:
 
-1. claim, with a lease; 2. shortlist and selector; 3-4. `PurchaseService.start` with the grant
-(D1-HNP in enforce) up to `checkout_prepared`; 5. freshness `close`; 6. D2-HNP; 7. UoW-1
+1. claim, with a lease; 2. shortlist and selector, and in B2-HNP with `AGENT_HNP_REVIEWER=llm` the
+intent reviewer (docs/design/hnp-intent-review.md), whose choice not confirmed escalates
+`choice_not_confirmed` before any effect; 3-4. `PurchaseService.start` with the grant (D1-HNP in
+enforce) up to `checkout_prepared`; 5. freshness `close`; 6. D2-HNP; 7. UoW-1
 reserves; 8. the merchant's signed checkout, the Agent Key close and UoW-C; 9. D3-HNP; 10. UoW-2
 commits the outbox row and moves the purchase to `completing`; 11-12. the `Dispatcher`
 (`application/hnp_dispatch.py`) sends it and UoW-3 records the order.
@@ -46,6 +48,12 @@ from commerce_agent.ap2_hnp import (
     closed_issued_at,
 )
 from commerce_agent.ap2_hnp import SignedMandate as SignedAp2Mandate
+from commerce_agent.application.hnp_intent_review import (
+    REVIEW_UNAVAILABLE,
+    HnpIntentReviewer,
+    IntentReview,
+    checked,
+)
 from commerce_agent.application.hnp_selection import HnpSelector
 from commerce_agent.application.offer_freshness import FreshnessStage
 from commerce_agent.application.purchase import (
@@ -71,7 +79,7 @@ from commerce_agent.delegation.models import (
     token_digest,
 )
 from commerce_agent.delegation.ports import TransactionHook
-from commerce_agent.domain import PurchaseIntent, rank_candidates
+from commerce_agent.domain import PurchaseIntent, RankedCandidate, rank_candidates
 from commerce_agent.governance.canonical import canonical_bytes, sha256_digest
 from commerce_agent.governance.evaluator import GovernanceError
 from commerce_agent.governance.evidence import DecisionRecord
@@ -94,6 +102,7 @@ _ESCALATIONS = frozenset(
     {
         "budget_not_satisfiable",
         "no_candidate_in_scope",
+        "choice_not_confirmed",
         "offer_changed",
         "terms_out_of_scope",
         "authorization_profile_unresolved",
@@ -366,18 +375,22 @@ class HnpExecutionService:
         freshness: FreshnessCheck | None = None,
         d1_denials: Callable[[str], tuple[str, ...]] | None = None,
         dispatcher: Dispatcher | None = None,
+        reviewer: HnpIntentReviewer | None = None,
     ) -> None:
         # B0-HNP runs no PDP and no freshness; B2-HNP never runs without them (spec §11).
         if (mode == "off") != isinstance(gate, NullHnpPolicyGate) or (mode == "off") != (
             freshness is None and d1_denials is None
         ):
             raise ValueError("HNP governance must be all off (B0-HNP) or all enforced (B2-HNP)")
+        if reviewer is not None and mode != "enforce":
+            # B0-HNP has no escalation: the reviewer only runs in enforce (hnp-intent-review §2).
+            raise ValueError("The HNP intent reviewer runs only in enforce (B2-HNP)")
         self._mode: Mode = mode
         self._ledger, self._store, self._purchases = ledger, store, purchases
         self._checkout, self._closer, self._gate, self._selector = checkout, closer, gate, selector
         self._feed, self._clock, self._new_id = feed, clock, id_factory
         self._freshness, self._d1_denials = freshness, d1_denials
-        self._dispatcher = dispatcher
+        self._dispatcher, self._reviewer = dispatcher, reviewer
 
     def run(self, task_id: str) -> Step:
         """Steps 1 to 12 of one task in this thread: `claim`, then `resume` if it got the lease."""
@@ -466,8 +479,11 @@ class HnpExecutionService:
             feed = self._feed()
         except Exception:
             self._end(run, "checkout_failed")
-        variant_id = self._select(run, feed, intent, consent)
+        shortlist = self._shortlist(run, feed, intent, consent)
+        variant_id = self._select(run, shortlist, intent, consent)
         self._hold(run)
+        if self._reviewer is not None and _listed(shortlist, variant_id):
+            self._review(run, self._reviewer, shortlist, intent, consent, variant_id)
         checkout = self._start(run, feed, intent, consent, details, variant_id)
         purchase = self._store.purchase_state_version(run.run_id)
         if self._stage(run.run_id) != PurchaseStage.CHECKOUT_PREPARED or purchase is None:
@@ -536,9 +552,9 @@ class HnpExecutionService:
 
     # Steps 2 to 5
 
-    def _select(
+    def _shortlist(
         self, run: _Run, feed: ProductFeed, intent: PurchaseIntent, consent: ConsentScope
-    ) -> str:
+    ) -> tuple[RankedCandidate, ...]:
         granted = set(consent.scope.variant_ids)
         shortlist = tuple(
             item
@@ -547,6 +563,15 @@ class HnpExecutionService:
         )
         if not shortlist:
             self._end(run, "no_candidate_in_scope")
+        return shortlist
+
+    def _select(
+        self,
+        run: _Run,
+        shortlist: tuple[RankedCandidate, ...],
+        intent: PurchaseIntent,
+        consent: ConsentScope,
+    ) -> str:
         try:
             # A model selector records its request under the task's run (run-traceability §4.4).
             with model_request_scope(run_id=run.run_id):
@@ -554,13 +579,50 @@ class HnpExecutionService:
         except Exception:
             _log.warning("HNP selector made no choice")
             chosen = None
-        listed = chosen in {item.candidate.variant_id for item in shortlist}
-        if chosen is None or (not listed and self._mode == "off"):
+        if chosen is None or (not _listed(shortlist, chosen) and self._mode == "off"):
             # K12: B0-HNP has no D1, so its own guard stops a choice outside the shortlist. B2-HNP
             # has no guard here: D1-HNP denies that choice with POL-01, with its evidence, before
             # any POST, and the terminal is the same `selection_not_eligible` (§3.3).
             self._end(run, "selection_not_eligible")
         return chosen
+
+    def _review(
+        self,
+        run: _Run,
+        reviewer: HnpIntentReviewer,
+        shortlist: tuple[RankedCandidate, ...],
+        intent: PurchaseIntent,
+        consent: ConsentScope,
+        variant_id: str,
+    ) -> None:
+        """The intent reviewer (hnp-intent-review.md §6), before D1 and any POST. The purchase
+        row exists first (`start` creates the same one, idempotently) so that the trace of a choice
+        not confirmed shows the review. It fails closed, and only a confirmation goes on."""
+        self._store.create_purchase(run.run_id, HNP_REQUEST, run.owner_id, grant_id=run.grant_id)
+        try:
+            # Like the selector's, its model request goes under the task's run (§4.4).
+            with model_request_scope(run_id=run.run_id):
+                result: object = reviewer.review(
+                    shortlist=shortlist,
+                    intent=intent,
+                    preference_text=consent.preference_text,
+                    chosen_variant_id=variant_id,
+                )
+        except Exception:
+            _log.warning("HNP intent review unavailable")
+            result = REVIEW_UNAVAILABLE
+        review: IntentReview = checked(result)
+        body = {
+            "decision": review.decision,
+            "reason": review.reason,
+            "prompt_id": reviewer.prompt_id,
+            "model": reviewer.model,
+        }
+        step = self._ledger.record_choice_review(run.task_id, run.lease_id, body)
+        if step.status != "reused":
+            raise _Stopped(step)  # another lease owns the task: it writes the terminal
+        if review.decision != "confirmed":
+            self._end(run, "choice_not_confirmed", purchase=self._closable(run.run_id))
 
     def _start(
         self,
@@ -822,6 +884,10 @@ class HnpExecutionService:
             )
 
         return complete
+
+
+def _listed(shortlist: tuple[RankedCandidate, ...], variant_id: str) -> bool:
+    return variant_id in {item.candidate.variant_id for item in shortlist}
 
 
 def _terminal(outcome: OutcomeCode, *, escalates: bool) -> Terminal:
