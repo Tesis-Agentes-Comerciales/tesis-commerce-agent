@@ -57,6 +57,7 @@ const PACED_ROWS = TRACES.completedShadow.steps.length
  */
 export const Paced: Story = {
   args: { trace: TRACES.completedShadow, defaultOpen: true, paced: true },
+  parameters: { pacing: true },
   play: async ({ canvas, canvasElement, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /Compra completada en \d+ s/ })
     await expect(trigger).toHaveAttribute("aria-expanded", "true")

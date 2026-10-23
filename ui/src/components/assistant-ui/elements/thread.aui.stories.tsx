@@ -46,9 +46,6 @@ type Story = StoryObj<typeof meta>
 // el fixture en el primer frame que los contiene. Sin temporizadores, así el render es determinista.
 
 const AWAITING = fixtureState("purchase")
-// El plan y la gobernanza avanzan a ritmo (docs/design/trace-panel.md): seis pasos de 700 ms o una
-// docena de filas de 350 ms caben de sobra.
-const PACED_TIMEOUT = 8000
 const NOTHING_CHARGED = "No se creó ningún checkout ni se hizo ningún cobro."
 
 /**
@@ -256,6 +253,87 @@ export const AwaitingApproval: Story = {
   },
 }
 
+/** El turno de `purchase.sse` todavía en curso: tras la espera larga del modelo, todo llegó junto. */
+function arrivingTogether(): AgentState {
+  const messages = AWAITING.messages.map((message) =>
+    message.role === "assistant" ? { ...message, status: { type: "running" } as const } : message,
+  )
+  return { ...AWAITING, messages }
+}
+
+const FINAL_TEXT = (() => {
+  const reply = AWAITING.messages.findLast((message) => message.role === "assistant")
+  const text = reply?.role === "assistant" ? reply.content.findLast((part) => part.type === "text") : null
+  return text?.type === "text" ? text.text : ""
+})()
+
+/** Qué parte del turno es un hijo de la columna: por su tarjeta, o el texto. */
+function partName(node: HTMLElement) {
+  for (const id of ["purchase-activity", "product-card-hero", "purchase-approval-card"]) {
+    if (node.querySelector(`[data-testid='${id}']`)) return id
+  }
+  return node.querySelector("p") ? "text" : "?"
+}
+
+/**
+ * La fila de actividad, la tarjeta del producto, la aprobación y el texto llegan juntos (como tras la
+ * espera larga de «Elegir»). El plan recorre sus pasos a ritmo y cada parte sale de a una, con un
+ * fundido, después de que el plan visible llega a su paso; el texto, al final, se escribe. Entre
+ * todas, el mismo espacio.
+ */
+export const PartsArriveTogether: Story = {
+  args: { state: arrivingTogether() },
+  parameters: { pacing: true, ...traceApi(TRACES.awaitingApproval) },
+  play: async ({ canvasElement }) => {
+    const { element, canvas } = lastMessage(canvasElement)
+    const column = canvas.getByTestId("turn-parts")
+    const plan = canvas.getByTestId("agent-plan")
+    const arrivals: { part: string; planStep: string; text: number }[] = []
+    const observer = new MutationObserver((records) => {
+      for (const node of records.flatMap((record) => [...record.addedNodes])) {
+        if (!(node instanceof HTMLElement)) continue
+        arrivals.push({
+          part: partName(node),
+          planStep: plan.querySelector("[aria-current='step']")?.textContent ?? "",
+          text: node.textContent?.length ?? 0,
+        })
+      }
+    })
+    observer.observe(column, { childList: true })
+
+    // Mientras tanto, el plan dice qué hace y nada del resultado se adelanta.
+    await expect(within(plan).getByText("Entender").closest("li")).toHaveTextContent("(en curso)")
+    await expect(within(plan).getByText("Interpretando tu solicitud…")).toBeInTheDocument()
+    await expect(canvas.queryByTestId("purchase-activity")).toBeNull()
+    await expect(canvas.queryByTestId("purchase-approval-card")).toBeNull()
+
+    await waitFor(() => expect(arrivals).toHaveLength(4), { timeout: 8000 })
+    observer.disconnect()
+    await expect(arrivals.map(({ part }) => part)).toEqual([
+      "purchase-activity",
+      "product-card-hero",
+      "purchase-approval-card",
+      "text",
+    ])
+    // Cada parte sale cuando el plan visible ya llegó a su paso.
+    await expect(arrivals[0]?.planStep).toMatch(/^Checkout/)
+    await expect(arrivals[2]?.planStep).toMatch(/^Aprobación/)
+    // El texto entra escribiéndose y termina entero.
+    await expect(arrivals[3]?.text).toBeLessThan(FINAL_TEXT.length)
+    await waitFor(() => expect(column.lastElementChild).toHaveTextContent(FINAL_TEXT), {
+      timeout: 3000,
+    })
+    await expect(column.querySelectorAll(":scope > .agent-rise")).toHaveLength(4)
+
+    // El mismo espacio entre cada parte del turno: ninguna toca a la otra.
+    const boxes = [...column.children].map((child) => child.getBoundingClientRect())
+    for (const [index, box] of boxes.slice(1).entries()) {
+      await expect(Math.round(box.top - boxes[index]!.bottom)).toBe(16)
+    }
+    await expect(element).toBeVisible()
+  },
+}
+
 /** `state.purchase` en `approved`: la aprobación quedó registrada y solo falta completar. */
 export const ApprovalRecorded: Story = { args: { state: withPurchaseStage("approved") } }
 
@@ -269,10 +347,7 @@ export const PurchaseCompleted: Story = {
     )
     const activity = canvas.getByRole("button", { name: /Compra completada en \d+ s/ })
     await expect(activity).toHaveAttribute("aria-expanded", "true")
-    // Las filas de la gobernanza entran de a una (`GOVERNANCE_ROW_MS`).
-    await waitFor(() => expect(canvas.getByText("Política de compra: permitida")).toBeVisible(), {
-      timeout: PACED_TIMEOUT,
-    })
+    await expect(canvas.getByText("Política de compra: permitida")).toBeVisible()
     await expect(canvas.getByText("Producto dentro de lo que pediste")).toBeVisible()
     await expect(canvas.getByText("Comercio permitido")).toBeVisible()
   },
@@ -286,9 +361,7 @@ export const PurchaseCompletedPolicyOff: Story = {
     await expect(
       await canvas.findByRole("button", { name: /Compra completada/ }),
     ).toHaveAttribute("aria-expanded", "true")
-    await waitFor(() => expect(canvas.getByText("Política desactivada")).toBeVisible(), {
-      timeout: PACED_TIMEOUT,
-    })
+    await expect(canvas.getByText("Política desactivada")).toBeVisible()
     await expect(canvas.getByText("No se revisó esta compra")).toBeVisible()
   },
 }
@@ -343,14 +416,9 @@ export const PolicyBlocked: Story = {
       "policy-blocked-card",
     ])
     // El plan se queda donde estaba, detenido en el checkout por la política: en ámbar, no en rojo.
-    // Llega ahí a ritmo, un paso cada `PLAN_STEP_MIN_MS`.
     const plan = within(element).getByTestId("agent-plan")
-    await waitFor(
-      () =>
-        expect(within(plan).getByText("Checkout").closest("li")).toHaveTextContent(
-          "(detenido por la política de compra)",
-        ),
-      { timeout: PACED_TIMEOUT },
+    await expect(within(plan).getByText("Checkout").closest("li")).toHaveTextContent(
+      "(detenido por la política de compra)",
     )
     await expect(plan.querySelector(".text-red-700, .bg-red-600")).toBeNull()
   },
@@ -477,10 +545,7 @@ export const NoCandidate: Story = {
   args: { state: fixtureState("noCandidate") },
   play: async ({ canvasElement }) => {
     const { canvas } = lastMessage(canvasElement)
-    await waitFor(
-      () => expect(canvas.getByTestId("agent-plan")).toHaveTextContent("Esperando tu respuesta"),
-      { timeout: PACED_TIMEOUT },
-    )
+    await expect(canvas.getByTestId("agent-plan")).toHaveTextContent("Esperando tu respuesta")
     await waitFor(() => expect(runningAnimations(canvasElement)).toHaveLength(0), {
       timeout: 3000,
     })
@@ -531,7 +596,7 @@ export const FollowUpCompleted: Story = {
     await expect(canvas.queryByTestId("agent-plan")).toBeNull()
     const plans = canvasElement.querySelectorAll<HTMLElement>("[data-testid='agent-plan']")
     await expect(plans).toHaveLength(1)
-    await waitFor(() => expect(plans[0]).toHaveTextContent("6 de 6"), { timeout: PACED_TIMEOUT })
+    await expect(plans[0]).toHaveTextContent("6 de 6")
   },
 }
 

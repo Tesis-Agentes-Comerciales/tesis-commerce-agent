@@ -88,7 +88,7 @@ export function AgentPlan({
     <section
       aria-labelledby={titleId}
       className={cn(
-        "@container w-full rounded-[16px] border border-[#ececec] bg-white p-4",
+        "@container relative w-full rounded-[16px] border border-[#ececec] bg-white p-4",
         className,
       )}
       data-testid="agent-plan"
@@ -132,7 +132,7 @@ export function AgentPlan({
                   ? step.id === "approval"
                     ? "Esperando tu aprobación"
                     : "Esperando tu respuesta"
-                  : "En curso"
+                  : `${step.doing}…`
                 : undefined
 
           return (
@@ -168,10 +168,12 @@ export function AgentPlan({
                     {step.label}
                     <span className="sr-only"> ({STATE_TEXT[state]})</span>
                   </p>
+                  {/* En horizontal no caben notas por paso: la del paso en curso o detenido va
+                      sola al pie del plan, en el espacio que este reserva para ella. */}
                   {note && (
                     <p
                       className={cn(
-                        "text-xs leading-4 @xl:hidden",
+                        "text-xs leading-4 @xl:absolute @xl:inset-x-4 @xl:bottom-4 @xl:truncate",
                         state === "error"
                           ? "text-red-700"
                           : state === "stopped"
@@ -188,11 +190,8 @@ export function AgentPlan({
           )
         })}
       </ol>
-
-      {/* En horizontal no caben notas por paso: se resume la del paso detenido. */}
-      {failed && failedNote && (
-        <p className="mt-3 hidden text-xs text-red-700 @xl:block">{failedNote}</p>
-      )}
+      {/* Lugar fijo para la nota del paso en horizontal: el plan no cambia de alto al terminar. */}
+      <div className="hidden h-7 @xl:block" aria-hidden />
     </section>
   )
 }

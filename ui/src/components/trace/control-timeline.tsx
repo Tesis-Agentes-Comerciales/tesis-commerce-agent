@@ -78,8 +78,9 @@ export function ControlTimeline({ trace, pacer = null, className }: ControlTimel
     key: isSkipped(row) ? `${row.reason}:${row.kind}` : row.id,
   }))
   const shown = usePacedKeys(rows.map(({ key }) => key), pacer)
-  // Se funden solo las filas que entran mientras la línea de tiempo está a la vista.
-  const [seen] = useState(() => new Set(pacer?.revealed))
+  // Se funden solo las filas que entran mientras la línea de tiempo está a la vista: no las que ya
+  // estaban al montarla (al volver a abrirla, o en un mensaje del historial).
+  const [seen] = useState(() => shown)
   return (
     <ol aria-label="Controles de la compra" className={cn("pl-0.5", className)}>
       {rows

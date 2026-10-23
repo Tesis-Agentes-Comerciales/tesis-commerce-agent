@@ -22,6 +22,7 @@ import {
   useState,
   type ComponentType,
   type FC,
+  type ReactNode,
 } from "react"
 
 import { cn } from "cn"
@@ -40,6 +41,16 @@ import {
   toolStepStatus,
   useElapsedMs,
 } from "@/components/agent"
+import { TOOL_PLAN_STEP } from "@/components/agent/agent-steps"
+import { readyBlocks, TURN_PART_STAGGER_MS, type TurnBlock } from "@/components/agent/pacing"
+import {
+  PacingContext,
+  usePacedKeys,
+  usePacedPlan,
+  usePacer,
+  useTypedText,
+  type Pacing,
+} from "@/components/agent/use-pacing"
 import { traceMerchant } from "@/components/trace/trace-copy"
 import { asSelectResult } from "@/features/agent-results"
 import { PROMINENT_TOOLS } from "@/features/agent-toolkit"
@@ -78,11 +89,17 @@ const TextPart: TextMessagePartComponent = ({ text }) => (
   <p className="whitespace-pre-wrap">{text}</p>
 )
 
+/** El texto del asistente: en un turno que llega ahora se escribe en vez de aparecer de golpe. */
+const AssistantTextPart: TextMessagePartComponent = ({ text }) => {
+  const typed = useTypedText(text)
+  return <p className="whitespace-pre-wrap">{typed}</p>
+}
+
 const ReasoningPart: ReasoningMessagePartComponent = ({ text, status }) => (
   <ReasoningStep text={text} streaming={status.type === "running"} />
 )
 
-const PART_COMPONENTS = { Text: TextPart, Reasoning: ReasoningPart }
+const PART_COMPONENTS = { Text: AssistantTextPart, Reasoning: ReasoningPart }
 
 const KNOWN_TOOLS = new Set<string>(AGENT_TOOL_NAMES)
 const SETTLED_STAGES = new Set<string>(["completed", "canceled", "failed"])
@@ -149,7 +166,7 @@ function useActiveElapsed(active: boolean) {
   return useElapsedMs(span.start, active, span.end)
 }
 
-type AgentProgressProps = {
+type PurchasePlanInput = {
   parts: readonly PartState[]
   active: boolean
   status: AgentMessageStatus | undefined
@@ -157,12 +174,30 @@ type AgentProgressProps = {
   blocked: boolean
   /** La persona no volvió a escribir después de este mensaje. */
   latest: boolean
+  /** El mensaje no lleva plan aunque sea de una compra (ver dónde se calcula). */
+  hidden: boolean
 }
 
-function AgentProgress({ parts, active, status, blocked, latest }: AgentProgressProps) {
+type PurchasePlan = { progress: PlanProgress; failedNote?: string; still: boolean }
+
+const NO_PLAN: PlanProgress = { current: null }
+
+/**
+ * El plan de compra del mensaje, o `null` si no lo lleva. Lo calcula el mensaje y no el plan: las
+ * partes del turno salen a medida que el plan visible llega a su paso.
+ */
+function usePurchasePlan({
+  parts,
+  active,
+  status,
+  blocked,
+  latest,
+  hidden,
+}: PurchasePlanInput): PurchasePlan | null {
   const purchase = useAssistantTransportState((state) => state.purchase)
   const drafted = useAssistantTransportState((state) => state.delegation_draft !== undefined)
   const delegating = useContext(DelegationsHostContext)?.purchaseMode === "delegated"
+  if (hidden) return null
   const tools = parts.filter(isAgentTool)
   const interpreted = tools.find((part) => part.toolName === "interpret_request")?.result
   const purchaseTurn =
@@ -195,20 +230,71 @@ function AgentProgress({ parts, active, status, blocked, latest }: AgentProgress
     ? { current: "checkout", stopped: "checkout" }
     : derivePlanProgress({ parts: tools, purchase: own, running: active })
   const failedNote = own?.stage === "canceled" ? "Cancelaste la compra" : undefined
-  // Con la página quieta nada se anima: el plan que queda como última palabra no late. Avanza a
-  // ritmo: aunque la respuesta ya esté, cada paso se ve en curso antes de hecho.
+  // Con la página quieta nada se anima: el plan que queda como última palabra no late.
+  return { progress, failedNote, still: !active && !pending }
+}
+
+/**
+ * Las partes del turno que salen a ritmo, en el orden en que se ven y con el paso del plan que
+ * esperan: la fila de actividad con el checkout, cada tarjeta con su paso, el texto al final.
+ */
+function turnBlocks({
+  parts,
+  layout,
+  activity,
+  blocked,
+}: {
+  parts: readonly PartState[]
+  layout: ReturnType<typeof partLayout>
+  activity: boolean
+  blocked: boolean
+}) {
+  const blocks: TurnBlock[] = activity ? [{ key: "activity", step: "checkout" }] : []
+  for (const index of layout.prominent) {
+    const part = parts[index]
+    if (part && isAgentTool(part)) {
+      blocks.push({ key: `part:${index}`, step: TOOL_PLAN_STEP[part.toolName] })
+    }
+  }
+  if (blocked) blocks.push({ key: "blocked", step: "checkout" })
+  for (const index of layout.text) blocks.push({ key: `text:${index}`, step: "end" })
+  return blocks
+}
+
+type TurnPartProps = {
+  id: string
+  shown: ReadonlySet<string>
+  /** Partes que ya estaban al montar el mensaje: salen sin fundido. */
+  initial: ReadonlySet<string>
+  animate: boolean
+  children: ReactNode
+}
+
+/** Una parte del turno: sale cuando le toca y, si entra con el mensaje a la vista, se funde. */
+function TurnPart({ id, shown, initial, animate, children }: TurnPartProps) {
+  if (!shown.has(id)) return null
   return (
-    <AgentPlan
-      {...progress}
-      failedNote={failedNote}
-      still={!active && !pending}
-      paced
-      className="mb-4"
-    />
+    <div className={cn("empty:hidden", animate && !initial.has(id) && "agent-rise")}>{children}</div>
   )
 }
 
+/**
+ * Un mensaje que llega ahora va a ritmo; uno del historial sale como estaba y solo lo que le llegue
+ * después (la traza que se relee) entra a ritmo.
+ */
 function AssistantMessage() {
+  const running = useAuiState((state) => state.message.status?.type === "running")
+  const outer = useContext(PacingContext)
+  const [live] = useState(running)
+  const pacing: Pacing = outer === "instant" ? "instant" : live ? "live" : "settled"
+  return (
+    <PacingContext value={pacing}>
+      <AssistantMessageBody />
+    </PacingContext>
+  )
+}
+
+function AssistantMessageBody() {
   const parts = useAuiState((state) => state.message.parts)
   const running = useAuiState((state) => state.message.status?.type === "running")
   const isLast = useAuiState((state) => state.message.isLast)
@@ -263,92 +349,119 @@ function AssistantMessage() {
     !staleTerms &&
     (!traceFailed || streamPurchase.status === "blocked") &&
     !(streamPurchase.status === "in_progress" && status?.type === "incomplete")
+  // Con términos que ya no valen, «Esperando tu aprobación» contradiría a la tarjeta.
+  const traceRow =
+    purchaseTrace &&
+    activityVisible(purchaseTrace, status) &&
+    !(staleTerms && purchaseTrace.status === "awaiting_approval")
+      ? purchaseTrace
+      : null
+
+  // Con términos que ya no valen, el plan esperaría una aprobación que ya no es posible: lo dice su
+  // tarjeta. Un bloqueo del stream lo deja detenido en el checkout, en ámbar; uno que solo trae la
+  // traza (al aprobar) lo dice su tarjeta. El seguimiento de aprobar no lleva plan: el de la compra
+  // sigue en su mensaje.
+  const plan = usePurchasePlan({
+    parts,
+    active,
+    status,
+    blocked: streamBlock !== null,
+    latest,
+    hidden: staleTerms || (blockedBy !== null && streamBlock === null) || followUp,
+  })
+  // El plan avanza a ritmo: aunque la respuesta ya esté, cada paso se ve en curso antes de hecho.
+  const visiblePlan = usePacedPlan(plan?.progress ?? NO_PLAN, plan !== null)
+  // Lo que llega junto sale de a una, después de que el plan visible llega a su paso.
+  const blockPacer = usePacer(TURN_PART_STAGGER_MS, true)
+  const blocks = turnBlocks({
+    parts,
+    layout,
+    activity: traceRow !== null || streamRow,
+    blocked: policyBlocked,
+  })
+  const shown = usePacedKeys(
+    readyBlocks(blocks, plan && { real: plan.progress, visible: visiblePlan }),
+    blockPacer,
+  )
+  const [initial] = useState(() => shown)
+  const animate = useContext(PacingContext) !== "instant"
+  const turnPart = { shown, initial, animate }
 
   return (
     <MessagePrimitive.Root className="group/message px-2 leading-7 wrap-break-word">
       {/* Encabezado solo para lectores de pantalla: mantiene el orden h1 › h2 › h3 de las tarjetas. */}
       <h2 className="sr-only">Respuesta del agente</h2>
-      {/* Con términos que ya no valen, el plan esperaría una aprobación que ya no es posible: lo dice
-          su tarjeta. Un bloqueo del stream lo deja detenido en el checkout, en ámbar; uno que solo
-          trae la traza (al aprobar) lo dice su tarjeta. El seguimiento de aprobar no lleva plan: el
-          de la compra sigue en su mensaje. */}
-      {!staleTerms && !(blockedBy && !streamBlock) && !followUp && (
-        <AgentProgress
-          parts={parts}
-          active={active}
-          status={status}
-          blocked={streamBlock !== null}
-          latest={latest}
-        />
-      )}
+      {/* Las partes del turno, una debajo de otra con el mismo espacio: ninguna toca a la otra. */}
+      <div className="flex flex-col gap-4 empty:hidden" data-testid="turn-parts">
+        {plan && (
+          <AgentPlan {...visiblePlan} failedNote={plan.failedNote} still={plan.still} />
+        )}
 
-      {(hasTrace || awaitingFirstStep) && (
-        <ThinkingGroup
-          active={active}
-          failed={(failedStep || failedStatus) && !explained}
-          stopped={stopped}
-          elapsedMs={elapsedMs}
-          stepCount={layout.trace.length}
-          open={traceOpen}
-          onOpenChange={setUserTraceOpen}
-          className="mb-3"
-        >
-          {layout.trace.map((index) => (
-            <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />
-          ))}
-        </ThinkingGroup>
-      )}
+        {(hasTrace || awaitingFirstStep) && (
+          <ThinkingGroup
+            active={active}
+            failed={(failedStep || failedStatus) && !explained}
+            stopped={stopped}
+            elapsedMs={elapsedMs}
+            stepCount={layout.trace.length}
+            open={traceOpen}
+            onOpenChange={setUserTraceOpen}
+          >
+            {layout.trace.map((index) => (
+              <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />
+            ))}
+          </ThinkingGroup>
+        )}
 
-      {/* Con términos que ya no valen, «Esperando tu aprobación» contradiría a la tarjeta. */}
-      {purchaseTrace &&
-        activityVisible(purchaseTrace, status) &&
-        !(staleTerms && purchaseTrace.status === "awaiting_approval") && (
-        <PurchaseActivity
-          trace={purchaseTrace}
-          // La gobernanza de la compra es lo que hay que ver: abierta, con sus filas a ritmo.
-          defaultOpen
-          paced
-          // La tarjeta anuncia lo que pasa al aprobar o cancelar, pero no que espera la aprobación:
-          // eso lo dice esta fila, que ya estaba en el mensaje antes de la tarjeta.
-          announce={
-            purchaseTrace.status === "awaiting_approval" || !messageHasPurchaseCard(parts)
-          }
-          className="mb-3"
-        />
-      )}
-      {streamRow && (
-        <PurchaseActivity
-          trace={null}
-          stream={streamPurchase}
-          announce={streamPurchase.status === "awaiting_approval" || !messageHasPurchaseCard(parts)}
-          className="mb-3"
-        />
-      )}
+        <TurnPart id="activity" {...turnPart}>
+          {traceRow && (
+            <PurchaseActivity
+              trace={traceRow}
+              // La gobernanza de la compra es lo que hay que ver: abierta, con sus filas a ritmo.
+              defaultOpen
+              paced
+              // La tarjeta anuncia lo que pasa al aprobar o cancelar, pero no que espera la
+              // aprobación: eso lo dice esta fila, que ya estaba en el mensaje antes de la tarjeta.
+              announce={traceRow.status === "awaiting_approval" || !messageHasPurchaseCard(parts)}
+            />
+          )}
+          {streamRow && (
+            <PurchaseActivity
+              trace={null}
+              stream={streamPurchase}
+              announce={
+                streamPurchase.status === "awaiting_approval" || !messageHasPurchaseCard(parts)
+              }
+            />
+          )}
+        </TurnPart>
 
-      {/* Vacío si el producto fue a la tarjeta de bloqueo: sin hueco. */}
-      {layout.prominent.length > 0 && (
-        <div className="mb-4 flex flex-col gap-4 empty:hidden">
-          {layout.prominent.map((index) => (
-            <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />
-          ))}
-        </div>
-      )}
+        {/* Vacía si el producto fue a la tarjeta de bloqueo: sin hueco. */}
+        {layout.prominent.map((index) => (
+          <TurnPart key={`part:${index}`} id={`part:${index}`} {...turnPart}>
+            <MessagePrimitive.PartByIndex index={index} components={PART_COMPONENTS} />
+          </TurnPart>
+        ))}
 
-      {/* Con la compra bloqueada no hay tarjeta del producto: el producto va en esta. */}
-      {policyBlocked && (
-        <PolicyBlockedCard
-          decision={blockedBy}
-          reason={streamBlock?.reason}
-          loading={tracePending}
-          product={selectedProduct(parts)}
-          merchant={purchaseTrace ? traceMerchant(purchaseTrace) : undefined}
-          className="mb-4"
-        />
-      )}
+        {/* Con la compra bloqueada no hay tarjeta del producto: el producto va en esta. */}
+        {policyBlocked && (
+          <TurnPart id="blocked" {...turnPart}>
+            <PolicyBlockedCard
+              decision={blockedBy}
+              reason={streamBlock?.reason}
+              loading={tracePending}
+              product={selectedProduct(parts)}
+              merchant={purchaseTrace ? traceMerchant(purchaseTrace) : undefined}
+            />
+          </TurnPart>
+        )}
 
-      {layout.text.map((index) => (
-        <MessagePrimitive.PartByIndex key={index} index={index} components={PART_COMPONENTS} />
-      ))}
+        {layout.text.map((index) => (
+          <TurnPart key={`text:${index}`} id={`text:${index}`} {...turnPart}>
+            <MessagePrimitive.PartByIndex index={index} components={PART_COMPONENTS} />
+          </TurnPart>
+        ))}
+      </div>
 
       {activity !== null && (
         <ThinkingIndicator label={activity} elapsedMs={elapsedMs} className="mt-2" />

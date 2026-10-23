@@ -4,6 +4,7 @@ import { sb } from "storybook/test"
 import "../src/index.css"
 import "./storybook.css"
 
+import { PacingContext } from "../src/components/agent/use-pacing"
 import { mockAgentApi, type AgentApiMock } from "../src/storybook/agent-api-mock"
 import { DEFAULT_AGENT_API } from "../src/storybook/default-agent-api"
 import { mockSession, type StorySession } from "../src/storybook/session"
@@ -37,6 +38,15 @@ const preview: Preview = {
   initialGlobals: {
     backgrounds: { value: "white" },
   },
+  // El ritmo del chat (docs/design/trace-panel.md) se apaga: cada historia muestra su estado al
+  // instante, sin temporizadores. Las historias del ritmo lo piden con `parameters.pacing`.
+  decorators: [
+    (Story, { parameters }) => (
+      <PacingContext value={parameters.pacing ? "live" : "instant"}>
+        <Story />
+      </PacingContext>
+    ),
+  ],
   beforeEach: ({ parameters }) => {
     mockSession(parameters.session as StorySession)
     return mockAgentApi(parameters.agentApi as AgentApiMock)

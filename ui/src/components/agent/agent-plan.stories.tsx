@@ -161,6 +161,7 @@ export const WaitingAfterTurn: Story = {
  */
 export const Paced: Story = {
   args: { current: "choose", paced: true },
+  parameters: { pacing: true },
   play: async (context) => {
     await expect(step(context, "Entender")).toHaveTextContent("(en curso)")
     await expect(step(context, "Buscar")).toHaveTextContent("(pendiente)")
@@ -178,6 +179,7 @@ export const Paced: Story = {
 /** A ritmo, la parada de la política se ve cuando el plan visible llega al checkout. */
 export const PacedStoppedByPolicy: Story = {
   args: { current: "checkout", stopped: "checkout", paced: true },
+  parameters: { pacing: true },
   play: async (context) => {
     await expect(step(context, "Checkout")).toHaveTextContent("(pendiente)")
     await expect(context.canvas.queryByText("La política la detuvo")).toBeNull()

@@ -158,6 +158,7 @@ export const Running: Story = {
  */
 export const Purchased: Story = {
   args: { delegation: DELEGATIONS.purchased, trace: traceFor(DELEGATIONS.purchased) },
+  parameters: { pacing: true },
   play: async ({ canvas }) => {
     await expect(canvas.getByRole("heading", { name: "Compra completada" })).toBeVisible()
     const governance = within(canvas.getByRole("group", { name: GOVERNANCE }))

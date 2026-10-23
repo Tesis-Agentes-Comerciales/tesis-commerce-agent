@@ -89,13 +89,14 @@ export function toolResult<Result>(part: {
   return part.isError ? undefined : (part.result as Result | undefined)
 }
 
+/** `doing`: qué hace el agente mientras el paso está en curso; es la nota del paso en el plan. */
 export const PLAN_STEPS = [
-  { id: "understand", label: "Entender" },
-  { id: "search", label: "Buscar" },
-  { id: "choose", label: "Elegir" },
-  { id: "checkout", label: "Checkout" },
-  { id: "approval", label: "Aprobación" },
-  { id: "complete", label: "Completar" },
+  { id: "understand", label: "Entender", doing: TOOL_LABELS.interpret_request.running },
+  { id: "search", label: "Buscar", doing: TOOL_LABELS.search_catalog.running },
+  { id: "choose", label: "Elegir", doing: TOOL_LABELS.select_product.running },
+  { id: "checkout", label: "Checkout", doing: TOOL_LABELS.prepare_checkout.running },
+  { id: "approval", label: "Aprobación", doing: TOOL_LABELS.request_approval.running },
+  { id: "complete", label: "Completar", doing: "Completando la compra" },
 ] as const
 
 export type PlanStepId = (typeof PLAN_STEPS)[number]["id"]
@@ -155,7 +156,8 @@ export function pacedPlanProgress(progress: PlanProgress, revealed: ReadonlySet<
   return { current: shown === 0 ? null : reach[shown - 1] } as PlanProgress
 }
 
-const TOOL_PLAN_STEP: Record<AgentToolName, PlanStepId> = {
+/** El paso del plan al que pertenece un tool call: su parte del turno sale cuando el plan llega. */
+export const TOOL_PLAN_STEP: Record<AgentToolName, PlanStepId> = {
   interpret_request: "understand",
   search_catalog: "search",
   select_product: "choose",

@@ -6,7 +6,14 @@ import {
   planStepStates,
   type PlanProgress,
 } from "@/components/agent/agent-steps"
-import { GOVERNANCE_ROW_MS, PacedReveal, PLAN_STEP_MIN_MS } from "@/components/agent/pacing"
+import {
+  GOVERNANCE_ROW_MS,
+  PacedReveal,
+  PLAN_STEP_MIN_MS,
+  readyBlocks,
+  TURN_PART_STAGGER_MS,
+  type TurnBlock,
+} from "@/components/agent/pacing"
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -77,6 +84,15 @@ describe("PacedReveal", () => {
     pacer.show(["a", "b", "c"], true)
     expect(revealed(pacer)).toEqual(["a", "b", "c"])
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("lo revelado al instante no cuenta como paso: lo siguiente sale enseguida", () => {
+    const pacer = new PacedReveal(GOVERNANCE_ROW_MS)
+    pacer.show(["a", "b"], true)
+    pacer.show(["a", "b", "c", "d"])
+    expect(revealed(pacer)).toEqual(["a", "b", "c"])
+    vi.advanceTimersByTime(GOVERNANCE_ROW_MS)
+    expect(revealed(pacer)).toEqual(["a", "b", "c", "d"])
   })
 
   it("detenido no sigue revelando; al volver a mostrar sigue donde iba", () => {
@@ -177,5 +193,89 @@ describe("plan a ritmo", () => {
     expect(plan(pacer, { current: "understand" })()).toEqual({ current: "understand" })
     vi.advanceTimersByTime(2_000)
     expect(plan(pacer, { current: "search" })()).toEqual({ current: "search" })
+  })
+})
+
+const TURN: TurnBlock[] = [
+  { key: "activity", step: "checkout" },
+  { key: "part:3", step: "choose" },
+  { key: "part:6", step: "approval" },
+  { key: "text:7", step: "end" },
+]
+
+describe("partes del turno", () => {
+  it("el escalonamiento es de 400 ms entre partes", () => {
+    expect(TURN_PART_STAGGER_MS).toBe(400)
+  })
+
+  it("readyBlocks: sin plan, o con el plan visible al día, todas", () => {
+    expect(readyBlocks(TURN, null)).toEqual(["activity", "part:3", "part:6", "text:7"])
+    const real: PlanProgress = { current: "approval", waiting: true }
+    expect(readyBlocks(TURN, { real, visible: real })).toEqual([
+      "activity",
+      "part:3",
+      "part:6",
+      "text:7",
+    ])
+  })
+
+  it("readyBlocks: en orden, hasta la primera parte cuyo paso el plan visible no alcanzó", () => {
+    const real: PlanProgress = { current: "approval", waiting: true }
+    expect(readyBlocks(TURN, { real, visible: { current: "choose" } })).toEqual([])
+    expect(readyBlocks(TURN, { real, visible: { current: "checkout" } })).toEqual([
+      "activity",
+      "part:3",
+    ])
+    // El texto espera a que el plan visible llegue al real, aunque ya pasó su paso.
+    const tail: TurnBlock[] = [{ key: "text:1", step: "end" }]
+    expect(readyBlocks(tail, { real, visible: { current: "checkout" } })).toEqual([])
+  })
+
+  it("sin plan, las partes que llegan juntas salen de a una cada 400 ms", () => {
+    const pacer = new PacedReveal(TURN_PART_STAGGER_MS)
+    pacer.show(readyBlocks(TURN, null))
+    expect(revealed(pacer)).toEqual(["activity"])
+    vi.advanceTimersByTime(TURN_PART_STAGGER_MS)
+    expect(revealed(pacer)).toEqual(["activity", "part:3"])
+    vi.advanceTimersByTime(TURN_PART_STAGGER_MS * 2)
+    expect(revealed(pacer)).toEqual(["activity", "part:3", "part:6", "text:7"])
+  })
+
+  it("se encadena con el plan: cada parte sale después de que el plan visible llega a su paso", () => {
+    // Lo que hace el mensaje: cada vez que el plan visible avanza, recalcula qué partes pueden salir.
+    const planPacer = new PacedReveal(PLAN_STEP_MIN_MS)
+    const blockPacer = new PacedReveal(TURN_PART_STAGGER_MS)
+    let real: PlanProgress = { current: "choose" }
+    let blocks: TurnBlock[] = []
+    const sync = () => {
+      const visible = pacedPlanProgress(real, planPacer.revealed)
+      blockPacer.show(readyBlocks(blocks, { real, visible }))
+    }
+    planPacer.subscribe(sync)
+    planPacer.show(planReach(real))
+    vi.advanceTimersByTime(5_000)
+    expect(revealed(planPacer)).toEqual(["understand", "search", "choose"])
+
+    // Tras la espera larga del modelo llegan juntas la fila de actividad, la tarjeta, la
+    // aprobación y el texto.
+    real = { current: "approval", waiting: true }
+    blocks = TURN
+    planPacer.show(planReach(real))
+    sync()
+    expect(pacedPlanProgress(real, planPacer.revealed)).toEqual({ current: "checkout" })
+    expect(revealed(blockPacer)).toEqual(["activity"])
+    vi.advanceTimersByTime(TURN_PART_STAGGER_MS - 1)
+    expect(revealed(blockPacer)).toEqual(["activity"])
+    vi.advanceTimersByTime(1)
+    expect(revealed(blockPacer)).toEqual(["activity", "part:3"])
+    // La aprobación espera a que el plan visible llegue a Aprobación (700 ms) y a su turno (800).
+    vi.advanceTimersByTime(PLAN_STEP_MIN_MS - TURN_PART_STAGGER_MS)
+    expect(pacedPlanProgress(real, planPacer.revealed)).toBe(real)
+    expect(revealed(blockPacer)).toEqual(["activity", "part:3"])
+    vi.advanceTimersByTime(TURN_PART_STAGGER_MS * 2 - PLAN_STEP_MIN_MS)
+    expect(revealed(blockPacer)).toEqual(["activity", "part:3", "part:6"])
+    vi.advanceTimersByTime(TURN_PART_STAGGER_MS)
+    expect(revealed(blockPacer)).toEqual(["activity", "part:3", "part:6", "text:7"])
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
