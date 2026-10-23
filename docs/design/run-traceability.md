@@ -1,9 +1,10 @@
 # Trazabilidad completa de cada corrida del agente
 
-Estado: **propuesta, pendiente de aprobación** · 21 de octubre de 2026 · pedido de Yair: «debemos
-saber o tener la trazabilidad de todo lo que hace el agente o piensa o sucede en el flujo».
+Estado: **implementado salvo T5** · propuesta del 21 de octubre de 2026, fusionada en #126 · pedido
+de Yair: «debemos saber o tener la trazabilidad de todo lo que hace el agente o piensa o sucede en
+el flujo».
 
-Construido: T1 (#128), T2 (#129), T3 (#130, bloque HNP) y T4 (bloque HP). Las secciones 4.1 a
+Construido: T1 (#128), T2 (#129), T3 (#130, bloque HNP) y T4 (#131, bloque HP). Las secciones 4.1 a
 4.5 dicen lo que se construyó donde difiere de la propuesta original (sincronizadas el
 21-oct-2026).
 
@@ -385,7 +386,11 @@ tope de costo HNP la sigue leyendo. El revisor de intención (`ModelHnpIntentRev
 **Mínimo antes de la etiqueta:** T1 y T2. Con ellas, el bloque se puede extraer después desde los
 artefactos.
 
-## 6. Decisiones abiertas
+## 6. Decisiones
+
+Ya no están abiertas: se resolvieron al construir T1–T4, como describe la sección 4, y la
+decisión 4 quedó sin efecto porque T5 no se construyó. La 6 es M1, que Yair aprobó el 22-oct-2026,
+y la 7 no hizo falta porque T3 (#130) entró antes de `hnp-pilot-v1-base`.
 
 1. **¿Dónde vive el artefacto?** Recomiendo `.local/runs/` en la máquina que corre, con el sha256
    del tar en el reporte, y no en Git.
@@ -399,7 +404,7 @@ artefactos.
    sola fuente que el rescore ignora, por ~1 MB más.
 6. **¿Hace falta una enmienda de medición en `hnp-pilot.md` antes de la etiqueta?** Recomiendo que
    sí. Agrega registros y no cambia condiciones, oráculos ni criterios. El texto propuesto es M1,
-   en «Enmiendas» de [`hnp-pilot.md`](hnp-pilot.md), pendiente de aprobación.
+   en «Enmiendas» de [`hnp-pilot.md`](hnp-pilot.md), aprobada por Yair el 22-oct-2026.
 7. **Si T3 no entra antes de la etiqueta, ¿se extrae el bloque después?** Recomiendo que sí, a
    `*.flow-trace.jsonl` con la misma clave de fila y sin editar el JSONL. Con T1 y T3 se puede:
    `build_flow_trace` da el mismo bloque sobre el `agent.db` y el `feed/` del artefacto guardado.

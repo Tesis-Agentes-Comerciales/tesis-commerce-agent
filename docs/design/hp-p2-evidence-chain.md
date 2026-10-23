@@ -1,7 +1,8 @@
 # Cadena de evidencia decisión–consentimiento–efecto (P2)
 
-Estado: propuesta del 21-oct-2026 para la ola «HP al 100 %» (contrato de coordinación, punto 4).
-Se entrega en tres PR apilados: A (webhooks), B (recibos enlazados) y C (verificador y H2).
+Estado: implementado. Propuesta del 21-oct-2026 para la ola «HP al 100 %» (contrato de
+coordinación, punto 4). Se entregó en tres PR apilados: A (webhooks) en #69, B (recibos enlazados)
+en #71 y C (verificador y H2) en #74.
 
 ## Problema
 

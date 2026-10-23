@@ -65,7 +65,8 @@ los puertos de `governance/runtime_dispatch.py`:
   (`runtime_dispatch.DEFINITIVE_CREATION_REFUSALS`). Con D1 hay un solo POST por clave, así que
   esas respuestas prueban que no existe nada: la operación queda `definitive_failure` con
   `VERIFIED_NOT_CREATED` y la compra en `failed`, con el código del agente (`out_of_stock`,
-  `offer_expired`, `invalid_item`) en `failure_code` y en la respuesta, como en B0. La compra no
+  `offer_expired`, `invalid_item`) en `failure_code` y en la respuesta (409). Solo `out_of_stock`
+  coincide con B0, donde `OFFER_EXPIRED` responde 502 genérico e `invalid_item`, 404. La compra no
   queda pendiente: el comprador la pide de nuevo y obtiene otro `run_id`, otra decisión D1 y otra
   clave. El mismo `run_id` sigue sin reenviarse (`d1_recovery_required`). Prueba live:
   `test_b2_merchant_refusal_fails_the_purchase_and_frees_the_buyer`. Detalle en

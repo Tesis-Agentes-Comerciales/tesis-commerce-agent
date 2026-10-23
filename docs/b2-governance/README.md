@@ -1,7 +1,10 @@
 # B2: agente de compra con gobernanza de decisión
 
-Estado: enfoque de gobernanza aprobado; arquitectura final en elaboración  
-Actualización: 2026-10-11, con reporte de la reunión del 2026-10-09  
+Estado: enfoque de gobernanza aprobado e implementado en `main`, sin OPA: un evaluador de
+referencia en Python (`src/commerce_agent/governance/evaluator.py`) decide D1 y D2-HP en Human
+Present, y D1, D2-HNP y D3-HNP en Human Not Present (detrás de `AGENT_HNP_ENABLED`)  
+Actualización: 2026-10-23 (estado); la sección siguiente es del 2026-10-11, con reporte de la
+reunión del 2026-10-09  
 Base experimental: `b0-baseline-2026-10-06`
 
 ## Acuerdo más reciente
@@ -20,7 +23,8 @@ Yair confirmó en esta conversación que la arquitectura final debe cubrir **Hum
 Human Not Present**. El [roadmap de diseño](system-design-v1/plan.mdx) y su
 [registro de decisiones](system-design-v1/decisions.json) desarrollan ambos modos,
 con 50 decisiones, dependencias, artefactos y criterios de cierre. B2B queda como dimensión
-independiente. HNP todavía no está implementado en la base actual. Vista estable:
+independiente. HNP no estaba implementado entonces; hoy está en `main`
+([spec](../design/hnp-governed.md)). Vista estable:
 [roadmap en Notion](https://app.notion.com/p/3f965dca59e781f393ebd77838dba95b).
 
 Los documentos P1–P5, el diagrama y `evaluation/data/b2-design.json` conservan la propuesta original.
@@ -53,7 +57,11 @@ P1–P5 original (OPA, Trusted State) quedó como histórico en
 > La arquitectura P1–P5 descrita abajo es la propuesta original. La revisión de diseño del
 > 2026-10-07 recomienda simplificarla antes de implementar: dos decisiones explícitas de
 > gobernanza, controles deterministas para flujo/frescura y AP2 + merchant como barrera final.
-> Véase [Revisión crítica del diseño](design-review.md).
+> Véase [Revisión crítica del diseño](design-review.md). Lo implementado siguió esa
+> simplificación: un evaluador de referencia en Python, sin OPA
+> (`src/commerce_agent/governance/evaluator.py`), con resultado `allow` o `deny`
+> (`governance/models.py`). La lista siguiente es la decisión original: OPA/Rego y
+> `ask_for_authority` no se implementaron.
 
 - **Motor de políticas:** OPA/Rego detrás de un puerto `PolicyEvaluator`, con bundle fijado por
   versión y digest.

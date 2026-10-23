@@ -1,7 +1,7 @@
 # HP: rechazos definitivos al crear y checkouts vencidos (P5a)
 
-Estado: propuesta · 21-oct-2026 · ola «HP al 100 %», implementador P5a. Rama
-`fix/hp-definitive-failures`, un PR.
+Estado: implementado en #68 · propuesta del 21-oct-2026 · ola «HP al 100 %», implementador P5a.
+Rama `fix/hp-definitive-failures`, un PR.
 
 ## Problema
 
@@ -59,7 +59,9 @@ que no entra en la tabla.
   nuevo es otro `run_id`, con su propia decisión D1 y su propia clave.
 - El error que recibe el chat y REST es el código del agente con el texto en español que ya existe
   (`El producto se agotó en el comercio. Elige otro.`, `La oferta del comercio venció…`,
-  `El producto ya no está disponible en el comercio.`), igual que B0 para el mismo rechazo.
+  `El producto ya no está disponible en el comercio.`), con HTTP 409. Con B0 coinciden código y HTTP
+  solo en `out_of_stock`: en B0, `OFFER_EXPIRED` responde 502 con el mensaje genérico e
+  `invalid_item`, 404.
 - `GET /me/pending-purchase`: `terms_status` admite `expired`. Mapeo de `_STALE_TERMS`:
 
   | Código al presentar los términos | `terms_status` |
@@ -132,7 +134,8 @@ piloto nuevo que compare B0 con B2 debe tratar `checkout_expired` y `checkout_no
 mismo desenlace si mezcla corridas de antes y después de este cambio.
 
 El rechazo definitivo en D1 no toca B0: B0 ya marca la compra `failed` con el código del comercio
-(`_abandon_on_error`). Con este cambio, B2 queda igual que B0 para el mismo rechazo.
+(`_abandon_on_error`). Con este cambio, B2 también la marca `failed`; la respuesta HTTP solo
+coincide con la de B0 en `out_of_stock`.
 
 ## Criterios de aceptación
 

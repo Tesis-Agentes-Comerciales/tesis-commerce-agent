@@ -1,6 +1,7 @@
 # Elección restringida a la lista corta y número de orden visible
 
-Estado: **propuesta, pendiente de aprobación** · 20 de octubre de 2026 · ola «HP al 100 %», P5b.
+Estado: **implementado** en #65 (puntos 1 y 2) y #66 (punto 3) · 20 de octubre de 2026 · ola
+«HP al 100 %», P5b.
 
 ## Problema
 

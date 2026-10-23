@@ -59,11 +59,16 @@ y `tests/` es la verificación de ambos.
 - API FastAPI para preparar, revisar, aprobar y completar compras;
 - interfaz React basada en `assistant-ui`, con perfil sandbox y aprobación Human Present;
 - gobernanza B2 experimental: D1 detrás de `AGENT_GOVERNANCE_MODE` (`off` por defecto, `shadow`, o
-  `enforce` opt-in que solo aplica el deny), creación ACP guardada D17 solo en backend y
-  consentimiento D2-HP como aplicación separada que `api.py` no monta. Estado y límites en
+  `enforce` opt-in). En `enforce`, un allow se detiene sin POST con `AGENT_HP_FLOW=blocked` (por
+  defecto) y crea el checkout con `governed`; con `governed` y la política `b2-hp-v2`, D2-HP
+  (POL-03..06) autoriza además cada aprobación antes de firmar. La creación ACP guardada
+  D17 sigue solo en backend, y la aplicación de consentimiento `d2_consent_api.py` es aparte y
+  `api.py` no la monta. Estado y límites en
   [docs/b2-governance](docs/b2-governance/README.md) y en la
   [guía de enforce](docs/b2-governance/d1-enforce-runtime-optin.md);
-- Human Not Present en construcción detrás de `AGENT_HNP_ENABLED` (`false` por defecto): con el
+- Human Not Present detrás de `AGENT_HNP_ENABLED` (`false` por defecto), con dos pilotos corridos
+  ([HNP v1](evaluation/results/hnp-pilot-v1-report.md) y
+  [revisor de intención](evaluation/results/hnp-review-pilot-v1-report.md)): con el
   flag, rutas de propuesta, consentimiento, «Mis delegaciones» y revocación para el comprador,
   disparo de la compra delegada (`POST /internal/hnp/tasks/{id}/run`, con despacho al PSP y al
   comercio y sus recibos AP2) y kill switch del operador en `/internal/hnp/*`
@@ -163,7 +168,8 @@ La evidencia histórica HP/HNP del 17 al 20 de octubre de 2026, con sus hashes, 
 del Merchant (sin apagarlo ni borrar volúmenes), migraciones, catálogo administrado, proveedor de
 pagos, Merchant, `auth/`, agente y UI. Los secretos y las claves AP2 y D1 son nuevos en cada
 arranque y no se imprimen ni se escriben; del `.env` solo lee las variables `OPENAI_*`, y solo para
-el agente. Arranca en B2; `--mode b0` y `--mode pol02-deny` cambian la condición, `--dry-run` revisa
+el agente. Arranca en B2; `--mode b0` y `--mode pol02-deny` cambian la condición, y `--mode b2-hnp`
+agrega Human Not Present (compras delegadas con la política `b2-hnp-v1`); `--dry-run` revisa
 requisitos y puertos, y `uv run demo-stack s04` cambia el precio del escenario S04. Requisitos,
 pedidos y plan B en el [guion del 23 de octubre](docs/demo/guion-2026-10-23.md).
 
@@ -340,8 +346,9 @@ servidor local fuera de `127.0.0.1`; `LANGSMITH_TRACING=false` evita subir traza
 Este P0 usa un solo merchant registrado por configuración, una moneda, cantidad uno, SQLite y pago
 sandbox independiente. No procesa dinero real ni datos de tarjetas reales. El modelo conversacional
 es una integración externa, pero su salida se valida antes del ranking y nunca autoriza completion.
-La gobernanza B2 es experimental y opt-in: su evaluador es la referencia en Python, sin OPA, y D17 y
-D2-HP no están conectados al flujo público. Mandatos externos, Stripe real y operación
+La gobernanza B2 es experimental y opt-in: su evaluador es la referencia en Python, sin OPA. D2-HP
+corre al aprobar en el flujo gobernado con la política `b2-hp-v2`; D17 no está conectado al flujo
+público. Mandatos externos, Stripe real y operación
 multi-instancia quedan fuera de este incremento.
 
 La matriz de contrato, amenazas e hipótesis está en

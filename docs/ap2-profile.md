@@ -1,6 +1,6 @@
 # AP2 v0.2: perfil sintético (Human Present y Human Not Present)
 
-Referencia fijada: [especificación AP2 v0.2, commit `e1ea56d`](https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/specification.md). AP2 autoriza el pago; ACP sigue definiendo el checkout comercial. Este perfil no mueve dinero real. La sección [Human Not Present](#human-not-present-perfil-ap2-hnpv1) es el contrato de HNP-04 (agente), HNP-M1 (comercio) y HNP-P1 (PSP). El lado del agente está en `src/commerce_agent/ap2_hnp.py`, todavía sin un flujo que lo use; el comercio (HNP-M1) y el PSP (HNP-P1) ya verifican las cadenas HNP.
+Referencia fijada: [especificación AP2 v0.2, commit `e1ea56d`](https://github.com/google-agentic-commerce/AP2/blob/e1ea56db72a6385bce3e5c1112b3a56ce60acb43/docs/ap2/specification.md). AP2 autoriza el pago; ACP sigue definiendo el checkout comercial. Este perfil no mueve dinero real. La sección [Human Not Present](#human-not-present-perfil-ap2-hnpv1) es el contrato de HNP-04 (agente), HNP-M1 (comercio) y HNP-P1 (PSP). El lado del agente está en `src/commerce_agent/ap2_hnp.py`, que usan el consentimiento de la delegación (`delegation/service.py`) y la compra autónoma (`application/hnp_execution.py`, `governance/hnp_gate.py`) detrás de `AGENT_HNP_ENABLED`; el comercio (HNP-M1) y el PSP (HNP-P1) verifican las cadenas HNP.
 
 ## Fronteras de confianza
 
