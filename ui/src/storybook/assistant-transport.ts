@@ -7,6 +7,7 @@ import {
   type AgentApiRequest,
 } from "@/storybook/agent-api-mock"
 import clarifyRaw from "@/storybook/fixtures/assistant-transport/clarify.sse?raw"
+import delegateRaw from "@/storybook/fixtures/assistant-transport/delegate.sse?raw"
 import errorRaw from "@/storybook/fixtures/assistant-transport/error.sse?raw"
 import greetingRaw from "@/storybook/fixtures/assistant-transport/greeting.sse?raw"
 import noCandidateRaw from "@/storybook/fixtures/assistant-transport/no-candidate.sse?raw"
@@ -46,6 +47,7 @@ export const ASSISTANT_SSE = {
   purchaseBlocked: localizeImages(purchaseBlockedRaw),
   noCandidate: localizeImages(noCandidateRaw),
   error: localizeImages(errorRaw),
+  delegate: localizeImages(delegateRaw),
 } as const
 
 export type AssistantFixture = keyof typeof ASSISTANT_SSE
@@ -57,6 +59,7 @@ export const FIXTURE_REQUESTS = {
   purchase: "Quiero audífonos negros por menos de 2 millones",
   pendingPurchase: "También quiero unos audífonos blancos",
   noCandidate: "Quiero audífonos por menos de 50 mil",
+  delegate: "Quiero audífonos negros por menos de 2 millones",
 } as const
 
 type Operation = { type: "set" | "append-text"; path: string[]; value: unknown }
@@ -142,6 +145,7 @@ type AssistantRequestBody = {
   state?: AgentState
   details?: unknown
   turn_id?: unknown
+  mode?: unknown
 }
 
 // Forma exacta que exige `CheckoutDetails` en el backend (`extra="forbid"`, `strict=True`). El mock
@@ -177,6 +181,9 @@ function objectProblem(
 export function requestProblem(body: AssistantRequestBody): string | null {
   if (typeof body.turn_id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(body.turn_id)) {
     return "turn_id inválido"
+  }
+  if (body.mode !== undefined && body.mode !== "present" && body.mode !== "delegate") {
+    return "mode inválido"
   }
   if (!(body.commands ?? []).some((command) => command.type === "add-message")) return null
   const details = body.details as { buyer?: unknown; fulfillment?: unknown } | undefined
@@ -220,6 +227,8 @@ export function scriptedFixture(body: AssistantRequestBody): AssistantFixture {
     .toLowerCase()
   if (body.state?.purchase?.stage === "awaiting_confirmation") return "pendingPurchase"
   if (/^\s*(hola|buenas|hey)\b/.test(text)) return "greeting"
+  // «Delegar»: busca y deja el borrador de la delegación, sin checkout.
+  if (body.mode === "delegate" && /aud[ií]fono|headphone/.test(text)) return "delegate"
   if (/\b50 mil\b/.test(text)) return "noCandidate"
   // Pedida otra vez después de cancelar: otra compra, con su propio `run_id`.
   if (/aud[ií]fono|headphone/.test(text)) {

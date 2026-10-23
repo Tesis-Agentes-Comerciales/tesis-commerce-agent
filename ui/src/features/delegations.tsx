@@ -1,14 +1,8 @@
-import { useAui, useAuiState } from "@assistant-ui/react"
-import { cn } from "cn"
-import { PlusIcon } from "lucide-react"
-import { useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react"
+import { useAui } from "@assistant-ui/react"
+import { useCallback, useContext, useEffect, useReducer, useRef } from "react"
 
-import { pillButton } from "@/components/agent/agent-styles"
 import { DELEGATIONS_COPY } from "@/components/delegation/delegation-copy"
-import { DelegationConsentCard } from "@/components/delegation/delegation-consent-card"
-import { DelegationForm } from "@/components/delegation/delegation-form"
 import { DelegationList } from "@/components/delegation/delegation-list"
-import { DelegationSearchFirst } from "@/components/delegation/delegation-search-first"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { DELEGATION_POLL_MS, useDelegationTraces } from "@/features/delegation-traces"
 import { DelegationsHostContext, type DelegationsHost } from "@/features/delegations-host"
@@ -18,59 +12,37 @@ import {
   hasTaskInFlight,
   INITIAL_DELEGATIONS,
 } from "@/features/delegations-state"
-import { seenOffers } from "@/features/seen-offers"
-import type { BuyerProfile } from "@/lib/commerce-types"
 import {
-  consentToDelegation,
   delegationErrorCode,
   delegationErrorText,
   getDelegation,
   myDelegations,
-  needsNewProposal,
-  proposeDelegation,
   revokeAllDelegations,
   revokeDelegation,
 } from "@/lib/delegation-api"
-import type { DelegationConsent } from "@/lib/delegation-contract"
-import { proposalRequest, type DelegationDraft } from "@/lib/delegation-draft"
 
 /**
- * «Delegaciones» dentro del runtime del chat: lee las opciones que el agente ya mostró y, ante un
- * escalamiento, escribe la compra HP en el compositor. Sin anfitrión (HNP apagado) no monta nada.
+ * «Mis delegaciones» dentro del runtime del chat: ante un escalamiento, vuelve a «Comprar conmigo» y
+ * escribe la compra HP en el compositor. Sin anfitrión (HNP apagado) no monta nada. Delegar una
+ * compra nueva ya no pasa por aquí: va en el hilo (`delegation-in-chat.tsx`).
  */
 export function DelegationsMount() {
   const host = useContext(DelegationsHostContext)
   return host ? <Delegations {...host} /> : null
 }
 
-const blankDraft = ({ addressLine, city, state }: BuyerProfile): DelegationDraft => ({
-  variantIds: [],
-  total: "",
-  validForSeconds: 3_600,
-  addressLine,
-  city,
-  state,
-  preference: "",
-})
-
 /**
- * El formulario, la propuesta con su consentimiento y «Mis delegaciones» (§3.2, §8.4), contra las
- * rutas del comprador (§5.1). Cada acción relee lo que cambió: el estado lo dice el backend. Con
- * el diálogo abierto, la lista y la gobernanza de cada compra se releen cada 2 s mientras alguna
- * tarea espera el disparo o está comprando: así se ve terminar la compra sin cerrar nada.
+ * «Mis delegaciones» (§8.4), contra las rutas del comprador (§5.1). Cada acción relee lo que cambió:
+ * el estado lo dice el backend. Con el diálogo abierto, la lista y la gobernanza de cada compra se
+ * releen cada 2 s mientras alguna tarea espera el disparo o está comprando.
  */
-function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
+function Delegations({ open, onOpenChange, onPurchaseModeChange }: DelegationsHost) {
   const [state, dispatch] = useReducer(delegationsReducer, INITIAL_DELEGATIONS)
-  // Los mensajes del thread y no el estado del transporte: mientras el thread carga no hay estado,
-  // y este diálogo se monta junto al chat, no dentro de un mensaje.
-  const messages = useAuiState((aui) => aui.thread.messages)
-  const offers = useMemo(() => seenOffers(messages), [messages])
   const aui = useAui()
-  // Al cerrar para volver al chat (escalamiento o «Buscar en el chat»), el foco va al compositor.
+  // Al cerrar para volver al chat con un escalamiento, el foco va al compositor.
   const toComposer = useRef(false)
   // Lecturas de la lista empezadas y la más reciente aplicada: una lenta no pisa a una posterior.
   const listReads = useRef({ started: 0, applied: 0 })
-  const { flow } = state
   const traces = useDelegationTraces(state.delegations, open)
   const inFlight = hasTaskInFlight(state.delegations)
 
@@ -114,28 +86,6 @@ function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
     }
   }, [open, inFlight, reload])
 
-  const propose = async (draft: DelegationDraft) => {
-    const checked = proposalRequest(draft, profile)
-    if (!checked.ok) return dispatch({ type: "propose-failed", error: checked.problem })
-    dispatch({ type: "proposing", draft })
-    try {
-      dispatch({ type: "proposed", proposal: await proposeDelegation(checked.request) })
-    } catch (error) {
-      dispatch({ type: "propose-failed", error: delegationErrorText(error) })
-    }
-  }
-
-  const authorize = async (consent: DelegationConsent) => {
-    dispatch({ type: "authorizing" })
-    try {
-      dispatch({ type: "authorized", delegation: await consentToDelegation(consent) })
-    } catch (error) {
-      const canAuthorize = !needsNewProposal(error)
-      return dispatch({ type: "authorize-failed", error: delegationErrorText(error), canAuthorize })
-    }
-    await reload()
-  }
-
   const revoke = async (grantId: string) => {
     dispatch({ type: "revoking", grantIds: [grantId] })
     try {
@@ -170,6 +120,7 @@ function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
 
   /** §8.2: la decisión vuelve al comprador como una compra HP nueva, prellenada en el chat. */
   const buyFromChat = (prefillRequest: string) => {
+    onPurchaseModeChange("present")
     aui.composer().setText(prefillRequest)
     backToChat()
   }
@@ -197,42 +148,6 @@ function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
         </div>
 
         <div className="space-y-6 p-4">
-          {/* Sin búsqueda no hay opciones que delegar: primero se busca en el chat. */}
-          {flow.step === "idle" && offers.length === 0 && (
-            <DelegationSearchFirst onGoToChat={backToChat} />
-          )}
-          {flow.step === "idle" && offers.length > 0 && (
-            <button
-              type="button"
-              onClick={() => dispatch({ type: "form-opened" })}
-              className={cn(pillButton({ tone: "ink", size: "lg" }), "w-full")}
-            >
-              <PlusIcon aria-hidden />
-              {DELEGATIONS_COPY.newDelegation}
-            </button>
-          )}
-          {flow.step === "form" && (
-            <DelegationForm
-              offers={offers}
-              draft={state.draft ?? blankDraft(profile)}
-              submitting={flow.submitting}
-              error={flow.error}
-              onSubmit={propose}
-              onCancel={() => dispatch({ type: "form-closed" })}
-              autoFocus
-            />
-          )}
-          {flow.step === "consent" && (
-            <DelegationConsentCard
-              proposal={flow.proposal}
-              authorizing={flow.authorizing}
-              error={flow.error}
-              onAuthorize={flow.canAuthorize ? authorize : undefined}
-              onCancel={() => dispatch({ type: "form-opened" })}
-              autoFocus
-            />
-          )}
-
           <DelegationList
             delegations={state.delegations}
             revocations={state.revocations}
@@ -241,10 +156,10 @@ function Delegations({ open, onOpenChange, profile }: DelegationsHost) {
             error={state.list === "failed" ? state.listError : null}
             revokingAll={state.revokingAll}
             revokeAllError={state.revokeAllError}
-            focusId={state.consentedId}
             onRevoke={revoke}
             onRevokeAll={revokeAll}
             onBuyFromChat={buyFromChat}
+            titleHidden
           />
         </div>
       </DialogContent>

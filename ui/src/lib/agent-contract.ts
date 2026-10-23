@@ -243,10 +243,30 @@ export type AgentPurchase = {
   order_id: string | null
 }
 
+/**
+ * Lo que encontró un turno `delegate` (docs/design/hnp-chat-delegate.md): prellena la tarjeta de
+ * delegación del hilo. Solo para mostrar: `POST /delegations/proposals` revalida cada variante y el
+ * total.
+ */
+export type DelegationDraftView = {
+  /** La lista corta del feed validado: disponibles y en COP, máximo 6. */
+  offers: ProductCard[]
+  /** El presupuesto del mensaje, en centavos; `null` si el comprador no escribió ninguno. */
+  budget_minor: number | null
+  currency: "COP"
+  /** El mensaje del comprador, tal cual. */
+  preference_text: string
+}
+
 export type AgentState = {
   messages: AgentMessage[]
   purchase: AgentPurchase | null
+  /** Solo después de un turno `delegate`; el siguiente turno lo reemplaza o lo quita. */
+  delegation_draft?: DelegationDraftView | null
 }
+
+/** `mode` del cuerpo de `/assistant`: con «Delegar», el turno busca y no crea checkout. */
+export type ChatMode = "present" | "delegate"
 
 export const INITIAL_AGENT_STATE: AgentState = { messages: [], purchase: null }
 

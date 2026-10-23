@@ -24,6 +24,7 @@ esparce `callSettings` y `config` ahí):
 | `details` | Datos de entrega, mismo esquema `CheckoutDetails` de `/conversation/turn`. |
 | `turn_id` | UUID por envío generado en el frontend; alimenta la idempotencia existente. |
 | `conversation_id` | UUID estable durante esta conversación; selecciona el thread de LangGraph. Una nueva compra crea otro ID. |
+| `mode` | `"present"` (por defecto, si falta) o `"delegate"`. Con `"delegate"` el turno busca y prepara una delegación en vez de un checkout; ver «Modo `delegate`». La UI lo envía solo con «Delegar». |
 | `system`, `tools`, `callSettings`, `config`, `threadId`, `parentId` | Se ignoran. Nunca llegan al modelo. |
 
 Reglas de confianza:
@@ -105,6 +106,40 @@ cancelar o completar la compra, ese envío puede reintentarse.
   `result` se asigna al terminar cada paso; mientras falte, la UI muestra el paso en curso.
 - `purchase` es `null` hasta que exista un checkout; refleja la etapa leída de SQLite. Si `state` no
   reclama ningún `run_id` válido pero hay una compra pendiente, el backend informa esa.
+- `delegation_draft` solo aparece después de un turno `delegate` (ver abajo). El primer frame de cada
+  respuesta reconstruye la raíz con `messages` y `purchase`, así que un borrador que el cliente
+  devuelva en `state` nunca se reenvía.
+
+## Modo `delegate`
+
+La compra delegada dentro del chat (`docs/design/hnp-chat-delegate.md`). Con `mode: "delegate"`:
+
+- Si el backend no expone HNP (`/health` sin `hnp_enabled`), responde 422 `{"code":
+  "delegation_disabled", "message": "La compra delegada no está habilitada en este entorno."}` sin
+  abrir el stream ni llamar al modelo.
+- El grafo corre `interpret_request` y, si la acción es `purchase`, `search_catalog`, y termina ahí:
+  no hay `select_product`, `prepare_checkout` ni `request_approval`, no se crea checkout ni compra
+  y no se llama al comercio. `purchase` queda en `null`.
+- El texto final es fijo: cuántas opciones encontró y que abajo se delega, o, sin opciones, que
+  ajuste la búsqueda (sin la recuperación del modelo).
+- El estado agrega:
+
+```json
+"delegation_draft": {
+  "offers": [ProductCard],
+  "budget_minor": 200000000,
+  "currency": "COP",
+  "preference_text": "Quiero audífonos negros por menos de 2 millones"
+}
+```
+
+- `offers`: la lista corta de `search_catalog` (máx. 6), solo disponibles y en COP. `budget_minor`:
+  `max_total_amount_minor` de la intención o, si falta, `max_unit_amount_minor`; `null` sin
+  presupuesto. `preference_text`: el último mensaje del comprador. Si la acción no es `purchase`,
+  `delegation_draft` es `null`.
+- Nada de esto es autoritativo: la UI lo usa para prellenar el formulario y `POST
+  /delegations/proposals` revalida variantes, total y destino. La idempotencia es la de siempre por
+  comprador (`turn_id`); la huella del turno incluye el modo.
 
 ## Pasos como tool calls
 
@@ -158,7 +193,13 @@ lo soporta; son resúmenes de la Responses API, nunca razonamiento crudo.
 
 - Runtime: `useAssistantTransportRuntime({ api: AGENT_API_URL + "/assistant", protocol:
   "assistant-transport", initialState: {messages: [], purchase: null}, converter, body })`, con
-  `body` que agrega `details` y un `turn_id` nuevo por envío.
+  `body` que agrega `details`, un `turn_id` nuevo por envío y `mode: "delegate"` cuando el selector
+  `purchaseMode` de la cabecera está en «Delegar» (se lee por referencia al enviar).
+- Con `delegation_draft`, el hilo muestra al pie de los mensajes la compra delegada
+  (`features/delegation-in-chat.tsx`): `DelegationForm` prellenado (opciones marcadas, total con el
+  presupuesto, el mensaje como indicación), `DelegationConsentCard` y, tras autorizar,
+  `DelegationStatusCard` con la gobernanza, releída cada 2 s mientras la tarea sigue en curso. La
+  lista y la revocación están en el diálogo «Mis delegaciones».
 - `converter`: convierte `state.messages` a mensajes del thread, agrega los `add-message` pendientes
   como mensajes optimistas y usa `isSending` como `isRunning`.
 - Cada `toolName` se registra con un renderer `type: "backend"`. `select_product` y

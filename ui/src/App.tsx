@@ -1,7 +1,7 @@
 import { chip, focusRing } from "@/components/agent"
 import { Thread } from "@/components/assistant-ui/elements/thread.aui"
 import { CommerceWelcome } from "@/components/commerce-welcome"
-import { PurchaseModeSwitch } from "@/components/purchase-mode-switch"
+import { PurchaseModeSwitch, type PurchaseMode } from "@/components/purchase-mode-switch"
 import { SessionGate } from "@/components/session-gate"
 import {
   Dialog,
@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { CommerceRuntime } from "@/features/commerce-runtime"
+import { DelegationInChatMount } from "@/features/delegation-in-chat"
 import { DelegationsMount } from "@/features/delegations"
 import { DelegationsHostContext } from "@/features/delegations-host"
 import { staleApprovalPart } from "@/features/stale-terms"
@@ -17,7 +18,7 @@ import { authClient } from "@/lib/auth-client"
 import { INITIAL_AGENT_STATE, type AgentAssistantPart, type AgentState } from "@/lib/agent-contract"
 import { AGENT_API_URL, health, pendingPurchase, type PendingPurchase } from "@/lib/commerce-api"
 import { DEMO_PROFILE } from "@/lib/commerce-types"
-import { Settings2Icon } from "lucide-react"
+import { ListChecksIcon, Settings2Icon } from "lucide-react"
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react"
 
 const BuyerProfileCard = lazy(() =>
@@ -37,10 +38,12 @@ const HEADER_WITH_MODES =
   "flex shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 px-3 pt-2 pb-1 sm:h-14 sm:flex-nowrap sm:px-5 sm:py-0"
 
 // Elemento estable: `CommerceRuntime` solo puede recibir props que no cambien entre renders.
-// «Delegaciones» vive dentro del runtime y recibe lo que cambia por contexto.
+// La compra delegada del hilo y «Mis delegaciones» viven dentro del runtime y reciben lo que cambia
+// por contexto.
+const THREAD_COMPONENTS = { Welcome: CommerceWelcome, AfterMessages: DelegationInChatMount }
 const CHAT = (
   <>
-    <Thread components={{ Welcome: CommerceWelcome }} autoFocus />
+    <Thread components={THREAD_COMPONENTS} autoFocus />
     <DelegationsMount />
   </>
 )
@@ -92,11 +95,18 @@ function CommerceApp({ userId }: { userId: string }) {
   const [bootstrapError, setBootstrapError] = useState(false)
   // Las delegaciones (HNP) solo aparecen si `/health` dice que la API las expone.
   const [hnpEnabled, setHnpEnabled] = useState(false)
+  // El modo del chat: con «Delegar», cada envío busca y prepara una delegación en el hilo.
+  const [purchaseMode, setPurchaseMode] = useState<PurchaseMode>("present")
   const [delegationsOpen, setDelegationsOpen] = useState(false)
   const delegations = useMemo(
     () =>
       hnpEnabled
-        ? { open: delegationsOpen, onOpenChange: setDelegationsOpen, profile }
+        ? {
+            open: delegationsOpen,
+            onOpenChange: setDelegationsOpen,
+            profile,
+            onPurchaseModeChange: setPurchaseMode,
+          }
         : null,
     [hnpEnabled, delegationsOpen, profile],
   )
@@ -156,13 +166,23 @@ function CommerceApp({ userId }: { userId: string }) {
       <main className="flex h-svh min-h-0 flex-col overflow-hidden bg-white text-[#0d0d0d]">
         {/* Solo se anuncia la conexión cuando falla: conectado es el caso normal y no necesita aviso. */}
         <header className={hnpEnabled ? HEADER_WITH_MODES : HEADER}>
-          {/* «Delegar» abre «Delegaciones»; al cerrarlas se vuelve a comprar en el chat. */}
+          {/* El modo del chat: «Delegar» busca y deja la delegación en el hilo, sin diálogo. */}
           {hnpEnabled && (
             <PurchaseModeSwitch
-              mode={delegationsOpen ? "delegated" : "present"}
-              onModeChange={(mode) => setDelegationsOpen(mode === "delegated")}
+              mode={purchaseMode}
+              onModeChange={setPurchaseMode}
               className="order-last w-full sm:order-none sm:mr-auto sm:w-auto"
             />
+          )}
+          {hnpEnabled && (
+            <button
+              type="button"
+              onClick={() => setDelegationsOpen(true)}
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm hover:bg-[#f2f2f2] ${focusRing}`}
+            >
+              <ListChecksIcon className="size-4" aria-hidden />
+              Mis delegaciones
+            </button>
           )}
           {connection === "offline" && (
             <span className={chip({ tone: "danger" })} title={AGENT_API_URL} role="status">
@@ -192,6 +212,7 @@ function CommerceApp({ userId }: { userId: string }) {
             <CommerceRuntime
               key={`${userId}:${session}`}
               profile={profile}
+              purchaseMode={hnpEnabled ? purchaseMode : "present"}
               initialState={initialState}
               onNewPurchase={startNewPurchase}
             >

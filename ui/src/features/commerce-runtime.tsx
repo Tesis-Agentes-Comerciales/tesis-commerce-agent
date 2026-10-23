@@ -16,11 +16,13 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 
 import "@/features/assistant-augmentation"
 import { agentToolkit } from "@/features/agent-toolkit"
+import type { PurchaseMode } from "@/components/purchase-mode-switch"
 import { PurchaseSessionContext, type LocalPurchase } from "@/features/purchase-session"
 import {
   AGENT_TOOL_NAMES,
   INITIAL_AGENT_STATE,
   type AgentState,
+  type ChatMode,
 } from "@/lib/agent-contract"
 import { AGENT_API_URL, checkoutDetails } from "@/lib/commerce-api"
 import { buyerHeaders } from "@/lib/auth-client"
@@ -334,6 +336,8 @@ type AgentRuntimeProps = {
   children: ReactNode
   /** Datos de entrega del momento del envío; se lee por referencia, nunca como prop reactiva. */
   getDetails: () => object
+  /** El modo del chat en el momento del envío, también por referencia. */
+  getMode: () => ChatMode
   initialState: AgentState
   onNewPurchase?: () => void
 }
@@ -345,6 +349,7 @@ type AgentRuntimeProps = {
 const AgentRuntime = memo(function AgentRuntime({
   children,
   getDetails,
+  getMode,
   initialState,
   onNewPurchase,
 }: AgentRuntimeProps) {
@@ -359,11 +364,16 @@ const AgentRuntime = memo(function AgentRuntime({
     initialState,
     converter,
     headers: buyerHeaders,
-    body: async () => ({
-      details: getDetails(),
-      turn_id: crypto.randomUUID(),
-      conversation_id: conversationId,
-    }),
+    body: async () => {
+      const mode = getMode()
+      return {
+        details: getDetails(),
+        turn_id: crypto.randomUUID(),
+        conversation_id: conversationId,
+        // «Comprar conmigo» no lo envía: el backend asume `present`, como antes de HNP en el chat.
+        ...(mode === "delegate" && { mode }),
+      }
+    },
     onError: (error, { commands, updateState }) => {
       const message = transportErrorMessage(error)
       retries.keep(commands)
@@ -387,6 +397,8 @@ const AgentRuntime = memo(function AgentRuntime({
 type CommerceRuntimeProps = {
   children: ReactNode
   profile: BuyerProfile
+  /** «Delegar» hace que cada envío busque y prepare una delegación en vez de un checkout. */
+  purchaseMode?: PurchaseMode
   /** Estado inicial (Storybook); en la app siempre empieza vacío. */
   initialState?: AgentState
   /** Reinicia la conversación después de una compra terminada. */
@@ -396,18 +408,30 @@ type CommerceRuntimeProps = {
 export function CommerceRuntime({
   children,
   profile,
+  purchaseMode = "present",
   initialState = INITIAL_AGENT_STATE,
   onNewPurchase,
 }: CommerceRuntimeProps) {
-  // El perfil cambia sin tocar el runtime: cada envío lee la referencia más reciente.
+  // El perfil y el modo cambian sin tocar el runtime: cada envío lee la referencia más reciente.
   const profileRef = useRef(profile)
+  const modeRef = useRef(purchaseMode)
   useEffect(() => {
     profileRef.current = profile
-  }, [profile])
+    modeRef.current = purchaseMode
+  }, [profile, purchaseMode])
   const getDetails = useCallback(() => checkoutDetails(profileRef.current), [])
+  const getMode = useCallback(
+    (): ChatMode => (modeRef.current === "delegated" ? "delegate" : "present"),
+    [],
+  )
 
   return (
-    <AgentRuntime getDetails={getDetails} initialState={initialState} onNewPurchase={onNewPurchase}>
+    <AgentRuntime
+      getDetails={getDetails}
+      getMode={getMode}
+      initialState={initialState}
+      onNewPurchase={onNewPurchase}
+    >
       {children}
     </AgentRuntime>
   )

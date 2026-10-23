@@ -56,6 +56,8 @@ def test_studio_uses_same_graph_without_opening_checkout(monkeypatch, tmp_path: 
                 ("interpret_request", "finalize"),
                 ("search_catalog", "select_product"),
                 ("search_catalog", "recover_no_candidate"),
+                # Only a delegate turn (`/assistant` with `mode: "delegate"`) takes this edge.
+                ("search_catalog", "offer_delegation"),
                 ("select_product", "prepare_checkout"),
                 ("select_product", "finalize"),
                 ("finalize", "await_approval"),

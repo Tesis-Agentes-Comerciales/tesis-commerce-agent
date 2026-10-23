@@ -1,7 +1,8 @@
 """`POST /assistant`: the assistant-transport stream consumed by the assistant-ui runtime.
 
 The backend owns the state. Each response is a stream of `update-state` operations that rebuild
-`{"messages": [...], "purchase": ...}` on the client; see docs/agent-ui-contract.md.
+`{"messages": [...], "purchase": ...}` on the client; a delegate turn adds `delegation_draft`. See
+docs/agent-ui-contract.md and docs/design/hnp-chat-delegate.md.
 """
 
 import asyncio
@@ -43,6 +44,7 @@ RUN_ID_PATTERN = r"^run_[A-Za-z0-9_-]{1,128}$"
 GUARD_TEXT = PENDING_PURCHASE_MESSAGE
 PRICE_CHANGED_NOTE = "El precio cambió frente al feed; usé el total actual del checkout."
 DEFAULT_ERROR = "Ocurrió un error inesperado."
+DELEGATION_DISABLED = "La compra delegada no está habilitada en este entorno."
 CANCELLED_STEP = "Se canceló la solicitud."
 ERROR_MESSAGES = {
     # Same copy the UI used for these codes before the transport runtime.
@@ -150,6 +152,7 @@ PURCHASE_UPDATE_TEXT = {
 }
 
 IdFactory = Callable[[str], str]
+ChatMode = Literal["present", "delegate"]
 Operation = dict[str, Any]
 Emit = Callable[[list[Operation]], None]
 
@@ -227,6 +230,8 @@ class AssistantRequest(BaseModel):
     turn_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
     conversation_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,128}$")
     details: CheckoutDetails | None = None
+    # «Delegar» in the UI: the turn searches and drafts a delegation, never a checkout.
+    mode: ChatMode = "present"
     state: Any = None
 
     @model_validator(mode="after")
@@ -481,6 +486,9 @@ class AssistantMessageRecorder:
     def set_purchase(self, view: dict[str, Any] | None) -> None:
         self._send([{"type": "set", "path": ["purchase"], "value": view}])
 
+    def set_delegation_draft(self, view: dict[str, Any] | None) -> None:
+        self._send([{"type": "set", "path": ["delegation_draft"], "value": view}])
+
     def _finish(self, status: dict[str, Any]) -> None:
         self._content()
         assert self.message is not None
@@ -559,7 +567,13 @@ class AssistantTransport:
                     )
                     add_messages += 1
                     await self._add_message(
-                        controller, command, request.details, key, request.conversation_id, owner_id
+                        controller,
+                        command,
+                        request.details,
+                        key,
+                        request.conversation_id,
+                        owner_id,
+                        request.mode,
                     )
                 elif isinstance(command, PurchaseUpdatedCommand):
                     recorder = self._direct_recorder(controller)
@@ -657,6 +671,7 @@ class AssistantTransport:
         key: str,
         conversation_id: str | None,
         owner_id: str,
+        mode: ChatMode = "present",
     ) -> None:
         text = command.message.text
         state = controller.state
@@ -671,14 +686,16 @@ class AssistantTransport:
             controller,
             [{"type": "set", "path": ["messages", len(display)], "value": user_message}],
         )
-        fingerprint = request_sha256(
-            {
-                "endpoint": "assistant",
-                "messages": [message.model_dump(mode="json") for message in history],
-                "details": details.model_dump(mode="json"),
-                "conversation_id": conversation_id,
-            }
-        )
+        fingerprinted: dict[str, Any] = {
+            "endpoint": "assistant",
+            "messages": [message.model_dump(mode="json") for message in history],
+            "details": details.model_dump(mode="json"),
+            "conversation_id": conversation_id,
+        }
+        if mode == "delegate":
+            # Only a delegate turn adds its mode, so every HP fingerprint stays as it was.
+            fingerprinted["mode"] = mode
+        fingerprint = request_sha256(fingerprinted)
         index = len(display) + 1
         await self._pump(
             controller,
@@ -692,6 +709,7 @@ class AssistantTransport:
                 fingerprint,
                 conversation_id,
                 owner_id,
+                mode,
             ),
         )
 
@@ -741,6 +759,7 @@ class AssistantTransport:
         fingerprint: str,
         conversation_id: str | None,
         owner_id: str,
+        mode: ChatMode = "present",
     ) -> None:
         recorder = AssistantMessageRecorder(
             index=index, new_id=self._new_id, emit=emit, cancelled=cancelled
@@ -757,7 +776,25 @@ class AssistantTransport:
             recorder.complete()
             return {"message": recorder.message, "run_id": view["run_id"]}
 
+        def draft() -> dict[str, Any]:
+            recorder.start()
+            response, view = service.draft_delegation(
+                history,
+                details,
+                turn_id=key,
+                conversation_id=conversation_id,
+                observer=recorder,
+                owner_id=owner_id,
+            )
+            drafted = view.model_dump(mode="json") if view is not None else None
+            recorder.text(response.assistant_message)
+            recorder.set_delegation_draft(drafted)
+            recorder.complete()
+            return {"message": recorder.message, "run_id": None, "delegation_draft": drafted}
+
         def compute() -> dict[str, Any]:
+            if mode == "delegate":
+                return draft()
             recorder.start()
             response = service.execute(
                 history,
@@ -789,6 +826,8 @@ class AssistantTransport:
                 run_id = payload.get("run_id")
                 if isinstance(run_id, str):
                     recorder.set_purchase(service.purchase_view(run_id, owner_id))
+                if "delegation_draft" in payload:
+                    recorder.set_delegation_draft(payload["delegation_draft"])
         except TurnCancelled:
             recorder.cancel()
         except Exception as error:
@@ -808,6 +847,7 @@ def register_assistant_transport(
     service: ConversationService,
     new_id: IdFactory = default_id_factory,
     current_buyer: Callable[..., BuyerPrincipal] | None = None,
+    delegation_enabled: bool = False,
 ) -> AssistantTransport:
     transport = AssistantTransport(service, new_id=new_id)
 
@@ -832,6 +872,9 @@ def register_assistant_transport(
         except ValidationError:
             # ValidationError details may echo client input, so they are not returned.
             return _rejection(422, "invalid_request", "La solicitud no es válida.")
+        if parsed.mode == "delegate" and not delegation_enabled:
+            # Before the stream opens: without HNP there is nothing to delegate to.
+            return _rejection(422, "delegation_disabled", DELEGATION_DISABLED)
 
         async def callback(controller: RunController) -> None:
             await transport.run(controller, parsed, buyer.id)

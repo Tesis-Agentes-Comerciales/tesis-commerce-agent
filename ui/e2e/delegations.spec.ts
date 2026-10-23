@@ -4,14 +4,17 @@ import { expect, test, type Page } from "@playwright/test"
 import { PURCHASE_REQUEST } from "../src/storybook/fixtures.ts"
 import { AGENT_API_URL, fitsViewport, routeSession, UI_ORIGIN } from "./support.ts"
 
-// «Delegaciones» (HNP-10) en el bundle de producción. Cada ruta de la API de delegaciones responde
-// con una secuencia real del backend (src/storybook/fixtures/delegation-api/, generadas por
+// La compra delegada (HNP) en el bundle de producción: en «Delegar» el chat busca y la delegación
+// se prepara, se autoriza y se sigue en el hilo (docs/design/hnp-chat-delegate.md); «Mis
+// delegaciones» guarda la lista y la revocación. Cada ruta de la API de delegaciones responde con
+// una secuencia real del backend (src/storybook/fixtures/delegation-api/, generadas por
 // scripts/export_delegation_replays.py), en el orden en que el backend la respondió. `POST
-// /assistant` reproduce el stream real de una compra: de ahí salen las opciones del formulario.
-// Ningún cuerpo se escribe aquí, salvo la lista con una delegación escalada (la fixture del
-// contrato, delegation-escalated.json) y, para ver terminar una compra delegada, la delegación
-// consentida con la tarea de las fixtures del contrato (delegation-running.json y
-// delegation-purchased.json) y su traza HNP (trace-fixtures/hnp/enforce-completed.json).
+// /assistant` reproduce el stream real del backend: `delegate.sse` en «Delegar» (de ahí sale el
+// borrador del formulario) y `purchase.sse` en «Comprar conmigo». Ningún cuerpo se escribe aquí,
+// salvo la lista con una delegación escalada (la fixture del contrato, delegation-escalated.json) y,
+// para ver terminar una compra delegada, la delegación consentida con la tarea de las fixtures del
+// contrato (delegation-running.json y delegation-purchased.json) y su traza HNP
+// (trace-fixtures/hnp/enforce-completed.json).
 
 type Exchange = { method: string; path: string; request: unknown; status: number; body: unknown }
 type View = { grant_id: string; state: string; task: Record<string, unknown> }
@@ -21,10 +24,10 @@ const replay = (name: string): Exchange[] =>
   JSON.parse(readFileSync(new URL(`${name}.json`, REPLAYS), "utf8"))
 const fixture = (name: string) =>
   JSON.parse(readFileSync(new URL(`../src/storybook/${name}.json`, import.meta.url), "utf8"))
-const PURCHASE_SSE = readFileSync(
-  new URL("../src/storybook/fixtures/assistant-transport/purchase.sse", import.meta.url),
-  "utf8",
-)
+const sse = (name: string) =>
+  readFileSync(new URL(`../src/storybook/fixtures/assistant-transport/${name}.sse`, import.meta.url), "utf8")
+const PURCHASE_SSE = sse("purchase")
+const DELEGATE_SSE = sse("delegate")
 
 const CONSENT = replay("consent")
 const FLAG_OFF = replay("flag-off")
@@ -67,7 +70,10 @@ function currentRead(log: Exchange[], served: ReadonlySet<number>, route: string
     }
     if (key === route) found = item
   }
-  if (!found) return null
+  // La tarjeta del hilo relee su delegación: la vista de ese momento en la lista, si no hay otra.
+  const grant = /^GET \/delegations\/([^/]+)$/.exec(route)?.[1]
+  const listed = grant ? delegations?.find((view) => view.grant_id === grant) : undefined
+  if (!found) return listed ? { status: 200, body: listed } : null
   if (route !== LIST || found.status !== 200) return { status: found.status, body: found.body }
   return { status: 200, body: { delegations } }
 }
@@ -106,7 +112,9 @@ async function routeAgent(page: Page, exchanges: Exchange[], health = HEALTH_ON)
     if (call.path === "/health") return reply(health.status, health.body)
     if (call.path === "/me/pending-purchase") return reply(200, null)
     if (call.path === "/assistant") {
-      return route.fulfill({ headers: cors, contentType: "text/event-stream", body: PURCHASE_SSE })
+      const delegate = (call.body as { mode?: string } | null)?.mode === "delegate"
+      const body = delegate ? DELEGATE_SSE : PURCHASE_SSE
+      return route.fulfill({ headers: cors, contentType: "text/event-stream", body })
     }
     const traced = /^\/purchases\/([^/]+)\/trace$/.exec(call.path)
     if (traced && traces.has(traced[1]!)) return reply(200, traces.get(traced[1]!))
@@ -142,39 +150,47 @@ const withoutPolls = (calls: string[]) =>
 
 const delegationCalls = (calls: Call[]) => calls.filter((call) => isDelegationRoute(call.path))
 
-/** Pide la compra en el chat: el agente busca y muestra las opciones que luego se pueden delegar. */
-async function searchInChat(page: Page) {
-  const composer = page.getByLabel("Mensaje de compra")
-  await composer.fill(PURCHASE_REQUEST)
-  await composer.press("Enter")
-  await expect(page.getByTestId("purchase-approval-card")).toBeVisible()
-}
-
 /** El modo de compra de la cabecera: el radio se elige con un clic en su segmento. */
 const modeSwitch = (page: Page) => page.getByRole("group", { name: "Modo de compra" })
 
-async function openDelegations(page: Page) {
+/** La compra delegada del hilo, al pie de los mensajes. */
+const inChat = (page: Page) => page.getByTestId("delegation-in-chat")
+
+/**
+ * En «Delegar», pide la compra en el chat: el agente busca, no crea checkout y deja debajo el
+ * formulario prellenado con las opciones, el presupuesto del mensaje y el mensaje como indicación.
+ */
+async function delegateInChat(page: Page) {
   await modeSwitch(page).getByText("Delegar", { exact: true }).click()
-  // Detrás del diálogo modal, que oculta el resto de la página a los lectores, el modo es «Delegar».
-  await expect(page.getByRole("radio", { name: "Delegar", includeHidden: true })).toBeChecked()
-  const dialog = page.getByTestId("delegations")
-  await expect(dialog.getByRole("heading", { name: "Mis delegaciones" })).toBeVisible()
+  await expect(page.getByRole("radio", { name: "Delegar" })).toBeChecked()
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+  const composer = page.getByLabel("Mensaje de compra")
+  await composer.fill(PURCHASE_REQUEST)
+  await composer.press("Enter")
+  const form = inChat(page).getByTestId("delegation-form")
+  await expect(form).toBeVisible()
+  await expect(page.getByTestId("purchase-approval-card")).toHaveCount(0)
+  return form
+}
+
+/** «Mis delegaciones»: el botón de la cabecera abre la lista. */
+async function openDelegations(page: Page) {
+  await page.getByRole("button", { name: "Mis delegaciones" }).click()
+  const dialog = page.getByRole("dialog", { name: "Mis delegaciones" })
+  await expect(dialog).toBeVisible()
   return dialog
 }
 
 /**
- * Llena el formulario como en la secuencia `consent`: dos opciones, $2.000.000 y una hora. El
- * total lo escribe el comprador: el formulario no lo prellena (hnp-governed.md §3.2).
+ * Del formulario prellenado a la secuencia `consent`: las tres opciones marcadas y el total con el
+ * presupuesto del mensaje (2.000.000); queda Bose y Sony, una hora y la indicación de la secuencia.
  */
 async function fillForm(page: Page, { city, submit = true }: { city?: string; submit?: boolean } = {}) {
-  const dialog = page.getByTestId("delegations")
-  await dialog.getByRole("button", { name: "Nueva delegación" }).click()
-  const form = dialog.getByTestId("delegation-form")
-  await form.getByRole("checkbox", { name: /Bose QuietComfort Ultra negro/ }).check()
-  await form.getByRole("checkbox", { name: /Sony WH-1000XM6 negro/ }).check()
-  const total = form.getByLabel("Total máximo con envío (pesos)")
-  await expect(total).toHaveValue("")
-  await total.fill("2.000.000")
+  const form = await delegateInChat(page)
+  for (const box of await form.getByRole("checkbox").all()) await expect(box).toBeChecked()
+  await expect(form.getByLabel("Total máximo con envío (pesos)")).toHaveValue("2.000.000")
+  await expect(form.getByLabel("Tu indicación (opcional)")).toHaveValue(PURCHASE_REQUEST)
+  await form.getByRole("checkbox", { name: /Sennheiser/ }).uncheck()
   if (city !== undefined) await form.getByLabel("Ciudad").fill(city)
   await form
     .getByLabel("Tu indicación (opcional)")
@@ -199,19 +215,27 @@ const DIALOG_FITS = `(() => {
   return { width: box.width, scroll: dialog.scrollWidth - dialog.clientWidth, outside: outside.length }
 })()`
 
+/** Lo mismo para la tarjeta del hilo: nada se sale de la ventana ni obliga a desplazar de lado. */
+const THREAD_FITS = `(() => {
+  const section = document.querySelector("[data-testid='delegation-in-chat']")
+  const outside = [...section.querySelectorAll("*")].filter((child) => {
+    const inner = child.getBoundingClientRect()
+    return inner.width > 0 && (inner.left < -0.5 || inner.right > window.innerWidth + 0.5)
+  })
+  return { scroll: section.scrollWidth - section.clientWidth, outside: outside.length }
+})()`
+
 test.beforeEach(async ({ page }) => {
   // El feed sintético apunta a un dominio de ejemplo; ninguna prueba sale a la red.
   await page.route("https://merchant.example.test/**", (route) => route.abort())
   await routeSession(page)
 })
 
-test("propone y autoriza una delegación; el destino viaja tal como se escribió", async ({ page }) => {
+test("en «Delegar» el chat busca y la delegación se autoriza en el hilo; el destino viaja tal cual", async ({
+  page,
+}) => {
   const { calls, unexpected } = await routeAgent(page, CONSENT.slice(1))
   await page.goto("/")
-  await searchInChat(page)
-  const dialog = await openDelegations(page)
-  await expect(dialog.getByText("Todavía no tienes delegaciones.")).toBeVisible()
-
   await fillForm(page, { city: "Bogotá" })
   const card = consentCard(page)
   await expect(card).toBeVisible()
@@ -225,11 +249,17 @@ test("propone y autoriza una delegación; el destino viaja tal como se escribió
   await card.getByRole("button", { name: "Autorizar" }).click()
 
   await expect(consentCard(page)).toHaveCount(0)
-  const status = dialog.getByTestId("delegation-status-card")
+  const status = inChat(page).getByTestId("delegation-status-card")
   await expect(status).toHaveCount(1)
   // Activa y sin tarea en curso: «Programada».
   await expect(status).toHaveAttribute("data-status", "scheduled")
-  await expect(status.getByRole("button", { name: "Revocar", exact: true })).toBeVisible()
+  // La revocación sigue en «Mis delegaciones».
+  await expect(status.getByRole("button", { name: "Revocar", exact: true })).toHaveCount(0)
+
+  // El turno fue «Delegar»: el chat no creó ningún checkout.
+  const turns = calls.filter((call) => call.path === "/assistant")
+  expect(turns.map((call) => (call.body as { mode?: string }).mode)).toEqual(["delegate"])
+  expect(calls.some((call) => call.path.startsWith("/purchases/"))).toBe(false)
 
   // El cuerpo es el de la secuencia, con la ciudad tal como se escribió: «Bogotá».
   const sent = delegationCalls(calls)
@@ -238,12 +268,11 @@ test("propone y autoriza una delegación; el destino viaja tal como se escribió
   expect(sent.find((call) => call.path === "/delegations")?.body).toEqual(
     answer(CONSENT, "POST /delegations").request,
   )
-  // Activa, la lista se relee cada 2 s hasta que la tarea termine: eso no cuenta aquí.
-  expect(withoutPolls(sent.map((call) => `${call.method} ${call.path}`))).toEqual([
-    "GET /me/delegations",
+  // Activa, la tarjeta relee su delegación cada 2 s hasta que la tarea termine: eso no cuenta aquí.
+  const grant = `/delegations/${GRANTED.grant_id}`
+  expect(withoutPolls(sent.map((call) => `${call.method} ${call.path}`)).filter((call) => call !== `GET ${grant}`)).toEqual([
     "POST /delegations/proposals",
     "POST /delegations",
-    "GET /me/delegations",
   ])
   expect(sent.every((call) => call.authorization?.startsWith("Bearer "))).toBe(true)
   expect(unexpected).toEqual([])
@@ -259,8 +288,6 @@ for (const [name, code] of [
     const exchanges = replay(name)
     const { calls, unexpected } = await routeAgent(page, [NO_DELEGATIONS, ...exchanges])
     await page.goto("/")
-    await searchInChat(page)
-    await openDelegations(page)
     await fillForm(page)
 
     const card = consentCard(page)
@@ -286,7 +313,7 @@ for (const [name, code] of [
     await authorize.focus()
     await page.keyboard.press("Enter")
     await card.getByRole("button", { name: "Cancelar" }).click()
-    await expect(page.getByTestId("delegation-form")).toBeVisible()
+    await expect(inChat(page).getByTestId("delegation-form")).toBeVisible()
     await expect(page.getByLabel("Total máximo con envío (pesos)")).toHaveValue("2.000.000")
 
     expect(delegationCalls(calls).filter((call) => call.path === "/delegations")).toHaveLength(1)
@@ -300,8 +327,6 @@ test("el comercio no entrega en ese destino (422): lo explica y conserva el form
   const exchanges = replay("destination-unsupported")
   const { calls, unexpected } = await routeAgent(page, exchanges)
   await page.goto("/")
-  await searchInChat(page)
-  await openDelegations(page)
   const form = await fillForm(page, { city: "Medellín" })
 
   await expect(form.getByRole("alert")).toHaveText(
@@ -395,6 +420,7 @@ test("una delegación escalada lleva su compra al compositor del chat", async ({
     { method: "GET", path: "/me/delegations", request: null, status: 200, body: { delegations: [escalated] } },
   ])
   await page.goto("/")
+  await modeSwitch(page).getByText("Delegar", { exact: true }).click()
   const dialog = await openDelegations(page)
   await dialog.getByRole("button", { name: "Comprar desde el chat" }).click()
 
@@ -402,6 +428,8 @@ test("una delegación escalada lleva su compra al compositor del chat", async ({
   const composer = page.getByLabel("Mensaje de compra")
   await expect(composer).toHaveValue(escalated.escalation.prefill_request)
   await expect(composer).toBeFocused()
+  // La decisión vuelve al comprador: la compra sigue en «Comprar conmigo».
+  await expect(page.getByRole("radio", { name: "Comprar conmigo" })).toBeChecked()
   expect(unexpected).toEqual([])
 })
 
@@ -410,10 +438,16 @@ test("con HNP apagado la cabecera es la de siempre: sin modo de compra ni llamad
 }) => {
   const { calls, unexpected } = await routeAgent(page, [], answer(FLAG_OFF, "GET /health"))
   await page.goto("/")
-  await searchInChat(page)
+  const composer = page.getByLabel("Mensaje de compra")
+  await composer.fill(PURCHASE_REQUEST)
+  await composer.press("Enter")
+  await expect(page.getByTestId("purchase-approval-card")).toBeVisible()
   await expect(modeSwitch(page)).toHaveCount(0)
   await expect(page.getByRole("radio")).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Delegaciones" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Mis delegaciones" })).toHaveCount(0)
+  // Sin HNP el cuerpo de `/assistant` es el de siempre: sin `mode`.
+  const turn = calls.find((call) => call.path === "/assistant")?.body as Record<string, unknown>
+  expect(turn).not.toHaveProperty("mode")
   // La misma cabecera que antes de HNP: sus clases, «Salir» y los datos de entrega.
   const header = page.locator("header")
   await expect(header).toHaveClass("flex h-14 shrink-0 items-center justify-end gap-2 px-3 sm:px-5")
@@ -466,16 +500,13 @@ const GOVERNED_STEPS = [
 ]
 
 /**
- * Elige «Delegar», autoriza y, mientras el diálogo sigue abierto, el backend dispara la tarea y la
- * compra termina: la tarjeta pasa sola de activa a en curso y a completada, con su gobernanza. Al
- * cerrar se vuelve a «Comprar conmigo» y nada se sigue releyendo.
+ * Elige «Delegar», pide la compra, autoriza y, sin salir del hilo, el backend dispara la tarea y la
+ * compra termina: la tarjeta pasa sola de activa a en curso y a completada, con su gobernanza.
+ * Terminada, nada se sigue releyendo.
  */
 async function delegateAndWatchTheGovernance(page: Page, check: (step: string) => Promise<void>) {
   const backend = await routeAgent(page, CONSENT.slice(1))
   await page.goto("/")
-  await searchInChat(page)
-  const dialog = await openDelegations(page)
-  await check("delegaciones")
   const form = await fillForm(page, { city: "Bogotá", submit: false })
   // «Preparar la autorización» entero dentro del formulario (#134, brecha 4).
   const submit = form.getByRole("button", { name: "Preparar la autorización" })
@@ -483,8 +514,9 @@ async function delegateAndWatchTheGovernance(page: Page, check: (step: string) =
   expect(submitBox!.x + submitBox!.width).toBeLessThanOrEqual(formBox!.x + formBox!.width)
   await check("formulario")
   await submit.click()
+  await check("consentimiento")
   await consentCard(page).getByRole("button", { name: "Autorizar" }).click()
-  const status = dialog.getByTestId("delegation-status-card")
+  const status = inChat(page).getByTestId("delegation-status-card")
   await expect(status).toHaveAttribute("data-status", "scheduled")
   // Sin compra todavía, la tarjeta no muestra gobernanza.
   await expect(status.getByRole("group", { name: "Gobernanza de la compra" })).toHaveCount(0)
@@ -508,10 +540,8 @@ async function delegateAndWatchTheGovernance(page: Page, check: (step: string) =
   await expect(governance.getByText("Detalle técnico")).toBeVisible()
   await check("gobernanza")
 
-  // Cerrar es volver al chat: el modo de compra lo dice y el sondeo se detiene.
-  await page.keyboard.press("Escape")
-  await expect(dialog).toBeHidden()
-  await expect(page.getByRole("radio", { name: "Comprar conmigo" })).toBeChecked()
+  // Terminada, la tarjeta deja de releer: ni la delegación ni la traza.
+  await expect(page.getByRole("radio", { name: "Delegar" })).toBeChecked()
   const before = backend.calls.length
   await page.waitForTimeout(4_500)
   expect(backend.calls.slice(before).map((call) => call.path)).toEqual([])
@@ -525,19 +555,23 @@ test("elige «Delegar», autoriza y ve la gobernanza cuando la compra delegada t
   await delegateAndWatchTheGovernance(page, async () => {})
 })
 
-test("«Delegar» sin haber buscado explica que primero se busca y vuelve al chat", async ({ page }) => {
+test("el selector cambia el modo del chat sin abrir nada; «Comprar conmigo» vuelve a la compra HP", async ({
+  page,
+}) => {
   const { calls, unexpected } = await routeAgent(page, [NO_DELEGATIONS])
   await page.goto("/")
-  const dialog = await openDelegations(page)
-  const guide = dialog.getByTestId("delegation-search-first")
-  await expect(guide.getByRole("heading", { name: "Primero busca en el chat" })).toBeVisible()
-  await expect(dialog.getByRole("button", { name: "Nueva delegación" })).toHaveCount(0)
-  await guide.getByRole("button", { name: "Buscar en el chat" }).click()
-
-  await expect(dialog).toBeHidden()
-  await expect(page.getByLabel("Mensaje de compra")).toBeFocused()
+  await delegateInChat(page)
+  await modeSwitch(page).getByText("Comprar conmigo", { exact: true }).click()
   await expect(page.getByRole("radio", { name: "Comprar conmigo" })).toBeChecked()
-  expect(delegationCalls(calls).map((call) => `${call.method} ${call.path}`)).toEqual([LIST])
+  const composer = page.getByLabel("Mensaje de compra")
+  await composer.fill(PURCHASE_REQUEST)
+  await composer.press("Enter")
+  await expect(page.getByTestId("purchase-approval-card")).toBeVisible()
+  // El turno HP reemplaza el borrador: la tarjeta de delegación ya no está en el hilo.
+  await expect(inChat(page)).toHaveCount(0)
+  const modes = calls.filter((call) => call.path === "/assistant").map((call) => (call.body as { mode?: string }).mode)
+  expect(modes).toEqual(["delegate", undefined])
+  expect(delegationCalls(calls)).toEqual([])
   expect(unexpected).toEqual([])
 })
 
@@ -548,11 +582,11 @@ test.describe("teléfono de 390 × 844", () => {
     page,
   }) => {
     const fits = async (step: string) => {
-      expect(await page.evaluate(DIALOG_FITS), step).toEqual({ width: 358, scroll: 0, outside: 0 })
+      expect(await page.evaluate(THREAD_FITS), step).toEqual({ scroll: 0, outside: 0 })
       expect(await fitsViewport(page), step).toBe(true)
     }
     await delegateAndWatchTheGovernance(page, fits)
-    // De vuelta en el chat: el selector ocupa su fila, a todo el ancho, debajo de «Salir».
+    // El selector ocupa su fila, a todo el ancho, debajo de «Salir».
     const [header, switchBox, signOut] = await Promise.all([
       page.locator("header").boundingBox(),
       modeSwitch(page).boundingBox(),
@@ -567,25 +601,27 @@ test.describe("teléfono de 390 × 844", () => {
 test.describe("móvil", () => {
   test.use({ viewport: { width: 320, height: 640 } })
 
-  test("a 320 px el diálogo, el formulario, la propuesta y la lista caben sin desbordar", async ({
+  test("a 320 px el formulario y la propuesta del hilo, el diálogo y la lista caben sin desbordar", async ({
     page,
   }) => {
     const revokeAll = replay("revoke-all")
+    // La lista va primero: la autorización nunca se envía, así que una lectura que dependiera de
+    // ella quedaría sin respuesta.
     const { unexpected } = await routeAgent(page, [
       answer(revokeAll, "GET /me/delegations"),
       ...CONSENT.filter((item) => item.method === "POST"),
-      answer(revokeAll, "GET /me/delegations", 1),
     ])
     await page.goto("/")
-    await searchInChat(page)
-    await openDelegations(page)
-    const fits = () => page.evaluate(DIALOG_FITS)
-
-    expect(await fits()).toEqual({ width: 288, scroll: 0, outside: 0 })
-    await fillForm(page, { city: "Bogotá" })
+    await fillForm(page, { city: "Bogotá", submit: false })
+    expect(await page.evaluate(THREAD_FITS)).toEqual({ scroll: 0, outside: 0 })
+    await inChat(page).getByRole("button", { name: "Preparar la autorización" }).click()
     await expect(consentCard(page)).toBeVisible()
-    expect(await fits()).toEqual({ width: 288, scroll: 0, outside: 0 })
+    expect(await page.evaluate(THREAD_FITS)).toEqual({ scroll: 0, outside: 0 })
     expect(await fitsViewport(page)).toBe(true)
+
+    const dialog = await openDelegations(page)
+    await expect(dialog.getByTestId("delegation-status-card").first()).toBeVisible()
+    expect(await page.evaluate(DIALOG_FITS)).toEqual({ width: 288, scroll: 0, outside: 0 })
     expect(unexpected).toEqual([])
   })
 })

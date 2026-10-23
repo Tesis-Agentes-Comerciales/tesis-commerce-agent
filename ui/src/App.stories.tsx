@@ -516,29 +516,73 @@ export const AuthorizationDeniedOnApprove: Story = {
 /** `/health` con HNP encendido, tal como lo respondió el backend (secuencia `consent`). */
 const HNP_HEALTH = replayed(DELEGATION_REPLAYS.consent, "GET /health").body
 
-/**
- * Con HNP: «Comprar conmigo» es el chat y «Delegar» abre «Delegaciones». Sin una búsqueda previa,
- * el diálogo explica que primero se busca en el chat; al cerrarlo se vuelve a «Comprar conmigo».
- */
-export const HnpModes: Story = {
-  parameters: {
-    agentApi: {
-      "GET /health": { body: HNP_HEALTH },
-      "GET /me/delegations": { body: { delegations: [] } },
+const CONSENT = DELEGATION_REPLAYS.consent
+const GRANTED = replayed(CONSENT, "POST /delegations").body
+
+/** Con HNP, las rutas de la secuencia `consent` y `/assistant` con los fixtures reales. */
+const HNP_API = {
+  agentApi: {
+    ...FAST_STREAM.agentApi,
+    "GET /health": { body: HNP_HEALTH },
+    "POST /delegations/proposals": {
+      status: 201,
+      body: replayed(CONSENT, "POST /delegations/proposals").body,
     },
+    "POST /delegations": { status: 201, body: GRANTED },
+    "GET /delegations/:grantId": { body: GRANTED },
+    "GET /me/delegations": { body: { delegations: [] } },
   },
-  play: async ({ canvas, userEvent }) => {
+}
+
+/**
+ * Con HNP, «Delegar» cambia el modo del chat y no abre nada. El pedido busca sin crear checkout
+ * (`delegate.sse`) y deja debajo el formulario prellenado: las opciones marcadas, el total con el
+ * presupuesto del mensaje y el mensaje como indicación. «Preparar» lleva al consentimiento y
+ * «Autorizar» al estado de la delegación, todo en el mismo hilo.
+ */
+export const HnpDelegateInChat: Story = {
+  parameters: HNP_API,
+  play: async (context) => {
+    const { canvas, userEvent } = context
     const present = await canvas.findByRole("radio", { name: "Comprar conmigo" })
     await expect(present).toBeChecked()
     await userEvent.click(canvas.getByText("Delegar", { exact: true }))
-    const page = within(document.body)
-    const dialog = await page.findByRole("dialog", { name: "Delegaciones" })
+    await expect(canvas.getByRole("radio", { name: "Delegar" })).toBeChecked()
+    await expect(within(document.body).queryByRole("dialog")).toBeNull()
+
+    await sendComposerMessage(context, FIXTURE_REQUESTS.delegate)
+    const thread = within(await canvas.findByTestId("delegation-in-chat", {}, STREAM_TIMEOUT))
+    const form = within(thread.getByTestId("delegation-form"))
+    for (const box of form.getAllByRole("checkbox")) await expect(box).toBeChecked()
+    await expect(form.getByLabelText("Total máximo con envío (pesos)")).toHaveValue("2.000.000")
+    await expect(form.getByLabelText("Tu indicación (opcional)")).toHaveValue(
+      FIXTURE_REQUESTS.delegate,
+    )
+    await expect(canvas.queryByTestId("purchase-approval-card")).toBeNull()
+
+    await userEvent.click(form.getByRole("button", { name: "Preparar la autorización" }))
+    const consent = within(await thread.findByTestId("delegation-consent-card"))
+    await userEvent.click(consent.getByRole("button", { name: "Autorizar" }))
     await expect(
-      within(dialog).getByRole("heading", { name: "Primero busca en el chat" }),
+      await thread.findByRole("heading", { name: "Delegación activa" }),
+    ).toBeVisible()
+    await expect(thread.queryByTestId("delegation-consent-card")).toBeNull()
+  },
+}
+
+/** «Mis delegaciones» abre la lista desde la cabecera, en cualquier modo. */
+export const HnpMyDelegations: Story = {
+  parameters: HNP_API,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Mis delegaciones" }))
+    const page = within(document.body)
+    const dialog = await page.findByRole("dialog", { name: "Mis delegaciones" })
+    await expect(
+      await within(dialog).findByText("Todavía no tienes delegaciones."),
     ).toBeVisible()
     await userEvent.keyboard("{Escape}")
     await waitFor(() => expect(page.queryByRole("dialog")).toBeNull())
-    await expect(present).toBeChecked()
+    await expect(canvas.getByRole("radio", { name: "Comprar conmigo" })).toBeChecked()
   },
 }
 

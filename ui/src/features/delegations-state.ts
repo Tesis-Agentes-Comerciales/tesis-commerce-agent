@@ -1,3 +1,4 @@
+import type { DelegationInChatFlow } from "@/components/delegation/delegation-in-chat"
 import type { DelegationRevocation as Revocation } from "@/components/delegation/delegation-list"
 import type { DelegationDraft } from "@/lib/delegation-draft"
 import type {
@@ -10,17 +11,11 @@ import type {
 // con su consentimiento y «Mis delegaciones» con sus revocaciones. Es un reductor puro: el
 // componente de `delegations.tsx` llama a la API y despacha lo que respondió.
 
-export type ProposalFlow =
-  | { step: "idle" }
-  | { step: "form"; submitting: boolean; error: string | null }
-  | {
-      step: "consent"
-      proposal: DelegationProposal
-      authorizing: boolean
-      error: string | null
-      /** Una propuesta vencida o distinta no se reintenta: hace falta otra. */
-      canAuthorize: boolean
-    }
+/**
+ * El formulario y la propuesta: la forma que muestra la tarjeta del hilo. Con `canAuthorize` en
+ * falso, una propuesta vencida o distinta no se reintenta: hace falta otra.
+ */
+export type ProposalFlow = DelegationInChatFlow
 
 export type DelegationsState = {
   list: "loading" | "ready" | "failed"
