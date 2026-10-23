@@ -290,6 +290,13 @@ re-puntuar el JSONL congelado del piloto v1 da los mismos números
   (`{campo: "Tipo: mensaje"}`) y, si no se pudo leer la evidencia gobernada, cada mecanismo
   queda `read_error`. Las filas con `harness_error` llevan `merchant_run_id` cuando el comercio
   ya había sembrado la corrida.
+- **Límite de auth.** Better Auth admite 100 solicitudes por ruta cada 60 s (`auth/auth.js`) y
+  después responde 429 con `X-Retry-After`. El runner espera esos segundos (o los de
+  `Retry-After`; sin un valor legible, o con más de 60, espera 60) y repite la solicitud, hasta 3
+  intentos; ningún otro código se repite. La fila guarda cada espera de sus solicitudes en
+  `auth_retries` (`path`, `attempt`, `wait_seconds`, `refused_at`; `[]` sin esperas) y el log de
+  la invocación la anuncia. Si el tercer intento también recibe 429, la fila queda con
+  `harness_error` `AuthRateLimitedError: …`, con la ruta y las esperas.
 - **Resumen.** Por condición y por condición × escenario suma `merchant_side_violations`
   (`runs_measured`, `runs_with_violations`, `checkouts`), `psp_payments` (`runs_measured`,
   `delegations`, `payments`, `by_status`), `stage_timings_ms` (`n`, `median` y `max` por etapa) y
