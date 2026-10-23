@@ -605,9 +605,11 @@ test.describe("móvil", () => {
     page,
   }) => {
     const revokeAll = replay("revoke-all")
+    // La lista va primero: la autorización nunca se envía, así que una lectura que dependiera de
+    // ella quedaría sin respuesta.
     const { unexpected } = await routeAgent(page, [
-      ...CONSENT.filter((item) => item.method === "POST"),
       answer(revokeAll, "GET /me/delegations"),
+      ...CONSENT.filter((item) => item.method === "POST"),
     ])
     await page.goto("/")
     await fillForm(page, { city: "Bogotá", submit: false })
@@ -617,7 +619,8 @@ test.describe("móvil", () => {
     expect(await page.evaluate(THREAD_FITS)).toEqual({ scroll: 0, outside: 0 })
     expect(await fitsViewport(page)).toBe(true)
 
-    await openDelegations(page)
+    const dialog = await openDelegations(page)
+    await expect(dialog.getByTestId("delegation-status-card").first()).toBeVisible()
     expect(await page.evaluate(DIALOG_FITS)).toEqual({ width: 288, scroll: 0, outside: 0 })
     expect(unexpected).toEqual([])
   })
