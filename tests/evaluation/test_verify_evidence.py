@@ -6,6 +6,7 @@ databases edited afterwards, as someone with the file could.
 """
 
 import json
+import re
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
@@ -37,6 +38,9 @@ from tests.support.ap2_purchase import Ap2Shop, ap2_shop
 
 OK_B2 = dict.fromkeys(LINKS, "ok") | {"d2_decision": "not_applicable"}
 DENIED = dict.fromkeys(LINKS, "not_applicable") | {"intent": "ok", "d1_decision": "ok"}
+# A vault token (vt_…) or a JWT (eyJ…) starts a token; inside a base64url digest the same letters
+# are chance, so only a start that no base64url character precedes counts.
+TOKEN_START = re.compile(r"(?<![A-Za-z0-9_-])(?:vt_|eyJ)")
 
 
 def statuses(run: dict[str, Any]) -> dict[str, str]:
@@ -120,8 +124,18 @@ def test_the_report_carries_no_token_mandate_receipt_or_buyer_data(
             "SELECT checkout_receipt_jwt, payment_receipt_jwt FROM completion_results"
         ).fetchone()
     checkout = jwt.decode(approval[0], options={"verify_signature": False})["checkout"]
-    assert all(value not in report for value in [*approval, *receipts, "vt_", "eyJ"])
+    assert all(value not in report for value in [*approval, *receipts])
+    assert TOKEN_START.search(report) is None
     assert checkout["buyer"]["email"] not in report
+
+
+def test_a_digest_that_happens_to_contain_a_token_prefix_is_not_a_token() -> None:
+    # Seen in CI: a payment mandate digest with "vt_" in the middle failed the check above.
+    digest = '{"payment_mandate_sd_hash": "YLkoBFQ33YnZ3ehatk1tS3UVDGxyHN8vt_a7qLNE16I"}'
+
+    assert TOKEN_START.search(digest) is None
+    assert TOKEN_START.search('{"token": "vt_abc"}') is not None
+    assert TOKEN_START.search('{"detail": "Bearer eyJhbGciOi"}') is not None
 
 
 def test_without_the_order_webhook_the_chain_is_incomplete(tmp_path: Path) -> None:
