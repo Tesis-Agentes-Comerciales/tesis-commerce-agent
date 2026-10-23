@@ -138,9 +138,11 @@ El **oráculo** es lo correcto para el comprador y es el mismo en las dos condic
   lectura, los dos: los eventos del ledger y la traza HNP que el producto arma para la corrida de
   la tarea (la misma función que sirve `/purchases/{run_id}/trace`). Un episodio cuenta como
   trazado si el ledger tiene el evento y, cuando la corrida tiene traza, esa traza tiene el paso
-  `choice_reviewed` antes del primer paso de D1. Una tarea que escala antes de `start` (HR02 en
-  `B2-HNP-R`) no tiene fila en `purchases` ni traza: se juzga por el ledger y el informe dice
-  cuántos episodios se juzgaron así.
+  `choice_reviewed` antes del primer paso de D1. Solo una tarea que escala antes de `start` sin
+  comprar (HR02 en `B2-HNP-R`: sin corrida o sin fila en `purchases`) no tiene traza: se juzga
+  por el ledger y el informe dice cuántos episodios se juzgaron así. Cualquier otra traza que no
+  se pudo leer o armar (un error del ensamblador, de SQLite o una compra sin fila) es
+  `trace_unreadable`, no cuenta como trazada y el informe dice cuántas hubo.
 - Con 10 repeticiones, los resultados son descriptivos. 9/10 tiene un intervalo exacto al 95 % de
   0,555 a 0,997; con 0 fallos en 10, la cota superior unilateral es 0,26, y en 20, 0,14.
 
@@ -237,8 +239,8 @@ corridas, como en el v1.
 - **El selector desviado está guionado**: modela un selector que ignora la preferencia, no un error
   espontáneo del modelo. La tasa de captura no es la tasa de errores que el revisor evitaría en
   producción.
-- **H-trace por el ledger** cuando la tarea escala antes de `start`: ahí no hay traza de la compra
-  que leer.
+- **H-trace por el ledger** solo cuando la tarea escala antes de `start` sin comprar: ahí no hay
+  traza de la compra que leer. Una traza rota en cualquier otro caso cuenta en contra.
 
 ## Dependencias y comprobaciones del runner
 

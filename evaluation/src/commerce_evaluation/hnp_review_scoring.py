@@ -31,6 +31,11 @@ REVIEW_STEP = "choice_reviewed"
 REVIEW_STAGE = "model.hnp_review"
 # The product trace's D1 step: the review step goes before it (coordination contract).
 D1_STEP = "policy_decision"
+# Why a run has no trace when the task ended before `start` (hnp_review_pilot.product_trace): only
+# then, and only without a purchase, does the ledger judge H-trace.
+NO_TRACE_BEFORE_START = frozenset({"no_run", "no_purchase"})
+# Any other run without a readable trace: it counts against H-trace.
+TRACE_UNREADABLE = "trace_unreadable"
 EXPECTED_FIELDS = (
     "task",
     "grant",
@@ -84,10 +89,18 @@ def reached_selection(observed: Mapping[str, Any]) -> int | None:
     )
 
 
+def _bought(observed: Mapping[str, Any]) -> bool:
+    """Whether the task may have bought: it purchased, an order exists or its state is unknown."""
+    task = observed.get("task") or {}
+    return task.get("state") in (None, "purchased") or bool(_orders(observed))
+
+
 def review_traced(observed: Mapping[str, Any]) -> tuple[int | None, str | None]:
     """(whether the review is in the trace, what judged it). The grant's ledger must have the
-    `choice_reviewed` event and, when the run has an HNP trace, the trace the review step before
-    its first D1 step; a run without a trace (it ended before `start`) is judged by the ledger."""
+    `choice_reviewed` event and the run's HNP trace the review step before its first D1 step.
+    Only a task that ended before `start` without buying (no run or no purchase row) has no trace
+    and is judged by the ledger; any other trace that could not be read is `trace_unreadable` and
+    does not count as traced."""
     review = observed.get("review")
     if review is None:
         return None, None
@@ -96,7 +109,9 @@ def review_traced(observed: Mapping[str, Any]) -> tuple[int | None, str | None]:
     trace = review.get("trace") or {}
     kinds = trace.get("step_kinds")
     if not trace.get("available") or kinds is None:
-        return 1, "ledger"
+        if trace.get("reason") in NO_TRACE_BEFORE_START and not _bought(observed):
+            return 1, "ledger"
+        return 0, TRACE_UNREADABLE
     if REVIEW_STEP not in kinds:
         return 0, "trace"
     if D1_STEP in kinds and kinds.index(REVIEW_STEP) > kinds.index(D1_STEP):
@@ -321,6 +336,7 @@ def cell_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         ),
         "review_traced": _count(evaluated, "review_traced"),
         "review_traced_by_ledger": _count(evaluated, "review_traced_by", "ledger"),
+        "review_trace_unreadable": _count(evaluated, "review_traced_by", TRACE_UNREADABLE),
         "review_calls": _sum(evaluated, "review_calls"),
         "review_latency_ms": _percentiles(latencies),
         "review_input_tokens": _sum(evaluated, "review_input_tokens"),
@@ -419,6 +435,7 @@ def hypotheses(rows: Sequence[Mapping[str, Any]], manifest: Mapping[str, Any]) -
             "reached_selection": len(reached),
             "traced": traced,
             "judged_by_ledger": _count(reached, "review_traced_by", "ledger"),
+            "trace_unreadable": _count(reached, "review_traced_by", TRACE_UNREADABLE),
             "rate": _rate(traced, len(reached)),
             "holds": None if not reached else traced == len(reached),
         },

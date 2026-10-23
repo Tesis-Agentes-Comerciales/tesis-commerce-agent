@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 from commerce_evaluation import hnp_pilot, hnp_review_live, hnp_review_pilot
 from commerce_evaluation.governance_pilot import ConditionMismatchError, _ap2_private_key
@@ -35,6 +36,7 @@ from commerce_evaluation.hnp_review_pilot import (
     read_review,
     validate_pilot,
 )
+from commerce_evaluation.hnp_review_scoring import NO_TRACE_BEFORE_START, review_traced
 from commerce_evaluation.paths import RESULTS
 from tests.delegation.test_hnp_runtime import governed_hnp
 from tests.evaluation.test_flow_trace import run as hnp_run
@@ -482,6 +484,7 @@ def test_the_review_reading_keeps_only_the_contract_fields(tmp_path: Path) -> No
     ]
     # This database has no purchases table: the trace is unavailable and says why.
     assert reading["trace"]["available"] is False and reading["trace"]["step_kinds"] is None
+    assert reading["trace"]["reason"] not in NO_TRACE_BEFORE_START
     assert read_review(database, grant_id="dg_2", run_id=None)["events"] == []
     assert product_trace(database, None) == {
         "available": False,
@@ -517,6 +520,41 @@ def test_the_product_trace_of_a_governed_hnp_run_is_read_after_the_stop(
     assert "policy_decision" in trace["step_kinds"]
     assert "choice_reviewed" not in trace["step_kinds"]
     assert product_trace(database, "run_unknown")["reason"] == "no_purchase"
+
+
+def test_a_trace_the_assembler_rejects_is_unreadable_and_not_traced(
+    governed_run: Callable[[], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A purchase whose trace fails to build (as `/purchases/{run_id}/trace` would) does not
+    count as traced, even with the review in the ledger."""
+
+    class Step(BaseModel):
+        kind: str
+
+    def invalid(*args: Any, **kwargs: Any) -> Any:
+        return Step.model_validate({"kind": None})
+
+    monkeypatch.setattr(hnp_review_pilot, "assemble", invalid)
+    database = governed_run()
+    with closing(sqlite3.connect(database)) as connection:
+        run_id = connection.execute("SELECT run_id FROM hnp_tasks").fetchone()[0]
+    trace = product_trace(database, run_id)
+    assert trace["available"] is False and trace["step_kinds"] is None
+    assert trace["reason"] not in NO_TRACE_BEFORE_START
+    assert "ValidationError" in trace["reason"] or "validation error" in trace["reason"]
+    event = {
+        "sequence": 4,
+        "decision": "confirmed",
+        "reason": "matches_request",
+        "prompt_id": "hnp-intent-review-v1",
+        "model": "gpt-5-mini",
+    }
+    observed = {
+        "task": {"state": "purchased", "outcome_code": None},
+        "effects": {"orders": 1},
+        "review": {"events": [event], "trace": trace},
+    }
+    assert review_traced(observed) == (0, "trace_unreadable")
 
 
 # The v1 rescore ----------------------------------------------------------------------------------

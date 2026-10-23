@@ -92,7 +92,7 @@
       "condition": "B2-HNP-R",
       "rate": 1.0,
       "denominator": "B2-HNP-R episodes that reached the selection: the task was claimed and did not end in selection_not_eligible or no_candidate_in_scope (the reviewer is only called when the selector returns a shortlist id)",
-      "traced": "the grant's ledger has the choice_reviewed event and, when the task's run has an HNP trace, that trace has the choice_reviewed step before the first D1 step; a task that escalates before start has no purchase row and no trace, so it is judged by the ledger and the report says how many were"
+      "traced": "the grant's ledger has the choice_reviewed event and the task's run has an HNP trace with the choice_reviewed step before the first D1 step; only a task that escalates before start without buying (no run or no purchase row) has no trace, so it is judged by the ledger and the report says how many were; any other trace that cannot be read or built is trace_unreadable and does not count as traced"
     },
     "H-cost": {
       "prediction": "descriptive only",
