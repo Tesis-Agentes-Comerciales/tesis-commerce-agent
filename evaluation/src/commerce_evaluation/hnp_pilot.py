@@ -1,12 +1,14 @@
 """Run the HNP pilot (EC-HNP-03) on the governance pilot's stack: docs/design/hnp-pilot.md.
 
-`hnp-pilot --dry-run` validates the manifest and its matrix, prints the registered plan, the
-environment of each condition (names only), the integration readiness and whether a live run would
-start; it never starts a service or calls a model. A live run refuses without `HNP_LIVE=1`,
-without the oracles' approval in the committed manifest, without `HNP_PILOT_MAX_COST_USD` (or
-above the manifest's cap), off the registered agent commit, on a dirty worktree, with a missing
-integration, under pytest or with a port of the stack in use; it stops cleanly once the
-accumulated model cost reaches the cap.
+`hnp-pilot --manifest evaluation/data/hnp-review-pilot-v1.json` runs the HNP intent reviewer
+pilot instead (hnp_review_pilot.py), and `--rescore <file>.jsonl` scores a results file of either
+pilot again from its rows. `hnp-pilot --dry-run` validates the manifest and its matrix, prints
+the registered plan, the environment of each condition (names only), the integration readiness
+and whether a live run would start; it never starts a service or calls a model. A live run
+refuses without `HNP_LIVE=1`, without the oracles' approval in the committed manifest, without
+`HNP_PILOT_MAX_COST_USD` (or above the manifest's cap), off the registered agent commit, on a
+dirty worktree, with a missing integration, under pytest or with a port of the stack in use; it
+stops cleanly once the accumulated model cost reaches the cap.
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ from commerce_evaluation.governance_pilot import (
     repository_provenance,
     run_artifacts_root,
 )
+from commerce_evaluation.hnp_pilot_scoring import score_episode, summarize
 from commerce_evaluation.paths import DATA, RESULTS, ROOT
 from commerce_evaluation.pilot_policy import ALLOWLIST, HP_V2_POLICY, scenario_environment
 from commerce_evaluation.redaction import redact
@@ -935,6 +938,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", type=Path)
     parser.add_argument(
+        "--rescore",
+        type=Path,
+        help="score a results file again from its rows, with --manifest's matrix; starts nothing",
+    )
+    parser.add_argument(
         "--merchant-repo", type=Path, default=ROOT.parent / "tesis-commerce-merchant"
     )
     parser.add_argument(
@@ -953,7 +961,47 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def rescore(path: Path, manifest_path: Path = MANIFEST) -> dict[str, Any]:
+    """Every row scored again from its `observed` and `cost`, and the summary of the file; the
+    rows whose score differs from what they recorded are listed. Nothing else is read."""
+    manifest, matrix = load_pilot(manifest_path)
+    try:
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    except (OSError, json.JSONDecodeError) as error:
+        raise PilotError(f"Cannot read results to rescore: {path}") from error
+    if not rows:
+        raise PilotError(f"No rows to rescore in {path}")
+    scenarios = {str(item["id"]): item for item in matrix["scenarios"]}
+    rescored: list[dict[str, Any]] = []
+    differences: list[dict[str, Any]] = []
+    for line, row in enumerate(rows, start=1):
+        if "observed" in row:
+            scored = score_episode(
+                scenarios[row["scenario_id"]], row["condition"], row["observed"], row.get("cost")
+            )
+            changed = [name for name, value in scored.items() if row.get(name) != value]
+            if changed:
+                differences.append({"line": line, "fields": changed})
+            row = row | scored
+        rescored.append(row)
+    return {
+        "results": str(path),
+        "manifest_id": manifest["manifest_id"],
+        "rows": len(rows),
+        "row_differences": differences,
+        "summary": summarize(rescored, LEDGER_CONDITIONS),
+    }
+
+
 def _run(arguments: argparse.Namespace) -> int:
+    from commerce_evaluation import hnp_review_pilot
+
+    if hnp_review_pilot.is_review_manifest(arguments.manifest):
+        return hnp_review_pilot.run(arguments)
+    if arguments.rescore is not None:
+        document = rescore(arguments.rescore.resolve(), arguments.manifest.resolve())
+        print(json.dumps(document, ensure_ascii=False))
+        return 0
     preparation = prepare(
         arguments.manifest.resolve(),
         scenario_ids=arguments.scenarios,
