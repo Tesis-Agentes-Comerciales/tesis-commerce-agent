@@ -117,7 +117,8 @@ la decisión D1; en un empate de milisegundo, antes de `policy_decision` y `chec
 
 `/health` agrega `hnp_reviewer: "off" | "llm"` junto a los demás campos `hnp_*` (solo con HNP
 encendido). `uv run demo-stack --mode b2-hnp --hnp-reviewer {off,llm}` (por defecto `off`; otro modo
-lo rechaza) se lo pasa solo al agente, y el resumen dice «revisor llm».
+lo rechaza) se lo pasa solo al agente, comprueba que `/health` reporte el mismo valor antes de abrir
+la UI, y el resumen dice «revisor llm».
 
 ## 10. Criterios de aceptación
 
@@ -135,6 +136,8 @@ lo rechaza) se lo pasa solo al agente, y el resumen dice «revisor llm».
   piloto (HR01 y HR03).
 - **Latencia y costo:** una llamada más al modelo por compra delegada; se reporta p50/p95 de
   `model.hnp_review`.
+- **Costo medido:** `flow_trace.py` lee solo `model.hnp_select`; el piloto (PR R2) debe sumar
+  `model.hnp_review` al costo y a la latencia de cada episodio.
 - **Evidencia:** el verificador HNP-V1 (`verify_evidence_hnp.py`) toma la fila de la compra como señal
   de que D1 corrió. Una corrida detenida por el revisor tiene compra sin D1, así que el verificador
   debe tratar `choice_not_confirmed` como un terminal anterior a D1 (PR R2).
