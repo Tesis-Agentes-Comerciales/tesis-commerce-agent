@@ -8,7 +8,8 @@ recomputes digests from what the agent stored, re-verifies the open and closed m
 public keys the ledger kept, and reads the delegation chain only up to its own event, so a later
 edit does not taint an earlier link. Whether a step applies is read from the evidence it leaves:
 a step nobody reached is `not_applicable`, which also ends a chain at the PDP that denied or at
-the terminal (revocation, kill switch, escalation).
+the terminal (revocation, kill switch, escalation). A choice the intent reviewer did not confirm
+(`choice_not_confirmed`) ends before D1, although its purchase row exists.
 
 Not re-verified: the merchant's Checkout JWT signature and receipt signatures (their keys are
 not stored), and the `merchant_refs`/`owner_ref` pseudonyms (they need the vault key).
@@ -132,6 +133,10 @@ AFTER_D1 = frozenset(
         "receipt_mismatch",
     }
 )
+# A terminal the intent reviewer gives before D1 (docs/design/hnp-intent-review.md §6). The run's
+# purchase row exists, because the executor creates it before the review so that the trace shows
+# it, but D1 never ran: with the review in the chain, that row is not D1's.
+REVIEW_TERMINALS = frozenset({"choice_not_confirmed"})
 # Of those, the ones a run past its checkout gives (D1's own deny never reaches it).
 AFTER_CHECKOUT = AFTER_D1 - {"merchant_not_allowed", "budget_not_satisfiable"}
 # The identifier each kind of receipt carries in its JWT and in its `receipt_recorded` event.
@@ -274,14 +279,26 @@ class HnpRunVerification(RunVerification):
         return self.approved or self.chained_task["outcome_code"] in AFTER_CHECKOUT
 
     @property
+    def stopped_by_review(self) -> bool:
+        """The chained task ended `choice_not_confirmed` after a chained review that did not
+        confirm the choice: a terminal before D1, whatever its purchase row says."""
+        reviews = [event for event in self.chained if event.event_type == "choice_reviewed"]
+        return (
+            self.chained_task["outcome_code"] in REVIEW_TERMINALS
+            and bool(reviews)
+            and reviews[-1].body.get("decision") == "not_confirmed"
+        )
+
+    @property
     def reached_d1(self) -> bool:
         """P2's evidence, `start`'s purchase row, or a chained trace only a run past D1 leaves:
-        D1 without its evidence is then `missing`, not `not_applicable`."""
+        D1 without its evidence is then `missing`, not `not_applicable`. The purchase row of a
+        choice the intent reviewer stopped is not `start`'s."""
         task, chained = self.chained_task, self.chained
         claimed = any(event.event_type == "task_claimed" for event in chained)
         return (
             super().reached_d1
-            or self.purchase["stage"] is not None
+            or (self.purchase["stage"] is not None and not self.stopped_by_review)
             or any(event.event_type in PAST_D1 for event in chained)
             or any(
                 event.event_type == "kill_switch_blocked" and event.body.get("stage") in AFTER_CLOSE
