@@ -152,17 +152,24 @@ export const Running: Story = {
   },
 }
 
-/** Compra completada con la gobernanza de la traza HNP: D1, D2, D3 y la orden. */
+/**
+ * Compra completada con la gobernanza de la traza HNP: D1, D2, D3 y la orden. En el hilo sale
+ * abierta y sus filas entran de a una.
+ */
 export const Purchased: Story = {
   args: { delegation: DELEGATIONS.purchased, trace: traceFor(DELEGATIONS.purchased) },
-  play: async ({ canvas, userEvent }) => {
+  parameters: { pacing: true },
+  play: async ({ canvas }) => {
     await expect(canvas.getByRole("heading", { name: "Compra completada" })).toBeVisible()
     const governance = within(canvas.getByRole("group", { name: GOVERNANCE }))
-    const row = governance.getByRole("button")
-    await userEvent.click(row)
+    const row = governance.getByRole("button", { name: /^Compra completada en / })
     await expect(row).toHaveAttribute("aria-expanded", "true")
     const timeline = governance.getByRole("list", { name: "Controles de la compra" })
-    await waitFor(() => expect(timeline).toBeVisible())
+    await expect(timeline).toBeVisible()
+    await expect(within(timeline).queryByText("Orden confirmada")).toBeNull()
+    await waitFor(() => expect(within(timeline).getByText("Orden confirmada")).toBeVisible(), {
+      timeout: 8000,
+    })
   },
 }
 

@@ -235,11 +235,12 @@ export const AwaitingApproval: Story = {
       "awaiting_approval",
     )
     await expect(canvas.getByTestId("product-card-hero")).toBeVisible()
-    // La fila de actividad sale de la traza, fuera de la tarjeta y del grupo «Pensando…».
+    // La fila de actividad sale de la traza, fuera de la tarjeta y del grupo «Pensando…», y abierta:
+    // la gobernanza de la compra se ve sin buscarla.
     const activity = await canvas.findByTestId("purchase-activity")
     await expect(
       await canvas.findByRole("button", { name: /Esperando tu aprobación/ }),
-    ).toHaveAttribute("aria-expanded", "false")
+    ).toHaveAttribute("aria-expanded", "true")
     // La tarjeta anuncia lo que pasa al aprobar o cancelar; que espera la aprobación lo anuncia la
     // fila, una sola vez.
     await expect(activity.querySelector("[role='status']")).toHaveTextContent(
@@ -252,6 +253,87 @@ export const AwaitingApproval: Story = {
   },
 }
 
+/** El turno de `purchase.sse` todavía en curso: tras la espera larga del modelo, todo llegó junto. */
+function arrivingTogether(): AgentState {
+  const messages = AWAITING.messages.map((message) =>
+    message.role === "assistant" ? { ...message, status: { type: "running" } as const } : message,
+  )
+  return { ...AWAITING, messages }
+}
+
+const FINAL_TEXT = (() => {
+  const reply = AWAITING.messages.findLast((message) => message.role === "assistant")
+  const text = reply?.role === "assistant" ? reply.content.findLast((part) => part.type === "text") : null
+  return text?.type === "text" ? text.text : ""
+})()
+
+/** Qué parte del turno es un hijo de la columna: por su tarjeta, o el texto. */
+function partName(node: HTMLElement) {
+  for (const id of ["purchase-activity", "product-card-hero", "purchase-approval-card"]) {
+    if (node.querySelector(`[data-testid='${id}']`)) return id
+  }
+  return node.querySelector("p") ? "text" : "?"
+}
+
+/**
+ * La fila de actividad, la tarjeta del producto, la aprobación y el texto llegan juntos (como tras la
+ * espera larga de «Elegir»). El plan recorre sus pasos a ritmo y cada parte sale de a una, con un
+ * fundido, después de que el plan visible llega a su paso; el texto, al final, se escribe. Entre
+ * todas, el mismo espacio.
+ */
+export const PartsArriveTogether: Story = {
+  args: { state: arrivingTogether() },
+  parameters: { pacing: true, ...traceApi(TRACES.awaitingApproval) },
+  play: async ({ canvasElement }) => {
+    const { element, canvas } = lastMessage(canvasElement)
+    const column = canvas.getByTestId("turn-parts")
+    const plan = canvas.getByTestId("agent-plan")
+    const arrivals: { part: string; planStep: string; text: number }[] = []
+    const observer = new MutationObserver((records) => {
+      for (const node of records.flatMap((record) => [...record.addedNodes])) {
+        if (!(node instanceof HTMLElement)) continue
+        arrivals.push({
+          part: partName(node),
+          planStep: plan.querySelector("[aria-current='step']")?.textContent ?? "",
+          text: node.textContent?.length ?? 0,
+        })
+      }
+    })
+    observer.observe(column, { childList: true })
+
+    // Mientras tanto, el plan dice qué hace y nada del resultado se adelanta.
+    await expect(within(plan).getByText("Entender").closest("li")).toHaveTextContent("(en curso)")
+    await expect(within(plan).getByText("Interpretando tu solicitud…")).toBeInTheDocument()
+    await expect(canvas.queryByTestId("purchase-activity")).toBeNull()
+    await expect(canvas.queryByTestId("purchase-approval-card")).toBeNull()
+
+    await waitFor(() => expect(arrivals).toHaveLength(4), { timeout: 8000 })
+    observer.disconnect()
+    await expect(arrivals.map(({ part }) => part)).toEqual([
+      "purchase-activity",
+      "product-card-hero",
+      "purchase-approval-card",
+      "text",
+    ])
+    // Cada parte sale cuando el plan visible ya llegó a su paso.
+    await expect(arrivals[0]?.planStep).toMatch(/^Checkout/)
+    await expect(arrivals[2]?.planStep).toMatch(/^Aprobación/)
+    // El texto entra escribiéndose y termina entero.
+    await expect(arrivals[3]?.text).toBeLessThan(FINAL_TEXT.length)
+    await waitFor(() => expect(column.lastElementChild).toHaveTextContent(FINAL_TEXT), {
+      timeout: 3000,
+    })
+    await expect(column.querySelectorAll(":scope > .agent-rise")).toHaveLength(4)
+
+    // El mismo espacio entre cada parte del turno: ninguna toca a la otra.
+    const boxes = [...column.children].map((child) => child.getBoundingClientRect())
+    for (const [index, box] of boxes.slice(1).entries()) {
+      await expect(Math.round(box.top - boxes[index]!.bottom)).toBe(16)
+    }
+    await expect(element).toBeVisible()
+  },
+}
+
 /** `state.purchase` en `approved`: la aprobación quedó registrada y solo falta completar. */
 export const ApprovalRecorded: Story = { args: { state: withPurchaseStage("approved") } }
 
@@ -259,14 +341,13 @@ export const ApprovalRecorded: Story = { args: { state: withPurchaseStage("appro
 export const PurchaseCompleted: Story = {
   args: { state: fixtureState("purchaseCompleted") },
   parameters: traceApi(TRACES.completedShadow),
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas }) => {
     await expect(await canvas.findByTestId("approval-receipt")).toHaveTextContent(
       /^Aprobado por ti · \d{2}:\d{2}/,
     )
     const activity = canvas.getByRole("button", { name: /Compra completada en \d+ s/ })
-    await userEvent.click(activity)
-    // El contenido entra con un fundido corto.
-    await waitFor(() => expect(canvas.getByText("Política de compra: permitida")).toBeVisible())
+    await expect(activity).toHaveAttribute("aria-expanded", "true")
+    await expect(canvas.getByText("Política de compra: permitida")).toBeVisible()
     await expect(canvas.getByText("Producto dentro de lo que pediste")).toBeVisible()
     await expect(canvas.getByText("Comercio permitido")).toBeVisible()
   },
@@ -276,9 +357,11 @@ export const PurchaseCompleted: Story = {
 export const PurchaseCompletedPolicyOff: Story = {
   args: { state: fixtureState("purchaseCompleted") },
   parameters: traceApi(TRACES.policyOff),
-  play: async ({ canvas, userEvent }) => {
-    await userEvent.click(await canvas.findByRole("button", { name: /Compra completada/ }))
-    await waitFor(() => expect(canvas.getByText("Política desactivada")).toBeVisible())
+  play: async ({ canvas }) => {
+    await expect(
+      await canvas.findByRole("button", { name: /Compra completada/ }),
+    ).toHaveAttribute("aria-expanded", "true")
+    await expect(canvas.getByText("Política desactivada")).toBeVisible()
     await expect(canvas.getByText("No se revisó esta compra")).toBeVisible()
   },
 }

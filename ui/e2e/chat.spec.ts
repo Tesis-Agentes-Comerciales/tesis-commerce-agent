@@ -342,7 +342,8 @@ test.describe("actividad de la compra", () => {
     expect(calls.slice(completed).some((call) => call.path.endsWith("/trace"))).toBe(true)
     await expect(card.getByTestId("approval-receipt")).toHaveText(/^Aprobado por ti · \d{2}:\d{2}/)
 
-    await trigger.click()
+    // La gobernanza sale abierta: no hay que buscarla.
+    await expect(trigger).toHaveAttribute("aria-expanded", "true")
     await expect(activity.getByText("Política de compra: permitida")).toBeVisible()
     await expect(activity.getByText("Solo observando: registra, no detiene")).toBeVisible()
     const rules = activity.getByRole("list", { name: "Reglas de la política de compra" })
@@ -474,7 +475,7 @@ test.describe("actividad de la compra", () => {
     await expect(page.getByText(/La compra quedó completada/)).toBeVisible()
 
     const activity = page.getByTestId("purchase-activity")
-    await activity.getByRole("button", { name: /Compra completada/ }).click()
+    await expect(activity.getByRole("button", { name: /Compra completada/ })).toHaveAttribute("aria-expanded", "true")
     const policy = activity.getByRole("listitem").filter({ hasText: "Política desactivada" })
     await expect(policy).toBeVisible()
     await expect(policy).toContainText("No se revisó esta compra")
@@ -573,7 +574,10 @@ test.describe("términos que ya no valen", () => {
         const activity = page.getByTestId("purchase-activity")
         await expect(activity).toHaveAttribute("data-status", "stale_terms")
         await expect(page.getByTestId("stale-terms-card").getByRole("button")).toHaveText(["Cancelar compra"])
-        await activity.getByRole("button", { name: /Detenida: cambiaron las condiciones/ }).click()
+        await expect(activity.getByRole("button", { name: /Detenida: cambiaron las condiciones/ })).toHaveAttribute(
+          "aria-expanded",
+          "true",
+        )
         const blocked = activity.getByRole("listitem").filter({ hasText: "Las condiciones del comercio cambiaron" })
         await expect(blocked).toHaveAttribute("data-state", "blocked")
         await expect(blocked).toContainText(STOPPED)
@@ -627,7 +631,10 @@ test.describe("términos que ya no valen", () => {
 
         const activity = page.getByTestId("purchase-activity")
         await expect(activity).toHaveAttribute("data-status", "stale_terms")
-        await activity.getByRole("button", { name: /Detenida: cambiaron las condiciones/ }).click()
+        await expect(activity.getByRole("button", { name: /Detenida: cambiaron las condiciones/ })).toHaveAttribute(
+          "aria-expanded",
+          "true",
+        )
         const steps = activity.getByRole("listitem")
         await expect(steps.filter({ hasText: "Condiciones confirmadas con el comercio" })).toContainText(
           "Antes de mostrarte los términos",
@@ -715,7 +722,10 @@ test.describe("autorización al aprobar (D2)", () => {
     // La actividad dice que la política la detuvo al aprobar, después de confirmar las condiciones.
     const activity = page.getByTestId("purchase-activity")
     await expect(activity).toHaveAttribute("data-status", "blocked")
-    await activity.getByRole("button", { name: /Bloqueada por la política de compra/ }).click()
+    await expect(activity.getByRole("button", { name: /Bloqueada por la política de compra/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    )
     const steps = activity.getByRole("listitem")
     const refused = steps.filter({ hasText: "La política no autorizó la compra" })
     await expect(refused).toHaveAttribute("data-state", "blocked")

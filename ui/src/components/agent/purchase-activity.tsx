@@ -3,6 +3,8 @@ import { ChevronRightIcon } from "lucide-react"
 import { Collapsible } from "radix-ui"
 
 import { focusRing } from "@/components/agent/agent-styles"
+import { GOVERNANCE_ROW_MS } from "@/components/agent/pacing"
+import { usePacer } from "@/components/agent/use-pacing"
 import { ControlTimeline } from "@/components/trace/control-timeline"
 import { PurchaseStatusIcon } from "@/components/trace/purchase-status-label"
 import { TechnicalDetails } from "@/components/trace/technical-details"
@@ -24,6 +26,11 @@ export type PurchaseActivityProps = {
   trace: PurchaseTrace | null
   stream?: StreamPurchase
   defaultOpen?: boolean
+  /**
+   * Las filas nuevas de la línea de tiempo entran de a una (`GOVERNANCE_ROW_MS`). En el chat, junto
+   * con `defaultOpen`: la gobernanza se ve avanzar. Al plegar y abrir, lo ya visto no se repite.
+   */
+  paced?: boolean
   /**
    * Anunciar el estado a los lectores de pantalla. En el chat calla cuando el mensaje tiene una
    * tarjeta de la compra que ya anuncia ese estado. La región sigue montada aunque calle: una región
@@ -53,6 +60,7 @@ export function PurchaseActivity({
   trace,
   stream,
   defaultOpen = false,
+  paced = false,
   announce = true,
   showNames = true,
   className,
@@ -61,6 +69,7 @@ export function PurchaseActivity({
   const summary = trace ? purchaseSummary(trace) : (stream?.summary ?? "")
   const label = trace ? [productOf(trace), trace.merchant_name] : [stream?.product]
   const working = status === "in_progress"
+  const pacer = usePacer(GOVERNANCE_ROW_MS, paced)
 
   return (
     <Collapsible.Root
@@ -114,7 +123,7 @@ export function PurchaseActivity({
       <Collapsible.Content className="agent-collapsible -mx-2 px-2">
         {trace && (
           <div className="space-y-3 pt-3 pb-1">
-            <ControlTimeline trace={trace} />
+            <ControlTimeline trace={trace} pacer={pacer} />
             <TechnicalDetails refs={traceRefs(trace)} />
           </div>
         )}

@@ -537,8 +537,9 @@ async function delegateAndWatchTheGovernance(page: Page, check: (step: string) =
   await expect(status).toHaveAttribute("data-status", "purchased")
   // Nadie aprueba al final de una compra delegada: el plan HP no queda en el hilo.
   await expect(purchasePlan(page)).toHaveCount(0)
+  // En el hilo la gobernanza sale abierta: la compra se ve avanzar sin buscarla.
   const row = governance.getByRole("button", { name: /^Compra completada en / })
-  await row.click()
+  await expect(row).toHaveAttribute("aria-expanded", "true")
   const steps = governance.getByRole("list", { name: "Controles de la compra" }).locator(":scope > li > div > div > p")
   await expect(steps).toHaveText([...GOVERNED_STEPS, "Uso único consumido"])
   await expect(governance.getByText("Activa: detiene la compra si no cumple")).toBeVisible()

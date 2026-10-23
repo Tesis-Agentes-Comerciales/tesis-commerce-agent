@@ -89,13 +89,14 @@ export function toolResult<Result>(part: {
   return part.isError ? undefined : (part.result as Result | undefined)
 }
 
+/** `doing`: qué hace el agente mientras el paso está en curso; es la nota del paso en el plan. */
 export const PLAN_STEPS = [
-  { id: "understand", label: "Entender" },
-  { id: "search", label: "Buscar" },
-  { id: "choose", label: "Elegir" },
-  { id: "checkout", label: "Checkout" },
-  { id: "approval", label: "Aprobación" },
-  { id: "complete", label: "Completar" },
+  { id: "understand", label: "Entender", doing: TOOL_LABELS.interpret_request.running },
+  { id: "search", label: "Buscar", doing: TOOL_LABELS.search_catalog.running },
+  { id: "choose", label: "Elegir", doing: TOOL_LABELS.select_product.running },
+  { id: "checkout", label: "Checkout", doing: TOOL_LABELS.prepare_checkout.running },
+  { id: "approval", label: "Aprobación", doing: TOOL_LABELS.request_approval.running },
+  { id: "complete", label: "Completar", doing: "Completando la compra" },
 ] as const
 
 export type PlanStepId = (typeof PLAN_STEPS)[number]["id"]
@@ -133,7 +134,30 @@ export function planStepStates({ current, failed, stopped }: PlanProgress) {
   ) as Record<PlanStepId, PlanStepState>
 }
 
-const TOOL_PLAN_STEP: Record<AgentToolName, PlanStepId> = {
+/**
+ * Pasos que el plan alcanzó, en orden y hasta el que está en curso, se detuvo o falló; con `"done"`
+ * al final si terminó. Es lo que el plan visible recorre a ritmo (`usePacedPlan`).
+ */
+export function planReach({ current, failed, stopped }: PlanProgress) {
+  const end = failed ?? stopped ?? current
+  const ids: Array<PlanStepId | "done"> = PLAN_STEPS.map((step) => step.id)
+  if (end === null) return []
+  return end === "done" ? [...ids, "done"] : ids.slice(0, ids.indexOf(end) + 1)
+}
+
+/**
+ * El plan que se ve cuando solo se revelaron algunos de los pasos alcanzados: el último revelado,
+ * en curso. El estado real (detenido, falla, esperando, completado) solo cuando se revelaron todos.
+ */
+export function pacedPlanProgress(progress: PlanProgress, revealed: ReadonlySet<string>) {
+  const reach = planReach(progress)
+  const shown = reach.filter((id) => revealed.has(id)).length
+  if (shown >= reach.length) return progress
+  return { current: shown === 0 ? null : reach[shown - 1] } as PlanProgress
+}
+
+/** El paso del plan al que pertenece un tool call: su parte del turno sale cuando el plan llega. */
+export const TOOL_PLAN_STEP: Record<AgentToolName, PlanStepId> = {
   interpret_request: "understand",
   search_catalog: "search",
   select_product: "choose",

@@ -1,5 +1,8 @@
 import { cn } from "cn"
+import { useState } from "react"
 
+import type { PacedReveal } from "@/components/agent/pacing"
+import { usePacedKeys } from "@/components/agent/use-pacing"
 import { ControlStep } from "@/components/trace/control-step"
 import {
   controlOrder,
@@ -59,21 +62,38 @@ function timelineRows(trace: PurchaseTrace): TimelineRow[] {
 
 export type ControlTimelineProps = {
   trace: PurchaseTrace
+  /**
+   * Ritmo de las filas nuevas (`GOVERNANCE_ROW_MS`), sin cambiar su texto ni su orden. Lo crea quien
+   * monta la línea de tiempo (`usePacer`): así, al plegarla y volver a abrirla, las filas que ya se
+   * vieron salen enteras y no se animan otra vez. Sin él, todas a la vez.
+   */
+  pacer?: PacedReveal | null
   className?: string
 }
 
-export function ControlTimeline({ trace, className }: ControlTimelineProps) {
+export function ControlTimeline({ trace, pacer = null, className }: ControlTimelineProps) {
   const merchant = traceMerchant(trace)
+  const rows = timelineRows(trace).map((row) => ({
+    row,
+    key: isSkipped(row) ? `${row.reason}:${row.kind}` : row.id,
+  }))
+  const shown = usePacedKeys(rows.map(({ key }) => key), pacer)
+  // Se funden solo las filas que entran mientras la línea de tiempo está a la vista: no las que ya
+  // estaban al montarla (al volver a abrirla, o en un mensaje del historial).
+  const [seen] = useState(() => shown)
   return (
     <ol aria-label="Controles de la compra" className={cn("pl-0.5", className)}>
-      {timelineRows(trace).map((row) => (
-        <ControlStep
-          key={isSkipped(row) ? `${row.reason}:${row.kind}` : row.id}
-          step={row}
-          merchant={merchant}
-          context={trace}
-        />
-      ))}
+      {rows
+        .filter(({ key }) => shown.has(key))
+        .map(({ row, key }) => (
+          <ControlStep
+            key={key}
+            step={row}
+            merchant={merchant}
+            context={trace}
+            className={pacer && !seen.has(key) ? "agent-enter" : undefined}
+          />
+        ))}
     </ol>
   )
 }

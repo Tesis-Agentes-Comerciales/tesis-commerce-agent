@@ -8,6 +8,7 @@ import {
   type PlanProgress,
   type PlanStepState,
 } from "@/components/agent/agent-steps"
+import { usePacedPlan } from "@/components/agent/use-pacing"
 
 import "./agent.css"
 
@@ -24,6 +25,11 @@ export type AgentPlanProps = PlanProgress & {
   failedNote?: string
   /** El turno terminó y el plan queda como su último estado: el paso que espera no late. */
   still?: boolean
+  /**
+   * Avanza a ritmo (`usePacedPlan`): como mucho un paso cada `PLAN_STEP_MIN_MS`, cada uno en curso
+   * antes de hecho, aunque el progreso ya vaya adelantado. Es lo que hace el chat.
+   */
+  paced?: boolean
   className?: string
 }
 
@@ -66,14 +72,13 @@ function StepIcon({
 
 /** Recorrido de la compra: Entender, Buscar, Elegir, Checkout, Aprobación y Completar. */
 export function AgentPlan({
-  current,
-  failed,
-  stopped,
-  waiting = false,
   failedNote,
   still = false,
+  paced = false,
   className,
+  ...progress
 }: AgentPlanProps) {
+  const { current, failed, stopped, waiting = false } = usePacedPlan(progress, paced)
   const titleId = useId()
   const states = planStepStates({ current, failed, stopped })
   const doneCount = PLAN_STEPS.filter((step) => states[step.id] === "done").length
@@ -83,7 +88,7 @@ export function AgentPlan({
     <section
       aria-labelledby={titleId}
       className={cn(
-        "@container w-full rounded-[16px] border border-[#ececec] bg-white p-4",
+        "@container relative w-full rounded-[16px] border border-[#ececec] bg-white p-4",
         className,
       )}
       data-testid="agent-plan"
@@ -127,7 +132,7 @@ export function AgentPlan({
                   ? step.id === "approval"
                     ? "Esperando tu aprobación"
                     : "Esperando tu respuesta"
-                  : "En curso"
+                  : `${step.doing}…`
                 : undefined
 
           return (
@@ -163,10 +168,12 @@ export function AgentPlan({
                     {step.label}
                     <span className="sr-only"> ({STATE_TEXT[state]})</span>
                   </p>
+                  {/* En horizontal no caben notas por paso: la del paso en curso o detenido va
+                      sola al pie del plan, en el espacio que este reserva para ella. */}
                   {note && (
                     <p
                       className={cn(
-                        "text-xs leading-4 @xl:hidden",
+                        "text-xs leading-4 @xl:absolute @xl:inset-x-4 @xl:bottom-4 @xl:truncate",
                         state === "error"
                           ? "text-red-700"
                           : state === "stopped"
@@ -183,11 +190,8 @@ export function AgentPlan({
           )
         })}
       </ol>
-
-      {/* En horizontal no caben notas por paso: se resume la del paso detenido. */}
-      {failed && failedNote && (
-        <p className="mt-3 hidden text-xs text-red-700 @xl:block">{failedNote}</p>
-      )}
+      {/* Lugar fijo para la nota del paso en horizontal: el plan no cambia de alto al terminar. */}
+      <div className="hidden h-7 @xl:block" aria-hidden />
     </section>
   )
 }

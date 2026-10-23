@@ -530,6 +530,23 @@ Las reglas, con su historia en `chat/Thread` y `agent/*`:
   por la política de compra», con el producto. No se abre hasta que llega la traza, que la completa
   en su lugar con el comercio y la línea de tiempo. Si la traza no llega, la fila se va, salvo con un
   bloqueo, que el stream ya da por terminado.
+- **El plan avanza a ritmo.** El plan que se ve sube como mucho un paso cada 700 ms
+  (`PLAN_STEP_MIN_MS`): cada paso sale «en curso» y luego «hecho», sin saltarse ninguno, aunque el
+  progreso real vaya adelantado. El estado final (detenido, falla, esperando la aprobación,
+  completado) se aplica cuando el plan visible llega a ese paso. Es solo presentación. El paso en
+  curso dice qué hace («Buscando en el catálogo…»); en horizontal, esa nota va al pie del plan.
+- **Las partes del turno entran de a una.** El plan, «Pensando…», la fila de actividad, las
+  tarjetas y el texto van uno debajo de otro, a 16 px. Lo que llega junto sale en orden, cada
+  400 ms (`TURN_PART_STAGGER_MS`), con un fundido y 8 px de subida, y solo después de que el plan
+  visible llega a su paso (la fila con el checkout, la tarjeta con su paso, el texto con el plan al
+  día). Nada entra encima de lo que ya se ve. El texto del asistente se escribe en hasta 1,2 s. Un
+  mensaje del historial sale como estaba: solo lo que le llegue después entra a ritmo.
+- **La gobernanza sale abierta.** Con la traza, la fila de actividad del hilo y la «Gobernanza de la
+  compra» de la tarjeta delegada del hilo salen abiertas, y sus filas nuevas entran de a una cada
+  350 ms (`GOVERNANCE_ROW_MS`), con el mismo texto y orden. Una fila ya mostrada no se vuelve a
+  animar, ni al plegar y abrir. En «Mis delegaciones» sigue plegada. Con `prefers-reduced-motion:
+  reduce` no hay demoras: todo sale al instante (así corren los e2e). Storybook también lo apaga,
+  salvo en las historias del ritmo (`parameters.pacing`).
 - **Al enviar.** Mientras llega el primer frame, la librería muestra un mensaje provisional. Ese
   mensaje ya lleva el encabezado «Pensando…» (todavía sin nada que abrir) y la línea viva, en el
   mismo lugar que tendrán en el mensaje del servidor. La primera etiqueta de la línea entra sin

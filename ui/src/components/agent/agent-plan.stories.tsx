@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, within } from "storybook/test"
+import { expect, waitFor, within } from "storybook/test"
 
 import { AgentPlan } from "@/components/agent/agent-plan"
 import { derivePlanProgress } from "@/components/agent/agent-steps"
@@ -152,6 +152,42 @@ export const WaitingAfterTurn: Story = {
     await expect(step(context, "Buscar")).toHaveAttribute("aria-current", "step")
     await expect(context.canvas.getByText("Esperando tu respuesta")).toBeVisible()
     await expect(runningAnimations(context.canvasElement)).toHaveLength(0)
+  },
+}
+
+/**
+ * En el chat el plan avanza a ritmo (`paced`): aunque el progreso real ya vaya en Elegir, Entender y
+ * Buscar salen en curso y luego hechos, un paso cada `PLAN_STEP_MIN_MS`.
+ */
+export const Paced: Story = {
+  args: { current: "choose", paced: true },
+  parameters: { pacing: true },
+  play: async (context) => {
+    await expect(step(context, "Entender")).toHaveTextContent("(en curso)")
+    await expect(step(context, "Buscar")).toHaveTextContent("(pendiente)")
+    await waitFor(() => expect(step(context, "Buscar")).toHaveTextContent("(en curso)"), {
+      timeout: 2000,
+    })
+    await expect(step(context, "Entender")).toHaveTextContent("(hecho)")
+    await waitFor(() => expect(step(context, "Elegir")).toHaveTextContent("(en curso)"), {
+      timeout: 2000,
+    })
+    await expectProgress(context, 2)
+  },
+}
+
+/** A ritmo, la parada de la política se ve cuando el plan visible llega al checkout. */
+export const PacedStoppedByPolicy: Story = {
+  args: { current: "checkout", stopped: "checkout", paced: true },
+  parameters: { pacing: true },
+  play: async (context) => {
+    await expect(step(context, "Checkout")).toHaveTextContent("(pendiente)")
+    await expect(context.canvas.queryByText("La política la detuvo")).toBeNull()
+    await waitFor(
+      () => expect(step(context, "Checkout")).toHaveTextContent("(detenido por la política de compra)"),
+      { timeout: 4000 },
+    )
+    await expectProgress(context, 3)
   },
 }
 

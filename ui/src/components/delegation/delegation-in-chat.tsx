@@ -75,6 +75,7 @@ export function DelegationInChat({
         <DelegationStatusCard
           delegation={delegation}
           trace={trace}
+          governanceOpen
           onBuyFromChat={onBuyFromChat}
           autoFocus
         />
