@@ -52,6 +52,8 @@ import {
 
 type ThreadComponents = {
   Welcome?: ComponentType
+  /** Al pie de los mensajes, dentro del hilo: la compra delegada del turno «Delegar». */
+  AfterMessages?: ComponentType
 }
 
 type ThreadProps = {
@@ -463,6 +465,7 @@ function Composer({ autoFocus }: { autoFocus: boolean }) {
 
 export function Thread({ components = {}, autoFocus = true }: ThreadProps) {
   const Welcome = components.Welcome ?? DefaultWelcome
+  const AfterMessages = components.AfterMessages
 
   return (
     <ThreadPrimitive.Root className="flex h-full flex-col bg-white text-[#0d0d0d]">
@@ -483,6 +486,7 @@ export function Thread({ components = {}, autoFocus = true }: ThreadProps) {
 
           <div className="mb-14 flex flex-col gap-8 empty:hidden">
             <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
+            {AfterMessages && <AfterMessages />}
           </div>
 
           <ThreadPrimitive.ViewportFooter className="sticky bottom-0 mt-auto flex flex-col gap-2 bg-white pb-2">
