@@ -843,6 +843,7 @@ def test_health_counts_delegations_and_reports_the_switch(
         "hnp_active_grants": 0,
         "hnp_running_tasks": 0,
         "hnp_uncertain_tasks": 0,
+        "hnp_reviewer": "off",
     }
     flow(ledger, clock, delegated(client)).claim()
     delegated(client)
@@ -859,6 +860,7 @@ def test_health_counts_delegations_and_reports_the_switch(
         "hnp_active_grants": 3,
         "hnp_running_tasks": 1,
         "hnp_uncertain_tasks": 1,
+        "hnp_reviewer": "off",
     }
     clock.advance(3_600)
     assert client.get("/health").json()["hnp_active_grants"] == 0

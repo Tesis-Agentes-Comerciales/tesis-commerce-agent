@@ -797,7 +797,8 @@ los duplica. Las vistas nunca llevan mandatos, tokens, dirección completa ni `s
 `Health` agrega `hnp_enabled: bool`, `hnp_kill_switch: bool`, `hnp_active_grants: int`,
 `hnp_running_tasks: int` y `hnp_uncertain_tasks: int`. **Ajuste de HNP-08:** con el flag apagado los
 cinco campos se omiten (`exclude_if`) en vez de valer `false` y 0, porque las pruebas HP y los
-runners de los pilotos fijan el cuerpo exacto de `/health`; ausente equivale a HNP apagado.
+runners de los pilotos fijan el cuerpo exacto de `/health`; ausente equivale a HNP apagado. Con HNP
+encendido también va `hnp_reviewer: "off" | "llm"` (`hnp-intent-review.md` §9).
 `hnp_active_grants` no cuenta un grant `active` que ya venció (las vistas lo muestran `expired`).
 `PurchaseSummary` y `PurchaseTrace` agregan `purchase_mode: "HP" | "HNP"` (HNP-11) como campo
 **opcional**: ausente equivale a `"HP"`, el backend lo omite en las compras HP (como `authorization`
