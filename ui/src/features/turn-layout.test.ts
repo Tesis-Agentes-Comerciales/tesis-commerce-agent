@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { isFollowUpOnly, productSlot, streamPurchaseOf } from "@/features/turn-layout"
+import {
+  isDelegateTurn,
+  isFollowUpOnly,
+  productSlot,
+  streamPurchaseOf,
+} from "@/features/turn-layout"
 
 const tool = (toolName: string, extra: Record<string, unknown> = {}) => ({
   type: "tool-call",
@@ -123,5 +128,28 @@ describe("streamPurchaseOf", () => {
       isError: true,
     }
     expect(streamPurchaseOf([selected, failed])).toBeNull()
+  })
+})
+
+describe("isDelegateTurn", () => {
+  const turn = { latest: true, active: false, delegating: false, drafted: false }
+
+  it("mientras corre en «Delegar», antes de que llegue el borrador, ya es delegado", () => {
+    expect(isDelegateTurn({ ...turn, active: true, delegating: true })).toBe(true)
+  })
+
+  it("terminado, lo dice el borrador del estado aunque el selector ya vuelva a «Comprar conmigo»", () => {
+    expect(isDelegateTurn({ ...turn, drafted: true, delegating: true })).toBe(true)
+    expect(isDelegateTurn({ ...turn, drafted: true, delegating: false })).toBe(true)
+  })
+
+  it("un turno HP no lo es, ni cuando el selector pasa a «Delegar» sin enviar", () => {
+    expect(isDelegateTurn(turn)).toBe(false)
+    expect(isDelegateTurn({ ...turn, active: true })).toBe(false)
+    expect(isDelegateTurn({ ...turn, delegating: true })).toBe(false)
+  })
+
+  it("un mensaje anterior conserva su plan: la compra HP pendiente lo sigue mostrando", () => {
+    expect(isDelegateTurn({ ...turn, latest: false, drafted: true, delegating: true })).toBe(false)
   })
 })

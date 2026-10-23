@@ -13,6 +13,8 @@ export type DelegationsHost = {
   onOpenChange: (open: boolean) => void
   /** Datos de entrega del perfil: el formulario los propone y el comprador los cambia. */
   profile: BuyerProfile
+  /** El modo del chat: un turno en curso en «Delegar» no lleva el plan HP. */
+  purchaseMode: PurchaseMode
   /** Un escalamiento vuelve a «Comprar conmigo»: la compra sigue en el chat con el comprador. */
   onPurchaseModeChange: (mode: PurchaseMode) => void
 }

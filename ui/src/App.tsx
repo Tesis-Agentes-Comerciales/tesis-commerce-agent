@@ -105,10 +105,11 @@ function CommerceApp({ userId }: { userId: string }) {
             open: delegationsOpen,
             onOpenChange: setDelegationsOpen,
             profile,
+            purchaseMode,
             onPurchaseModeChange: setPurchaseMode,
           }
         : null,
-    [hnpEnabled, delegationsOpen, profile],
+    [hnpEnabled, delegationsOpen, profile, purchaseMode],
   )
 
   useEffect(() => {

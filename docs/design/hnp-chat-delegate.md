@@ -73,6 +73,10 @@ el runtime lo lee por referencia al enviar (`mode: "delegate"` con «Delegar»).
   formulario si se canceló.
 - `Thread` acepta un componente `AfterMessages` que va al pie de los mensajes, dentro del hilo.
 - Un escalamiento («Comprar desde el chat») vuelve a «Comprar conmigo» y prellena el compositor.
+- El turno `delegate` no muestra el plan HP («Plan de compra»: Entender … Aprobación · Completar),
+  ni mientras corre ni al terminar: nadie aprueba al final y su seguimiento es la tarjeta del hilo.
+  Mientras corre lo dice el modo del chat; al terminar, `delegation_draft` en el estado (objeto o
+  `null`). Solo el último mensaje: una compra HP de un mensaje anterior conserva su plan.
 
 ## Criterios de aceptación
 

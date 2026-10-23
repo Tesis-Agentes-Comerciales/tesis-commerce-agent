@@ -156,6 +156,9 @@ const modeSwitch = (page: Page) => page.getByRole("group", { name: "Modo de comp
 /** La compra delegada del hilo, al pie de los mensajes. */
 const inChat = (page: Page) => page.getByTestId("delegation-in-chat")
 
+/** El plan de la compra con el comprador (HP): Entender … Aprobación y Completar. */
+const purchasePlan = (page: Page) => page.getByRole("region", { name: "Plan de compra" })
+
 /**
  * En «Delegar», pide la compra en el chat: el agente busca, no crea checkout y deja debajo el
  * formulario prellenado con las opciones, el presupuesto del mensaje y el mensaje como indicación.
@@ -532,6 +535,8 @@ async function delegateAndWatchTheGovernance(page: Page, check: (step: string) =
   backend.traces.set(RUN_ID, { ...COMPLETED_TRACE, run_id: RUN_ID })
   backend.publish(consentedWith(PURCHASED.state, PURCHASED.task))
   await expect(status).toHaveAttribute("data-status", "purchased")
+  // Nadie aprueba al final de una compra delegada: el plan HP no queda en el hilo.
+  await expect(purchasePlan(page)).toHaveCount(0)
   const row = governance.getByRole("button", { name: /^Compra completada en / })
   await row.click()
   const steps = governance.getByRole("list", { name: "Controles de la compra" }).locator(":scope > li > div > div > p")
@@ -561,12 +566,17 @@ test("el selector cambia el modo del chat sin abrir nada; «Comprar conmigo» vu
   const { calls, unexpected } = await routeAgent(page, [NO_DELEGATIONS])
   await page.goto("/")
   await delegateInChat(page)
+  // Terminado el turno «Delegar», su seguimiento es la tarjeta del hilo: sin el plan HP.
+  await expect(page.getByRole("button", { name: "Enviar mensaje" })).toBeVisible()
+  await expect(purchasePlan(page)).toHaveCount(0)
   await modeSwitch(page).getByText("Comprar conmigo", { exact: true }).click()
   await expect(page.getByRole("radio", { name: "Comprar conmigo" })).toBeChecked()
   const composer = page.getByLabel("Mensaje de compra")
   await composer.fill(PURCHASE_REQUEST)
   await composer.press("Enter")
   await expect(page.getByTestId("purchase-approval-card")).toBeVisible()
+  // La compra HP lleva su plan, como siempre.
+  await expect(purchasePlan(page)).toBeVisible()
   // El turno HP reemplaza el borrador: la tarjeta de delegación ya no está en el hilo.
   await expect(inChat(page)).toHaveCount(0)
   const modes = calls.filter((call) => call.path === "/assistant").map((call) => (call.body as { mode?: string }).mode)
