@@ -1,5 +1,6 @@
 import type {
   ApprovalTerms,
+  DelegationDraftView,
   InterpretRequestResult,
   PrepareCheckoutResult,
   ProductCard,
@@ -210,5 +211,26 @@ export function asPurchaseUpdateResult(value: unknown): PurchaseUpdateResult | n
     run_id: value.run_id,
     stage: value.stage as PurchaseUpdateResult["stage"],
     order_id: nullableString(value.order_id),
+  }
+}
+
+/**
+ * `delegation_draft` del estado del chat, que llega del backend y se trata como no confiable: solo
+ * quedan las opciones con forma de `ProductCard`, disponibles y en pesos, como en `seenOffers`.
+ */
+export function asDelegationDraft(value: unknown): DelegationDraftView | null {
+  if (!isRecord(value) || !Array.isArray(value.offers)) return null
+  if (typeof value.preference_text !== "string") return null
+  const offers = value.offers
+    .flatMap((item) => asProduct(item) ?? [])
+    .filter((offer) => offer.available && offer.currency.toUpperCase() === "COP")
+    .slice(0, 6)
+  const budget = value.budget_minor
+  return {
+    offers,
+    budget_minor:
+      typeof budget === "number" && Number.isSafeInteger(budget) && budget > 0 ? budget : null,
+    currency: "COP",
+    preference_text: value.preference_text,
   }
 }

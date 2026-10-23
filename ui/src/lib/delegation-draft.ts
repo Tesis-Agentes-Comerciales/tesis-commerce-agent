@@ -1,3 +1,4 @@
+import type { DelegationDraftView } from "@/lib/agent-contract"
 import { checkoutDetails } from "@/lib/commerce-api"
 import type { BuyerProfile } from "@/lib/commerce-types"
 
@@ -74,5 +75,30 @@ export function proposalRequest(draft: DelegationDraft, profile: BuyerProfile): 
       details: checkoutDetails({ ...profile, ...destination }),
       preference_text: preference,
     },
+  }
+}
+
+/** Vigencia con la que abre el formulario: la más corta que ofrece. */
+const DEFAULT_VALIDITY_SECONDS = 3_600
+
+/** Centavos a pesos enteros con puntos de miles, como los escribe el comprador: «2.000.000». */
+function pesosText(amountMinor: number) {
+  return String(Math.floor(amountMinor / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+}
+
+/**
+ * El formulario del hilo prellenado con lo que encontró el turno (hnp-chat-delegate.md): las
+ * opciones marcadas, el total con el presupuesto que escribió el comprador (o vacío), su mensaje
+ * como indicación y la entrega del perfil. Todo sigue editable.
+ */
+export function chatDraft(view: DelegationDraftView, profile: BuyerProfile): DelegationDraft {
+  return {
+    variantIds: view.offers.slice(0, MAX_DELEGATION_VARIANTS).map((offer) => offer.variant_id),
+    total: view.budget_minor ? pesosText(view.budget_minor) : "",
+    validForSeconds: DEFAULT_VALIDITY_SECONDS,
+    addressLine: profile.addressLine,
+    city: profile.city,
+    state: profile.state,
+    preference: [...view.preference_text.trim()].slice(0, MAX_PREFERENCE_CHARS).join(""),
   }
 }

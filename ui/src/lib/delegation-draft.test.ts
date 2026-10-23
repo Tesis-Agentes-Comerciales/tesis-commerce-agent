@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest"
 
 import { DEMO_PROFILE } from "@/lib/commerce-types"
 import { proposalDeadline, type DelegationProposal } from "@/lib/delegation-contract"
+import { asDelegationDraft } from "@/features/agent-results"
 import {
+  chatDraft,
+  MAX_PREFERENCE_CHARS,
   proposalRequest,
   type DelegationDraft,
   type DelegationProposalRequest,
 } from "@/lib/delegation-draft"
+import { fixtureState } from "@/storybook/assistant-transport"
 import { DELEGATION_REPLAYS, replayed } from "@/storybook/fixtures/delegation-replays"
 
 const { consent, proposalExpired } = DELEGATION_REPLAYS
@@ -72,5 +76,64 @@ describe("la vigencia de una propuesta", () => {
     const expired = replayed(proposalExpired, "POST /delegations/proposals").body as DelegationProposal
     expect(Date.parse(expired.scope.expires_at)).toBeLessThan(Date.parse(expired.expires_at))
     expect(proposalDeadline(expired)).toBe(expired.scope.expires_at)
+  })
+})
+
+describe("el borrador del chat (modo «Delegar»)", () => {
+  const view = asDelegationDraft(fixtureState("delegate").delegation_draft)
+  if (!view) throw new Error("delegate.sse no trae delegation_draft")
+
+  it("marca las opciones, prellena el total con el presupuesto y la preferencia con el mensaje", () => {
+    const draft = chatDraft(view, DEMO_PROFILE)
+    expect(draft.variantIds).toEqual(view.offers.map((offer) => offer.variant_id))
+    expect(draft.variantIds).toContain("SON-XM6-BLK")
+    expect(draft.total).toBe("2.000.000")
+    expect(draft.preference).toBe("Quiero audífonos negros por menos de 2 millones")
+    expect(draft.validForSeconds).toBe(3_600)
+    expect(draft).toMatchObject({
+      addressLine: DEMO_PROFILE.addressLine,
+      city: DEMO_PROFILE.city,
+      state: DEMO_PROFILE.state,
+    })
+  })
+
+  it("el total prellenado llega a la propuesta como el presupuesto exacto", () => {
+    const checked = proposalRequest(chatDraft(view, DEMO_PROFILE), DEMO_PROFILE)
+    if (!checked.ok) throw new Error(checked.problem)
+    expect(checked.request.total_max_minor).toBe(view.budget_minor)
+    expect(checked.request.preference_text).toBe(view.preference_text)
+  })
+
+  it("sin presupuesto el total queda vacío y es obligatorio", () => {
+    const draft = chatDraft({ ...view, budget_minor: null }, DEMO_PROFILE)
+    expect(draft.total).toBe("")
+    expect(proposalRequest(draft, DEMO_PROFILE)).toEqual({
+      ok: false,
+      problem: "Escribe el total máximo en pesos, sin centavos.",
+    })
+  })
+
+  it("recorta la preferencia a 280 caracteres y marca como máximo 5 opciones", () => {
+    const long = "ñ".repeat(MAX_PREFERENCE_CHARS + 40)
+    const offers = Array.from({ length: 6 }, (_, index) => ({
+      ...view.offers[0]!,
+      variant_id: `VAR-${index}`,
+    }))
+    const draft = chatDraft({ ...view, offers, preference_text: long }, DEMO_PROFILE)
+    expect([...draft.preference]).toHaveLength(MAX_PREFERENCE_CHARS)
+    expect(draft.variantIds).toEqual(["VAR-0", "VAR-1", "VAR-2", "VAR-3", "VAR-4"])
+  })
+
+  it("descarta lo que no tiene la forma del contrato y las opciones que no se pueden delegar", () => {
+    expect(asDelegationDraft(null)).toBeNull()
+    expect(asDelegationDraft({ offers: "x", preference_text: "a" })).toBeNull()
+    const unavailable = { ...view.offers[0]!, available: false }
+    const dollars = { ...view.offers[0]!, variant_id: "USD-1", currency: "USD" }
+    const parsed = asDelegationDraft({
+      ...view,
+      offers: [unavailable, dollars],
+      budget_minor: -5,
+    })
+    expect(parsed).toMatchObject({ offers: [], budget_minor: null })
   })
 })
