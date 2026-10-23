@@ -369,6 +369,26 @@ uv run governance-pilot --manifest evaluation/data/b2-pilot-v2.json --condition 
   etiqueta que registra el manifiesto (`execution.agent_ref`: `pilot-v2-base`, el último de HP
   antes de HNP). Una corrida en vivo se niega a arrancar, antes de levantar
   servicios, si alguna no está lista.
+- **Combinación.** `--combine` arma el archivo que cuenta cuando una invocación posterior repite
+  escenarios completos (lote de completitud, sección 1 de
+  [`b2-pilot-v2-report.md`](results/b2-pilot-v2-report.md)): cada escenario sale entero del último
+  archivo que lo corrió, nunca filas sueltas, y las líneas se copian tal cual. Escribe `--output` y,
+  al lado, su re-puntuación como `.summary.json`. No arranca nada, no escribe sobre un archivo que
+  ya exista y no mezcla filas de otro manifiesto, commit o modelo (`smoke` sí puede variar). Así se
+  regenera el combinado del v2, con los mismos bytes que lista su `SHA256SUMS`; en el resumen solo
+  cambian `created_at` y `output`:
+
+  ```sh
+  R=evaluation/results/b2-pilot-v2
+  uv run governance-pilot --manifest evaluation/data/b2-pilot-v2.json \
+    --combine $R/pilot-v2-20261021.jsonl $R/lote2-S05.jsonl $R/lote2-S06.jsonl $R/lote2-S08.jsonl \
+    --output .local/pilot-v2-combinado.jsonl
+  ```
+
+  El combinado marca 20 `policy_mismatches` en B2 (S05 y S08) porque mezcla invocaciones (sección 9
+  del informe); cada archivo por separado da 0. `tests/evaluation/test_pilot_v2_rescore.py` fija
+  los cinco resúmenes, las cifras del informe y esta regeneración; las del piloto del revisor están
+  en `tests/evaluation/test_hnp_review_pilot.py`.
 
 ### Cadena de evidencia y H2 (`verify-evidence`)
 
