@@ -20,3 +20,4 @@
 
 # Archived experiment runs are verified with SHA256SUMS; keep their bytes.
 /evaluation/results/hnp02/** -text
+/evaluation/results/hnp-review-pilot-v1/** -text

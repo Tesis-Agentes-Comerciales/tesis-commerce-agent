@@ -46,3 +46,8 @@ El piloto HNP v1 (manifiesto `HNP-PILOT-v1`, EC-HNP-03) está en `hnp-pilot-v1/`
   - el smoke sobre `c7541f6`, que no cuenta como resultado.
 - `hnp-pilot-v1-report.md` resume cada corrida frente a los criterios pre-registrados y explica por qué hay dos. Ninguna reemplaza a la otra.
 - Los archivos se copiaron byte por byte. En estos resúmenes, el campo `results` conserva la ruta absoluta y el nombre que les dio el runner. No se reescribió.
+
+El piloto del revisor de intención HNP (manifiesto `HNP-REVIEW-PILOT-v1`) está en `hnp-review-pilot-v1/`.
+- Contiene la corrida registrada y el smoke sobre `ef0d493`, que no cuenta como resultado, con `SHA256SUMS`.
+- `hnp-review-pilot-v1-report.md` resume la corrida frente a los criterios pre-registrados.
+- Los archivos se copiaron byte por byte. En estos resúmenes, el campo `results` conserva la ruta absoluta y el nombre que les dio el runner. No se reescribió.
