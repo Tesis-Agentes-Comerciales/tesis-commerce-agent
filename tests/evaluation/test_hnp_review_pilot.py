@@ -40,6 +40,8 @@ from commerce_evaluation.hnp_review_scoring import NO_TRACE_BEFORE_START, review
 from commerce_evaluation.paths import RESULTS
 from tests.delegation.test_hnp_runtime import governed_hnp
 from tests.evaluation.test_flow_trace import run as hnp_run
+from tests.evaluation.test_pilot_rescore import digest
+from tests.evaluation.test_pilot_v2_rescore import sha256sums
 
 MERCHANT_ORIGIN = "http://127.0.0.1:4120"
 STACK = stack_variables(merchant_origin=MERCHANT_ORIGIN, auth_origin="http://127.0.0.1:4215")
@@ -574,3 +576,40 @@ def test_the_v1_rescore_reproduces_the_published_summaries(name: str) -> None:
     document = hnp_pilot.rescore(results)
     assert document["row_differences"] == []
     assert document["summary"] == published["summary"]
+
+
+# The reviewer pilot rescore ----------------------------------------------------------------------
+
+REVIEW_RESULTS = RESULTS / "hnp-review-pilot-v1"
+REGISTERED_RUN = REVIEW_RESULTS / "corrida-hnp-review-pilot-d5ac0451316c.jsonl"
+
+
+def test_the_reviewer_pilot_files_keep_the_digests_of_their_sha256sums() -> None:
+    frozen = sha256sums(REVIEW_RESULTS)
+
+    assert len(frozen) == 4
+    assert {path: digest(path) for path in frozen} == frozen
+
+
+@pytest.mark.parametrize(
+    "name", ["corrida-hnp-review-pilot-d5ac0451316c", "smoke-hnp-review-pilot-11f9ed0430b8"]
+)
+def test_the_reviewer_rescore_reproduces_the_published_summaries(
+    name: str, pilot: tuple[dict[str, Any], dict[str, Any]]
+) -> None:
+    results = REVIEW_RESULTS / f"{name}.jsonl"
+    published = json.loads(results.with_suffix(".summary.json").read_text(encoding="utf-8"))
+    document = hnp_review_pilot.rescore(results, *pilot)
+    assert document["row_differences"] == []
+    assert document["summary"] == published["summary"]
+
+
+def test_the_reviewer_rescore_keeps_the_figures_the_thesis_reports(
+    pilot: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    """HR02: the reviewer stopped 10 of 10 wrong choices; HR01 and HR03: 0 of 20 false blocks."""
+    summary = hnp_review_pilot.rescore(REGISTERED_RUN, *pilot)["summary"]
+    capture, utility = summary["hypotheses"]["H-capture"], summary["hypotheses"]["H-utility"]
+    assert (capture["B2-HNP-R"]["captures"], capture["B2-HNP-R"]["of"]) == (10, 10)
+    assert (utility["false_blocks"], utility["evaluated"], utility["of"]) == (0, 20, 20)
+    assert summary["outcome"] == {"class": "confirmed", "reasons": []}

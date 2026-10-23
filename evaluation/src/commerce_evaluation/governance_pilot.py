@@ -20,6 +20,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from email.message import Message
 from pathlib import Path
 from typing import Any, TextIO
 from uuid import uuid4
@@ -758,11 +759,70 @@ def _request_json(
     return HttpResult(status=status, body=body, elapsed_ms=elapsed_ms)
 
 
+# Better Auth allows 100 requests per route in this window (auth/auth.js) and past it answers 429
+# with `X-Retry-After`, the seconds until the window resets. The buyer waits that long, never more
+# than the window (the whole window without a readable value), and tries again, at most this many
+# times. Any other status is never retried.
+AUTH_WINDOW_SECONDS = 60.0
+AUTH_ATTEMPTS = 3
+
+
+class AuthRateLimitedError(PilotError):
+    """Auth still answered 429 on the last attempt: the repetition is a harness error."""
+
+
+def _retry_after_seconds(headers: Message) -> float:
+    """Better Auth's `X-Retry-After`, else the standard `Retry-After`, in seconds."""
+    value = headers.get("X-Retry-After") or headers.get("Retry-After")
+    try:
+        seconds = float(value) if value is not None else -1.0
+    except ValueError:
+        seconds = -1.0
+    return min(seconds, AUTH_WINDOW_SECONDS) if seconds >= 0 else AUTH_WINDOW_SECONDS
+
+
 class AuthClient:
-    def __init__(self, origin: str) -> None:
+    """The invocation's buyer on the local auth server. A 429 from auth's rate limiter is waited
+    out (`AUTH_ATTEMPTS`): `retries` keeps each wait, and each repetition copies its own to its
+    row's `auth_retries`."""
+
+    def __init__(self, origin: str, *, sleep: Callable[[float], None] = time.sleep) -> None:
         self.origin = origin
         self.cookies = http.cookiejar.CookieJar()
         self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cookies))
+        self._sleep = sleep
+        self.retries: list[dict[str, Any]] = []
+
+    def _open(self, request: urllib.request.Request) -> Any:
+        waits: list[float] = []
+        while True:
+            try:
+                with self.opener.open(request, timeout=30) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError as error:
+                if error.code != 429:
+                    raise
+                if len(waits) + 1 == AUTH_ATTEMPTS:
+                    raise AuthRateLimitedError(
+                        f"Auth answered 429 to {request.selector} on all {AUTH_ATTEMPTS} attempts "
+                        f"(waited {', '.join(f'{wait:g}' for wait in waits)} s)"
+                    ) from error
+                waits.append(_retry_after_seconds(error.headers))
+                self.retries.append(
+                    {
+                        "path": request.selector,
+                        "attempt": len(waits),
+                        "wait_seconds": waits[-1],
+                        "refused_at": _utc_now(),
+                    }
+                )
+                print(
+                    f"Auth answered 429 to {request.selector}; retrying in {waits[-1]:g} s "
+                    f"(attempt {len(waits) + 1} of {AUTH_ATTEMPTS})",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                self._sleep(waits[-1])
 
     def signup(self) -> str:
         request = urllib.request.Request(
@@ -777,17 +837,14 @@ class AuthClient:
             headers={"Content-Type": "application/json", "Origin": self.origin},
             method="POST",
         )
-        with self.opener.open(request, timeout=30) as response:
-            payload = json.load(response)
+        payload = self._open(request)
         try:
             return str(payload["user"]["id"])
         except (KeyError, TypeError) as error:
             raise PilotError("Auth signup response did not contain a user id") from error
 
     def token(self) -> str:
-        request = urllib.request.Request(f"{self.origin}/api/auth/token", method="GET")
-        with self.opener.open(request, timeout=30) as response:
-            payload = json.load(response)
+        payload = self._open(urllib.request.Request(f"{self.origin}/api/auth/token", method="GET"))
         token = payload.get("token")
         if not isinstance(token, str):
             raise PilotError("Auth token response did not contain a token")
@@ -1091,6 +1148,16 @@ def _parser() -> argparse.ArgumentParser:
         help="score the rows of a results file again and print the summary; starts nothing",
     )
     parser.add_argument(
+        "--combine",
+        type=Path,
+        nargs="+",
+        metavar="JSONL",
+        help=(
+            "write to --output each scenario's rows from the last file that ran it, and beside it "
+            "their rescore as .summary.json; starts nothing"
+        ),
+    )
+    parser.add_argument(
         "--allow-dirty",
         action="store_true",
         help="run although tracked files of the agent, merchant or PSP differ from their commit",
@@ -1268,6 +1335,8 @@ def _execute_repetition(
     """
     scenario, repetition, condition = run.scenario, run.repetition, run.condition
     label = run_dir.name
+    # The row keeps only the auth retries of its own requests, not the invocation's earlier ones.
+    first_auth_retry = len(auth.retries)
     run_dir.mkdir(parents=True, exist_ok=True)
     episode = _run_json(
         [
@@ -1570,6 +1639,7 @@ def _execute_repetition(
                         "purchase_status": status.elapsed_ms if status is not None else None,
                         "cancel": cancel.elapsed_ms if cancel is not None else None,
                     },
+                    "auth_retries": auth.retries[first_auth_retry:],
                 }
             except Exception:
                 log.flush()
@@ -2041,6 +2111,58 @@ def rescore(path: Path, matrix: dict[str, Any]) -> tuple[list[dict[str, Any]], d
     return records, document
 
 
+def combine(paths: Sequence[Path]) -> list[str]:
+    """The rows that count when later invocations ran whole scenarios again (the completeness
+    batch of b2-pilot-v2-report.md, section 1): each scenario comes whole from the last file that
+    ran it, never single rows. The lines stay as recorded, in file order and then row order."""
+    files: list[list[tuple[str, dict[str, Any]]]] = []
+    for path in paths:
+        try:
+            lines = [line for line in path.read_text(encoding="utf-8").split("\n") if line.strip()]
+            files.append([(line, json.loads(line)) for line in lines])
+        except (OSError, json.JSONDecodeError) as error:
+            raise PilotError(f"Cannot read results to combine: {path}") from error
+        if not files[-1]:
+            raise PilotError(f"No rows to combine in {path}")
+    # `smoke` may differ: is_smoke marks an invocation that ran fewer scenarios than the matrix.
+    runs = {
+        json.dumps([row.get(key) for key in RUN_METADATA_KEYS if key != "smoke"])
+        for rows in files
+        for _, row in rows
+    }
+    if len(runs) > 1:
+        raise PilotError("Only one registered run combines: same manifest, commits and model")
+    source = {row["scenario_id"]: index for index, rows in enumerate(files) for _, row in rows}
+    return [
+        line
+        for index, rows in enumerate(files)
+        for line, row in rows
+        if source[row["scenario_id"]] == index
+    ]
+
+
+def write_combined(paths: Sequence[Path], output: Path, matrix: dict[str, Any]) -> dict[str, Any]:
+    """`--combine`: the combined rows in `output` and their rescore beside it as .summary.json,
+    as a live run writes its own. It never writes over a file, and leaves none if the rows do not
+    score."""
+    summary_path = output.with_suffix(".summary.json")
+    taken = [str(path) for path in (output, summary_path) if path.exists()]
+    if taken:
+        raise PilotError(f"Will not write over {', '.join(taken)}")
+    lines = combine(paths)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+    try:
+        _, document = rescore(output, matrix)
+    except PilotError:
+        output.unlink()
+        raise
+    summary_path.write_text(
+        json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return document
+
+
 def _described_policy(policy: D1Policy, rules: Sequence[str]) -> dict[str, Any]:
     return {
         "policy_set_id": policy.set_id,
@@ -2302,6 +2424,16 @@ def _run_pilot() -> int:
     if arguments.rescore is not None:
         matrix = _load_matrix(matrix_path)
         _, document = rescore(arguments.rescore.resolve(), matrix)
+        print(json.dumps(document, ensure_ascii=False, indent=2))
+        return 0
+    if arguments.combine is not None:
+        if arguments.output is None:
+            raise PilotError("--combine writes the combined rows to --output")
+        document = write_combined(
+            [path.resolve() for path in arguments.combine],
+            arguments.output.resolve(),
+            _load_matrix(matrix_path),
+        )
         print(json.dumps(document, ensure_ascii=False, indent=2))
         return 0
     conditions = parse_conditions(arguments.conditions)

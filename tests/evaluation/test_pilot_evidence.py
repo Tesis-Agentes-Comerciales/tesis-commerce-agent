@@ -553,6 +553,7 @@ def execute_s04(
     on_request: Callable[[str], None] = lambda _: None,
     payment_database: Path | None = None,
     order_id: str | None = None,
+    auth: AuthClient | None = None,
 ) -> dict[str, Any]:
     processes: list[FakeAgentProcess] = []
     calls = [] if calls is None else calls
@@ -592,7 +593,7 @@ def execute_s04(
         environment={"BETTER_AUTH_URL": "http://127.0.0.1:4215"},
         run_dir=governance_pilot.run_directory(tmp_path, run),
         actor_id="buyer",
-        auth=FakeAuth(),
+        auth=auth or FakeAuth(),
         agent_port=43125,
         payment_database=payment_database or psp_database(tmp_path / "payments.db"),
     )

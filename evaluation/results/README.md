@@ -36,6 +36,7 @@ de configuración, resultados y lectura, más `SHA256SUMS`. La primera corrida e
 
 El piloto B2 gobernado v2 (manifiesto `B2-PILOT-v2`) está en `b2-pilot-v2/`.
 - Contiene el lote 1, el lote 2 (S05, S06 y S08, una invocación por escenario) y la combinación que cuenta, con `SHA256SUMS`.
+- La combinación se regenera desde las cuatro invocaciones con `governance-pilot --combine` (ver `evaluation/README.md`).
 - `b2-pilot-v2-report.md` resume los resultados frente a los criterios pre-registrados y explica la regla del lote de completitud.
 - En estos resúmenes, el campo `output` conserva la ruta absoluta que guardó el runner. No se reescribió.
 
