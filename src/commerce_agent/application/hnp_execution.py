@@ -4,7 +4,8 @@ docs/design/hnp-governed.md §3.3 (steps 1 to 10), §4.5 and §8.1. Nobody is pr
 reads the grant from the ledger, never from a model or a buyer token, and the model at most picks
 a variant of the grant's shortlist. Each external effect waits for the step before it:
 
-1. claim, with a lease; 2. shortlist and selector, and in B2-HNP with `AGENT_HNP_REVIEWER=llm` the
+1. claim, with a lease; 2. shortlist and selector (one that fails or does not answer ends
+`selection_unavailable` before any effect), and in B2-HNP with `AGENT_HNP_REVIEWER=llm` the
 intent reviewer (docs/design/hnp-intent-review.md), whose choice not confirmed escalates
 `choice_not_confirmed` before any effect; 3-4. `PurchaseService.start` with the grant (D1-HNP in
 enforce) up to `checkout_prepared`; 5. freshness `close`; 6. D2-HNP; 7. UoW-1
@@ -103,6 +104,7 @@ _ESCALATIONS = frozenset(
         "budget_not_satisfiable",
         "no_candidate_in_scope",
         "choice_not_confirmed",
+        "selection_unavailable",
         "offer_changed",
         "terms_out_of_scope",
         "authorization_profile_unresolved",
@@ -576,10 +578,16 @@ class HnpExecutionService:
             # A model selector records its request under the task's run (run-traceability §4.4).
             with model_request_scope(run_id=run.run_id):
                 chosen = self._selector.choose(shortlist, intent, consent.preference_text)
-        except Exception:
-            _log.warning("HNP selector made no choice")
+        except Exception as error:
+            # The classes only, never the message: it may carry catalog or request text. The
+            # request itself, with its `error_kind`, is in `model_requests` under the run.
+            _log.warning("HNP selector unavailable for task %s: %s", run.task_id, _kind(error))
             chosen = None
-        if chosen is None or (not _listed(shortlist, chosen) and self._mode == "off"):
+        if chosen is None:
+            # No choice is not a choice outside the grant (§8.1): it fails closed like the intent
+            # reviewer, before any effect, and escalates in B2-HNP without the operator's alert.
+            self._end(run, "selection_unavailable")
+        if not _listed(shortlist, chosen) and self._mode == "off":
             # K12: B0-HNP has no D1, so its own guard stops a choice outside the shortlist. B2-HNP
             # has no guard here: D1-HNP denies that choice with POL-01, with its evidence, before
             # any POST, and the terminal is the same `selection_not_eligible` (§3.3).
@@ -888,6 +896,14 @@ class HnpExecutionService:
 
 def _listed(shortlist: tuple[RankedCandidate, ...], variant_id: str) -> bool:
     return variant_id in {item.candidate.variant_id for item in shortlist}
+
+
+def _kind(error: BaseException) -> str:
+    """The class of an error and of its direct cause, e.g. `IntentInterpretationError <-
+    APIConnectionError`: the model client wraps the SDK's error (`raise ... from error`)."""
+    cause = error.__cause__
+    kind = type(error).__name__
+    return kind if cause is None else f"{kind} <- {type(cause).__name__}"
 
 
 def _terminal(outcome: OutcomeCode, *, escalates: bool) -> Terminal:

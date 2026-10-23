@@ -183,9 +183,10 @@ checkout JWT y de los dos cerrados); 09b la reconstruye igual. El `merchant_id` 
 `MERCHANT_ID` del perfil, el payee de los cerrados; el cliente del PSP manda el suyo, que es el
 mismo por defecto y que ningún setting cambia (la prueba del runtime fija que coincidan). Lo que
 §8.1 no nombra: un feed ilegible, un rechazo del comercio, una firma del checkout o un cierre que
-falla terminan `checkout_failed`; un selector que falla o, en B0-HNP, elige fuera de la lista
-corta, `selection_not_eligible`; un grant ilegible y un re-claim con avance que no se puede reanudar
-(abajo), `state_conflict`. El `outcome_code` de un deny de D1 sale de los
+falla terminan `checkout_failed`; un selector que en B0-HNP elige fuera de la lista corta,
+`selection_not_eligible`; un selector que falla o no responde (excepción, timeout, salida inválida
+o `None`), `selection_unavailable` (§8.1), que nunca es `selection_not_eligible`; un grant ilegible
+y un re-claim con avance que no se puede reanudar (abajo), `state_conflict`. El `outcome_code` de un deny de D1 sale de los
 `reason_codes` de su evidencia (`sqlite_d1_denials`): POL-01, luego POL-02, luego POL-11.
 
 **K12 por condición (HNP-09b).** En B0-HNP la guarda de la lista corta del executor termina
@@ -211,7 +212,9 @@ escribe sin ella: una cancelación conserva su causa y lo demás termina
 con alerta (`selection_not_eligible`, `merchant_not_allowed`, `mandate_proof_invalid`,
 `verifier_invalid_mandate`, `verifier_invalid_credential`; `OPERATOR_ALERTS`) dejan un registro
 `ERROR` en el logger `commerce_agent.hnp.alerts`, con `task_id`, estado y código y sin datos del
-dueño. No hay otro canal de notificación.
+dueño. No hay otro canal de notificación. Un selector que falla (`selection_unavailable`) no
+alerta: deja un `WARNING` con `task_id` y las clases de la excepción y de su causa, nunca el
+mensaje, y la petición queda en `model_requests` con su `error_kind`.
 
 **Cómo lo arma HNP-09b, despacho.** `HnpDispatcher.dispatch(execution)`
 (`application/hnp_dispatch.py`) hace los pasos 11 y 12 con los clientes del producto
@@ -933,6 +936,7 @@ Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP d
 | `escalated` | `budget_not_satisfiable` | D1 POL-11 | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `no_candidate_in_scope` | Lista corta vacía | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `choice_not_confirmed` | El revisor de intención no confirmó la elección (o no respondió), antes de D1 (`hnp-intent-review.md`) | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `selection_unavailable` | El selector falló o no respondió (excepción, timeout, salida inválida o `None`): no hubo elección, antes del revisor, de D1 y de cualquier POST | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `offer_changed` | Frescura `changed` al cerrar; se cancela el checkout propio | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `terms_out_of_scope` | D2 niega solo con POL-05 y/o POL-08 | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `authorization_profile_unresolved` | `GOV_AUTHORIZATION_PROFILE_UNRESOLVED`: perfil, `open_proof` o `closed_proof` en `unresolved` | — | `revoked(escalated)` | Escalamiento |
@@ -1008,6 +1012,7 @@ sigue en el chat HP y en el texto del modelo.
 | `escalation.budget_not_satisfiable` | El precio de catálogo de la opción disponible ya supera el total máximo que autorizaste. |
 | `escalation.no_candidate_in_scope` | Ninguna de las opciones que autorizaste está disponible ahora. |
 | `escalation.choice_not_confirmed` | No pude confirmar que la opción elegida sea la que pediste. |
+| `escalation.selection_unavailable` | No pude elegir entre las opciones que autorizaste porque el servicio que hace la elección falló o no respondió. |
 | `escalation.offer_changed` | La oferta del comercio cambió antes de que cerrara la compra. |
 | `escalation.terms_out_of_scope` | El total del comercio, con envío, o algún término quedó fuera de lo que autorizaste. |
 | `escalation.authorization_profile_unresolved` | No pude comprobar que la compra encaje en tu autorización. |
@@ -1152,9 +1157,10 @@ cualquier rastro suyo (fila de la compra, registros D1/D2/D3, `close`, reserva, 
 - D1 aplica también cuando el rastro encadenado lo implica: la fila de la compra que deja `start`,
   un evento posterior a D1 (reserva, cierre, outbox, recibo, consumo), `kill_switch_blocked` en
   `uow1`/`uow2`, o un `task_claimed` con la tarea en curso o terminada con un código de D1 o de un
-  paso posterior. Sin su evidencia, D1 es `missing`. `selection_not_eligible`, `checkout_failed`,
-  `state_conflict`, `governance_unavailable`, `no_candidate_in_scope`, `budget_guard` y las
-  cancelaciones pueden terminar la ejecución antes de D1 (K12 en HN11): no lo implican.
+  paso posterior. Sin su evidencia, D1 es `missing`. `selection_not_eligible`,
+  `selection_unavailable`, `checkout_failed`, `state_conflict`, `governance_unavailable`,
+  `no_candidate_in_scope`, `budget_guard` y las cancelaciones pueden terminar la ejecución antes de
+  D1 (K12 en HN11): no lo implican.
 - `intent` compara `intent_json` del grant con la intención derivada del alcance (moneda y
   `total_max_minor`) y recalcula el digest de la fuente D1 como P2; la fuente D1 es un enlace HMAC,
   así que el vínculo con el grant lo cierra `d1_decision` (`IntentFacts` = alcance, política

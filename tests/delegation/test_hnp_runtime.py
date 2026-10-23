@@ -7,6 +7,7 @@ are only assembled here, never called.
 """
 
 import json
+import logging
 import shutil
 import sqlite3
 from contextlib import closing
@@ -337,11 +338,15 @@ def test_the_llm_reviewer_needs_b2_hnp_and_the_model(
     assert not (tmp_path / "agent.db").exists()
 
 
-def legacy_ledger(path: Path) -> None:
-    """A ledger created before the reviewer: its CHECKs lack the event and the escalation."""
+REVIEW_CODES = ("'choice_reviewed'", "'choice_not_confirmed'")
+
+
+def legacy_ledger(path: Path, codes: tuple[str, ...] = REVIEW_CODES) -> None:
+    """A ledger created before some codes: its CHECKs lack them (by default, the reviewer's event
+    and escalation)."""
     with closing(sqlite3.connect(path)) as connection, connection:
         for statement in delegation_sqlite._SCHEMA:
-            for code in ("'choice_reviewed'", "'choice_not_confirmed'"):
+            for code in codes:
                 statement = statement.replace(f",{code}", "").replace(f"{code},", "")
             connection.execute(statement)
 
@@ -361,6 +366,63 @@ def test_a_new_ledger_admits_the_review(tmp_path: Path) -> None:
     ledger = SqliteDelegationLedger(tmp_path / "agent.db")
     ledger.initialize()
     assert ledger.admits_choice_review()
+
+
+# A selector that makes no choice (§3.3, §8.1)
+
+
+def test_a_ledger_without_selection_unavailable_is_refused_with_the_llm_selector(
+    tmp_path: Path,
+) -> None:
+    """Only the model selector can fail in practice: with it, startup refuses a ledger whose CHECK
+    would reject the terminal halfway through a run."""
+    path = tmp_path / "agent.db"
+    legacy_ledger(path, ("'selection_unavailable'",))
+    assert not SqliteDelegationLedger(path).admits_selection_unavailable()
+
+    with pytest.raises(RuntimeError, match="AGENT_DATABASE_PATH"):
+        runtime(hnp_settings(tmp_path, agent_hnp_selector="llm", **MODEL), Ap2Merchant(MERCHANT))
+    # The deterministic selector always chooses: the same database still starts.
+    runtime(hnp_settings(tmp_path), Ap2Merchant(MERCHANT)).close()
+
+
+def test_a_new_ledger_admits_selection_unavailable(tmp_path: Path) -> None:
+    ledger = SqliteDelegationLedger(tmp_path / "agent.db")
+    ledger.initialize()
+    assert ledger.admits_selection_unavailable()
+
+
+class Unreachable:
+    """A selector whose model cannot be reached."""
+
+    def choose(self, shortlist, intent, preference_text) -> str:
+        raise ConnectionError("the model is unreachable")
+
+
+def test_b2_hnp_escalates_a_selector_outage_without_effects(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    merchant = Ap2Merchant(MERCHANT)
+    settings = governed_hnp(tmp_path)
+    built = runtime(settings, merchant)
+    try:
+        executor = built.hnp_executor
+        assert executor is not None
+        executor._selector = Unreachable()
+        with caplog.at_level(logging.ERROR, logger="commerce_agent.hnp.alerts"):
+            step = executor.run(consented(built))
+    finally:
+        built.close()
+
+    assert step.status == "closed" and step.execution is not None
+    task, grant, path = step.execution.task, step.execution.grant, settings.agent_database_path
+    assert (task.state, task.outcome_code) == ("escalated", "selection_unavailable")
+    assert (grant.state, grant.revoked_reason) == ("revoked", "escalated")
+    assert task.run_id is not None
+    assert merchant.creations() == 0
+    assert d1_records(path, task.run_id) == []
+    assert purchase_of(path, task.run_id) is None
+    assert [r for r in caplog.records if r.name == "commerce_agent.hnp.alerts"] == []
 
 
 class NotConfirming:

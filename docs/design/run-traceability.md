@@ -85,7 +85,7 @@ cuentan como fuente.
 
 La traza (T) de una compra HNP agrega los pasos de la delegación (`assembler.py:818-862`), pero no
 trae `request` ni `selection`, y no existe si la tarea termina antes de crear la compra
-(`no_candidate_in_scope`, o `selection_not_eligible` en B0-HNP).
+(`no_candidate_in_scope`, `selection_unavailable`, o `selection_not_eligible` en B0-HNP).
 
 ## 3. El caso S05, repetición 8
 

@@ -127,7 +127,7 @@ def timings(path: Path) -> SqliteStageTimings:
     [
         ("SON-01", "applied", ("running", None), (MODEL_STAGE, "ok", 321, 12)),
         ("SON-07", "closed", ("failed", "selection_not_eligible"), (MODEL_STAGE, "ok", 321, 12)),
-        (None, "closed", ("failed", "selection_not_eligible"), (MODEL_STAGE, "error", None, None)),
+        (None, "closed", ("failed", "selection_unavailable"), (MODEL_STAGE, "error", None, None)),
     ],
     ids=["shortlisted", "outside", "unavailable"],
 )

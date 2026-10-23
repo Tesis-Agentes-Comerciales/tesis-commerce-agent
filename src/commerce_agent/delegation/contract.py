@@ -36,6 +36,8 @@ EscalationCode = Literal[
     "no_candidate_in_scope",
     # The intent reviewer did not confirm the choice (hnp-intent-review.md).
     "choice_not_confirmed",
+    # The selector failed or did not answer: there was no choice (§8.1).
+    "selection_unavailable",
     "offer_changed",
     "terms_out_of_scope",
     "authorization_profile_unresolved",
@@ -90,6 +92,10 @@ HNP_MESSAGES: Mapping[str, str] = MappingProxyType(
         ),
         "escalation.choice_not_confirmed": (
             "No pude confirmar que la opción elegida sea la que pediste."
+        ),
+        "escalation.selection_unavailable": (
+            "No pude elegir entre las opciones que autorizaste porque el servicio que hace la "
+            "elección falló o no respondió."
         ),
         "escalation.offer_changed": "La oferta del comercio cambió antes de que cerrara la compra.",
         "escalation.terms_out_of_scope": (

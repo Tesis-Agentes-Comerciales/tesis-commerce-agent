@@ -109,9 +109,17 @@ def build_delegation_service(
 def build_hnp_selector(
     settings: Settings, timings: SqliteStageTimings
 ) -> "tuple[HnpSelector, OpenAIDelegatedChooser | None]":
-    """`AGENT_HNP_SELECTOR`: the selector, and the model client the runtime must close."""
+    """`AGENT_HNP_SELECTOR`: the selector, and the model client the runtime must close. After
+    `build_delegation_service`: a model selector can fail, and a ledger created before
+    `selection_unavailable` lacks it in its CHECK, so startup refuses it rather than failing a run
+    halfway."""
     if settings.agent_hnp_selector == "deterministic":
         return DeterministicHnpSelector(), None
+    if not SqliteDelegationLedger(settings.agent_database_path).admits_selection_unavailable():
+        raise RuntimeError(
+            "AGENT_HNP_SELECTOR=llm needs a delegation ledger that admits selection_unavailable; "
+            "point AGENT_DATABASE_PATH to a new database"
+        )
     from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
 
     if settings.openai_api_key is None or settings.openai_model is None:

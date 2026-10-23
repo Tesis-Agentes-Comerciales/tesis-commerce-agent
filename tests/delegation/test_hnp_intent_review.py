@@ -242,6 +242,28 @@ def test_a_choice_outside_the_shortlist_is_not_reviewed(tmp_path: Path) -> None:
     assert bench.ended() == ("failed", "selection_not_eligible")
 
 
+class NoChoice:
+    """A selector whose model did not answer."""
+
+    def choose(self, shortlist, intent, preference_text) -> str:
+        raise TimeoutError("the model did not answer")
+
+
+def test_a_failed_selector_is_never_reviewed(tmp_path: Path) -> None:
+    """Without a choice there is nothing to review: the task escalates `selection_unavailable`
+    before the reviewer, D1 and any POST, and leaves no `choice_reviewed` event."""
+    reviewer = FakeReviewer(CONFIRMED)
+    bench = Bench(tmp_path, mode="enforce", selector=NoChoice(), reviewer=reviewer)
+
+    bench.run()
+
+    assert reviewer.calls == []
+    assert reviews(bench) == []
+    assert bench.ended() == ("escalated", "selection_unavailable")
+    assert bench.purchase() is None
+    assert bench.effects() == NOTHING
+
+
 def test_a_lease_lost_during_the_review_writes_nothing(tmp_path: Path) -> None:
     """Another claim took the task while the model answered: this run stops without the event."""
     reviewer = FakeReviewer(CONFIRMED)

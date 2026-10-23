@@ -234,6 +234,7 @@ EscalationReason = Literal[
     "budget_not_satisfiable",
     "no_candidate_in_scope",
     "choice_not_confirmed",
+    "selection_unavailable",
     "offer_changed",
     "terms_out_of_scope",
     "authorization_profile_unresolved",
