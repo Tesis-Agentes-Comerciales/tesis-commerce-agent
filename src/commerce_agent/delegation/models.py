@@ -27,6 +27,8 @@ EventType = Literal[
     "consented",
     "mandates_issued",
     "task_claimed",
+    # The intent reviewer's verdict on the selector's choice (hnp-intent-review.md).
+    "choice_reviewed",
     "reservation_reserved",
     "mandates_closed",
     "dispatch_committed",
@@ -43,6 +45,7 @@ EventType = Literal[
 OutcomeCode = Literal[
     "budget_not_satisfiable",
     "no_candidate_in_scope",
+    "choice_not_confirmed",
     "offer_changed",
     "terms_out_of_scope",
     "authorization_profile_unresolved",

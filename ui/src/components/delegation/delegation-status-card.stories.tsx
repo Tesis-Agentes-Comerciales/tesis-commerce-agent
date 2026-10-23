@@ -399,6 +399,12 @@ const ESCALATED = escalatedBy(
   `No pude comprobar que la compra encaje en tu autorización. ${SUFFIX}`,
 )
 
+/** El revisor de intención no confirmó la elección (docs/design/hnp-intent-review.md). */
+const REVIEW_NOT_CONFIRMED = escalatedBy(
+  "choice_not_confirmed",
+  `No pude confirmar que la opción elegida sea la que pediste. ${SUFFIX}`,
+)
+
 /** La sección de la gobernanza y su fila; al abrirla, los títulos de su línea de tiempo. */
 async function openGovernance({ canvas, userEvent }: PlayContext, summary: RegExp | string) {
   const governance = within(canvas.getByRole("group", { name: GOVERNANCE }))
@@ -500,6 +506,34 @@ export const TraceEscalated: Story = {
     ])
     await userEvent.click(canvas.getByRole("button", { name: "Comprar desde el chat" }))
     await expect(args.onBuyFromChat).toHaveBeenCalledWith(ESCALATED.escalation?.prefill_request)
+  },
+}
+
+/**
+ * El revisor de intención no confirmó la elección: la compra se detuvo antes de la política, sin
+ * checkout ni cobro, y la decisión vuelve al comprador con el mismo CTA de cualquier escalamiento.
+ */
+export const TraceReviewNotConfirmed: Story = {
+  args: {
+    delegation: REVIEW_NOT_CONFIRMED,
+    trace: traceFor(REVIEW_NOT_CONFIRMED, HNP_TRACES.enforceReviewNotConfirmed),
+  },
+  play: async (context) => {
+    const { args, canvas, userEvent } = context
+    await expect(canvas.getByRole("heading", { name: "Necesito tu decisión" })).toBeVisible()
+    await expect(canvas.getByText(escalationOf(REVIEW_NOT_CONFIRMED).message)).toBeVisible()
+    const titles = await openGovernance(context, /^Detenida: elección sin confirmar/)
+    await expect(titles.slice(0, 6)).toEqual([
+      "Delegación autorizada",
+      "Compra delegada en marcha",
+      "Revisión de la elección",
+      "Necesito tu decisión",
+      "Revisar la política de compra",
+      "Crear el checkout",
+    ])
+    await expect(canvas.getByText("No confirmada: contradice tu indicación.")).toBeVisible()
+    await userEvent.click(canvas.getByRole("button", { name: "Comprar desde el chat" }))
+    await expect(args.onBuyFromChat).toHaveBeenCalledWith(REVIEW_NOT_CONFIRMED.escalation?.prefill_request)
   },
 }
 

@@ -3,6 +3,7 @@ import { parsePurchaseTrace, type PurchaseTrace } from "@/lib/trace-contract"
 import checkoutRefused from "./checkout-refused.json"
 import d2Denied from "./d2-denied.json"
 import enforceCompleted from "./enforce-completed.json"
+import enforceReviewNotConfirmed from "./enforce-review-not-confirmed.json"
 import escalated from "./escalated.json"
 import killSwitch from "./kill-switch.json"
 import offCompleted from "./off-completed.json"
@@ -21,6 +22,11 @@ export const HNP_TRACES = {
   offCompleted: parsePurchaseTrace(offCompleted),
   /** B2-HNP: D1, frescura al cerrar, D2 antes de reservar y D3 antes de despachar. */
   enforceCompleted: parsePurchaseTrace(enforceCompleted),
+  /**
+   * El revisor de intención no confirmó la elección (contradice la indicación del comprador): escala
+   * antes de la política, sin checkout ni cobro (docs/design/hnp-intent-review.md).
+   */
+  enforceReviewNotConfirmed: parsePurchaseTrace(enforceReviewNotConfirmed),
   /** D2 niega por POL-08 (el destino no es el consentido): la decisión vuelve al comprador. */
   d2Denied: parsePurchaseTrace(d2Denied),
   /** La prueba del mandato abierto quedó sin resolver: D2 se detiene sin evaluar reglas y escala. */

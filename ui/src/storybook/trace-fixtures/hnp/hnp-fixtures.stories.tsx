@@ -12,6 +12,7 @@ import { HNP_TRACES } from "@/storybook/trace-fixtures/hnp"
 const HNP_KINDS: StepKind[] = [
   "delegation_consented",
   "task_activated",
+  "choice_reviewed",
   "policy_decision",
   "checkout_created",
   "freshness_check",
@@ -135,6 +136,17 @@ export const RejectsInvalidDelegatedSteps: Story = {
     const final = escalated.steps.length - 1
     await expect(rejects(escalated, (trace) => (trace.steps[final].reason = "policy_denied"))).toThrow(
       `trace.steps[${final}].reason`,
+    )
+    const review = HNP_TRACES.enforceReviewNotConfirmed
+    const reviewed = index(review, "choice_reviewed")
+    await expect(rejects(review, (trace) => (trace.steps[reviewed].decision = "rejected"))).toThrow(
+      `trace.steps[${reviewed}].decision`,
+    )
+    await expect(rejects(review, (trace) => (trace.steps[reviewed].reason = "model_said_no"))).toThrow(
+      `trace.steps[${reviewed}].reason`,
+    )
+    await expect(rejects(review, (trace) => (trace.steps[reviewed].rationale = "otra"))).toThrow(
+      `trace.steps[${reviewed}].rationale`,
     )
     // Una traza HP no trae `purchase_mode`.
     await expect(() => parsePurchaseTrace(TRACES.completedShadow)).not.toThrow()

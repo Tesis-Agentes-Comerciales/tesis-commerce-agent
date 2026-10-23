@@ -79,7 +79,8 @@ export function ControlStep({ step, merchant, context, className }: ControlStepP
           )}
         </div>
         {detail && <p className="mt-0.5 text-sm leading-5 text-[#6b6b6b] wrap-break-word">{detail}</p>}
-        {"decision" in step && (
+        {/* La revisión de la elección también trae `decision`, pero no es de la política. */}
+        {"decision" in step && step.kind !== "choice_reviewed" && (
           <PolicyRuleTable
             rules={step.decision.rules}
             values="failed"

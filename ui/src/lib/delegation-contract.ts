@@ -21,6 +21,7 @@ export type TaskState =
 const ESCALATION_CODES = [
   "budget_not_satisfiable",
   "no_candidate_in_scope",
+  "choice_not_confirmed",
   "offer_changed",
   "terms_out_of_scope",
   "authorization_profile_unresolved",

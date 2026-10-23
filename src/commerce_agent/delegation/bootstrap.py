@@ -26,6 +26,7 @@ from commerce_agent.application.hnp_execution import (
     PurchaseStarter,
     sqlite_d1_denials,
 )
+from commerce_agent.application.hnp_intent_review import HnpIntentReviewer
 from commerce_agent.application.hnp_selection import (
     DeterministicHnpSelector,
     HnpSelector,
@@ -44,6 +45,7 @@ from .service import DelegationService, HnpTrust
 
 if TYPE_CHECKING:
     from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+    from commerce_agent.llm.intent_review import ModelHnpIntentReviewer
 
 TOKEN_MIN_LENGTH = 32
 
@@ -125,6 +127,34 @@ def build_hnp_selector(
     return ModelHnpSelector(chooser, timings), chooser
 
 
+def build_hnp_reviewer(
+    settings: Settings, timings: SqliteStageTimings
+) -> "ModelHnpIntentReviewer | None":
+    """`AGENT_HNP_REVIEWER` (hnp-intent-review.md §9): the model reviewer, which the runtime must
+    close, or None when off. After `build_delegation_service`: a ledger created before the review
+    lacks its event and escalation in its CHECKs, and startup refuses it rather than failing a
+    run halfway."""
+    if settings.agent_hnp_reviewer == "off":
+        return None
+    if not SqliteDelegationLedger(settings.agent_database_path).admits_choice_review():
+        raise RuntimeError(
+            "AGENT_HNP_REVIEWER=llm needs a delegation ledger that admits choice_reviewed; "
+            "point AGENT_DATABASE_PATH to a new database"
+        )
+    from commerce_agent.llm.intent_review import ModelHnpIntentReviewer
+
+    if settings.openai_api_key is None or settings.openai_model is None:
+        raise RuntimeError("AGENT_HNP_REVIEWER=llm requires OPENAI_API_KEY and OPENAI_MODEL")
+    return ModelHnpIntentReviewer(
+        api_key=settings.openai_api_key,
+        model=settings.openai_model,
+        timer=timings,
+        timeout_seconds=settings.openai_timeout_seconds,
+        reasoning_effort=settings.openai_reasoning_effort,
+        model_requests=SqliteModelRequests(settings.agent_database_path),
+    )
+
+
 def build_hnp_executor(
     settings: Settings,
     trust: HnpTrust,
@@ -139,13 +169,15 @@ def build_hnp_executor(
     clock: Callable[[], datetime] | None,
     payments: PaymentProvider,
     merchant: MerchantCompletion,
+    reviewer: HnpIntentReviewer | None = None,
 ) -> HnpExecutionService:
     """The executor of a task, steps 1 to 12 of hnp-governed.md §3.3: the one place that
     assembles it with its dispatch (`HnpDispatcher` over the PSP client and the ACP client).
 
     `off` is B0-HNP: `NullHnpPolicyGate`, no freshness and no D1. `enforce` is B2-HNP and never
     starts without D2-HNP/D3-HNP and the `close` freshness guard. Only this service holds the
-    Agent Key; `clock` is the authority clock, as for the delegation service.
+    Agent Key; `clock` is the authority clock, as for the delegation service. `reviewer` is
+    the intent reviewer of `AGENT_HNP_REVIEWER=llm`, enforce only.
     """
     enforce = settings.agent_governance_mode == "enforce"
     if enforce and (gate is None or freshness is None):
@@ -180,6 +212,7 @@ def build_hnp_executor(
         dispatcher=HnpDispatcher(
             mode=mode, ledger=ledger, store=store, payments=payments, merchant=merchant
         ),
+        reviewer=reviewer,
     )
 
 
@@ -198,6 +231,13 @@ def _check_condition(settings: Settings) -> None:
         settings.openai_api_key is None or settings.openai_model is None
     ):
         raise RuntimeError("AGENT_HNP_SELECTOR=llm requires OPENAI_API_KEY and OPENAI_MODEL")
+    if settings.agent_hnp_reviewer == "llm" and mode != "enforce":
+        # B0-HNP has no escalation to stop a choice with (hnp-intent-review.md §2).
+        raise RuntimeError("AGENT_HNP_REVIEWER=llm requires AGENT_GOVERNANCE_MODE=enforce")
+    if settings.agent_hnp_reviewer == "llm" and (
+        settings.openai_api_key is None or settings.openai_model is None
+    ):
+        raise RuntimeError("AGENT_HNP_REVIEWER=llm requires OPENAI_API_KEY and OPENAI_MODEL")
     service = _secret(settings.agent_hnp_service_token).encode()
     operator = _secret(settings.agent_hnp_operator_token).encode()
     if min(len(service), len(operator)) < TOKEN_MIN_LENGTH or hmac.compare_digest(

@@ -81,6 +81,11 @@ export type TraceStep = {
   | { kind: "delegation_consented"; grant_id: string; total_max: Money; expires_at: string }
   /** Uno por cada vez que el servicio toma la tarea: el segundo la reanuda. */
   | { kind: "task_activated"; trigger: "service" }
+  /**
+   * El revisor de intención comparó la elección con lo que pediste, antes de la política
+   * (docs/design/hnp-intent-review.md). `state: "blocked"` si no la confirmó: la tarea escaló.
+   */
+  | { kind: "choice_reviewed"; decision: ReviewDecision; reason: ReviewReason }
   | { kind: "reservation"; outcome: "reserved" | "released" | "consumed" | "uncertain"; amount: Money }
   | { kind: "mandates_closed" }
   /** D3: la política revisa la autoridad justo antes de comprometer el despacho (POL-09, POL-10). */
@@ -94,11 +99,22 @@ export type TraceStep = {
 export type EscalationReason =
   | "budget_not_satisfiable"
   | "no_candidate_in_scope"
+  | "choice_not_confirmed"
   | "offer_changed"
   | "terms_out_of_scope"
   | "authorization_profile_unresolved"
   | "verifier_unresolved_constraint"
   | "verifier_mandates_not_supported"
+
+export type ReviewDecision = "confirmed" | "not_confirmed"
+
+/** `review_unavailable`: el revisor falló o no respondió, y la compra se detuvo por precaución. */
+export type ReviewReason =
+  | "matches_request"
+  | "contradicts_preference"
+  | "outside_request"
+  | "unclear"
+  | "review_unavailable"
 
 export type StepKind = TraceStep["kind"]
 
@@ -365,6 +381,16 @@ const STEP_FIELDS: { [K in StepKind]: StepFields<K> } = {
   },
   delegation_consented: { grant_id: text, total_max: money, expires_at: utc },
   task_activated: { trigger: oneOf("service") },
+  choice_reviewed: {
+    decision: oneOf<ReviewDecision>("confirmed", "not_confirmed"),
+    reason: oneOf<ReviewReason>(
+      "matches_request",
+      "contradicts_preference",
+      "outside_request",
+      "unclear",
+      "review_unavailable",
+    ),
+  },
   reservation: {
     outcome: oneOf("reserved", "released", "consumed", "uncertain"),
     amount: money,
@@ -379,6 +405,7 @@ const STEP_FIELDS: { [K in StepKind]: StepFields<K> } = {
     reason: oneOf<EscalationReason>(
       "budget_not_satisfiable",
       "no_candidate_in_scope",
+      "choice_not_confirmed",
       "offer_changed",
       "terms_out_of_scope",
       "authorization_profile_unresolved",
