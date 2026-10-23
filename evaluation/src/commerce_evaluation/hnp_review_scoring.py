@@ -27,6 +27,8 @@ CONDITIONS = ("B2-HNP", "B2-HNP-R")
 REVIEWED = "B2-HNP-R"
 UNREVIEWED = "B2-HNP"
 NOT_CONFIRMED = "choice_not_confirmed"
+# The ends that leave no choice of the shortlist to review (manifest H-trace `denominator`).
+BEFORE_SELECTION = frozenset({"selection_not_eligible", "no_candidate_in_scope"})
 REVIEW_STEP = "choice_reviewed"
 REVIEW_STAGE = "model.hnp_review"
 # The product trace's D1 step: the review step goes before it (coordination contract).
@@ -76,17 +78,17 @@ def _review_events(observed: Mapping[str, Any]) -> list[Mapping[str, Any]] | Non
 
 
 def reached_selection(observed: Mapping[str, Any]) -> int | None:
-    """The task passed the selection: it bought, the reviewer stopped it or D1 decided. Only then
-    does the product call the reviewer, which runs between the selection and D1."""
+    """H-trace's denominator as the manifest registers it: the task was claimed (its run exists)
+    and did not end in `selection_not_eligible` or `no_candidate_in_scope`; only a choice of the
+    shortlist goes to the reviewer. Any other end after the claim stays in, so a run lost between
+    the review and `start` (`failed(state_conflict)`) counts against H-trace without its review."""
     task = observed.get("task")
     if not task or task.get("state") in (None, "scheduled", "running"):
         return None
-    governance = observed.get("governance") or {}
-    return int(
-        task.get("state") == "purchased"
-        or task.get("outcome_code") == NOT_CONFIRMED
-        or governance.get("D1") not in (None, "not_reached")
-    )
+    view = observed.get("task_view")
+    if view is not None and view.get("run_id") is None:
+        return 0
+    return int(task.get("outcome_code") not in BEFORE_SELECTION)
 
 
 def _bought(observed: Mapping[str, Any]) -> bool:

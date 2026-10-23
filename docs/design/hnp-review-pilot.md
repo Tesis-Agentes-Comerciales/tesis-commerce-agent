@@ -6,9 +6,11 @@ líder a mano. Ningún PR, test ni CI la corre. No se ha corrido.
 
 - Manifiesto: `evaluation/data/hnp-review-pilot-v1.json`.
 - Escenarios, oráculos y expectativas: `evaluation/data/hnp-review-scenarios.json`.
-- Producto: el revisor de intención (R1, `feat/hnp-intent-reviewer`; su spec corta es
-  `docs/design/hnp-intent-review.md`). Este piloto usa los nombres del contrato de coordinación y
-  no los cambia.
+- Producto: el revisor de intención (R1, fusionado en #144; su spec corta es
+  `docs/design/hnp-intent-review.md`). Este piloto usa los nombres del contrato de coordinación,
+  que son los de R1, así que E1 no hace falta. Un episodio de prueba sobre el runtime de R1 (con
+  dobles y sin modelo) cumple tal cual la expectativa registrada de HR02 en `B2-HNP-R`, así que
+  E2 tampoco.
 - Base: el piloto HNP v1 ([`hnp-pilot.md`](hnp-pilot.md)) y su informe
   (`evaluation/results/hnp-pilot-v1-report.md`). Se reutilizan su runner, su arnés (incluida la
   enmienda H1: `BuyerAccount` y `JwksPace`, tal cual), su catálogo y su comprador sintético.
@@ -132,16 +134,20 @@ El **oráculo** es lo correcto para el comprador y es el mismo en las dos condic
   (por ejemplo, un selector `llm` que no respondió).
 - **Llegó a la selección:** la tarea se reclamó y el selector devolvió un id de la lista corta; en
   la práctica, la tarea no terminó en `selection_not_eligible` ni en `no_candidate_in_scope`. Solo
-  entonces el producto llama al revisor.
+  entonces el producto llama al revisor. Una corrida que se pierde entre la revisión y `start` (un
+  nuevo claim o una caída deja `failed(state_conflict)`, sin escalación y, si se perdió el lease,
+  sin `choice_reviewed`) sigue en el denominador: no es captura ni compra y, sin su revisión,
+  cuenta en contra de H-trace.
 - **Aparece en la traza.** El paso `choice_reviewed` de la traza HNP se deriva del evento
   `choice_reviewed` del ledger de la delegación. El runner lee, con el agente ya detenido y en solo
   lectura, los dos: los eventos del ledger y la traza HNP que el producto arma para la corrida de
   la tarea (la misma función que sirve `/purchases/{run_id}/trace`). Un episodio cuenta como
   trazado si el ledger tiene el evento y, cuando la corrida tiene traza, esa traza tiene el paso
-  `choice_reviewed` antes del primer paso de D1. Solo una tarea que escala antes de `start` sin
-  comprar (HR02 en `B2-HNP-R`: sin corrida o sin fila en `purchases`) no tiene traza: se juzga
-  por el ledger y el informe dice cuántos episodios se juzgaron así. Cualquier otra traza que no
-  se pudo leer o armar (un error del ensamblador, de SQLite o una compra sin fila) es
+  `choice_reviewed` antes del primer paso de D1. R1 crea la fila de la compra antes de la
+  revisión, así que HR02 en `B2-HNP-R` tiene traza: `choice_reviewed` y la escalación, sin D1.
+  Solo una tarea que no compró y no tiene corrida ni fila en `purchases` se queda sin traza: se
+  juzga por el ledger y el informe dice cuántos episodios se juzgaron así. Cualquier otra traza
+  que no se pudo leer o armar (un error del ensamblador, de SQLite o una compra sin fila) es
   `trace_unreadable`, no cuenta como trazada y el informe dice cuántas hubo.
 - Con 10 repeticiones, los resultados son descriptivos. 9/10 tiene un intervalo exacto al 95 % de
   0,555 a 0,997; con 0 fallos en 10, la cota superior unilateral es 0,26, y en 20, 0,14.
