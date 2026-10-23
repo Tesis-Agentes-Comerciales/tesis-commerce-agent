@@ -3,7 +3,7 @@ import { expect } from "storybook/test"
 
 import { PurchaseActivity } from "@/components/agent/purchase-activity"
 import { ControlTimeline } from "@/components/trace/control-timeline"
-import type { PurchaseTrace } from "@/lib/trace-contract"
+import type { PurchaseTrace, TraceStep } from "@/lib/trace-contract"
 import { stepOf } from "@/storybook/trace-fixtures"
 import { HNP_TRACES } from "@/storybook/trace-fixtures/hnp"
 
@@ -128,6 +128,71 @@ export const Escalated: Story = {
     await expect(
       canvas.getByText(`No pude comprobar que la compra encaje en tu autorización. ${NO_CHARGE}`),
     ).toBeVisible()
+  },
+}
+
+// El revisor de intención (docs/design/hnp-intent-review.md): compara la elección con lo que pidió
+// el comprador después de activar la tarea y antes de la política.
+
+const CONFIRMED: TraceStep = {
+  ...stepOf(HNP_TRACES.enforceReviewNotConfirmed, "choice_reviewed"),
+  at: "2026-10-21T15:00:01.390Z",
+  state: "done",
+  decision: "confirmed",
+  reason: "matches_request",
+}
+
+/** El revisor confirmó la elección: la compra sigue igual, con una fila más antes de la política. */
+export const ReviewConfirmed: Story = {
+  args: {
+    trace: {
+      ...HNP_TRACES.enforceCompleted,
+      steps: HNP_TRACES.enforceCompleted.steps.flatMap((step): TraceStep[] =>
+        step.kind === "task_activated" ? [step, CONFIRMED] : [step],
+      ),
+    },
+  },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(titles(canvasElement).slice(1, 4)).toEqual([
+      "Compra delegada en marcha",
+      "Revisión de la elección",
+      "Política de compra: permitida",
+    ])
+    await expect(rows(canvasElement)[2]).toHaveAttribute("data-state", "done")
+    await expect(canvas.getByText("Confirmada: coincide con lo que pediste.")).toBeVisible()
+    await expect(titles(canvasElement).at(-1)).toBe("Uso único consumido")
+  },
+}
+
+/** El revisor no confirmó la elección: escala antes de la política, sin checkout ni cobro. */
+export const ReviewNotConfirmed: Story = {
+  args: { trace: HNP_TRACES.enforceReviewNotConfirmed },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(titles(canvasElement)).toEqual([
+      "Delegación autorizada",
+      "Compra delegada en marcha",
+      "Revisión de la elección",
+      "Necesito tu decisión",
+      "Revisar la política de compra",
+      "Crear el checkout",
+      ...NOT_REACHED,
+    ])
+    await expect(states(canvasElement).slice(2)).toEqual([
+      "blocked",
+      "blocked",
+      "skipped",
+      "skipped",
+      "skipped",
+      "skipped",
+      "skipped",
+      "skipped",
+    ])
+    await expect(canvas.getByText("No confirmada: contradice tu indicación.")).toBeVisible()
+    await expect(
+      canvas.getByText(`No pude confirmar que la opción elegida sea la que pediste. ${NO_CHARGE}`),
+    ).toBeVisible()
+    // Con el revisor encendido la política está activa: no aparece como desactivada.
+    await expect(canvas.queryByText("Política desactivada")).toBeNull()
   },
 }
 
@@ -325,6 +390,7 @@ const SUMMARIES: [PurchaseTrace, string][] = [
   [HNP_TRACES.waitingForPolicy, "Por confirmar: recuperación pendiente"],
   [HNP_TRACES.d2Denied, "Bloqueada por la política de compra"],
   [HNP_TRACES.killSwitch, "Compra cancelada"],
+  [HNP_TRACES.enforceReviewNotConfirmed, "Detenida: elección sin confirmar"],
 ]
 
 /**
@@ -341,8 +407,10 @@ export const Phone288: Story = {
   ),
   play: async ({ canvas, canvasElement }) => {
     for (const [trace, summary] of SUMMARIES) {
-      const activity = canvasElement.querySelector(`[data-status='${trace.status}']`)
-      await expect(activity).toHaveTextContent(summary)
+      // Dos compras pueden compartir estado (`canceled`): cuenta la que trae ese resumen.
+      const activities = canvasElement.querySelectorAll(`[data-status='${trace.status}']`)
+      const texts = Array.from(activities, (activity) => activity.textContent ?? "")
+      await expect(texts.some((text) => text.startsWith(summary)), summary).toBe(true)
     }
     await expect(canvas.getAllByText("Delegación revocada")).toHaveLength(2)
     await expectFitsColumn(canvasElement)

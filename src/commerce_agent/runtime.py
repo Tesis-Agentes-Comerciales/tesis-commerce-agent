@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from commerce_agent.governance.enforce import SqliteD1EnforceGate
     from commerce_agent.governance.shadow import ShadowD1Observer, UnavailableShadowObserver
     from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+    from commerce_agent.llm.intent_review import ModelHnpIntentReviewer
 
 
 @dataclass
@@ -59,6 +60,8 @@ class AgentRuntime:
     # Its executor (§3.3) and, with AGENT_HNP_SELECTOR=llm, the model client it owns.
     hnp_executor: "HnpExecutionService | None" = None
     owned_hnp_chooser: "OpenAIDelegatedChooser | None" = None
+    # With AGENT_HNP_REVIEWER=llm, the intent reviewer's model client (hnp-intent-review.md §9).
+    owned_hnp_reviewer: "ModelHnpIntentReviewer | None" = None
     # Display name of each merchant origin, from the seller its feed declares at startup.
     merchant_names: dict[str, str] = field(default_factory=dict)
 
@@ -69,6 +72,8 @@ class AgentRuntime:
             self.owned_router.close()
         if self.owned_hnp_chooser is not None:
             self.owned_hnp_chooser.close()
+        if self.owned_hnp_reviewer is not None:
+            self.owned_hnp_reviewer.close()
         if self.published_feed is not None:
             self.published_feed.close()
         self.checkpoint_connection.close()
@@ -91,6 +96,8 @@ def build_runtime(
         raise RuntimeError("AGENT_APPROVAL_SECRET is required")
     if configuration.payment_agent_bearer_token is None:
         raise RuntimeError("PAYMENT_AGENT_BEARER_TOKEN is required")
+    if configuration.agent_hnp_reviewer == "llm" and not configuration.agent_hnp_enabled:
+        raise RuntimeError("AGENT_HNP_REVIEWER=llm requires AGENT_HNP_ENABLED=true")
     hnp_trust = None
     if configuration.agent_hnp_enabled:
         from commerce_agent.delegation.bootstrap import load_hnp_trust
@@ -255,11 +262,12 @@ def build_runtime(
         router_factory=router_factory,
         recovery=build_governed_recovery(configuration),
     )
-    delegations = hnp_executor = owned_hnp_chooser = None
+    delegations = hnp_executor = owned_hnp_chooser = owned_hnp_reviewer = None
     if hnp_trust is not None:
         from commerce_agent.delegation.bootstrap import (
             build_delegation_service,
             build_hnp_executor,
+            build_hnp_reviewer,
             build_hnp_selector,
         )
 
@@ -274,6 +282,7 @@ def build_runtime(
             # After the ledger exists: D2-HNP and D3-HNP write their evidence inside its UoWs.
             hnp_gate = build_hnp_policy_gate(configuration, clock, trust=hnp_trust.mandates)
         selector, owned_hnp_chooser = build_hnp_selector(configuration, timings)
+        owned_hnp_reviewer = build_hnp_reviewer(configuration, timings)
         hnp_executor = build_hnp_executor(
             configuration,
             hnp_trust,
@@ -287,6 +296,7 @@ def build_runtime(
             clock=authority_clock,
             payments=payments,
             merchant=client,
+            reviewer=owned_hnp_reviewer,
         )
     return AgentRuntime(
         store=store,
@@ -304,6 +314,7 @@ def build_runtime(
         delegations=delegations,
         hnp_executor=hnp_executor,
         owned_hnp_chooser=owned_hnp_chooser,
+        owned_hnp_reviewer=owned_hnp_reviewer,
         merchant_names=(
             {configuration.merchant_base_url: feed.seller_name} if feed.seller_name else {}
         ),

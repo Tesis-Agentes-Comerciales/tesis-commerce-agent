@@ -12,7 +12,8 @@
       "hnp_kill_switch": false,
       "hnp_active_grants": 0,
       "hnp_running_tasks": 0,
-      "hnp_uncertain_tasks": 0
+      "hnp_uncertain_tasks": 0,
+      "hnp_reviewer": "off"
     }
   },
   {

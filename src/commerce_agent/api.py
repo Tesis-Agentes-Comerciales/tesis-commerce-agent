@@ -63,6 +63,8 @@ class Health(BaseModel):
     hnp_active_grants: int | None = Field(default=None, ge=0, exclude_if=_absent)
     hnp_running_tasks: int | None = Field(default=None, ge=0, exclude_if=_absent)
     hnp_uncertain_tasks: int | None = Field(default=None, ge=0, exclude_if=_absent)
+    # AGENT_HNP_REVIEWER (hnp-intent-review.md §9): the runners compare it with their condition.
+    hnp_reviewer: Literal["off", "llm"] | None = Field(default=None, exclude_if=_absent)
 
 
 class ApprovalRequest(BaseModel):
@@ -271,6 +273,7 @@ def create_app(
                 "hnp_active_grants": counts.active_grants,
                 "hnp_running_tasks": counts.running_tasks,
                 "hnp_uncertain_tasks": counts.uncertain_tasks,
+                "hnp_reviewer": configuration.agent_hnp_reviewer,
             }
         )
 

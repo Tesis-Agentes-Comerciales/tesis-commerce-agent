@@ -31,6 +31,7 @@ from .models import (
     Money,
     OrderConfirmedStep,
     PolicyDecisionStep,
+    PolicyMode,
     PolicySummary,
     PurchaseHistory,
     PurchaseStatus,
@@ -72,6 +73,8 @@ GATED = {
     "payment_authorized",
     "order_confirmed",
 }
+# What waits for the intent review of a delegated purchase (hnp-intent-review.md §6).
+REVIEWED = {"policy_decision", "checkout_created"}
 # HNP (spec §8.1, §9.1): the task outcomes a cancellation ends with, and how ledger events read.
 CANCELLATIONS = {"revoked_by_owner", "kill_switch", "grant_expired"}
 REVOKED_BY: dict[str, TraceActor] = {"owner": "user", "operator": "operator"}
@@ -575,8 +578,9 @@ def goes_before(item: TraceStep, current: TraceStep, ordering: Ordering) -> bool
     """Times are rounded to milliseconds. Within one, the stored times keep the order of the
     writes. If those tie too, or are not known, a freshness check runs right before the step it
     gates, so it goes first, and so does a delegated payment before the order: UoW-3 records its
-    receipt before the order in the same transaction. Anything else goes after the steps it ties
-    with.
+    receipt before the order in the same transaction. The intent review also goes before D1 and
+    the checkout, which wait for it (hnp-intent-review.md §8). Anything else goes after the steps
+    it ties with.
 
     A step with the sandbox's time is not compared: every check runs before the approval is
     signed, and anything else comes after it.
@@ -591,7 +595,12 @@ def goes_before(item: TraceStep, current: TraceStep, ordering: Ordering) -> bool
     if stored_item is not None and stored_current is not None and stored_item != stored_current:
         return stored_current > stored_item
     gated = item.kind == "freshness_check" and current.kind in GATED
-    return gated or (item.kind == "payment_authorized" and current.kind == "order_confirmed")
+    reviewed = item.kind == "choice_reviewed" and current.kind in REVIEWED
+    return (
+        gated
+        or reviewed
+        or (item.kind == "payment_authorized" and current.kind == "order_confirmed")
+    )
 
 
 def by_time(
@@ -724,6 +733,10 @@ def delegation_steps(delegation: Delegation, purchase_end: TraceStep | None) -> 
                 )
             case "task_claimed":
                 add("task_activated", at, "agent", trigger="service")
+            case "choice_reviewed":
+                decision, reason = body["decision"], body["reason"]
+                state = "done" if decision == "confirmed" else "blocked"
+                add("choice_reviewed", at, "agent", state=state, decision=decision, reason=reason)
             case (
                 "reservation_reserved"
                 | "reservation_released"
@@ -816,6 +829,15 @@ def delegated_total(delegation: Delegation) -> Money | None:
     return Money(minor=amounts[-1], currency="COP") if amounts else None
 
 
+def delegated_policy_mode(records: PurchaseRecords, delegation: Delegation) -> PolicyMode:
+    """The latest decision's mode. Without one, a reviewed choice still says `enforce`: the
+    intent reviewer runs only in B2-HNP (hnp-intent-review.md §8)."""
+    if records.decisions:
+        return records.decisions[-1].decision.governance_mode
+    reviewed = any(event.event_type == "choice_reviewed" for event in delegation.events)
+    return "enforce" if reviewed else "off"
+
+
 def assemble_delegated(
     records: PurchaseRecords, delegation: Delegation, context: TraceContext
 ) -> PurchaseTrace:
@@ -851,7 +873,7 @@ def assemble_delegated(
     return PurchaseTrace(
         run_id=records.purchase["run_id"],
         status=delegated_status(records, delegation),
-        policy_mode=records.decisions[-1].decision.governance_mode if records.decisions else "off",
+        policy_mode=delegated_policy_mode(records, delegation),
         request=records.purchase["request_text"],
         merchant=origin,
         merchant_name=context.merchant_names.get(origin) if origin else None,

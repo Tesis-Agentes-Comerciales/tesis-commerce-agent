@@ -35,6 +35,7 @@ from commerce_agent.application.hnp_execution import (
     NullHnpPolicyGate,
     PurchaseStarter,
 )
+from commerce_agent.application.hnp_intent_review import HnpIntentReviewer
 from commerce_agent.application.hnp_selection import DeterministicHnpSelector, HnpSelector
 from commerce_agent.application.offer_freshness import FreshnessStage
 from commerce_agent.application.purchase import CheckoutGateway
@@ -343,6 +344,7 @@ class Bench:
         checkout: CheckoutGateway | None = None,
         real_chains: bool = False,
         dispatcher: Callable[["Bench"], Dispatcher] | None = None,
+        reviewer: HnpIntentReviewer | None = None,
     ) -> None:
         self.path = tmp_path / "agent.db"
         self.mode: Literal["off", "enforce"] = mode
@@ -396,6 +398,7 @@ class Bench:
             freshness=self.freshness,
             d1_denials=None if mode == "off" else d1_denials or (lambda run_id: d1_reasons),
             dispatcher=dispatcher(self) if dispatcher else None,
+            reviewer=reviewer,
         )
 
     def run(self) -> Step:

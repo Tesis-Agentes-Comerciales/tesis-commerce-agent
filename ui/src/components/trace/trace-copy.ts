@@ -17,6 +17,7 @@ import type {
   PurchaseStatus,
   PurchaseTrace,
   RecoveryCause,
+  ReviewReason,
   StepKind,
   StepState,
   TraceStep,
@@ -133,7 +134,7 @@ export function traceMerchant(
  * Controles del recorrido normal de una compra, en orden; los eventos sueltos no cuentan. Tampoco
  * la frescura, la recuperación ni las decisiones al aprobar y al despachar: solo existen en el flujo
  * gobernado (y con una política que las trae), y una fila «No se ejecutó» suya mentiría con la
- * gobernanza apagada.
+ * gobernanza apagada. Lo mismo la revisión de la elección: solo existe con el revisor encendido.
  */
 export type ControlKind = Exclude<
   StepKind,
@@ -146,6 +147,7 @@ export type ControlKind = Exclude<
   | "dispatch_decision"
   | "revoked"
   | "escalated"
+  | "choice_reviewed"
 >
 
 type ControlCopy = { todo: string; running: string; done: string; error: string }
@@ -592,6 +594,7 @@ const ESCALATION_CAUSE: Record<EscalationReason, string> = {
   budget_not_satisfiable:
     "El precio de catálogo de la opción disponible ya supera el total máximo que autorizaste.",
   no_candidate_in_scope: "Ninguna de las opciones que autorizaste está disponible ahora.",
+  choice_not_confirmed: "No pude confirmar que la opción elegida sea la que pediste.",
   offer_changed: "La oferta del comercio cambió antes de que cerrara la compra.",
   terms_out_of_scope:
     "El total del comercio, con envío, o algún término quedó fuera de lo que autorizaste.",
@@ -612,6 +615,34 @@ const REVOKED_EFFECT: Record<RevokedStep["effect"], string> = {
   no_effect: `. ${NO_CHARGE}`,
   released: ` antes de que el agente comprometiera el pago. ${NO_CHARGE}`,
   in_flight: ", pero el agente ya había comprometido el pago: esa compra sigue en curso.",
+}
+
+// El revisor de intención (docs/design/hnp-intent-review.md): compara la elección con lo que
+// pediste antes de la política; los límites los siguen cuidando las reglas.
+
+type ReviewStep = Extract<TraceStep, { kind: "choice_reviewed" }>
+
+const REVIEW_TITLE = "Revisión de la elección"
+
+const REVIEW_DECISION: Record<ReviewStep["decision"], string> = {
+  confirmed: "Confirmada",
+  not_confirmed: "No confirmada",
+}
+
+const REVIEW_REASON: Record<ReviewReason, string> = {
+  matches_request: "coincide con lo que pediste",
+  contradicts_preference: "contradice tu indicación",
+  outside_request: "queda fuera de lo que pediste",
+  unclear: "no se pudo saber si coincide con lo que pediste",
+  review_unavailable: "la revisión no estuvo disponible",
+}
+
+function reviewDetail(step: ReviewStep) {
+  return `${REVIEW_DECISION[step.decision]}: ${REVIEW_REASON[step.reason]}.`
+}
+
+function reviewNotConfirmed(trace: PurchaseTrace) {
+  return trace.steps.some((step) => step.kind === "choice_reviewed" && step.decision === "not_confirmed")
 }
 
 type ReservationStep = Extract<TraceStep, { kind: "reservation" }>
@@ -671,6 +702,8 @@ export function stepTitle(step: TraceStep, context?: StepContext) {
       return "Delegación revocada"
     case "escalated":
       return "Necesito tu decisión"
+    case "choice_reviewed":
+      return REVIEW_TITLE
     default:
       return controlTitle(step.kind, step.state)
   }
@@ -735,6 +768,8 @@ export function stepDetail(
       return `${REVOKED_BY[step.by]}${REVOKED_EFFECT[step.effect]}`
     case "escalated":
       return `${ESCALATION_CAUSE[step.reason]} ${NO_CHARGE}`
+    case "choice_reviewed":
+      return reviewDetail(step)
     case "canceled":
       return step.by === "expiry" ? `Venció antes de que el agente comprara. ${NO_CHARGE}` : null
     default:
@@ -774,10 +809,12 @@ const PURCHASE_SUMMARY: Record<PurchaseStatus, string> = {
 const STALE_UNAVAILABLE_SUMMARY = "Detenida: condiciones sin confirmar"
 const STALE_EXPIRED_SUMMARY = "Detenida: la oferta venció"
 const ALLOW_NOT_APPLIED_SUMMARY = "Detenida por precaución"
+const REVIEW_NOT_CONFIRMED_SUMMARY = "Detenida: elección sin confirmar"
 
 /** Línea de la fila de actividad en el chat. */
 export function purchaseSummary(trace: PurchaseTrace) {
   if (trace.steps.some((step) => waitingForPolicy(step, trace))) return WAITING_FOR_POLICY.summary
+  if (reviewNotConfirmed(trace)) return REVIEW_NOT_CONFIRMED_SUMMARY
   if (trace.status === "stale_terms") {
     const check = trace.steps.findLast((step) => step.kind === "freshness_check")
     if (check?.kind !== "freshness_check" || check.outcome !== "unavailable") {
@@ -899,6 +936,8 @@ function stepRefs(step: TraceStep, context: StepContext): EvidenceRef[] {
       return [{ label: "Delegación", value: step.grant_id }]
     case "escalated":
       return [{ label: "Escalamiento", value: step.reason }]
+    case "choice_reviewed":
+      return [{ label: "Revisión de la elección", value: `${step.decision} · ${step.reason}` }]
     case "checkout_created":
       return [{ label: "Checkout", value: step.checkout_id }]
     case "order_confirmed":

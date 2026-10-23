@@ -797,7 +797,8 @@ los duplica. Las vistas nunca llevan mandatos, tokens, dirección completa ni `s
 `Health` agrega `hnp_enabled: bool`, `hnp_kill_switch: bool`, `hnp_active_grants: int`,
 `hnp_running_tasks: int` y `hnp_uncertain_tasks: int`. **Ajuste de HNP-08:** con el flag apagado los
 cinco campos se omiten (`exclude_if`) en vez de valer `false` y 0, porque las pruebas HP y los
-runners de los pilotos fijan el cuerpo exacto de `/health`; ausente equivale a HNP apagado.
+runners de los pilotos fijan el cuerpo exacto de `/health`; ausente equivale a HNP apagado. Con HNP
+encendido también va `hnp_reviewer: "off" | "llm"` (`hnp-intent-review.md` §9).
 `hnp_active_grants` no cuenta un grant `active` que ya venció (las vistas lo muestran `expired`).
 `PurchaseSummary` y `PurchaseTrace` agregan `purchase_mode: "HP" | "HNP"` (HNP-11) como campo
 **opcional**: ausente equivale a `"HP"`, el backend lo omite en las compras HP (como `authorization`
@@ -815,6 +816,7 @@ fixtures y los bytes de HP no cambian y las pruebas HP pasan sin editarlas.
 | `AGENT_HNP_MAX_VALIDITY_SECONDS` | int, `86400` | 60 a 86400 | 08 |
 | `AGENT_HNP_PROPOSAL_TTL_SECONDS` | int, `600` | 60 a 1800 | 08 |
 | `AGENT_HNP_SELECTOR` | `deterministic` \| `llm`, `deterministic` | `llm` exige `OPENAI_*` como el resto del agente | 09a |
+| `AGENT_HNP_REVIEWER` | `off` \| `llm`, `off` | `llm` exige `enforce` y `OPENAI_*`; revisa la elección contra `preference_text` (`hnp-intent-review.md`) | R1 |
 
 Con `AGENT_HNP_ENABLED=true` el arranque exige además `AGENT_AUTH_MODE=jwt`,
 `AGENT_AP2_REQUIRED=true`, `AGENT_AP2_PRIVATE_KEY_PEM`, las tres variables HNP secretas,
@@ -930,6 +932,7 @@ Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP d
 | --- | --- | --- | --- | --- | --- |
 | `escalated` | `budget_not_satisfiable` | D1 POL-11 | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `no_candidate_in_scope` | Lista corta vacía | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `choice_not_confirmed` | El revisor de intención no confirmó la elección (o no respondió), antes de D1 (`hnp-intent-review.md`) | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `offer_changed` | Frescura `changed` al cerrar; se cancela el checkout propio | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `terms_out_of_scope` | D2 niega solo con POL-05 y/o POL-08 | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `authorization_profile_unresolved` | `GOV_AUTHORIZATION_PROFILE_UNRESOLVED`: perfil, `open_proof` o `closed_proof` en `unresolved` | — | `revoked(escalated)` | Escalamiento |
@@ -1004,6 +1007,7 @@ sigue en el chat HP y en el texto del modelo.
 | --- | --- |
 | `escalation.budget_not_satisfiable` | El precio de catálogo de la opción disponible ya supera el total máximo que autorizaste. |
 | `escalation.no_candidate_in_scope` | Ninguna de las opciones que autorizaste está disponible ahora. |
+| `escalation.choice_not_confirmed` | No pude confirmar que la opción elegida sea la que pediste. |
 | `escalation.offer_changed` | La oferta del comercio cambió antes de que cerrara la compra. |
 | `escalation.terms_out_of_scope` | El total del comercio, con envío, o algún término quedó fuera de lo que autorizaste. |
 | `escalation.authorization_profile_unresolved` | No pude comprobar que la compra encaje en tu autorización. |
@@ -1072,6 +1076,7 @@ Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autoriza
 | `consented` | `user` | `proposal_id`, `scope_digest`, `presented_at`, `consented_at`, `grant_version`, `authority_epoch`, `task_id` |
 | `mandates_issued` | `service` | Por mandato abierto: `token_digest`, `link_hash`, `issuer_kid`; `cnf_kid`, `exp`, `payment_reference` |
 | `task_claimed` | `service` | `run_id`, `claim_count`, `lease_expires_at`, `trigger: "service_token"` |
+| `choice_reviewed` | `service` | `decision`, `reason`, `prompt_id`, `model` (solo con `AGENT_HNP_REVIEWER=llm`, `hnp-intent-review.md`) |
 | `reservation_reserved` | `service` | `reservation_id`, `operation_id`, `amount_minor`, `expected_epoch`, `state_version`, `d2_evidence_id` |
 | `mandates_closed` | `service` | Por cerrado: `token_digest`, `link_hash` (`sd_hash` del último salto), `checkout_hash`, `agent_key_kid` |
 | `dispatch_committed` | `service` | `outbox_id`, `d3_evidence_id`, `authority_epoch`, `control_epoch` |
@@ -1201,6 +1206,7 @@ historias.
 | `mandates_closed` | `agent` | — | «Autorización cerrada por el agente» |
 | `dispatch_decision` | `policy` | `decision: PolicyDecision` | «Despacho autorizado» |
 | `revoked` | `user` u `operator` | `by: owner \| operator`, `effect` | «Delegación revocada» |
+| `choice_reviewed` | `agent` | `decision`, `reason` (solo con el revisor de intención) | «Revisión de la elección» |
 | `escalated` | `agent` | `reason` (código de §8.1) | «Necesito tu decisión» |
 
 - **Decisión de spec:** D2-HNP reutiliza el paso `authorization_decision` que introduce P3 (si P3 se

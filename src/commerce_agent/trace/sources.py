@@ -76,6 +76,13 @@ class FinishedBody(TypedDict):
     outcome_code: str | None
 
 
+class ReviewedBody(TypedDict):
+    """The intent reviewer's verdict (hnp-intent-review.md §7); its prompt and model stay out."""
+
+    decision: str
+    reason: str
+
+
 class ReceiptBody(TypedDict):
     """Which verifier issued a recorded AP2 receipt and its status; never the receipt itself."""
 
@@ -92,6 +99,7 @@ DELEGATION_BODIES: dict[str, TypeAdapter[Any]] = {
     "revoked": TypeAdapter(RevokedBody),
     "task_finished": TypeAdapter(FinishedBody),
     "receipt_recorded": TypeAdapter(ReceiptBody),
+    "choice_reviewed": TypeAdapter(ReviewedBody),
 }
 HP_BODIES: dict[str, TypeAdapter[Any]] = {
     "freshness_check": TypeAdapter(FreshnessBody),

@@ -2,8 +2,8 @@
 
 With AGENT_HNP_ENABLED off nothing changes. On, `off` runs B0-HNP and `enforce` runs B2-HNP with
 D1-HNP, D2/D3-HNP and the `close` freshness guard, both through the dispatch (HNP-09b). Real keys,
-real SQLite and the AP2 merchant and PSP doubles; the `llm` selector is only assembled here, never
-called.
+real SQLite and the AP2 merchant and PSP doubles; the `llm` selector and the `llm` intent reviewer
+are only assembled here, never called.
 """
 
 import json
@@ -15,11 +15,14 @@ from typing import Any
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from commerce_agent.ap2_hnp import MERCHANT_ID
+from commerce_agent.api import create_app
 from commerce_agent.application.hnp_dispatch import HnpDispatcher
 from commerce_agent.application.hnp_execution import HnpExecutionService, NullHnpPolicyGate
+from commerce_agent.application.hnp_intent_review import IntentReview
 from commerce_agent.application.hnp_selection import DeterministicHnpSelector, ModelHnpSelector
 from commerce_agent.config import Settings
 from commerce_agent.delegation.service import DelegationConsentRequest, DelegationProposalRequest
@@ -27,6 +30,9 @@ from commerce_agent.governance.enforce import SqliteD1EnforceGate
 from commerce_agent.governance.evidence import DecisionRecord
 from commerce_agent.governance.hnp_gate import SqliteHnpPolicyGate
 from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+from commerce_agent.llm.intent_review import ModelHnpIntentReviewer
+from commerce_agent.persistence import delegation_sqlite
+from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.runtime import AgentRuntime, build_runtime
 from tests.governance.test_shadow_integration import configuration
@@ -47,7 +53,7 @@ OWNER = "buyer-a"
 HP_COLUMNS = ["sequence", "stage", "started_at", "elapsed_ms", "outcome"]
 
 
-def governed_hnp(tmp_path: Path) -> Settings:
+def governed_hnp(tmp_path: Path, **changes: Any) -> Settings:
     """B2-HNP: enforce with the governed HP flow, plus what HNP startup requires (§6)."""
     return configuration(
         tmp_path / "agent.db",
@@ -61,6 +67,7 @@ def governed_hnp(tmp_path: Path) -> Settings:
         agent_hnp_agent_key_pem=SecretStr(AGENT_PEM),
         agent_hnp_service_token=SecretStr(SERVICE_TOKEN),
         agent_hnp_operator_token=SecretStr(OPERATOR_TOKEN),
+        **changes,
     )
 
 
@@ -270,3 +277,130 @@ def test_a_choice_outside_the_grant_is_never_bought(tmp_path: Path, mode: str) -
     assert record.decision.reason_codes == ("SELECTION_NOT_ELIGIBLE",)
     assert record.policy_input().eligible_variant_ids == ("SON-01",)
     assert purchase_of(path, task.run_id) == ("failed", "selection_not_eligible")
+
+
+# The intent reviewer (docs/design/hnp-intent-review.md §9)
+
+MODEL = {"openai_api_key": SecretStr("test-key-never-sent"), "openai_model": "test-model"}
+NO_MODEL = {"openai_api_key": None, "openai_model": None}
+
+
+def test_the_reviewer_is_off_by_default(tmp_path: Path) -> None:
+    built = runtime(governed_hnp(tmp_path), Ap2Merchant(MERCHANT))
+    try:
+        assert built.hnp_executor is not None and built.hnp_executor._reviewer is None
+        assert built.owned_hnp_reviewer is None
+    finally:
+        built.close()
+
+
+def test_the_llm_reviewer_is_assembled_in_b2_hnp(tmp_path: Path) -> None:
+    built = runtime(
+        governed_hnp(tmp_path, agent_hnp_reviewer="llm", **MODEL), Ap2Merchant(MERCHANT)
+    )
+    try:
+        assert built.hnp_executor is not None
+        reviewer = built.hnp_executor._reviewer
+        assert isinstance(reviewer, ModelHnpIntentReviewer)
+        assert built.owned_hnp_reviewer is reviewer
+        assert (reviewer.prompt_id, reviewer.model) == ("hnp-intent-review-v1", "test-model")
+    finally:
+        built.close()
+
+
+@pytest.mark.parametrize(
+    ("settings", "message"),
+    [
+        (
+            lambda path: governed_hnp(path, agent_hnp_reviewer="llm", **MODEL).model_copy(
+                update={"agent_hnp_enabled": False}
+            ),
+            "AGENT_HNP_REVIEWER=llm requires AGENT_HNP_ENABLED=true",
+        ),
+        (
+            lambda path: hnp_settings(path, agent_hnp_reviewer="llm", **MODEL),
+            "AGENT_HNP_REVIEWER=llm requires AGENT_GOVERNANCE_MODE=enforce",
+        ),
+        (
+            lambda path: governed_hnp(path, agent_hnp_reviewer="llm", **NO_MODEL),
+            "AGENT_HNP_REVIEWER=llm requires OPENAI_API_KEY and OPENAI_MODEL",
+        ),
+    ],
+    ids=["hnp-off", "b0-hnp", "no-model"],
+)
+def test_the_llm_reviewer_needs_b2_hnp_and_the_model(
+    tmp_path: Path, settings: Any, message: str
+) -> None:
+    with pytest.raises(RuntimeError, match=message):
+        runtime(settings(tmp_path), Ap2Merchant(MERCHANT))
+    # Startup stopped before any table or client existed.
+    assert not (tmp_path / "agent.db").exists()
+
+
+def legacy_ledger(path: Path) -> None:
+    """A ledger created before the reviewer: its CHECKs lack the event and the escalation."""
+    with closing(sqlite3.connect(path)) as connection, connection:
+        for statement in delegation_sqlite._SCHEMA:
+            for code in ("'choice_reviewed'", "'choice_not_confirmed'"):
+                statement = statement.replace(f",{code}", "").replace(f"{code},", "")
+            connection.execute(statement)
+
+
+def test_a_ledger_without_the_review_codes_is_refused_with_the_reviewer(tmp_path: Path) -> None:
+    path = tmp_path / "agent.db"
+    legacy_ledger(path)
+    assert not SqliteDelegationLedger(path).admits_choice_review()
+
+    with pytest.raises(RuntimeError, match="AGENT_DATABASE_PATH"):
+        runtime(governed_hnp(tmp_path, agent_hnp_reviewer="llm", **MODEL), Ap2Merchant(MERCHANT))
+    # Off, the same database still starts: nothing writes the new codes.
+    runtime(governed_hnp(tmp_path), Ap2Merchant(MERCHANT)).close()
+
+
+def test_a_new_ledger_admits_the_review(tmp_path: Path) -> None:
+    ledger = SqliteDelegationLedger(tmp_path / "agent.db")
+    ledger.initialize()
+    assert ledger.admits_choice_review()
+
+
+class NotConfirming:
+    prompt_id, model = "hnp-intent-review-v1", "test-model"
+
+    def review(self, shortlist, intent, preference_text, chosen_variant_id) -> IntentReview:
+        return IntentReview("not_confirmed", "outside_request")
+
+
+def test_b2_hnp_escalates_a_choice_not_confirmed_before_d1_and_any_post(tmp_path: Path) -> None:
+    merchant = Ap2Merchant(MERCHANT)
+    settings = governed_hnp(tmp_path, agent_hnp_reviewer="llm", **MODEL)
+    built = runtime(settings, merchant)
+    try:
+        executor = built.hnp_executor
+        assert executor is not None
+        executor._reviewer = NotConfirming()  # the assembled model reviewer is never called
+        step = executor.run(consented(built))
+    finally:
+        built.close()
+
+    assert step.status == "closed" and step.execution is not None
+    task, path = step.execution.task, settings.agent_database_path
+    assert (task.state, task.outcome_code) == ("escalated", "choice_not_confirmed")
+    assert task.run_id is not None
+    assert merchant.creations() == 0
+    assert d1_records(path, task.run_id) == []
+    assert purchase_of(path, task.run_id) == ("canceled", None)
+
+
+def test_health_reports_the_intent_reviewer(tmp_path: Path) -> None:
+    app = create_app(
+        settings=governed_hnp(tmp_path, agent_hnp_reviewer="llm", **MODEL),
+        transport=httpx.MockTransport(Ap2Merchant(MERCHANT)),
+    )
+    with TestClient(app) as client:
+        health = client.get("/health").json()
+
+    assert (health["governance_mode"], health["hnp_enabled"], health["hnp_reviewer"]) == (
+        "enforce",
+        True,
+        "llm",
+    )
