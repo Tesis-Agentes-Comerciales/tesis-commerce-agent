@@ -4,13 +4,17 @@ Real SQLite for the ledger, the store and the purchase; scripted merchant, Agent
 and D2/D3-HNP that count what each step reached (tests/support/hnp_executor.py).
 """
 
+import logging
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
+from openai import APIConnectionError
 
-from commerce_agent.application import PurchaseServiceError
+from commerce_agent.application import PurchaseServiceError, hnp_execution
 from commerce_agent.application.hnp_execution import (
+    OPERATOR_ALERTS,
     HnpExecutionService,
     NullHnpPolicyGate,
     payment_request_digest,
@@ -18,6 +22,7 @@ from commerce_agent.application.hnp_execution import (
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
 from commerce_agent.governance.hnp_policy import HnpGrant
 from commerce_agent.governance.models import POLICY_REASONS
+from commerce_agent.llm.conversation_router import IntentInterpretationError
 from tests.support.hnp_executor import (
     CHECKOUT_JWT,
     AgentKey,
@@ -222,9 +227,9 @@ def test_an_empty_shortlist_ends_before_start(tmp_path: Path, mode: str) -> None
     assert bench.effects() == NOTHING
 
 
-@pytest.mark.parametrize("choice", ["SON-07", "SON-99", None], ids=["unavailable", "foreign", "x"])
+@pytest.mark.parametrize("choice", ["SON-07", "SON-99"], ids=["unavailable", "foreign"])
 def test_in_b0_a_choice_outside_the_shortlist_never_reaches_start(
-    tmp_path: Path, choice: str | None
+    tmp_path: Path, choice: str
 ) -> None:
     """K12: B0-HNP has no D1, so the executor's own guard keeps the grant."""
     bench = Bench(tmp_path, selector=Choose(choice))
@@ -250,14 +255,109 @@ def test_in_b2_a_choice_outside_the_shortlist_goes_to_start(tmp_path: Path, choi
     assert bench.effects() == NOTHING
 
 
-def test_in_b2_a_selector_without_a_choice_ends_before_start(tmp_path: Path) -> None:
+# A selector that makes no choice (§3.3, §8.1): `selection_unavailable`, never the
+# `selection_not_eligible` of a choice K12 or POL-01 refuses.
+
+
+class Unavailable:
+    """A selector that makes no choice: it raises `error`, or answers None against its contract."""
+
+    def __init__(self, error: Exception | None) -> None:
+        self.error = error
+
+    def choose(self, shortlist, intent, preference_text) -> str:
+        if self.error is not None:
+            raise self.error
+        return None  # type: ignore[return-value]
+
+
+SECRET = "catalog text the log must never carry"
+
+
+def unreachable_model() -> IntentInterpretationError:
+    """What `OpenAIDelegatedChooser` raises when the model cannot be reached: the SDK's error is
+    its cause (`raise ... from error`)."""
+    error = IntentInterpretationError(SECRET)
+    request = httpx.Request("POST", "https://model.invalid/v1/responses")
+    error.__cause__ = APIConnectionError(message=SECRET, request=request)
+    return error
+
+
+FAILURES = {
+    "raises": lambda: Unavailable(RuntimeError(SECRET)),
+    "model-unreachable": lambda: Unavailable(unreachable_model()),
+    "answers-none": lambda: Unavailable(None),
+}
+
+
+def grant_of(bench: Bench) -> tuple[str, str | None]:
+    grant = bench.execution().grant
+    return grant.state, grant.revoked_reason
+
+
+def test_a_selector_that_fails_escalates_before_start_in_b2(tmp_path: Path) -> None:
+    """It fails closed like the intent reviewer: the decision goes back to the buyer, nothing is
+    created, signed or charged, and the grant closes as an escalation."""
     bench = Bench(tmp_path, mode="enforce", selector=Choose(None))
 
     assert bench.run().status == "closed"
 
-    assert bench.ended() == ("failed", "selection_not_eligible")
+    assert bench.ended() == ("escalated", "selection_unavailable")
+    assert grant_of(bench) == ("revoked", "escalated")
     assert bench.purchase() is None
     assert bench.effects() == NOTHING
+    assert isinstance(bench.gate, Gate) and bench.gate.calls == []
+    assert "choice_reviewed" not in bench.events()
+    assert bench.events()[-1] == "task_finished"
+
+
+def test_in_b0_a_selector_that_fails_fails_with_the_same_code(tmp_path: Path) -> None:
+    """§8.1: B0-HNP never escalates; the cause that escalates in B2 fails with its code."""
+    bench = Bench(tmp_path, selector=Choose(None))
+
+    assert bench.run().status == "closed"
+
+    assert bench.ended() == ("failed", "selection_unavailable")
+    assert grant_of(bench) == ("revoked", "failed")
+    assert bench.purchase() is None
+    assert bench.effects() == NOTHING
+
+
+@pytest.mark.parametrize("failure", FAILURES.values(), ids=FAILURES.keys())
+@pytest.mark.parametrize("mode", ["off", "enforce"])
+def test_every_way_of_making_no_choice_is_the_same_outcome(
+    tmp_path: Path, mode: str, failure: Any
+) -> None:
+    bench = Bench(tmp_path, mode=mode, selector=failure())  # type: ignore[arg-type]
+
+    assert bench.run().status == "closed"
+
+    state = "escalated" if mode == "enforce" else "failed"
+    assert bench.ended() == (state, "selection_unavailable")
+    assert bench.purchase() is None
+    assert bench.effects() == NOTHING
+
+
+@pytest.mark.parametrize("mode", ["off", "enforce"])
+def test_a_selector_failure_alerts_nobody_and_logs_its_kind(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, mode: str
+) -> None:
+    """The operator's alert is for altered mandates or a misconfigured scope (§8.1), not for a
+    model that did not answer. The warning names the task and the classes, never the message."""
+    bench = Bench(tmp_path, mode=mode, selector=Unavailable(unreachable_model()))  # type: ignore[arg-type]
+
+    with caplog.at_level(logging.WARNING):
+        bench.run()
+
+    assert [r for r in caplog.records if r.name == "commerce_agent.hnp.alerts"] == []
+    [warning] = [r for r in caplog.records if r.name == hnp_execution.__name__]
+    assert warning.levelno == logging.WARNING
+    message = warning.getMessage()
+    assert bench.task_id in message
+    assert "IntentInterpretationError <- APIConnectionError" in message
+    assert SECRET not in caplog.text
+    assert "selection_unavailable" not in OPERATOR_ALERTS
+    assert "selection_not_eligible" in OPERATOR_ALERTS
 
 
 # `start` (steps 3-4): D1-HNP, the merchant and the budget guard

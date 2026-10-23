@@ -99,6 +99,24 @@ def test_b0_hnp_fails_with_an_escalation_code_and_no_escalation_view() -> None:
     assert parse(DelegationView, failed).escalation is None
 
 
+def test_a_selector_that_made_no_choice_escalates_in_b2_and_fails_in_b0() -> None:
+    """`selection_unavailable` is an escalation code, never a failure of its own (§8.1)."""
+    escalated = fixture("escalated")
+    escalated["task"]["outcome_code"] = "selection_unavailable"
+    escalated["escalation"] |= {
+        "reason": "selection_unavailable",
+        "message": escalation_message("selection_unavailable"),
+    }
+    assert parse(DelegationView, escalated).task.outcome_code == "selection_unavailable"
+    failed = fixture("failed")
+    failed["task"]["outcome_code"] = "selection_unavailable"
+    assert parse(DelegationView, failed).escalation is None
+    assert HNP_MESSAGES["escalation.selection_unavailable"] == (
+        "No pude elegir entre las opciones que autorizaste porque el servicio que hace la "
+        "elección falló o no respondió."
+    )
+
+
 def test_revoking_a_grant_closed_by_someone_else_has_no_effect() -> None:
     """§5.1: a grant revoked by the operator, an escalation or a failure answers no_effect."""
     receipt = fixture("revoke-receipts")["receipts"][0]
@@ -228,6 +246,7 @@ SPEC_MESSAGE_KEYS = {
     "escalation.budget_not_satisfiable",
     "escalation.no_candidate_in_scope",
     "escalation.choice_not_confirmed",
+    "escalation.selection_unavailable",
     "escalation.offer_changed",
     "escalation.terms_out_of_scope",
     "escalation.authorization_profile_unresolved",
@@ -266,6 +285,7 @@ def test_the_canonical_texts_are_the_spec_table_plus_the_escalation_title_and_pr
         ("budget_not_satisfiable", "suffix_before_presentation"),
         ("offer_changed", "suffix_before_presentation"),
         ("choice_not_confirmed", "suffix_before_presentation"),
+        ("selection_unavailable", "suffix_before_presentation"),
         ("verifier_unresolved_constraint", "suffix_rejected_by_psp"),
         ("verifier_mandates_not_supported", "suffix_rejected_by_psp"),
     ],

@@ -717,6 +717,36 @@ def test_an_escalation_carries_its_own_message_and_prefill(
     }
 
 
+def test_a_selector_that_made_no_choice_hands_the_decision_back_to_the_buyer(
+    client: TestClient, ledger: SqliteDelegationLedger, clock: AuthorityClock
+) -> None:
+    """The model did not answer: the buyer sees why, that nothing was signed or charged, and the
+    prefill of a purchase they approve themselves; the first variant of the scope, as nothing was
+    selected."""
+    view = delegated(client, variant_ids=["SON-01", "SON-07"])
+    task = flow(ledger, clock, view)
+    task.claim()
+    task.finish("escalated", "selection_unavailable")
+
+    escalated = view_of(client, view["grant_id"])
+    assert (escalated.state, escalated.revoked_reason) == ("revoked", "escalated")
+    assert (escalated.task.outcome_code, escalated.task.message) == ("selection_unavailable", None)
+    assert escalated.escalation is not None
+    assert escalated.escalation.model_dump() == {
+        "reason": "selection_unavailable",
+        "title": "Necesito tu decisión",
+        "message": (
+            "No pude elegir entre las opciones que autorizaste porque el servicio que hace la "
+            "elección falló o no respondió. No firmé ni presenté ninguna autorización de pago, no "
+            "se hizo ningún cobro y cerré la delegación. Si todavía quieres comprar, hazlo desde "
+            "el chat y apruébala tú."
+        ),
+        "prefill_request": (
+            "Quiero comprar Audifonos Sonora SON-01 por hasta $\N{NO-BREAK SPACE}1.500,00 COP"
+        ),
+    }
+
+
 def test_a_purchase_names_the_bought_variant_its_total_and_order(
     tmp_path: Path, client: TestClient, ledger: SqliteDelegationLedger, clock: AuthorityClock
 ) -> None:

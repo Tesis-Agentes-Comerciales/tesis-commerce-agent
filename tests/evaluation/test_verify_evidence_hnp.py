@@ -77,6 +77,17 @@ def _ended(directory: Path, before: Callable[[Any], None] | None = None, **optio
     return chain.path
 
 
+class _Unavailable:
+    """A selector whose model did not answer."""
+
+    def choose(self, shortlist: Any, intent: Any, preference_text: Any) -> str:
+        raise TimeoutError("the model did not answer")
+
+
+def _without_selector(chain: Any) -> None:
+    chain.executor._selector = _Unavailable()
+
+
 def _at(phase: str, action: str) -> Callable[[Any], None]:
     def inject(chain: Any) -> None:
         chain.gate.hooks[phase] = getattr(chain, action)
@@ -101,6 +112,7 @@ SCENARIOS: dict[str, Callable[[Path], Path]] = {
     "d1_deny": lambda directory: _ended(
         directory, agent_d1_allowed_merchant_origins=AUTHORIZED_ONLY
     ),
+    "selection_unavailable": lambda directory: _ended(directory, _without_selector),
     "revoked": lambda directory: _ended(directory, lambda chain: chain.revoke()),
     "revoked_at_d3": lambda directory: _ended(directory, _at("D3", "revoke")),
     "kill_switch": lambda directory: _ended(directory, lambda chain: chain.kill_switch()),
@@ -409,6 +421,20 @@ def test_a_d1_deny_ends_the_chain_at_d1(scenario: Callable[[str], Path]) -> None
     assert statuses(run) == expected(ok=HNP_LINKS[:5])
     assert run["links"]["d1_decision"]["refs"]["outcome"] == "deny"
     assert (run["task_state"], run["outcome_code"]) == ("failed", "merchant_not_allowed")
+
+
+def test_a_selector_without_a_choice_escalates_before_d1(scenario: Callable[[str], Path]) -> None:
+    """The model did not answer: nothing reached D1 or the merchant, so the chain ends complete at
+    the escalation, with D1 `not_applicable` rather than `missing` (no purchase row)."""
+    run = only_run(scenario("selection_unavailable"), grant_id=GRANT)
+
+    assert statuses(run) == expected(
+        ok=("delegation_consent", "open_mandates", "task_activation", "escalation")
+    )
+    assert (run["task_state"], run["outcome_code"]) == ("escalated", "selection_unavailable")
+    assert run["stage"] is None
+    assert run["links"]["escalation"]["refs"]["outcome_code"] == "selection_unavailable"
+    assert run["complete"] is True
 
 
 def test_a_revocation_before_activation_is_verified_by_grant_and_task(

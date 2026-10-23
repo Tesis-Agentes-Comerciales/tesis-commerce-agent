@@ -6,6 +6,8 @@ those ids and records the call's time and tokens in `stage_timings`. A selector 
 observations, the intent and the buyer's preference text, and answers a variant id: never a
 mandate, key or amount. Whatever comes back is checked against the shortlist again (K12): by the
 executor's guard in B0-HNP and by D1-HNP's POL-01 in B2-HNP, so no selector widens the grant.
+A selector that raises or answers nothing made no choice: the task ends `selection_unavailable`
+(an escalation in B2-HNP), never `selection_not_eligible`.
 """
 
 from contextlib import AbstractContextManager

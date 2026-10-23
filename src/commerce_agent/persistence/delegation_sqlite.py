@@ -250,6 +250,7 @@ _ESCALATIONS = frozenset(
         "budget_not_satisfiable",
         "no_candidate_in_scope",
         "choice_not_confirmed",
+        "selection_unavailable",
         "offer_changed",
         "terms_out_of_scope",
         "authorization_profile_unresolved",
@@ -579,6 +580,15 @@ class SqliteDelegationLedger:
             )
         events, tasks = tables.get("delegation_events", ""), tables.get("hnp_tasks", "")
         return "'choice_reviewed'" in events and "'choice_not_confirmed'" in tasks
+
+    def admits_selection_unavailable(self) -> bool:
+        """Whether this database's `hnp_tasks` CHECK admits the terminal of a selector that made
+        no choice: a ledger created before it keeps its old list (`CREATE TABLE IF NOT EXISTS`)."""
+        with self._read() as connection:
+            row = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'hnp_tasks'"
+            ).fetchone()
+        return row is not None and "'selection_unavailable'" in row[0]
 
     def reserve(
         self, request: ReservationRequest, *, hooks: Sequence[TransactionHook] = ()

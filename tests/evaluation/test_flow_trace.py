@@ -350,7 +350,8 @@ def test_without_model_requests_the_field_is_null_and_named(
 
 
 def test_a_request_without_tokens_is_kept_and_marked(run_dir: Callable[[str], Path]) -> None:
-    """An invalid structured output fails the call: its row has no usage, and it stays."""
+    """An invalid structured output fails the call: its row has no usage, and it stays. The task
+    ends `selection_unavailable`: the selector made no choice."""
     trace = trace_of(run_dir("b2_invalid_output"))
 
     [request] = trace["model_requests"]
@@ -360,7 +361,7 @@ def test_a_request_without_tokens_is_kept_and_marked(run_dir: Callable[[str], Pa
     assert trace["delegation"]["shortlist_source"] == "model_request"
     assert trace["delegation"]["choice"]["selected_variant_id"] is None
     assert trace["errors"] == [
-        {"stage": "hnp.task", "code": "selection_not_eligible", "source": "hnp_tasks"},
+        {"stage": "hnp.task", "code": "selection_unavailable", "source": "hnp_tasks"},
         {"stage": "model.hnp_select", "code": None, "source": "stage_timings"},
         {"stage": "model.hnp_select", "code": "ValidationError", "source": "model_requests"},
     ]
