@@ -43,6 +43,51 @@ export const Completed: Story = {
   },
 }
 
+/** Filas de primer nivel de la línea de tiempo: las reglas de la política forman una lista anidada. */
+function timelineRows(canvasElement: HTMLElement) {
+  const timeline = canvasElement.querySelector("ol[aria-label='Controles de la compra']")
+  return Array.from(timeline?.querySelectorAll(":scope > li") ?? [])
+}
+
+const PACED_ROWS = TRACES.completedShadow.steps.length
+
+/**
+ * Como en el chat: abierta y a ritmo (`paced`). Las filas entran de a una, en su orden, y al plegar
+ * y volver a abrir las que ya se vieron salen enteras, sin animarse otra vez.
+ */
+export const Paced: Story = {
+  args: { trace: TRACES.completedShadow, defaultOpen: true, paced: true },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const trigger = canvas.getByRole("button", { name: /Compra completada en \d+ s/ })
+    await expect(trigger).toHaveAttribute("aria-expanded", "true")
+    const start = timelineRows(canvasElement).length
+    await expect(start).toBeGreaterThan(0)
+    await expect(start).toBeLessThan(PACED_ROWS)
+    const counts: number[] = []
+    const observer = new MutationObserver(() => counts.push(timelineRows(canvasElement).length))
+    observer.observe(canvas.getByRole("list", { name: "Controles de la compra" }), {
+      childList: true,
+    })
+    await waitFor(() => expect(timelineRows(canvasElement)).toHaveLength(PACED_ROWS), {
+      timeout: PACED_ROWS * 350 + 2000,
+    })
+    observer.disconnect()
+    // De a una: cada cambio agrega una sola fila.
+    await expect(counts).toEqual(
+      Array.from({ length: PACED_ROWS - start }, (_, index) => start + index + 1),
+    )
+    const titles = timelineRows(canvasElement).map((row) => row.textContent)
+
+    await userEvent.click(trigger)
+    await waitFor(() =>
+      expect(canvas.queryByRole("list", { name: "Controles de la compra" })).toBeNull(),
+    )
+    await userEvent.click(trigger)
+    await expect(timelineRows(canvasElement).map((row) => row.textContent)).toEqual(titles)
+    await expect(canvasElement.querySelectorAll("ol > li.agent-enter")).toHaveLength(0)
+  },
+}
+
 const LATE_WEBHOOK_AT = "2026-10-20T16:30:00.000Z"
 
 /** Un aviso del comercio que llega 48 min después no alarga la duración de la compra. */

@@ -195,12 +195,14 @@ function AgentProgress({ parts, active, status, blocked, latest }: AgentProgress
     ? { current: "checkout", stopped: "checkout" }
     : derivePlanProgress({ parts: tools, purchase: own, running: active })
   const failedNote = own?.stage === "canceled" ? "Cancelaste la compra" : undefined
-  // Con la página quieta nada se anima: el plan que queda como última palabra no late.
+  // Con la página quieta nada se anima: el plan que queda como última palabra no late. Avanza a
+  // ritmo: aunque la respuesta ya esté, cada paso se ve en curso antes de hecho.
   return (
     <AgentPlan
       {...progress}
       failedNote={failedNote}
       still={!active && !pending}
+      paced
       className="mb-4"
     />
   )
@@ -303,6 +305,9 @@ function AssistantMessage() {
         !(staleTerms && purchaseTrace.status === "awaiting_approval") && (
         <PurchaseActivity
           trace={purchaseTrace}
+          // La gobernanza de la compra es lo que hay que ver: abierta, con sus filas a ritmo.
+          defaultOpen
+          paced
           // La tarjeta anuncia lo que pasa al aprobar o cancelar, pero no que espera la aprobación:
           // eso lo dice esta fila, que ya estaba en el mensaje antes de la tarjeta.
           announce={

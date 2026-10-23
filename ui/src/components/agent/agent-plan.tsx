@@ -8,6 +8,7 @@ import {
   type PlanProgress,
   type PlanStepState,
 } from "@/components/agent/agent-steps"
+import { usePacedPlan } from "@/components/agent/use-pacing"
 
 import "./agent.css"
 
@@ -24,6 +25,11 @@ export type AgentPlanProps = PlanProgress & {
   failedNote?: string
   /** El turno terminó y el plan queda como su último estado: el paso que espera no late. */
   still?: boolean
+  /**
+   * Avanza a ritmo (`usePacedPlan`): como mucho un paso cada `PLAN_STEP_MIN_MS`, cada uno en curso
+   * antes de hecho, aunque el progreso ya vaya adelantado. Es lo que hace el chat.
+   */
+  paced?: boolean
   className?: string
 }
 
@@ -66,14 +72,13 @@ function StepIcon({
 
 /** Recorrido de la compra: Entender, Buscar, Elegir, Checkout, Aprobación y Completar. */
 export function AgentPlan({
-  current,
-  failed,
-  stopped,
-  waiting = false,
   failedNote,
   still = false,
+  paced = false,
   className,
+  ...progress
 }: AgentPlanProps) {
+  const { current, failed, stopped, waiting = false } = usePacedPlan(progress, paced)
   const titleId = useId()
   const states = planStepStates({ current, failed, stopped })
   const doneCount = PLAN_STEPS.filter((step) => states[step.id] === "done").length

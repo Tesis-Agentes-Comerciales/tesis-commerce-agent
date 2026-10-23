@@ -63,6 +63,11 @@ export type DelegationStatusCardProps = {
    * los mismos controles que la compra en el chat. Sin ella, la tarjeta no muestra la gobernanza.
    */
   trace?: PurchaseTrace | null
+  /**
+   * La gobernanza sale abierta y sus filas nuevas entran a ritmo: la tarjeta del hilo, donde se ve
+   * avanzar la compra delegada. En «Mis delegaciones» queda plegada.
+   */
+  governanceOpen?: boolean
   /** Recibo de `POST /delegations/{id}/revoke`, cuando se acaba de revocar desde esta tarjeta. */
   revokeReceipt?: RevokeReceipt | null
   /** Mientras revocar responde, «Revocar» conserva el foco con `aria-disabled`. */
@@ -86,6 +91,7 @@ export type DelegationStatusCardProps = {
 export function DelegationStatusCard({
   delegation,
   trace,
+  governanceOpen = false,
   revokeReceipt,
   revoking = false,
   error,
@@ -147,7 +153,7 @@ export function DelegationStatusCard({
             )
           )}
 
-          {trace && <DelegationGovernance trace={trace} />}
+          {trace && <DelegationGovernance trace={trace} open={governanceOpen} />}
 
           <VariantList variants={scope.variants} />
           {scope.preference_text && <PreferenceQuote text={scope.preference_text} />}
@@ -200,11 +206,11 @@ export function DelegationStatusCard({
 }
 
 /**
- * La gobernanza de la compra delegada: la fila de actividad del chat, plegada, y al abrirla la
- * línea de tiempo con el consentimiento, las tres decisiones de la política, el uso único y la
- * orden, con su detalle técnico (docs/design/trace-panel.md, «Compra delegada»).
+ * La gobernanza de la compra delegada: la fila de actividad del chat (plegada, salvo con `open`) y
+ * al abrirla la línea de tiempo con el consentimiento, las tres decisiones de la política, el uso
+ * único y la orden, con su detalle técnico (docs/design/trace-panel.md, «Compra delegada»).
  */
-function DelegationGovernance({ trace }: { trace: PurchaseTrace }) {
+function DelegationGovernance({ trace, open }: { trace: PurchaseTrace; open: boolean }) {
   const labelId = useId()
   // Un grupo y no una región: cada tarjeta de «Mis delegaciones» tiene el suyo, con el mismo nombre.
   return (
@@ -217,7 +223,7 @@ function DelegationGovernance({ trace }: { trace: PurchaseTrace }) {
       <h4 id={labelId} className="text-xs leading-5 font-medium text-[#6b6b6b]">
         {GOVERNANCE_LABEL}
       </h4>
-      <PurchaseActivity trace={trace} showNames={false} />
+      <PurchaseActivity trace={trace} showNames={false} defaultOpen={open} paced={open} />
     </div>
   )
 }
