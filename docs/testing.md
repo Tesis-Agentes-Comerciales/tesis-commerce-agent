@@ -116,7 +116,7 @@ En macOS con OrbStack, 2026-10-20; las filas HNP y del navegador, 2026-10-21; lo
 
 | Selección | Pruebas | Tiempo |
 | --- | --- | --- |
-| `uv run pytest` (capas 1 y 5) | 3428: 3336 pasan y 92 se omiten | ~1,5 min |
+| `uv run pytest` (capas 1 y 5) | 3468: 3376 pasan y 92 se omiten | ~1,5 min |
 | `tests/integration` completa | 92 | ~13 min |
 | `tests/integration -m "not slow"` | 81 | ~3 min |
 | `tests/integration/test_live_hnp.py` | 16 | ~1 min |
