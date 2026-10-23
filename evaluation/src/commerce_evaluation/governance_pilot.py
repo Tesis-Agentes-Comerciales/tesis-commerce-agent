@@ -1091,6 +1091,16 @@ def _parser() -> argparse.ArgumentParser:
         help="score the rows of a results file again and print the summary; starts nothing",
     )
     parser.add_argument(
+        "--combine",
+        type=Path,
+        nargs="+",
+        metavar="JSONL",
+        help=(
+            "write to --output each scenario's rows from the last file that ran it, and beside it "
+            "their rescore as .summary.json; starts nothing"
+        ),
+    )
+    parser.add_argument(
         "--allow-dirty",
         action="store_true",
         help="run although tracked files of the agent, merchant or PSP differ from their commit",
@@ -2041,6 +2051,58 @@ def rescore(path: Path, matrix: dict[str, Any]) -> tuple[list[dict[str, Any]], d
     return records, document
 
 
+def combine(paths: Sequence[Path]) -> list[str]:
+    """The rows that count when later invocations ran whole scenarios again (the completeness
+    batch of b2-pilot-v2-report.md, section 1): each scenario comes whole from the last file that
+    ran it, never single rows. The lines stay as recorded, in file order and then row order."""
+    files: list[list[tuple[str, dict[str, Any]]]] = []
+    for path in paths:
+        try:
+            lines = [line for line in path.read_text(encoding="utf-8").split("\n") if line.strip()]
+            files.append([(line, json.loads(line)) for line in lines])
+        except (OSError, json.JSONDecodeError) as error:
+            raise PilotError(f"Cannot read results to combine: {path}") from error
+        if not files[-1]:
+            raise PilotError(f"No rows to combine in {path}")
+    # `smoke` may differ: is_smoke marks an invocation that ran fewer scenarios than the matrix.
+    runs = {
+        json.dumps([row.get(key) for key in RUN_METADATA_KEYS if key != "smoke"])
+        for rows in files
+        for _, row in rows
+    }
+    if len(runs) > 1:
+        raise PilotError("Only one registered run combines: same manifest, commits and model")
+    source = {row["scenario_id"]: index for index, rows in enumerate(files) for _, row in rows}
+    return [
+        line
+        for index, rows in enumerate(files)
+        for line, row in rows
+        if source[row["scenario_id"]] == index
+    ]
+
+
+def write_combined(paths: Sequence[Path], output: Path, matrix: dict[str, Any]) -> dict[str, Any]:
+    """`--combine`: the combined rows in `output` and their rescore beside it as .summary.json,
+    as a live run writes its own. It never writes over a file, and leaves none if the rows do not
+    score."""
+    summary_path = output.with_suffix(".summary.json")
+    taken = [str(path) for path in (output, summary_path) if path.exists()]
+    if taken:
+        raise PilotError(f"Will not write over {', '.join(taken)}")
+    lines = combine(paths)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+    try:
+        _, document = rescore(output, matrix)
+    except PilotError:
+        output.unlink()
+        raise
+    summary_path.write_text(
+        json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return document
+
+
 def _described_policy(policy: D1Policy, rules: Sequence[str]) -> dict[str, Any]:
     return {
         "policy_set_id": policy.set_id,
@@ -2302,6 +2364,16 @@ def _run_pilot() -> int:
     if arguments.rescore is not None:
         matrix = _load_matrix(matrix_path)
         _, document = rescore(arguments.rescore.resolve(), matrix)
+        print(json.dumps(document, ensure_ascii=False, indent=2))
+        return 0
+    if arguments.combine is not None:
+        if arguments.output is None:
+            raise PilotError("--combine writes the combined rows to --output")
+        document = write_combined(
+            [path.resolve() for path in arguments.combine],
+            arguments.output.resolve(),
+            _load_matrix(matrix_path),
+        )
         print(json.dumps(document, ensure_ascii=False, indent=2))
         return 0
     conditions = parse_conditions(arguments.conditions)
