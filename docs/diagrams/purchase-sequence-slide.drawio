@@ -5,7 +5,7 @@
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="45" value="" style="rounded=0;fillColor=#FFFFFF;strokeColor=none;" vertex="1" parent="1">
+        <mxCell id="44" value="" style="rounded=0;fillColor=#FFFFFF;strokeColor=none;" vertex="1" parent="1">
           <mxGeometry x="1" y="1" width="1918" height="1078" as="geometry" />
         </mxCell>
         <mxCell id="2" value="Compra Human Present gobernada, paso a paso" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=31;fontStyle=1;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
@@ -149,7 +149,7 @@
         <mxCell id="37" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:21px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;S04 · la oferta cambió&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:18px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;409 checkout_terms_changed: sin firma, pago ni orden (frescura de la oferta)&lt;div style=&quot;color:#686868;margin-top:8px&quot;&gt;Piloto: aprobaciones obsoletas 5/5 → 0/5&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#A84E4E;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
           <mxGeometry x="1080" y="540" width="392" height="232" as="geometry" />
         </mxCell>
-        <mxCell id="38" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:21px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Consentimiento e identidad (D2-HP)&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · planificado]&lt;/div&gt;&lt;div style=&quot;font-size:18px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;Al aprobar, antes de firmar. &lt;span style=&quot;white-space:nowrap&quot;&gt;POL-03..06&lt;/span&gt; definidas en policy-v1, sin evaluador&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;dashed=1;dashPattern=10 6;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
+        <mxCell id="38" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:21px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Consentimiento e identidad (D2-HP)&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#686868;margin-top:3px&quot;&gt;[B2 · hecho]&lt;/div&gt;&lt;div style=&quot;font-size:18px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;Con la política b2-hp-v2, al aprobar y antes de firmar: &lt;span style=&quot;white-space:nowrap&quot;&gt;POL-03..06&lt;/span&gt;. Un deny da 409 sin firma, pago ni orden. El piloto v1 (b2-pilot-v1) no lo tenía&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.5;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=top;spacing=10;" vertex="1" parent="1">
           <mxGeometry x="1496" y="540" width="384" height="232" as="geometry" />
         </mxCell>
         <mxCell id="39" value="&lt;b&gt;S04 y S02 no son denegaciones del PDP.&lt;/b&gt; D1 permitió cada compra que evaluó (5/5 en S04 y 3/3 en S02); las detienen controles de aplicación: la frescura de la oferta, el presupuesto autoritativo y la recuperación gobernada." style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=20;fontColor=#333333;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
@@ -164,10 +164,7 @@
         <mxCell id="42" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:18px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Hecho&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;en org/main y en el flujo&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=0;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=middle;spacing=10;" vertex="1" parent="1">
           <mxGeometry x="140" y="1000" width="260" height="64" as="geometry" />
         </mxCell>
-        <mxCell id="43" value="&lt;div style=&quot;font-family:Arial&quot;&gt;&lt;div style=&quot;font-size:18px;color:#333333;line-height:1.15&quot;&gt;&lt;b&gt;Planificado&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#555555;margin-top:6px;line-height:1.25&quot;&gt;piezas en org/main, sin conectar&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#336C96;strokeWidth=2.2;dashed=1;dashPattern=10 6;fontFamily=Arial;fontColor=#333333;align=center;verticalAlign=middle;spacing=10;" vertex="1" parent="1">
-          <mxGeometry x="422" y="1000" width="260" height="64" as="geometry" />
-        </mxCell>
-        <mxCell id="44" value="Verde: comprador · azul: agente · ocre: aprobación y comercio · vino: PSP" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=17;fontStyle=0;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
+        <mxCell id="43" value="Verde: comprador · azul: agente · ocre: aprobación y comercio · vino: PSP" style="text;html=1;whiteSpace=wrap;fillColor=none;strokeColor=none;fontFamily=Arial;fontSize=17;fontStyle=0;fontColor=#686868;align=left;verticalAlign=middle;spacing=0;" vertex="1" parent="1">
           <mxGeometry x="760" y="1015" width="1120" height="34" as="geometry" />
         </mxCell>
       </root>

@@ -1,7 +1,8 @@
 # Trazabilidad y gobernanza de la compra
 
-Estado: **propuesta v2, pendiente de aprobación** · 20 de octubre de 2026 · reemplaza el monitor
-de gobernanza (`/governance`).
+Estado: **implementado salvo la vista de auditoría (PR E)**: A en #26, B en #30 y #31, C en #39
+y #40, D en #44 · propuesta v2 del 20 de octubre de 2026 · reemplaza el monitor de gobernanza
+(`/governance`).
 
 ## Problema
 

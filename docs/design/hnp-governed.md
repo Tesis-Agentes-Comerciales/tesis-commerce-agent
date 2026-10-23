@@ -1,6 +1,9 @@
 # Human Not Present gobernado
 
-Estado: **propuesta para aprobación** (HNP-00), 20-oct-2026. Fuentes: el contrato formal
+Estado: **implementado** detrás de `AGENT_HNP_ENABLED=false`, salvo HNP-E3 (opcional, sin
+fusionar). El piloto HNP v1 corrió el 22-oct-2026
+([informe](../../evaluation/results/hnp-pilot-v1-report.md)). Propuesta (HNP-00) del
+20-oct-2026. Fuentes: el contrato formal
 [`policy-v1.md`](../b2-governance/policy-v1.md) (POL-01..10, tipos y evidencia), la
 [aceptación](../b2-governance/policy-acceptance-v1.md) (HNP01–10 y C01–C12), el
 [perfil AP2](../ap2-profile.md) (sección «Human Not Present», parte de este mismo PR), la ola HP

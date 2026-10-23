@@ -317,7 +317,14 @@ B2_CONTROLS: dict[str, tuple[tuple[int, int, int, str, str, str], ...]] = {
         ),
         (1, 0, 1, "Recuperación D17", "Lookup en el comercio de un despacho uncertain", PLANNED),
         (2, 0, 1, "POL-01 como autoridad", "La selección inválida llega a D1", FUTURE),
-        (2, 1, 1, "Presupuesto total", "Regla en D1 o filtro de la lista corta (S02)", FUTURE),
+        (
+            2,
+            1,
+            1,
+            "Presupuesto total",
+            f"{nowrap('POL-11')} en D1 con b2-hp-v2: deny antes del POST (S02)",
+            DONE,
+        ),
         (
             2,
             2,
@@ -367,8 +374,8 @@ B2_CONTROLS: dict[str, tuple[tuple[int, int, int, str, str, str], ...]] = {
             2,
             1,
             "Consentimiento e identidad (D2-HP)",
-            f"Al aprobar; {nowrap('POL-03..06')} sin evaluador",
-            PLANNED,
+            f"Al aprobar, antes de firmar: {nowrap('POL-03..06')}; deny → 409",
+            DONE,
         ),
     ),
     "completion": (
@@ -378,7 +385,7 @@ B2_CONTROLS: dict[str, tuple[tuple[int, int, int, str, str, str], ...]] = {
             2,
             "Evidencia hasta los recibos",
             "Encadena D1, aprobación, mandatos y recibos",
-            FUTURE,
+            DONE,
         ),
     ),
 }
@@ -468,7 +475,7 @@ def container_view(governed: bool) -> Sheet:
             (
                 ui_top + 200,
                 "Traza de la compra",
-                "Fila de actividad y línea de tiempo: D1, frescura y recuperación",
+                "Fila de actividad y línea de tiempo: D1, D2, frescura y recuperación",
             ),
             (
                 rows["approval"][0] - 40,
@@ -697,7 +704,7 @@ def container_view(governed: bool) -> Sheet:
         stores += [
             (
                 "governance_evidence",
-                "Ledger D1 de solo inserción: decisión y aplicación",
+                "Ledger D1 y D2 de solo inserción: decisión y aplicación",
                 tag(DONE),
             ),
             ("hp_evidence", "Solo inserción, por digest: frescura y recuperación", tag(DONE)),
@@ -932,8 +939,8 @@ def delta_view() -> Sheet:
         1: (
             (
                 "Gate D1 antes del POST",
-                "Hechos canónicos → POL-01 · POL-02 → evidencia, reserva y sobre HMAC "
-                "en una transacción",
+                f"Hechos canónicos → POL-01 · POL-02 · {nowrap('POL-11')} → evidencia, reserva y "
+                "sobre HMAC en una transacción",
                 134,
             ),
             ("Un solo POST", "Clave del sobre, sin reintentos; timeout → uncertain", 108),
@@ -955,6 +962,11 @@ def delta_view() -> Sheet:
                 134,
             ),
             ("Frescura antes de firmar", "Si la oferta cambió: 409 y no se firma (S04)", 108),
+            (
+                "D2-HP al aprobar",
+                f"{nowrap('POL-03..06')} antes de firmar; deny: 409 sin firma",
+                108,
+            ),
         ),
     }
     for column, controls in added.items():
@@ -987,14 +999,15 @@ def delta_view() -> Sheet:
     p.text("Verificable", 40, 718, 130, 40, size=20, bold=True, align="left")
     for name, description, column, span in (
         ("GET /health", "Reporta governance_mode y hp_flow", 0, 1),
-        ("governance_evidence", "Ledger D1 de solo inserción", 1, 1),
+        ("governance_evidence", "Ledger D1 y D2 de solo inserción", 1, 1),
         ("hp_evidence", "Solo inserción, por digest: frescura y recuperación", 2, 1),
         (
             "Traza de la compra en el chat",
-            "GET /purchases/{id}/trace: fila de actividad y línea de tiempo de los controles",
+            "GET /purchases/{id}/trace: actividad y línea de tiempo de los controles",
             3,
-            2,
+            1,
         ),
+        ("ap2_evidence", "Solo inserción: consentimiento AP2 enlazado a sus recibos", 4, 1),
     ):
         p.card(
             cols[column],
@@ -1012,15 +1025,8 @@ def delta_view() -> Sheet:
     p.text("Pendiente", 40, 846, 130, 40, size=20, bold=True, align="left")
     pending = (
         ("Recuperación D17", "Lookup de un despacho uncertain", PLANNED),
-        (
-            "Consentimiento e identidad (D2-HP)",
-            f"Al aprobar; {nowrap('POL-03..06')} sin evaluador",
-            PLANNED,
-        ),
         ("POL-01 como autoridad", "La selección inválida llega a D1", FUTURE),
-        ("Presupuesto total", "En D1 o en la lista corta (S02)", FUTURE),
         ("Salida de estados atascados", "Destrabar uncertain sin reiniciar", FUTURE),
-        ("Evidencia hasta recibos", "Cadena D1 → aprobación → recibos", FUTURE),
     )
     pending_gap = 14
     pending_w = (width - 40 - x0 - (len(pending) - 1) * pending_gap) // len(pending)
@@ -1201,8 +1207,10 @@ def governed_sequence() -> Sheet:
         3,
         3,
         "Evalúa POL-01 y POL-02",
-        "Producto elegible; comercio en la lista de Settings",
+        "Producto elegible; comercio en la lista de Settings. Con b2-hp-v2, también "
+        f"{nowrap('POL-11')}: presupuesto total alcanzable",
         DONE,
+        height=118,
     )
     s.note(
         3,
@@ -1271,15 +1279,28 @@ def governed_sequence() -> Sheet:
         color=FAILURE_RED,
         status=DONE,
     )
-    s.note(
-        2,
-        2,
-        "Si sigue vigente: firma AP2",
-        "Mandato de checkout y de pago",
-        DONE,
-        kind="B0",
-        border=MERCHANT_AMBER,
-        height=86,
+    s.notes(
+        (
+            (
+                2,
+                2,
+                "Si sigue vigente: firma AP2",
+                "Mandato de checkout y de pago",
+                DONE,
+                "B0",
+                MERCHANT_AMBER,
+            ),
+            (
+                3,
+                3,
+                "D2-HP antes de firmar",
+                f"Con b2-hp-v2: {nowrap('POL-03..06')}; deny → 409 sin firma",
+                DONE,
+                tag(DONE),
+                AGENT_BLUE,
+            ),
+        ),
+        height=96,
     )
     s.msg(2, 1, "Aprobación registrada", reply=True)
     s.note(
@@ -1302,15 +1323,21 @@ def governed_sequence() -> Sheet:
     s.msg(5, 4, "Pago aprobado", reply=True)
     s.msg(4, 2, "Pedido + recibo AP2", reply=True)
     s.msg(2, 1, "Pedido confirmado", reply=True)
+    s.note(
+        2,
+        3,
+        "Evidencia hasta los recibos",
+        "ap2_evidence enlaza el consentimiento AP2 de la aprobación con los recibos del "
+        "comercio y del PSP",
+        DONE,
+    )
     s.notes(
         (
             (
                 0,
                 2,
                 "Planificado",
-                "Consentimiento e identidad al aprobar (D2-HP); "
-                f"{nowrap('POL-03..06')} definidas en policy-v1, sin evaluador · "
-                "recuperación D17 con lookup",
+                "Recuperación D17 con lookup",
                 PLANNED,
                 tag(PLANNED),
                 AGENT_BLUE,
@@ -1319,8 +1346,7 @@ def governed_sequence() -> Sheet:
                 3,
                 5,
                 "Futuro",
-                "POL-01 como autoridad · presupuesto total en D1 o en la lista corta · salida "
-                "de estados atascados · evidencia hasta los recibos",
+                "POL-01 como autoridad · salida de estados atascados",
                 FUTURE,
                 tag(FUTURE),
                 AGENT_BLUE,
@@ -2185,31 +2211,11 @@ def _policy_name(code: str, name: str, trace_label: str = "") -> str:
 
 
 D2_HP_POLICIES = (
-    # (id, name, what it would decide, what covers part of it today)
-    (
-        "POL-03",
-        "Principal habilitado",
-        "Quien aprueba es el dueño de la compra",
-        "JWT y ownership de la API (B0)",
-    ),
-    (
-        "POL-04",
-        "Continuidad del episodio",
-        "La aprobación es del mismo D1, intento y términos",
-        "continuación gobernada",
-    ),
-    (
-        "POL-05",
-        "Términos compatibles",
-        "Total, moneda y cantidad dentro del pedido",
-        "presupuesto autoritativo (B0)",
-    ),
-    (
-        "POL-06",
-        "Versión de política",
-        "Política y contexto iguales a los de D1",
-        "D1 comprueba su binding al evaluar",
-    ),
+    # (id, name, what it decides)
+    ("POL-03", "Principal habilitado", "Quien aprueba es el dueño de la compra"),
+    ("POL-04", "Continuidad del episodio", "La aprobación es del mismo D1, intento y términos"),
+    ("POL-05", "Términos compatibles", "Total, moneda y cantidad dentro del pedido"),
+    ("POL-06", "Versión de política", "Política y contexto iguales a los de D1"),
 )
 
 APPLICATION_CONTROLS = (
@@ -2290,7 +2296,7 @@ def policy_map() -> Sheet:
         "Estado en org/main al 20-oct-2026.",
         width=width,
     )
-    p.status_legend(956, 30, card_width=260)
+    p.status_legend(956, 30, card_width=260, statuses=(DONE, FUTURE))
     _rich(
         p,
         "<b>Políticas del PDP</b> · el motor decide allow o deny sobre hechos canónicos; con "
@@ -2325,7 +2331,7 @@ def policy_map() -> Sheet:
     )
     _policy_row(
         p,
-        304,
+        302,
         116,
         DONE,
         (
@@ -2342,34 +2348,52 @@ def policy_map() -> Sheet:
             "el piloto no lo ejercitó",
         ),
     )
-    group_y, sub_h = 428, 44
+    _policy_row(
+        p,
+        424,
+        92,
+        DONE,
+        (
+            _policy_name(
+                "POL-11", "Presupuesto total alcanzable", "Precio dentro de tu presupuesto"
+            ),
+            _observed(
+                "el precio del catálogo por la cantidad",
+                "que no supere el presupuesto total del pedido",
+            ),
+            _who("D1 · PDP", "en la misma evaluación, antes del POST"),
+            "Política b2-hp-v2, la de la demo; el piloto v1 corrió con b2-pilot-v1, sin "
+            f"{nowrap('POL-11')}",
+            "decision_record en governance_evidence. Prueba live: test_live_b2_pol11_budget",
+        ),
+    )
+    group_y, sub_h = 522, 40
     group_h = len(D2_HP_POLICIES) * sub_h + 16
     _policy_row(
         p,
         group_y,
         group_h,
-        PLANNED,
+        DONE,
         (
             "",
             "",
             _who("D2-HP · PDP", "al aprobar, antes de firmar"),
-            f"Definidas en policy-v1, sin artefacto ni evaluador: el de main solo implementa "
-            f"{nowrap('POL-01')} y {nowrap('POL-02')}",
-            "Ninguna todavía. Piezas de consentimiento e identidad sin montar: human_consent "
-            "y d2_consent_api",
+            "Política b2-hp-v2. Con b2-pilot-v1 no corre: la aprobación es la de siempre",
+            "decision_record en governance_evidence, en la transacción de la aprobación. "
+            "Prueba live: test_live_b2_d2_authorization",
         ),
     )
-    for index, (code, name, decides, today) in enumerate(D2_HP_POLICIES):
+    for index, (code, name, decides) in enumerate(D2_HP_POLICIES):
         y = group_y + 8 + index * sub_h
         _, x1, w1 = MAP_COLUMNS[0]
         _, x2, w2 = MAP_COLUMNS[1]
         _rich(p, f"<b>{code}</b><br>{name}", x1, y, w1, sub_h)
-        _rich(p, decides + _muted(f"Hoy, en parte: {today}", top=1), x2, y, w2, sub_h)
-    hnp_y = group_y + group_h + 8
+        _rich(p, decides, x2, y, w2, sub_h)
+    hnp_y = group_y + group_h + 6
     _policy_row(
         p,
         hnp_y,
-        64,
+        58,
         FUTURE,
         (
             f"<b>{nowrap('POL-07 a POL-10')}</b><br>Delegación HNP",
@@ -2380,7 +2404,7 @@ def policy_map() -> Sheet:
         ),
     )
 
-    controls_y = hnp_y + 64 + 18
+    controls_y = hnp_y + 58 + 14
     _rich(
         p,
         "<b>Controles de aplicación</b> · no son el PDP: actúan en el agente, fuera de D1. "
@@ -2406,9 +2430,9 @@ def policy_map() -> Sheet:
         ),
         "Continuación gobernada": "Piloto: se observa porque las compras llegan a la aprobación",
     }
-    card_y, card_gap = controls_y + 38, 20
+    card_y, card_gap = controls_y + 36, 20
     card_w = (1840 - 3 * card_gap) // 4
-    card_h = 252
+    card_h = 236
     for index, (name, kind, lines) in enumerate(APPLICATION_CONTROLS):
         body = "<br>".join(f"<b>{label}:</b> {text}" for label, text in lines)
         p.card(
@@ -2621,10 +2645,10 @@ def purchase_slide() -> Sheet:
         384,
         branch_h,
         "Consentimiento e identidad (D2-HP)",
-        f"Al aprobar, antes de firmar. {nowrap('POL-03..06')} definidas en policy-v1, sin "
-        "evaluador",
-        kind=tag(PLANNED),
-        status=PLANNED,
+        f"Con la política b2-hp-v2, al aprobar y antes de firmar: {nowrap('POL-03..06')}. Un "
+        "deny da 409 sin firma, pago ni orden. El piloto v1 (b2-pilot-v1) no lo tenía",
+        kind=tag(DONE),
+        status=DONE,
         name_size=21,
         description_size=18,
         kind_size=15,
@@ -2654,7 +2678,7 @@ def purchase_slide() -> Sheet:
         size=19,
         color=DESCRIPTION,
     )
-    p.status_legend(40, 1000, card_width=260, statuses=(DONE, PLANNED))
+    p.status_legend(40, 1000, card_width=260, statuses=(DONE,))
     p.color_legend(
         "Verde: comprador · azul: agente · ocre: aprobación y comercio · vino: PSP",
         760,
