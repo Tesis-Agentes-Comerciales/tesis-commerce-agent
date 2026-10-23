@@ -595,6 +595,8 @@ const ESCALATION_CAUSE: Record<EscalationReason, string> = {
     "El precio de catálogo de la opción disponible ya supera el total máximo que autorizaste.",
   no_candidate_in_scope: "Ninguna de las opciones que autorizaste está disponible ahora.",
   choice_not_confirmed: "No pude confirmar que la opción elegida sea la que pediste.",
+  selection_unavailable:
+    "No pude elegir entre las opciones que autorizaste porque el servicio que hace la elección falló o no respondió.",
   offer_changed: "La oferta del comercio cambió antes de que cerrara la compra.",
   terms_out_of_scope:
     "El total del comercio, con envío, o algún término quedó fuera de lo que autorizaste.",

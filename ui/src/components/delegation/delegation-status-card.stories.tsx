@@ -405,6 +405,12 @@ const REVIEW_NOT_CONFIRMED = escalatedBy(
   `No pude confirmar que la opción elegida sea la que pediste. ${SUFFIX}`,
 )
 
+/** El selector falló o no respondió: no hubo elección que revisar ni compra que trazar. */
+const SELECTION_UNAVAILABLE = escalatedBy(
+  "selection_unavailable",
+  `No pude elegir entre las opciones que autorizaste porque el servicio que hace la elección falló o no respondió. ${SUFFIX}`,
+)
+
 /** La sección de la gobernanza y su fila; al abrirla, los títulos de su línea de tiempo. */
 async function openGovernance({ canvas, userEvent }: PlayContext, summary: RegExp | string) {
   const governance = within(canvas.getByRole("group", { name: GOVERNANCE }))
@@ -534,6 +540,23 @@ export const TraceReviewNotConfirmed: Story = {
     await expect(canvas.getByText("No confirmada: contradice tu indicación.")).toBeVisible()
     await userEvent.click(canvas.getByRole("button", { name: "Comprar desde el chat" }))
     await expect(args.onBuyFromChat).toHaveBeenCalledWith(REVIEW_NOT_CONFIRMED.escalation?.prefill_request)
+  },
+}
+
+/**
+ * El selector falló o no respondió antes de elegir: nada se creó ni se cobró y la decisión vuelve
+ * al comprador con el CTA de cualquier escalamiento. Como no hubo compra, no hay traza que mostrar.
+ */
+export const EscalatedSelectionUnavailable: Story = {
+  args: { delegation: SELECTION_UNAVAILABLE, trace: null },
+  play: async ({ args, canvas, userEvent }) => {
+    const escalation = escalationOf(SELECTION_UNAVAILABLE)
+    await expect(canvas.getByRole("heading", { name: "Necesito tu decisión" })).toBeVisible()
+    await expect(canvas.getByText(escalation.message)).toBeVisible()
+    await expect(canvas.queryByRole("group", { name: GOVERNANCE })).toBeNull()
+    await expect(canvas.queryByRole("button", { name: REVOKE })).toBeNull()
+    await userEvent.click(canvas.getByRole("button", { name: "Comprar desde el chat" }))
+    await expect(args.onBuyFromChat).toHaveBeenCalledWith(escalation.prefill_request)
   },
 }
 
