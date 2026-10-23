@@ -32,6 +32,8 @@ export type DelegationListProps = {
   onRevoke?: (grantId: string) => void
   onRevokeAll?: () => void
   onBuyFromChat?: (prefillRequest: string) => void
+  /** Dentro del diálogo «Mis delegaciones», que ya lleva el título: solo para lectores. */
+  titleHidden?: boolean
   className?: string
 }
 
@@ -51,6 +53,7 @@ export function DelegationList({
   onRevoke,
   onRevokeAll,
   onBuyFromChat,
+  titleHidden = false,
   className,
 }: DelegationListProps) {
   const titleId = useId()
@@ -66,7 +69,7 @@ export function DelegationList({
       className={cn("space-y-3", className)}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id={titleId} className="text-base leading-6 font-semibold">
+        <h2 id={titleId} className={cn("text-base leading-6 font-semibold", titleHidden && "sr-only")}>
           {DELEGATIONS_COPY.mine}
         </h2>
         {onRevokeAll && (revocable || revokingAll) && (

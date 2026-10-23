@@ -21,6 +21,6 @@ export {
   type DelegationStatusCardProps,
 } from "@/components/delegation/delegation-status-card"
 export {
-  DelegationSearchFirst,
-  type DelegationSearchFirstProps,
-} from "@/components/delegation/delegation-search-first"
+  DelegationInChat,
+  type DelegationInChatProps,
+} from "@/components/delegation/delegation-in-chat"

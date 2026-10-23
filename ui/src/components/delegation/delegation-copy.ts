@@ -61,23 +61,21 @@ export const VALIDITY_OPTIONS = [
 ] as const
 
 /**
- * «Delegar» antes de buscar en el chat: el formulario solo ofrece opciones que el agente ya mostró,
- * así que primero se busca (§3.2).
+ * La compra delegada dentro del chat (docs/design/hnp-chat-delegate.md): en «Delegar», debajo de la
+ * respuesta van el formulario, el consentimiento y el estado de la compra, en el mismo hilo.
  */
-export const SEARCH_FIRST_COPY = {
-  title: "Primero busca en el chat",
-  body: "Pídele al agente lo que quieres comprar. Las opciones que te muestre aparecen aquí para que delegues la compra.",
-  action: "Buscar en el chat",
+export const IN_CHAT_COPY = {
+  label: "Compra delegada",
+  reopen: "Delegar estas opciones",
 } as const
 
 /** Encabezado de la traza en la tarjeta: la misma fila de actividad que la compra en el chat. */
 export const GOVERNANCE_LABEL = "Gobernanza de la compra"
 
 export const DELEGATIONS_COPY = {
-  title: "Delegaciones",
+  title: "Mis delegaciones",
   description:
-    "Autoriza al agente a comprar sin ti, con un tope y por un tiempo. Puedes revocarlo cuando quieras.",
-  newDelegation: "Nueva delegación",
+    "Lo que autorizaste al agente a comprar sin ti, con la gobernanza de cada compra. Puedes revocarlo cuando quieras.",
   mine: "Mis delegaciones",
   none: "Todavía no tienes delegaciones.",
   loading: "Cargando tus delegaciones…",
