@@ -90,6 +90,9 @@ jobs:
       # These reports never turn skipped live tests into integration validation.
       - name: P0 execution summary
         if: ${{ !cancelled() }}
+        env:
+          P0_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          P0_ACTIONS_SHA: ${{ github.sha }}
         shell: bash
         run: |
           # Append the diagnostic even if evidence validation fails; retain that failure.

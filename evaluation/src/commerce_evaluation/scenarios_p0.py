@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 from collections import Counter
@@ -203,6 +204,12 @@ def python_evidence(pytest_path: Path, junit_path: Path) -> dict[str, Any]:
             counts["failed"] or counts["not_executed"] or report["collection_errors"]
         ):
             raise ValueError("Incomplete or failed tests cannot claim completed success")
+        subtests = report.get("junit_subtests", dict.fromkeys(("passed", "failed", "skipped"), 0))
+        if set(subtests) != {"passed", "failed", "skipped"} or any(
+            type(value) is not int or value < 0 for value in subtests.values()
+        ):
+            raise ValueError("Invalid subtest report counts")
+        extra_reports = sum(subtests.values())
         tree = ElementTree.parse(junit_path).getroot()
         if tree.tag not in {"testsuite", "testsuites"}:
             raise ValueError("Invalid JUnit root")
@@ -210,6 +217,8 @@ def python_evidence(pytest_path: Path, junit_path: Path) -> dict[str, Any]:
         if not suites:
             raise ValueError("JUnit has no suites")
         cases = []
+        declared_tests = 0
+        declared_errors = 0
         for suite in suites:
             children = list(suite.findall("testcase"))
             declared = {
@@ -220,12 +229,16 @@ def python_evidence(pytest_path: Path, junit_path: Path) -> dict[str, Any]:
             for tag, key in (("failure", "failures"), ("error", "errors"), ("skipped", "skipped")):
                 if sum(len(case.findall(tag)) for case in children) != declared[key]:
                     raise ValueError("JUnit declared counts do not match its cases")
-            # pytest can emit duplicate cases for call + teardown errors.
-            if not declared["errors"] and declared["tests"] != len(children):
-                raise ValueError("JUnit cases are incomplete")
+            declared_tests += declared["tests"]
+            declared_errors += declared["errors"]
             if completed and (declared["failures"] or declared["errors"]):
                 raise ValueError("JUnit failure conflicts with successful session")
             cases.extend(children)
+        # Reconcile the header with explicitly recorded subtest reports.
+        # Never accept an arbitrary difference or use the header as an item count.
+        # The existing error path permits pytest's call/teardown duplicate cases.
+        if not declared_errors and declared_tests != len(cases) + extra_reports:
+            raise ValueError("JUnit header does not match cases and recorded subtests")
         node_outcomes: dict[tuple[str | None, str | None], str] = {}
         priority = {"passed": 1, "skipped": 2, "failed": 3}
         for case in cases:
@@ -266,7 +279,16 @@ def python_evidence(pytest_path: Path, junit_path: Path) -> dict[str, Any]:
             "artifacts_valid": False,
             "reason": "Python/JUnit evidence missing, malformed or inconsistent",
         }
-    return {**report, "artifacts_valid": True}
+    return {
+        **report,
+        "artifacts_valid": True,
+        "junit": {
+            "declared_tests": declared_tests,
+            "testcase_elements": len(cases),
+            "unique_items": len(identities),
+            "subtest_reports": subtests,
+        },
+    }
 
 
 def build_report(root: Path, pytest_path: Path, junit_path: Path | None = None) -> dict[str, Any]:
@@ -279,10 +301,22 @@ def build_report(root: Path, pytest_path: Path, junit_path: Path | None = None) 
         junit_path if junit_path is not None else pytest_path.with_name("python-junit.xml"),
     )
     sha = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    pr_head = os.environ.get("P0_PR_HEAD_SHA") or None
+    actions_sha = os.environ.get("P0_ACTIONS_SHA") or None
+    if any(
+        value is not None and not re.fullmatch(r"[0-9a-f]{40}", value)
+        for value in (pr_head, actions_sha)
+    ):
+        raise ValueError("Invalid CI commit metadata")
+    if actions_sha is not None and actions_sha != sha:
+        raise ValueError("Actions SHA differs from checked-out HEAD")
     return {
         "schema_version": 1,
         "provenance": {
             "agent_sha": sha,
+            "pr_head_sha": pr_head,
+            "actions_sha": actions_sha,
+            "checked_out_sha": sha,
             "audit_base": matrix["source"]["audit_base"],
             "agent_worktree_dirty": bool(
                 subprocess.check_output(

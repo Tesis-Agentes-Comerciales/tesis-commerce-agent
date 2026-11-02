@@ -121,6 +121,34 @@ sanitizadas, comparación esperada/observada y efectos antes/después. Distingui
 `not_executed`, bloqueo, fallo del arnés y fallo comercial. No almacenar credenciales ni
 datos personales. Reportar bugs/correcciones vinculados a celda, SHA y evidencia original.
 
+## P1-FIX: cabecera JUnit y commits evaluados
+
+El run [41516151762](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41516151762)
+ejecutó el head de PR f9279549cfa5901a35926eb58435fa12b45c1f0e mediante el merge temporal
+1ea3f7c0d6a6660293e4243d7184831c771986c8. Sus 3516 elementos testcase concuerdan con
+3424 passed y 92 skipped; el atributo tests=3594 incluye además 78 reportes de subtests
+exitosos de unittest en los 32 tests P1. No son fallos ni escenarios adicionales.
+
+Pytest 9.0.2 (lock) emite reportes de subtests con el nodeid del padre. LogXML.append_pass
+incrementa sus estadísticas por cada reporte, pero conserva un solo testcase del padre.
+El complemento registra ahora junit_subtests por estado; el lector reconcilia la cabecera
+con los elementos y esos reportes, sin tolerancias numéricas arbitrarias. Un exceso sin
+registro, casos ausentes, estados contradictorios o XML truncado siguen siendo inválidos.
+Los fallos de subtests siguen dominando al reporte exitoso posterior del padre.
+Las excepciones previas de call/teardown con error conservan su tratamiento explícito.
+
+El manifiesto report.json distingue pr_head_sha (código propuesto), actions_sha
+(GITHUB_SHA) y checked_out_sha (git HEAD realmente ejecutado). agent_sha conserva el
+significado de HEAD por compatibilidad. El SHA de Actions debe coincidir con el checkout;
+fuera de Actions los metadatos de PR/Actions quedan null, sin inventar procedencia.
+La configuración transmite únicamente SHAs del evento, sin alterar permisos ni secretos.
+
+Las regresiones incluyen un subprocess de pytest real aislado, sin conftest del producto,
+que comprueba subtests passed/failed/skipped y sus XML. Se ejecuta con las dependencias
+del lock en CI; con Python estándar sin pytest se registra skipped, nunca passed.
+El run original y sus artefactos permanecen históricos: el campo nuevo no se retroañade
+a sus resultados como si hubiera sido medido allí.
+
 ## Reproducción
 
 Entorno de referencia: Ubuntu del `python-tests` existente en

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import ast
 import copy
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -492,6 +494,144 @@ class P0ContractTests(unittest.TestCase):
             self.assertFalse(
                 build_report(ROOT, pytest_path, junit)["python_tests"]["artifacts_valid"]
             )
+
+    def test_junit_header_requires_exact_recorded_subtest_reports(self) -> None:
+        for recorded, declared, expected in (
+            (2, 3, True),
+            (1, 3, False),
+            (2, 2, False),
+            (0, 3, False),
+        ):
+            with (
+                self.subTest(recorded=recorded, declared=declared),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                pytest_path, junit = self.evidence_files(directory)
+                value = load_json(pytest_path)
+                value["junit_subtests"] = {"passed": recorded, "failed": 0, "skipped": 0}
+                pytest_path.write_text(json.dumps(value), encoding="utf-8")
+                junit.write_text(
+                    f'<testsuite tests="{declared}" failures="0" errors="0" skipped="0">'
+                    '<testcase classname="synthetic" name="one"/></testsuite>',
+                    encoding="utf-8",
+                )
+                result = build_report(ROOT, pytest_path, junit)["python_tests"]
+                self.assertEqual(result["artifacts_valid"], expected)
+
+    def test_subtest_counts_do_not_excuse_an_omitted_testcase(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pytest_path, junit = self.evidence_files(directory)
+            value = load_json(pytest_path)
+            value["junit_subtests"] = {"passed": 2, "failed": 0, "skipped": 0}
+            value.update(collected=2)
+            value["counts"]["passed"] = 2
+            pytest_path.write_text(json.dumps(value), encoding="utf-8")
+            junit.write_text(
+                '<testsuite tests="3" failures="0" errors="0" skipped="0">'
+                '<testcase name="one"/></testsuite>',
+                encoding="utf-8",
+            )
+            self.assertFalse(
+                build_report(ROOT, pytest_path, junit)["python_tests"]["artifacts_valid"]
+            )
+
+    def test_invalid_subtest_counts_are_rejected(self) -> None:
+        for subtests in (
+            {"passed": -1, "failed": 0, "skipped": 0},
+            {"passed": True, "failed": 0, "skipped": 0},
+            {"passed": 1},
+            None,
+        ):
+            with self.subTest(subtests=subtests), tempfile.TemporaryDirectory() as directory:
+                pytest_path, junit = self.evidence_files(directory)
+                value = load_json(pytest_path)
+                value["junit_subtests"] = subtests
+                pytest_path.write_text(json.dumps(value), encoding="utf-8")
+                self.assertFalse(
+                    build_report(ROOT, pytest_path, junit)["python_tests"]["artifacts_valid"]
+                )
+
+    def test_pr_and_actions_commits_are_distinct_and_checkout_is_verified(self) -> None:
+        from unittest.mock import patch
+
+        sha = subprocess.check_output(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True
+        ).strip()
+        with tempfile.TemporaryDirectory() as directory:
+            pytest_path, junit = self.evidence_files(directory)
+            with patch.dict(os.environ, {"P0_PR_HEAD_SHA": "a" * 40, "P0_ACTIONS_SHA": sha}):
+                provenance = build_report(ROOT, pytest_path, junit)["provenance"]
+            self.assertEqual(provenance["pr_head_sha"], "a" * 40)
+            self.assertEqual(provenance["actions_sha"], sha)
+            self.assertEqual(provenance["checked_out_sha"], sha)
+            with (
+                patch.dict(os.environ, {"P0_ACTIONS_SHA": "b" * 40}),
+                self.assertRaises(ValueError),
+            ):
+                build_report(ROOT, pytest_path, junit)
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("pytest"), "requires this checkout's locked pytest"
+    )
+    def test_real_pytest_reconciles_passing_failed_and_skipped_subtests(self) -> None:
+        for mode in ("pass", "fail", "skip"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+                source = (
+                    "import unittest\n"
+                    "class Example(unittest.TestCase):\n"
+                    "    def test_values(self):\n"
+                    "        for value in (1, 0):\n"
+                    "            with self.subTest(value=value):\n"
+                )
+                if mode == "skip":
+                    source += "                if value == 0: self.skipTest('synthetic skip')\n"
+                source += (
+                    "                self.assertGreaterEqual(value, 0)\n"
+                    if mode == "pass"
+                    else "                self.assertGreater(value, 0)\n"
+                )
+                (folder / "test_example.py").write_text(source, encoding="utf-8")
+                (folder / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+                python_report, junit = folder / "python.json", folder / "junit.xml"
+                env = {
+                    **os.environ,
+                    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+                    "PYTHONPATH": str(ROOT / "evaluation" / "src"),
+                }
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-B",
+                        "-m",
+                        "pytest",
+                        "-q",
+                        "-c",
+                        str(folder / "pytest.ini"),
+                        "--confcutdir",
+                        str(folder),
+                        str(folder / "test_example.py"),
+                        "-p",
+                        "commerce_evaluation.p0_pytest_report",
+                        "--p0-report=" + str(python_report),
+                        "--junitxml=" + str(junit),
+                    ],
+                    cwd=folder,
+                    env=env,
+                    capture_output=True,
+                )
+                self.assertEqual(
+                    result.returncode,
+                    1 if mode == "fail" else 0,
+                    result.stdout.decode(errors="replace"),
+                )
+                report = build_report(ROOT, python_report, junit)["python_tests"]
+                self.assertTrue(report["artifacts_valid"])
+                self.assertEqual(sum(report["junit_subtests"].values()), 2)
+                self.assertEqual(
+                    report["counts"][{"pass": "passed", "fail": "failed", "skip": "skipped"}[mode]],
+                    1,
+                )
 
 
 if __name__ == "__main__":

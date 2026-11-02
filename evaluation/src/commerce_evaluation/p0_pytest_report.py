@@ -28,6 +28,7 @@ class OutcomeRecorder:
         self.observed: dict[str, str] = {}
         self.collection_errors = 0
         self.deselected = 0
+        self.junit_subtests = dict.fromkeys(("passed", "failed", "skipped"), 0)
 
     def pytest_collection_finish(self, session: Any) -> None:
         self.collected = [item.nodeid for item in session.items]
@@ -40,6 +41,10 @@ class OutcomeRecorder:
             self.collection_errors += 1
 
     def pytest_runtest_logreport(self, report: Any) -> None:
+        # pytest 9 counts subtest call reports in the JUnit header,
+        # but emits them inside their parent's testcase, not as separate items.
+        if report.when == "call" and hasattr(report, "context"):
+            self.junit_subtests[report.outcome] += 1
         result = report_outcome(
             report.outcome,
             report.when,
@@ -63,6 +68,7 @@ class OutcomeRecorder:
             "collected": len(self.collected),
             "deselected": self.deselected,
             "collection_errors": self.collection_errors,
+            "junit_subtests": self.junit_subtests,
             "scope": "Python product and harness tests; not scenario execution",
         }
         self.destination.parent.mkdir(parents=True, exist_ok=True)
