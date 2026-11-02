@@ -103,6 +103,17 @@ Hay cinco grupos sobre el mismo PostgreSQL:
   así que cualquier otra falla los pone en rojo y, si el producto cierra la brecha, el `XPASS`
   también.
 
+## P2: primer puente con el catálogo P0
+
+[test_live_p0_catalog_bridge.py](test_live_p0_catalog_bridge.py) reutiliza LiveStack
+y PurchaseLane en un PostgreSQL exclusivo del módulo. Cubre importación y exportación
+P0, mutación administrada con revisión, y preparación/cancelación por create_app real.
+La interpretación de ese control positivo es simulada; no valida alternativas UX03.
+La [ficha](../../evaluation/scenarios/p0/merchant-provenance.md) fija los SHAs, hashes,
+reglas A/B, efectos permitidos y bloqueos. Los checkouts pertenecen a episodios nuevos;
+no hay aprobación, pago ni orden. El nightly permite test_scope=p0-catalog-bridge
+por workflow_dispatch, con los refs auditados. El scope full conserva toda la suite.
+
 ## Requisitos
 
 - macOS o Linux. El Merchant hereda su listener con `pass_fds` y `uvicorn --fd`; Windows no

@@ -20,6 +20,17 @@ Los resultados históricos listados más abajo conservan sus condiciones y proce
 No se reinterpretan como evidencia de este preregistro. Resultados futuros:
 `evaluation/results/<run-id>/`, después de aprobar el protocolo y ejecutar.
 
+## P2 — procedencia Merchant y conexión inicial
+
+La [ficha de procedencia P0](scenarios/p0/merchant-provenance.md) separa snapshot,
+catálogo administrado y episodios B0; el [registro fijado](scenarios/p0/merchant-provenance.json)
+enumera fuentes y productos admisibles estáticamente.
+Los tres tests de conexión están en
+[tests/integration/test_live_p0_catalog_bridge.py](../tests/integration/test_live_p0_catalog_bridge.py).
+Se ejecutan en el nightly existente con test_scope=p0-catalog-bridge. Un CI ordinario
+los omite; no acredita importación, exportación, checkout ni UX03.
+P1 permanece sin merge y los resultados vivos P2 aún están pendientes.
+
 ## Alcance actualizado — 14 de octubre de 2026
 
 El diseño final incluye HP y HNP. Este directorio conserva el piloto **HP** y el

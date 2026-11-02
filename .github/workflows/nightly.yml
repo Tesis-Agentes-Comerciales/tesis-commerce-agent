@@ -5,6 +5,14 @@ name: Nightly system tests
 on:
   workflow_dispatch:
     inputs:
+      test_scope:
+        description: Existing full suite or the first Merchant P0 characterization
+        required: false
+        type: choice
+        default: full
+        options:
+          - full
+          - p0-catalog-bridge
       merchant_ref:
         description: Merchant branch or commit (empty uses its default branch)
         required: false
@@ -109,10 +117,11 @@ jobs:
         working-directory: agent
         env:
           RUN_LIVE_STACK: "1"
+          TEST_PATH: ${{ inputs.test_scope == 'p0-catalog-bridge' && 'tests/integration/test_live_p0_catalog_bridge.py' || 'tests/integration' }}
           MERCHANT_REPO: ${{ github.workspace }}/merchant
           PAYMENT_REPO: ${{ github.workspace }}/payment
         run: >-
-          uv run pytest tests/integration -rs -p no:cacheprovider
+          uv run pytest "$TEST_PATH" -rs -p no:cacheprovider
           --basetemp="$RUNNER_TEMP/live-stack"
           --junitxml="$RUNNER_TEMP/live-junit.xml"
 
