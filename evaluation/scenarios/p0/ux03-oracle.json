@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "scenario": "UX03",
+  "mode": "HP",
+  "data_kind": "synthetic_math_only",
+  "note": "Cantidades ficticias en unidades menores, sin identidad ni observación Merchant. Solo verifican el evaluador.",
+  "cells": [
+    {
+      "id": "UX03-A",
+      "a": {
+        "verification": "verified",
+        "condition_met": true,
+        "in_stock": true,
+        "total_minor": 100,
+        "budget_minor": 100,
+        "currency": "USD"
+      },
+      "b": {
+        "verification": "verified",
+        "condition_met": false,
+        "in_stock": true,
+        "total_minor": 50,
+        "budget_minor": 90,
+        "currency": "USD"
+      },
+      "expected": "A"
+    },
+    {
+      "id": "UX03-B",
+      "a": {
+        "verification": "verified",
+        "condition_met": true,
+        "in_stock": true,
+        "total_minor": 101,
+        "budget_minor": 100,
+        "currency": "USD"
+      },
+      "b": {
+        "verification": "verified",
+        "condition_met": true,
+        "in_stock": true,
+        "total_minor": 90,
+        "budget_minor": 90,
+        "currency": "USD"
+      },
+      "expected": "B"
+    },
+    {
+      "id": "UX03-C",
+      "a": {
+        "verification": "verified",
+        "condition_met": true,
+        "in_stock": true,
+        "total_minor": 100,
+        "budget_minor": 100,
+        "currency": "USD"
+      },
+      "b": {
+        "verification": "verified",
+        "condition_met": true,
+        "in_stock": true,
+        "total_minor": 50,
+        "budget_minor": 90,
+        "currency": "USD"
+      },
+      "expected": "A"
+    },
+    {
+      "id": "UX03-D",
+      "a": {
+        "verification": "verified",
+        "condition_met": true,
+        "in_stock": false,
+        "total_minor": 90,
+        "budget_minor": 100,
+        "currency": "USD"
+      },
+      "b": {
+        "verification": "verified",
+        "condition_met": true,
+        "in_stock": true,
+        "total_minor": 91,
+        "budget_minor": 90,
+        "currency": "USD"
+      },
+      "expected": "none"
+    },
+    {
+      "id": "UX03-UNKNOWN-A",
+      "a": {
+        "verification": "technical_unknown",
+        "condition_met": null,
+        "in_stock": null,
+        "total_minor": null,
+        "budget_minor": 100,
+        "currency": "USD"
+      },
+      "b": {
+        "verification": "verified",
+        "condition_met": true,
+        "in_stock": true,
+        "total_minor": 50,
+        "budget_minor": 90,
+        "currency": "USD"
+      },
+      "expected": "undetermined"
+    }
+  ]
+}
