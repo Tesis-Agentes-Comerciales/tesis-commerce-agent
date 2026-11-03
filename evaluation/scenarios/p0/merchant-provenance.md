@@ -213,3 +213,13 @@ Los tres casos vivos deben repetirse con los mismos refs auditados y evidencia n
 El éxito de las regresiones o del CI ordinario no sustituye el siguiente nightly.
 Si aparece un rechazo del Merchant o un fallo real del Agent tras permitir esas rutas,
 debe conservarse como resultado, sin cambiar expectativas ni código comercial.
+
+## Cierre observado — 2 de noviembre de 2026 (Bogotá)
+
+El estado pendiente descrito en el diseño anterior queda complementado por el
+[cierre documental y las copias verificadas](../../results/p2-merchant-provenance/README.md):
+41553912401 conserva 1 passed/2 failed; 41563374624 registra 3 passed/0 failed/0 skipped.
+Ambos usan las fuentes y SHAs fijados aquí. La restauración y cancelación se comprobaron antes
+de registrar éxito definitivo. Interpretación simulada, sin LLM ni AP2; no valida UX03.
+La [auditoría consolidada](coverage-audit.md) separa cobertura heredada de las 37 celdas nuevas,
+y el [plan](next-experiments.md) continúa sujeto a la aprobación de Yair.

@@ -1,0 +1,21 @@
+{
+  "status": "completed",
+  "exit_code": 0,
+  "counts": {
+    "passed": 3444,
+    "failed": 0,
+    "skipped": 95,
+    "xfail": 0,
+    "xpass": 0,
+    "not_executed": 0
+  },
+  "collected": 3539,
+  "deselected": 0,
+  "collection_errors": 0,
+  "junit_subtests": {
+    "passed": 100,
+    "failed": 0,
+    "skipped": 0
+  },
+  "scope": "Python product and harness tests; not scenario execution"
+}

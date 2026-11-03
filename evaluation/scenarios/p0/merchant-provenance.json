@@ -620,7 +620,25 @@
     }
   ],
   "runtime_execution": {
-    "status": "not_executed",
-    "evidence": []
+    "status": "passed",
+    "scope": "P2-PROV-01/02/03 only; deterministic HP ACP bridge, no LLM, AP2 or UX03",
+    "evidence": [
+      {
+        "run_id": 41553912401,
+        "agent_sha": "656ad3a00ef2cbb15871c79df1f8615afe6dc194",
+        "passed": 1,
+        "failed": 2,
+        "skipped": 0,
+        "retained": "evaluation/results/p2-merchant-provenance/41553912401/MANIFEST.json"
+      },
+      {
+        "run_id": 41563374624,
+        "agent_sha": "99252720a9418b52ad8189c280d8c49dc3d31d03",
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "retained": "evaluation/results/p2-merchant-provenance/41563374624/MANIFEST.json"
+      }
+    ]
   }
 }

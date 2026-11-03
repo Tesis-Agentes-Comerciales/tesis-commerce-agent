@@ -29,7 +29,19 @@ Los tres tests de conexión están en
 [tests/integration/test_live_p0_catalog_bridge.py](../tests/integration/test_live_p0_catalog_bridge.py).
 Se ejecutan en el nightly existente con test_scope=p0-catalog-bridge. Un CI ordinario
 los omite; no acredita importación, exportación, checkout ni UX03.
-P1 permanece sin merge y los resultados vivos P2 aún están pendientes.
+P1 permanece sin merge. El primer puente P2 tiene cierre documental enlazado abajo;
+no acredita UX03 ni la suite live completa.
+
+## Consolidación experimental — 2 de noviembre de 2026
+
+- [Cierre P2 y evidencia íntegra sanitizada](results/p2-merchant-provenance/README.md):
+  primer nightly 1 passed/2 failed; segundo 3 passed/0 failed/0 skipped. Sin LLM ni AP2.
+- [Inventario cruzado y auditoría de comprador/revisor/datos](scenarios/p0/coverage-audit.md):
+  HP S01–S08, HNP HN01–HN11, HR01–HR03, P2 y 33 escenarios/37 celdas.
+- [Próximos experimentos propuestos](scenarios/p0/next-experiments.md): ocho prioridades,
+  calibración UX03 aislada y extensión del revisor; pendiente de aprobación final de Yair.
+
+Las ejecuciones históricas conservan su identidad. No se ejecutaron nuevas celdas UX/CT/MA/INF.
 
 ## Alcance actualizado — 14 de octubre de 2026
 

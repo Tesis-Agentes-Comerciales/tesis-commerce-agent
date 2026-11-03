@@ -52,3 +52,11 @@ El piloto del revisor de intención HNP (manifiesto `HNP-REVIEW-PILOT-v1`) está
 - Contiene la corrida registrada y el smoke sobre `ef0d493`, que no cuenta como resultado, con `SHA256SUMS`.
 - `hnp-review-pilot-v1-report.md` resume la corrida frente a los criterios pre-registrados.
 - Los archivos se copiaron byte por byte. En estos resúmenes, el campo `results` conserva la ruta absoluta y el nombre que les dio el runner. No se reescribió.
+
+## Cierre documental P2
+
+[p2-merchant-provenance/README.md](p2-merchant-provenance/README.md) conserva dos nightlies
+independientes (incluido el fallido) y el CI offline del fix, con MANIFEST.json y SHA256SUMS.
+Esta selección permite publicar únicamente texto sanitizado: JUnit, evidencia JSONL, feeds y logs
+de servicio sin credenciales; no es el artefacto privado completo de los pilotos descrito arriba.
+No incluye bases, .env, tokens ni ZIP originales. Los alias current duplicados no se cuentan.
