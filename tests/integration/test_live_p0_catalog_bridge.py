@@ -26,6 +26,7 @@ from tests.integration.live_purchase import (
 )
 from tests.integration.live_stack import AGENT, LiveStack, missing_requirements
 from tests.support.p2_case_evidence import InsufficientFixtureData, verified_case
+from tests.support.p2_proxy_policy import p2_routes
 
 REGISTRY = AGENT / "evaluation/scenarios/p0/merchant-provenance.json"
 
@@ -54,12 +55,15 @@ def p2_lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PurchaseLane]:
     try:
         stack.start()
         lane = PurchaseLane(stack, "acp")
+        lane.proxy.routes = p2_routes(lane.proxy.routes)
         lane.start()
         stack.record(
             "P2-source-pins",
             merchant_sha=pinned["merchant"]["sha"],
             psp_sha=pinned["psp"]["sha"],
             mode="HP ACP preparation; AP2 not exercised",
+            proxy_scope="P2 fixture only",
+            proxy_allowed_routes=sorted(lane.proxy.routes),
         )
         yield lane
     finally:

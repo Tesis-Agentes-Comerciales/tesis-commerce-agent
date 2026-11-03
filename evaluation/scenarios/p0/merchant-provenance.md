@@ -176,3 +176,40 @@ tests/evaluation/test_p2_bridge_evidence.py; no son observaciones comerciales.
 La regresión del script de preflight se ejecuta en POSIX y utiliza únicamente
 booleanos sintéticos. Un run verde no cierra P2 si faltan alguno de los tres casos,
 sus registros definitivos o su limpieza verificada en JUnit/evidence.jsonl.
+
+## Corrección del proxy P2 tras el primer nightly real
+
+El [run histórico 41553912401](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41553912401),
+head 656ad3a00ef2cbb15871c79df1f8615afe6dc194, conserva **1 passed y 2 failed**.
+Su artefacto live-stack-evidence tiene SHA-256
+3b726e048ff0d77c98ab7902a5ad5f17991731d2be587f2f1079e8350c64497b.
+No se modifica ni se vuelve a puntuar como una ejecución satisfactoria.
+
+- P2-PROV-01 observó 141 productos y 310 variantes: 285 disponibles y 25 agotadas;
+  137 productos tenían alguna variante disponible y 4 estaban totalmente agotados.
+- P2-PROV-02 falló con HTTP 405 en GET /feeds/current. La restauración sí quedó
+  verificada (revisión 3), pero el caso conserva failed.
+- P2-PROV-03 seleccionó y preparó el checkout y bloqueó completar sin aprobación,
+  pero falló al cancelar con HTTP 502. No hay cancelación final verificada.
+
+PurchaseLane(acp) usa PURCHASE_ROUTES. Esa política no permite GET /feeds/current
+ni POST /checkout_sessions/*/cancel. FaultProxy devuelve 405 antes de reenviar;
+ACPClient convierte ese error HTTP y error_response de la API lo presenta como 502.
+El log original contiene el 405 del feed y el 502 de cancelación; no contiene una
+traza individual del 405 interno de cancelación. La regresión HTTP reproduce la cadena
+405 -> ACPClientError -> 502 usando los componentes originales y la política ACP original.
+
+Solo la fixture P2 amplía su instancia con esas dos rutas. PURCHASE_ROUTES, HNP_ROUTES,
+FaultProxy y route_allowed permanecen intactos. La política efectiva se añade al registro
+P2-source-pins de la nueva ejecución. No se autoriza un wildcard general ni otros métodos.
+
+tests/evaluation/test_p2_proxy_policy.py separa controles del arnés:
+la política global continúa bloqueando ambas operaciones, P2 permite sus dos adiciones
+y las rutas ajenas siguen devolviendo HTTP 405 sin reenviarse. El upstream simulado
+de estas regresiones solo prueba aislamiento/transporte, no seguridad comercial,
+cancelación real ni comportamiento funcional del Agent.
+
+Los tres casos vivos deben repetirse con los mismos refs auditados y evidencia nueva.
+El éxito de las regresiones o del CI ordinario no sustituye el siguiente nightly.
+Si aparece un rechazo del Merchant o un fallo real del Agent tras permitir esas rutas,
+debe conservarse como resultado, sin cambiar expectativas ni código comercial.
