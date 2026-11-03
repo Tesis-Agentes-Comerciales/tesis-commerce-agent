@@ -138,3 +138,41 @@ omitió live-stack porque MERCHANT_REPO_TOKEN no estaba configurado. Esto prueba
 de ese run, no afirma conocer la configuración actual de secretos. No se han cambiado
 secretos ni permisos. La importación/exportación/checkout reales de P2 siguen pendientes
 hasta que live-stack se ejecute, produzca artefactos y se revisen sus resultados.
+
+## Revisión de cierre de casos y acceso P2
+
+P2-PROV-02 registra éxito solo después de restaurar precio/stock, releer el catálogo
+persistido y comprobar sus valores y revisión, además de la inmutabilidad del episodio.
+P2-PROV-03 registra éxito solo después de cancelar y verificar en Merchant el estado
+canceled, inventario intacto, cero órdenes y cero tokens PSP. Un fallo del ejercicio
+o de su limpieza genera un resultado failed; no se publica un passed provisional.
+Los contadores del primer caso incluyen productos/variantes disponibles y agotados.
+
+La falta de una variante única por regla es insufficient_fixture_data: el registro
+queda blocked con failure_kind=data y el test falla, sin atribuir un fallo funcional
+al Agent ni considerar un skip como validación. No se cambian datos ni expectativas.
+
+El valor de MERCHANT_REPO_TOKEN solo se entrega a los checkouts Merchant y PSP,
+ambos con persist-credentials=false. El preflight recibe un booleano de presencia,
+no la credencial. Si falta en workflow_dispatch con scope p0-catalog-bridge, el
+preflight termina con error; el nightly programado conserva el aviso/omisión anterior.
+
+El usuario confirmó que configuró el secreto en GitHub. No se solicita ni lee su
+valor. Esto actualiza el bloqueo operativo de acceso descrito históricamente arriba:
+el acceso efectivo se comprobará al clonar en Actions, no se da por demostrado.
+El despacho manual requiere una sesión GitHub autenticada o GitHub CLI:
+
+```sh
+gh workflow run nightly.yml \
+  --repo Tesis-Agentes-Comerciales/tesis-commerce-agent \
+  --ref codex/p2-merchant-provenance \
+  -f test_scope=p0-catalog-bridge \
+  -f merchant_ref=abf30df3b6a611284dedcc26c00accac6a853329 \
+  -f payment_ref=e6ab67b5963434a9a3caae2012b70232a3cca65d
+```
+
+Las regresiones offline de orden de evidencia están en
+tests/evaluation/test_p2_bridge_evidence.py; no son observaciones comerciales.
+La regresión del script de preflight se ejecuta en POSIX y utiliza únicamente
+booleanos sintéticos. Un run verde no cierra P2 si faltan alguno de los tres casos,
+sus registros definitivos o su limpieza verificada en JUnit/evidence.jsonl.

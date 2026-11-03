@@ -43,12 +43,17 @@ jobs:
       - name: Check sibling read token
         id: token
         env:
-          MERCHANT_REPO_TOKEN: ${{ secrets.MERCHANT_REPO_TOKEN }}
+          SIBLING_TOKEN_CONFIGURED: ${{ secrets.MERCHANT_REPO_TOKEN != '' }}
+          P2_REQUIRED: ${{ github.event_name == 'workflow_dispatch' && inputs.test_scope == 'p0-catalog-bridge' }}
         run: |
-          if [ -n "$MERCHANT_REPO_TOKEN" ]; then
+          if [ "$SIBLING_TOKEN_CONFIGURED" = "true" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
+            if [ "$P2_REQUIRED" = "true" ]; then
+              echo "::error title=P2 not executed::Sibling read credential is missing; the requested P2 integration cannot run."
+              exit 1
+            fi
             echo "::notice title=Live stack skipped::Secret MERCHANT_REPO_TOKEN is not configured. Add a read-only token (contents: read) for Tesis-Agentes-Comerciales/tesis-commerce-merchant and Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox to run tests/integration."
           fi
 
