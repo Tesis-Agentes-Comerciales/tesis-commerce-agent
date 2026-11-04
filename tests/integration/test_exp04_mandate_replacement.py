@@ -48,12 +48,22 @@ def test_replace_grant_before_trigger(hnp, tmp_path, scenario):
     new_budget = x["pricing"]["items_total_minor"] - 1
     y = None
     if scenario == "MA23":
-        candidate_y = next(c for c in candidates if c.observed_unit_amount_minor > old_budget)
-        y = offer(hnp, episode, candidate_y.variant_id)
-        assert y["availability"] == "in_stock" and y["available_quantity"] > 0
+        # Fixture prerequisite is actual availability, never an observed Agent outcome.
+        for candidate in candidates:
+            if candidate.observed_unit_amount_minor <= old_budget:
+                continue
+            observed = offer(hnp, episode, candidate.variant_id)
+            if (
+                observed["product_status"] == "active"
+                and observed["availability"] == "in_stock"
+                and observed["available_quantity"] > 0
+            ):
+                y = observed
+                break
+        assert y is not None, "No available Merchant alternative above the fixed budget"
         assert y["pricing"]["items_total_minor"] > old_budget
-        old_ids.append(candidate_y.variant_id)
-        new_ids = [candidate_y.variant_id]
+        old_ids.append(y["id"])
+        new_ids = [y["id"]]
         new_budget = old_budget
     old_request = delegation_request(old_ids, old_budget, name="EXP04 synthetic buyer")
     new_request = delegation_request(new_ids, new_budget, name="EXP04 synthetic buyer")
