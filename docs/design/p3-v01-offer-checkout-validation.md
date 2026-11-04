@@ -1,6 +1,10 @@
 # P3-V01: Offer → Checkout contract validation
 
-Status: implemented for review; real-service validation pending. P3 remains **BLOCKED**.
+Status: implemented and validated within the technical scope below in
+[GitHub Actions 41750611778](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41750611778).
+All 24 controls passed on `674ebd66b438fcfc8037657a0056bb008bf8ef0a`.
+See [complete evidence and failed attempts](../../evaluation/results/p3-v01-offer-checkout/README.md).
+P3 remains **BLOCKED**; this result is not experimental or implementation approval.
 This is a technical contract validation, not any UX03 cell or conversational evaluation.
 No changes to Agent product, Merchant, PSP, existing P0 matrix/oracles or P1/P2/P3 evidence.
 

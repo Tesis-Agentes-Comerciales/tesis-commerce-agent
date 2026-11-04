@@ -1,0 +1,78 @@
+{
+  "schema": "p3-v01-package/1",
+  "pr": 160,
+  "branch": "codex/p3-v01-offer-checkout",
+  "base_sha": "a11f78bd5e5c18cd3a81ab74c2edc96e274367af",
+  "executed_sha": "674ebd66b438fcfc8037657a0056bb008bf8ef0a",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "psp_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "reference_run": "41750611778",
+  "p3_status": "BLOCKED",
+  "runs": [
+    {
+      "run_id": "41749071709",
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "error": 24,
+        "skipped": 0,
+        "blocked": 0,
+        "not_executed": 0
+      },
+      "collected": 24,
+      "validated": false
+    },
+    {
+      "run_id": "41749296705",
+      "counts": {
+        "passed": 24,
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "blocked": 0,
+        "not_executed": 0
+      },
+      "collected": 24,
+      "validated": true
+    },
+    {
+      "run_id": "41749841699",
+      "counts": {
+        "passed": 0,
+        "failed": 24,
+        "error": 0,
+        "skipped": 0,
+        "blocked": 0,
+        "not_executed": 0
+      },
+      "collected": 24,
+      "validated": false
+    },
+    {
+      "run_id": "41750188767",
+      "counts": {
+        "passed": 24,
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "blocked": 0,
+        "not_executed": 0
+      },
+      "collected": 24,
+      "validated": true
+    },
+    {
+      "run_id": "41750611778",
+      "counts": {
+        "passed": 24,
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "blocked": 0,
+        "not_executed": 0
+      },
+      "collected": 24,
+      "validated": true
+    }
+  ]
+}

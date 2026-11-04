@@ -1,0 +1,184 @@
+{
+  "schema": "p3-v01-report/1",
+  "p3_status": "BLOCKED",
+  "collected": 24,
+  "counts": {
+    "passed": 24,
+    "failed": 0,
+    "error": 0,
+    "skipped": 0,
+    "blocked": 0,
+    "not_executed": 0
+  },
+  "cases": [
+    {
+      "case_id": "stable-zero",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "true",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "stable-positive",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "true",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "budget-minus",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "false",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "budget-equal",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "true",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "budget-plus",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "true",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "revision-only",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "true",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "shipping-feed",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "false",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "price-change",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "false",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "out-of-stock",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "false",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "inactive",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "false",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "expiry-before",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "true",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "expiry-at",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "false",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "expiry-after",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "false",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "timeout-before",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "unknown",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "lost-read-after",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "unknown",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "invalid-response",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "unknown",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "different-offer",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "unknown",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "network-error",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "unknown",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "foreign-run",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "unknown",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "foreign-actor",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "unknown",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "missing-auth",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "unknown",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "create-idempotency",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "true",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "lost-create",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "true",
+      "cleanup_verified": true
+    },
+    {
+      "case_id": "lost-cancel",
+      "status": "passed",
+      "evidence_status": "passed",
+      "commercial": "true",
+      "cleanup_verified": true
+    }
+  ],
+  "validated": true
+}
