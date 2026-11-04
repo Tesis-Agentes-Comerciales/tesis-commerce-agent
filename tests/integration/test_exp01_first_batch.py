@@ -62,9 +62,15 @@ def test_ma24_revocation_before_trigger(hnp, tmp_path):
         grant_id = None
         try:
             runtime.start()
-            _, view = runtime.delegate(request)
+            proposal, view = runtime.delegate(request)
             grant_id, task_id = view["grant_id"], view["task"]["task_id"]
             assert view["task"]["state"] == "scheduled"
+            record["observations"].update(
+                grant_id=grant_id,
+                task_id=task_id,
+                scope_digest=proposal["scope_digest"],
+                task_before=view["task"]["state"],
+            )
             # Barrier: the only scheduler trigger remains unsent until revocation is durable.
             revoked = runtime.revoke(grant_id)
             assert revoked.status_code == 200
@@ -73,6 +79,9 @@ def test_ma24_revocation_before_trigger(hnp, tmp_path):
                 ("revoked", "owner")
             ]
             revoked_ns = time.time_ns()
+            record["observations"]["revoked_grant"] = runtime.rows(
+                "SELECT grant_id,state,revoked_reason,authority_epoch FROM delegation_grants"
+            )
             before = hnp.rpc("exp01_observe", run_id=episode.run_id)
             psp = sqlite_snapshot(hnp.root / "payments.sqlite")
             posts = hnp.proxy.requests()
@@ -92,14 +101,21 @@ def test_ma24_revocation_before_trigger(hnp, tmp_path):
             record["stimulus_verified"] = triggered_ns > revoked_ns
             assert triggered_ns > revoked_ns and reply.status_code == 409
             assert reply.json()["code"] == "hnp_task_not_runnable"
-            assert runtime.task(task_id)["state"] == "canceled"
+            task_after = runtime.task(task_id)
+            record["observations"]["task_after"] = {
+                key: task_after.get(key) for key in ("state", "outcome_code")
+            }
+            assert task_after["state"] == "canceled"
+            counts = {}
             for table in (
                 "dispatch_outbox",
                 "grant_reservations",
                 "completion_results",
                 "purchases",
             ):
-                assert runtime.rows("SELECT count(*) FROM " + table) == [(0,)]
+                counts[table] = runtime.rows("SELECT count(*) FROM " + table)[0][0]
+                assert counts[table] == 0
+            record["observations"]["agent_effect_counts"] = counts
             assert before == after
             assert sqlite_snapshot(hnp.root / "payments.sqlite") == psp
             assert hnp.proxy.requests() == posts
@@ -300,6 +316,9 @@ def hp_control(lane, path, case_id, control):
                 )
             final = lane.rpc("exp01_observe", run_id=case.episode["run_id"])
             record["observations"]["after_cleanup"] = final
+            record["observations"]["psp_after_cleanup"] = sqlite_snapshot(
+                lane.root / "payments.sqlite"
+            )
             record["cleanup_verified"] = all(c[1] == "canceled" for c in final["checkouts"])
             assert record["cleanup_verified"]
             gateway.close()
