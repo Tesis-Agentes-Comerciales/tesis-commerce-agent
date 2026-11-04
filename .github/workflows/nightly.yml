@@ -15,12 +15,13 @@ on:
           - exp01-first-batch
           - exp02-commercial
           - exp03-stock-shipping
+          - exp04-mandate-replacement
       experimental_scenario:
         description: Experimental profile only; validate one scenario before expanding
         required: false
         type: choice
         default: CT15
-        options: [CT15, CT14, CT13, CT16]
+        options: [CT15, CT14, CT13, CT16, MA22, MA23]
       merchant_ref:
         description: Merchant branch or commit (empty uses its default branch)
         required: false
@@ -145,6 +146,8 @@ jobs:
             protocol=evaluation/scenarios/exp02-commercial.json
           elif [ "${{ inputs.test_scope }}" = "exp03-stock-shipping" ]; then
             protocol=evaluation/scenarios/exp03-stock-shipping.json
+          elif [ "${{ inputs.test_scope }}" = "exp04-mandate-replacement" ]; then
+            protocol=evaluation/scenarios/exp04-mandate-replacement.json
           fi
           python3 -m commerce_evaluation.exp01 --preflight --protocol "$protocol" \
             --output "$RUNNER_TEMP/exp01-manifest.json"
@@ -180,8 +183,16 @@ jobs:
             uv run pytest "tests/integration/test_exp03_stock_shipping.py::$target" -vv --durations=20 -p no:cacheprovider \
               --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
               -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
+          elif [ "${{ inputs.test_scope }}" = "exp04-mandate-replacement" ]; then
+            case "${{ inputs.experimental_scenario }}" in
+              MA22|MA23) target="test_replace_grant_before_trigger[${{ inputs.experimental_scenario }}]" ;;
+              *) echo "::error::Unknown required scenario"; exit 1 ;;
+            esac
+            uv run pytest "tests/integration/test_exp04_mandate_replacement.py::$target" -vv --durations=20 -p no:cacheprovider \
+              --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
+              -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
           else
-            uv run pytest tests/integration --ignore=tests/integration/test_exp01_first_batch.py --ignore=tests/integration/test_exp02_commercial.py --ignore=tests/integration/test_exp03_stock_shipping.py -rs -p no:cacheprovider \
+            uv run pytest tests/integration --ignore=tests/integration/test_exp01_first_batch.py --ignore=tests/integration/test_exp02_commercial.py --ignore=tests/integration/test_exp03_stock_shipping.py --ignore=tests/integration/test_exp04_mandate_replacement.py -rs -p no:cacheprovider \
               --basetemp="$RUNNER_TEMP/live-stack" --junitxml="$RUNNER_TEMP/live-junit.xml"
           fi
 
@@ -198,6 +209,8 @@ jobs:
             args+=(--protocol evaluation/scenarios/exp02-commercial.json --scenario "${{ inputs.experimental_scenario }}")
           elif [ "${{ inputs.test_scope }}" = "exp03-stock-shipping" ]; then
             args+=(--protocol evaluation/scenarios/exp03-stock-shipping.json --scenario "${{ inputs.experimental_scenario }}")
+          elif [ "${{ inputs.test_scope }}" = "exp04-mandate-replacement" ]; then
+            args+=(--protocol evaluation/scenarios/exp04-mandate-replacement.json --scenario "${{ inputs.experimental_scenario }}")
           fi
           "$reporter" -m commerce_evaluation.exp01 "${args[@]}" \
             --evidence "$RUNNER_TEMP/exp01-stack" --junit "$RUNNER_TEMP/exp01-junit.xml" \
@@ -210,7 +223,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.test_scope == 'exp03-stock-shipping' && format('exp03-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp02-commercial' && format('exp02-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
+          name: ${{ inputs.test_scope == 'exp04-mandate-replacement' && format('exp04-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp03-stock-shipping' && format('exp03-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp02-commercial' && format('exp02-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
           path: |
             ${{ runner.temp }}/live-stack/**/*.jsonl
             ${{ runner.temp }}/live-stack/**/*.log
