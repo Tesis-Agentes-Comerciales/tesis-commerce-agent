@@ -6,13 +6,20 @@ on:
   workflow_dispatch:
     inputs:
       test_scope:
-        description: Full regression suite or preregistered EXP-01 batch (separate evidence)
+        description: Full regression suite or preregistered experimental batch (separate evidence)
         required: false
         type: choice
         default: full
         options:
           - full
           - exp01-first-batch
+          - exp02-commercial
+      experimental_scenario:
+        description: EXP-02 only; validate one scenario before expanding
+        required: false
+        type: choice
+        default: CT15
+        options: [CT15, CT14]
       merchant_ref:
         description: Merchant branch or commit (empty uses its default branch)
         required: false
@@ -49,7 +56,7 @@ jobs:
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            if [ "${{ inputs.test_scope }}" = "exp01-first-batch" ]; then
+            if [[ "${{ inputs.test_scope }}" == exp0* ]]; then
               echo "::error::EXP-01 blocked: required sibling read credential missing"
               exit 1
             fi
@@ -58,7 +65,7 @@ jobs:
 
   live-stack:
     needs: sibling-access
-    if: ${{ !cancelled() && (inputs.test_scope == 'exp01-first-batch' || needs.sibling-access.outputs.available == 'true') }}
+    if: ${{ !cancelled() && (startsWith(inputs.test_scope, 'exp0') || needs.sibling-access.outputs.available == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -70,7 +77,7 @@ jobs:
           persist-credentials: false
 
       - name: Require access for EXP-01
-        if: inputs.test_scope == 'exp01-first-batch'
+        if: startsWith(inputs.test_scope, 'exp0')
         env:
           ACCESS: ${{ needs.sibling-access.outputs.available }}
         run: test "$ACCESS" = "true"
@@ -79,7 +86,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Tesis-Agentes-Comerciales/tesis-commerce-merchant
-          ref: ${{ inputs.merchant_ref || (inputs.test_scope == 'exp01-first-batch' && 'abf30df3b6a611284dedcc26c00accac6a853329') || '' }}
+          ref: ${{ inputs.merchant_ref || (startsWith(inputs.test_scope, 'exp0') && 'abf30df3b6a611284dedcc26c00accac6a853329') || '' }}
           token: ${{ secrets.MERCHANT_REPO_TOKEN }}
           path: merchant
           persist-credentials: false
@@ -88,7 +95,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox
-          ref: ${{ inputs.payment_ref || (inputs.test_scope == 'exp01-first-batch' && 'e6ab67b5963434a9a3caae2012b70232a3cca65d') || '' }}
+          ref: ${{ inputs.payment_ref || (startsWith(inputs.test_scope, 'exp0') && 'e6ab67b5963434a9a3caae2012b70232a3cca65d') || '' }}
           token: ${{ secrets.MERCHANT_REPO_TOKEN }}
           path: payment
           persist-credentials: false
@@ -106,7 +113,7 @@ jobs:
           (cd payment && uv python install && uv sync --frozen --all-groups)
 
       - name: Install Node.js
-        if: inputs.test_scope != 'exp01-first-batch'
+        if: ${{ !startsWith(inputs.test_scope, 'exp0') }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
@@ -117,7 +124,7 @@ jobs:
 
       # The browser test drives auth/ and ui/ with the Agent's own pinned Playwright.
       - name: Install auth, UI and Chromium
-        if: inputs.test_scope != 'exp01-first-batch'
+        if: ${{ !startsWith(inputs.test_scope, 'exp0') }}
         working-directory: agent
         run: |
           (cd auth && npm ci)
@@ -125,15 +132,19 @@ jobs:
           uv run playwright install --with-deps --only-shell chromium
 
       - name: Verify EXP-01 preregistration and exact sources
-        if: inputs.test_scope == 'exp01-first-batch'
+        if: startsWith(inputs.test_scope, 'exp0')
         working-directory: agent
         env:
           PYTHONPATH: evaluation/src
           MERCHANT_REPO: ${{ github.workspace }}/merchant
           PAYMENT_REPO: ${{ github.workspace }}/payment
-        run: >-
-          python3 -m commerce_evaluation.exp01 --preflight
-          --output "$RUNNER_TEMP/exp01-manifest.json"
+        run: |
+          protocol=evaluation/scenarios/exp01-first-batch.json
+          if [ "${{ inputs.test_scope }}" = "exp02-commercial" ]; then
+            protocol=evaluation/scenarios/exp02-commercial.json
+          fi
+          python3 -m commerce_evaluation.exp01 --preflight --protocol "$protocol" \
+            --output "$RUNNER_TEMP/exp01-manifest.json"
 
       # Disposable PostgreSQL in Docker, the real Merchant and payment provider, and the
       # Agent with its UI; see docs/testing.md and tests/integration/README.md.
@@ -148,20 +159,33 @@ jobs:
             uv run pytest tests/integration/test_exp01_first_batch.py -vv --durations=20 -p no:cacheprovider \
               --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
               -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
+          elif [ "${{ inputs.test_scope }}" = "exp02-commercial" ]; then
+            case "${{ inputs.experimental_scenario }}" in
+              CT15) target=test_ct15_price_change ;;
+              CT14) target=test_ct14_stock_after_checkout ;;
+              *) echo "::error::Unknown required scenario"; exit 1 ;;
+            esac
+            uv run pytest "tests/integration/test_exp02_commercial.py::$target" -vv --durations=20 -p no:cacheprovider \
+              --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
+              -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
           else
-            uv run pytest tests/integration --ignore=tests/integration/test_exp01_first_batch.py -rs -p no:cacheprovider \
+            uv run pytest tests/integration --ignore=tests/integration/test_exp01_first_batch.py --ignore=tests/integration/test_exp02_commercial.py -rs -p no:cacheprovider \
               --basetemp="$RUNNER_TEMP/live-stack" --junitxml="$RUNNER_TEMP/live-junit.xml"
           fi
 
       - name: Require complete EXP-01 observations and cleanup
-        if: ${{ !cancelled() && inputs.test_scope == 'exp01-first-batch' }}
+        if: ${{ !cancelled() && startsWith(inputs.test_scope, 'exp0') }}
         working-directory: agent
         env:
           PYTHONPATH: evaluation/src
         run: |
           reporter=python3
           if [ -x .venv/bin/python ]; then reporter=.venv/bin/python; fi
-          "$reporter" -m commerce_evaluation.exp01 \
+          args=()
+          if [ "${{ inputs.test_scope }}" = "exp02-commercial" ]; then
+            args+=(--protocol evaluation/scenarios/exp02-commercial.json --scenario "${{ inputs.experimental_scenario }}")
+          fi
+          "$reporter" -m commerce_evaluation.exp01 "${args[@]}" \
             --evidence "$RUNNER_TEMP/exp01-stack" --junit "$RUNNER_TEMP/exp01-junit.xml" \
             --outcomes "$RUNNER_TEMP/exp01-outcomes.json" --manifest "$RUNNER_TEMP/exp01-manifest.json" \
             --output "$RUNNER_TEMP/exp01-report.json"
@@ -172,7 +196,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
+          name: ${{ inputs.test_scope == 'exp02-commercial' && format('exp02-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
           path: |
             ${{ runner.temp }}/live-stack/**/*.jsonl
             ${{ runner.temp }}/live-stack/**/*.log
@@ -186,5 +210,5 @@ jobs:
             ${{ runner.temp }}/exp01-outcomes.json
             ${{ runner.temp }}/exp01-report.json
             ${{ runner.temp }}/exp01-SHA256SUMS
-          if-no-files-found: ${{ inputs.test_scope == 'exp01-first-batch' && 'error' || 'ignore' }}
+          if-no-files-found: ${{ startsWith(inputs.test_scope, 'exp0') && 'error' || 'ignore' }}
           retention-days: 14

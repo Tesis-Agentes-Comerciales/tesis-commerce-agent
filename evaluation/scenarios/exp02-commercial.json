@@ -1,0 +1,115 @@
+{
+  "schema": "exp02-protocol/1",
+  "agent_base": "65183d545241937c5f741dd66378e1a7f7c83dc9",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "matrix_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "ux03_oracle_sha256": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+  "scope": "HP product integration only, stale feed price change and post-checkout stock revalidation; no LLM, approval or complete",
+  "cases": {
+    "CT15:HP:within": {
+      "scenario": "CT15",
+      "mode": "HP",
+      "test": "test_ct15_price_change[within]",
+      "expected": "new total equals maximum; prepare awaiting_confirmation; price_changed true; no approval/payment",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "after_cleanup",
+        "offer_before",
+        "offer_after",
+        "feed_sha256",
+        "create_posts",
+        "agent_result",
+        "agent_effect_counts",
+        "mutation_at_ns",
+        "agent_call_at_ns"
+      ]
+    },
+    "CT15:HP:above": {
+      "scenario": "CT15",
+      "mode": "HP",
+      "test": "test_ct15_price_change[above]",
+      "expected": "new authoritative total above old maximum; budget_exceeded; checkout canceled; no approval/payment",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "after_cleanup",
+        "offer_before",
+        "offer_after",
+        "feed_sha256",
+        "create_posts",
+        "agent_result",
+        "agent_effect_counts",
+        "mutation_at_ns",
+        "agent_call_at_ns"
+      ]
+    },
+    "CT14:HP:stable": {
+      "scenario": "CT14",
+      "mode": "HP",
+      "test": "test_ct14_stock_after_checkout[stable]",
+      "expected": "fresh approval terms; one checkout; no approval/payment",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "after_cleanup",
+        "offer_before",
+        "offer_after",
+        "feed_sha256",
+        "create_posts",
+        "agent_result",
+        "agent_effect_counts",
+        "mutation_at_ns",
+        "agent_call_at_ns",
+        "terms_before",
+        "freshness"
+      ]
+    },
+    "CT14:HP:depleted": {
+      "scenario": "CT14",
+      "mode": "HP",
+      "test": "test_ct14_stock_after_checkout[depleted]",
+      "expected": "stock only depleted after checkout; checkout_terms_changed; recorded changed stock; no approval/payment",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "after_cleanup",
+        "offer_before",
+        "offer_after",
+        "feed_sha256",
+        "create_posts",
+        "agent_result",
+        "agent_effect_counts",
+        "mutation_at_ns",
+        "agent_call_at_ns",
+        "terms_before",
+        "freshness"
+      ]
+    }
+  },
+  "effect_limits": {
+    "completed_orders": 0,
+    "payment_tokens": 0,
+    "payment_requests": 0,
+    "create_posts_per_control": 1,
+    "approvals": 0,
+    "active_checkouts_after_cleanup": 0
+  },
+  "limitations": [
+    "CT15 HP only; HNP not measured",
+    "CT14 revalidation before approval only; no complete attempted",
+    "no conversational interpretation or LLM",
+    "synthetic controlled mutation, not market observation",
+    "results per scenario and mode; controls are not additional scenarios"
+  ],
+  "test_module": "tests/integration/test_exp02_commercial.py::"
+}

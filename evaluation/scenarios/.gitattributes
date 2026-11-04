@@ -1,2 +1,3 @@
 # EXP-01 protocol bytes must survive checkout without EOL conversion.
 /exp01-first-batch.json -text
+/exp02-commercial.json -text

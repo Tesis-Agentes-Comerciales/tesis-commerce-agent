@@ -325,6 +325,14 @@ class Control:
             "other_credential": self.issue(other, "live-other-catalog"),
         }
 
+    def observe_offer(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Read-only full snapshot through the isolated Merchant worker."""
+        with self.connection() as connection:
+            return connection.execute(
+                "SELECT snapshot FROM catalog_offers WHERE run_id=%s AND offer_id=%s",
+                (command["run_id"], command["offer_id"]),
+            ).fetchone()[0]
+
     def edit_offer(self, command: dict[str, Any]) -> dict[str, Any]:
         """07B-B Merchant-side changes between the Agent's observation and its guarded POST."""
         kind = command["change"]
@@ -333,6 +341,10 @@ class Control:
             if kind == "restore":
                 value.clear()
                 value.update(command["snapshot"])
+            if kind == "stock":
+                value["revision"] += 1
+                value["availability"] = "out_of_stock"
+                value["available_quantity"] = 0
             if kind == "revision":
                 value["revision"] += 1
             if kind == "digest":
@@ -411,6 +423,7 @@ def main() -> None:
             "alter_offer_fixture",
             "managed_catalog",
             "edit_offer",
+            "observe_offer",
             "reprice_offer",
             "projection",
         )

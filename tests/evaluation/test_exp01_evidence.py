@@ -134,3 +134,30 @@ def test_a_failed_control_does_not_erase_other_scenario_observations(bundle):
     assert not result["validated"] and result["issues"] == []
     assert result["scenarios"] == {"MA24": "passed", "INF30": "passed", "INF31": "error"}
     assert result["minimum_plan_counts"] == {"passed": 2, "error": 1, "not_executed": 34}
+
+
+def test_protocol_selection_requires_exact_controls_and_does_not_claim_other_modes(tmp_path):
+    from commerce_evaluation.exp01 import ROOT
+
+    plan_path = ROOT / "evaluation/scenarios/exp02-commercial.json"
+    result = report(
+        tmp_path,
+        tmp_path / "none.xml",
+        tmp_path / "none.json",
+        tmp_path / "manifest.json",
+        plan_path=plan_path,
+        scenario="CT15",
+    )
+    assert result["scenarios"] == {"CT15": "blocked"}
+    assert result["measured_modes"] == {"CT15": ["HP"]}
+    assert set(result["controls"]) == {"CT15:HP:within", "CT15:HP:above"}
+    assert not result["validated"]
+    with pytest.raises(ValueError, match="Unknown or empty"):
+        report(
+            tmp_path,
+            tmp_path / "none.xml",
+            tmp_path / "none.json",
+            tmp_path / "manifest.json",
+            plan_path=plan_path,
+            scenario="INF27",
+        )
