@@ -158,11 +158,13 @@ jobs:
         working-directory: agent
         env:
           PYTHONPATH: evaluation/src
-        run: >-
-          python3 -m commerce_evaluation.exp01
-          --evidence "$RUNNER_TEMP/exp01-stack" --junit "$RUNNER_TEMP/exp01-junit.xml"
-          --outcomes "$RUNNER_TEMP/exp01-outcomes.json" --manifest "$RUNNER_TEMP/exp01-manifest.json"
-          --output "$RUNNER_TEMP/exp01-report.json"
+        run: |
+          reporter=python3
+          if [ -x .venv/bin/python ]; then reporter=.venv/bin/python; fi
+          "$reporter" -m commerce_evaluation.exp01 \
+            --evidence "$RUNNER_TEMP/exp01-stack" --junit "$RUNNER_TEMP/exp01-junit.xml" \
+            --outcomes "$RUNNER_TEMP/exp01-outcomes.json" --manifest "$RUNNER_TEMP/exp01-manifest.json" \
+            --output "$RUNNER_TEMP/exp01-report.json"
 
       # Evidence, service logs, the browser screenshot and the JUnit report; workers never
       # log tokens or bodies.
