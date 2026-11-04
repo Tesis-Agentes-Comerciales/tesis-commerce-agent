@@ -1,0 +1,37 @@
+{
+  "hashes_checked": 50,
+  "bad": [],
+  "scenarios": {
+    "MA24": "passed",
+    "INF30": "passed",
+    "INF31": "error"
+  },
+  "attributed_scenarios": {
+    "MA24": "passed",
+    "INF30": "passed",
+    "INF31": "error"
+  },
+  "counts": {
+    "not_executed": 34,
+    "passed": 2,
+    "error": 1
+  },
+  "issues": [],
+  "junit": {
+    "failed": 1,
+    "skipped": 0,
+    "error": 0,
+    "passed": 7
+  },
+  "validated": false,
+  "shutdown": [
+    {
+      "scenario": "shutdown",
+      "merchant_pids": [
+        3300
+      ],
+      "proxy_closed": true,
+      "postgres_removed": true
+    }
+  ]
+}

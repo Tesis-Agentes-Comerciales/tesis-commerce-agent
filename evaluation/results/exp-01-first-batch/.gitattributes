@@ -1,0 +1,4 @@
+/runs/*.zip -text
+/analysis/*.json -text
+/MANIFEST.json -text
+/SHA256SUMS -text
