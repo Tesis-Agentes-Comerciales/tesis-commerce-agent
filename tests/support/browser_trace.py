@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -34,16 +35,46 @@ def redact(value: Any) -> Any:
         r"(?i)password|contrase", str(params.get("selector", ""))
     ):
         result["params"] = {
-            key: REDACTED if key in {"value", "text"} else item
-            for key, item in result["params"].items()
+            key: REDACTED if key in {"value", "text"} else redact(item)
+            for key, item in params.items()
         }
     return result
+
+
+def credentials(value: Any) -> set[str]:
+    """Also scrub copies in snapshots and encoded bodies, not only the original field."""
+    found: set[str] = set()
+    if isinstance(value, list):
+        for item in value:
+            found.update(credentials(item))
+    if not isinstance(value, dict):
+        return found
+    for key, item in value.items():
+        if SENSITIVE.fullmatch(key) and isinstance(item, str) and item:
+            found.add(item)
+        found.update(credentials(item))
+    if SENSITIVE.fullmatch(str(value.get("name", ""))) and isinstance(value.get("value"), str):
+        found.add(value["value"])
+    params = value.get("params")
+    if isinstance(params, dict) and re.search(
+        r"(?i)password|contrase", str(params.get("selector", ""))
+    ):
+        found.update(str(params[key]) for key in ("value", "text") if params.get(key))
+    return found
 
 
 def sanitize_trace(raw: Path, target: Path) -> dict[str, str | int]:
     """Raw stays local until replaced; every textual resource is sanitized, not just headers."""
     changed = 0
     with ZipFile(raw) as source, ZipFile(target, "w", ZIP_DEFLATED) as output:
+        secrets: set[str] = set()
+        for entry in source.infolist():
+            try:
+                for line in source.read(entry).decode("utf-8").splitlines():
+                    with suppress(json.JSONDecodeError):
+                        secrets.update(credentials(json.loads(line)))
+            except UnicodeDecodeError:
+                pass
         for entry in source.infolist():
             data = source.read(entry)
             try:
@@ -57,7 +88,10 @@ def sanitize_trace(raw: Path, target: Path) -> dict[str, str | int]:
                     lines.append(json.dumps(redact(json.loads(line)), ensure_ascii=False) + "\n")
                 except (json.JSONDecodeError, TypeError):
                     lines.append(redact(line))
-            sanitized = "".join(lines).encode("utf-8")
+            text = "".join(lines)
+            for secret in sorted(secrets, key=len, reverse=True):
+                text = text.replace(secret, REDACTED)
+            sanitized = text.encode("utf-8")
             changed += sanitized != data
             output.writestr(entry, sanitized)
     return {

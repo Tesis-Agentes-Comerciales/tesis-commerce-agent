@@ -28,4 +28,4 @@ def test_trace_redacts_credentials_and_preserves_business_evidence(tmp_path):
         assert observed[3] == events[3]
         assert json.loads(archive.read("resources/body.json"))["access_token"] == REDACTED
         assert archive.read("resources/frame.png") == b"\x89PNG\xff"
-    assert len(manifest["sha256"]) == 64 and manifest["redacted_resources"] == 2
+    assert len(str(manifest["sha256"])) == 64 and manifest["redacted_resources"] == 2
