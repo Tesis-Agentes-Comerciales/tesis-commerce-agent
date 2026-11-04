@@ -7,6 +7,7 @@ import time
 import pytest
 
 from commerce_agent.acp import load_product_feed
+from commerce_agent.acp.creation import build_checkout_create
 from commerce_agent.acp.models import CheckoutSession
 from tests.integration.exp01_support import ROOT, recorded_case, sqlite_snapshot
 from tests.integration.live_purchase import HnpAgent, delegation_request, on_checkout
@@ -87,7 +88,9 @@ def test_ct15_hnp_old_feed(hnp, tmp_path, control):
 
             def mutate(body, headers):
                 payload = json.loads(body)
-                assert payload["line_items"] == [{"id": selected.variant_id, "quantity": 1}]
+                assert payload == build_checkout_create(
+                    selected.variant_id, selected.currency
+                ).model_dump(mode="json")
                 assert headers["Idempotency-Key"]
                 facts["idempotency_sha256"] = hashlib.sha256(
                     headers["Idempotency-Key"].encode()
