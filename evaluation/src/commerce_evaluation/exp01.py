@@ -121,9 +121,15 @@ def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[
         "error": sum(n.find("error") is not None for n in nodes),
     }
     junit_counts["passed"] = len(nodes) - sum(junit_counts.values())
+    terminal = recorder.get("status") == "completed" and recorder.get("exit_code") == 0
+    terminal |= (
+        recorder.get("status") == "incomplete_or_failed"
+        and recorder.get("exit_code") == 1
+        and recorder.get("counts", {}).get("failed", 0) > 0
+    )
     if (
         recorder.get("collected") != len(nodes)
-        or recorder.get("status") != "completed"
+        or not terminal
         or recorder.get("deselected") != 0
         or recorder.get("collection_errors") != 0
     ):
@@ -158,6 +164,21 @@ def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[
                 problems.append("oracle_or_temporal_provenance_invalid:" + case_id)
         if row.get("cleanup_verified") is not True:
             problems.append("cleanup_not_verified:" + case_id)
+        observations = row.get("observations", {})
+        required = {"merchant_before", "merchant_after", "psp_before", "psp_after"}
+        required |= (
+            {"trigger_status", "revoked_at_ns", "triggered_at_ns"}
+            if case_id == "MA24"
+            else {
+                "agent_result",
+                "agent_state",
+                "after_cleanup",
+                "idempotency_sha256",
+                "create_posts",
+            }
+        )
+        if row.get("status") == "passed" and not required <= observations.keys():
+            problems.append("independent_observations_missing:" + case_id)
         records[case_id] = row
     controls = {
         key: records.get(
@@ -208,6 +229,11 @@ def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[
         and junit_counts["passed"] == len(expected)
         and recorder.get("exit_code") == 0
     )
+    attributed = {
+        key: "blocked" if value == "passed" and problems else value
+        for key, value in scenarios.items()
+    }
+    expanded_statuses = {key: attributed.get(key, "not_executed") for key in p0}
     return {
         "schema": "exp01-results/1",
         "validated": valid,
@@ -215,10 +241,13 @@ def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[
         "issues": sorted(set(problems)),
         "controls": controls,
         "scenarios": scenarios,
+        "attributed_scenarios": attributed,
         "junit": junit_counts,
         "recorder": recorder,
         "control_counts": dict(Counter(row["status"] for row in controls.values())),
-        "minimum_plan_counts": count_plan(p0, attributable if not problems else {}),
+        "minimum_plan_counts": dict(Counter(expanded_statuses.values())),
+        "p0_compatible_projection": count_plan(p0, attributable if not problems else {}),
+        "projection_note": "P0 collapses blocked/error; minimum_plan_counts retains EXP-01 states",
         "attribution_status": "verified" if not problems else "blocked",
         "stack_shutdown": shutdown,
         "scope": plan["scope"],
@@ -243,6 +272,16 @@ def main() -> None:
         assert args.evidence and args.junit and args.outcomes and args.manifest
         result = report(args.evidence, args.junit, args.outcomes, args.manifest)
         valid = result["validated"]
+        logs = list(args.evidence.rglob("*.log"))
+        if logs:
+            # Services imply installed locked dependencies; setup-only reporting stays stdlib.
+            from .redaction import redact
+
+            for log in logs:
+                original = log.read_text(errors="replace")
+                sanitized = redact(original)
+                if sanitized != original:
+                    log.write_text(sanitized)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     if not args.preflight:
         assert args.evidence
