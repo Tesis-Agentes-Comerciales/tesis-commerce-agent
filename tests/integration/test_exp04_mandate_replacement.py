@@ -21,11 +21,13 @@ def ledger_scope(runtime, grant_id):
     return json.loads(value)["scope"]
 
 
-def verified(runtime, lane, grant_id):
+def verified(runtime, lane, grant_id, *, reached_d1):
     [document] = verify_database(
         runtime.database, psp_database=lane.root / "payments.sqlite", grant_id=grant_id
     )
-    for name in ("intent", "delegation_consent", "open_mandates"):
+    expected_intent = "ok" if reached_d1 else "not_applicable"
+    assert document["links"]["intent"]["status"] == expected_intent
+    for name in ("delegation_consent", "open_mandates"):
         assert document["links"][name]["status"] == "ok", document["links"][name]
     return document
 
@@ -160,8 +162,8 @@ def test_replace_grant_before_trigger(hnp, tmp_path, scenario):
                 for name in ("grant_reservations", "dispatch_outbox", "completion_results")
             }
             facts["agent_effect_counts"] = counts
-            facts["verified_old"] = verified(runtime, hnp, old_id)
-            facts["verified_new"] = verified(runtime, hnp, new_id)
+            facts["verified_old"] = verified(runtime, hnp, old_id, reached_d1=False)
+            facts["verified_new"] = verified(runtime, hnp, new_id, reached_d1=True)
             assert (task["state"], task["outcome_code"]) == ("escalated", "budget_not_satisfiable")
             assert facts["verified_old"]["links"]["revocation"]["status"] == "ok"
             assert facts["verified_new"]["links"]["escalation"]["status"] == "ok"
