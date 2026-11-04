@@ -48,9 +48,15 @@ def preflight() -> dict[str, Any]:
             or os.environ.get("OPENAI_API_KEY")
         ):
             raise ValueError("Isolated POSIX stack without model credentials/flags required")
-        subprocess.run(
-            ["git", "merge-base", "--is-ancestor", plan["agent_base"], "HEAD"], cwd=ROOT, check=True
+        ancestry = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", plan["agent_base"], "HEAD"],
+            cwd=ROOT,
+            capture_output=True,
         )
+        if ancestry.returncode:
+            raise ValueError(
+                "Approved base unavailable or not an ancestor; full Git history required"
+            )
         for role, root, expected in (
             ("agent", ROOT, os.environ["GITHUB_SHA"]),
             ("merchant", Path(os.environ["MERCHANT_REPO"]), plan["merchant_sha"]),
