@@ -1,0 +1,26 @@
+{
+  "schema": "exp01-evidence-archive/1",
+  "primary_run": 41842686257,
+  "execution_sha": "7b531e4a0f871e5b6db4b07f991b1583ddf753ac",
+  "analysis_source_sha": "a1c56c612cbc97c71ed4e686942899f127407b29",
+  "protocol_unchanged_since": "e8b7050dad436c496798de4c590c29c3ffab02eb",
+  "runs": [
+    {
+      "run_id": 41841403584,
+      "zip_sha256": "9be9db2b2631add7de9e4fdf8ff9773feb9a133b18691c5855fdde19fae9b4e6",
+      "file": "runs/41841403584.zip"
+    },
+    {
+      "run_id": 41842063615,
+      "zip_sha256": "fc4c79622dc70e13df29a6bc9624dd64bce779fe177af429cb518b4936661279",
+      "file": "runs/41842063615.zip"
+    },
+    {
+      "run_id": 41842686257,
+      "zip_sha256": "1216bd512606a6e6ce3e9de47061bf4966a4a63ca2dbae7fc2a2bfd74694351f",
+      "file": "runs/41842686257.zip"
+    }
+  ],
+  "status": "PARTIAL_BLOCKED_NATIVE_503",
+  "no_new_agent_execution_in_reanalysis": true
+}
