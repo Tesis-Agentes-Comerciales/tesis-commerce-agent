@@ -17,6 +17,7 @@ from pydantic import SecretStr
 from commerce_agent.acp import ACPClient, load_product_feed
 from commerce_agent.application import PurchaseService, PurchaseServiceError
 from commerce_agent.approval import ApprovalService
+from commerce_agent.governance.canonical import canonical_bytes
 from commerce_agent.governance.enforce import SqliteD1EnforceGate
 from commerce_agent.governance.provenance import ClockReader
 from commerce_agent.governance.remote_creation import LOOKUP_PATH, original_response_sha256
@@ -166,7 +167,7 @@ def hp_control(lane, path, case_id, control):
 
             def before_forward(body, headers):
                 case.recover_envelope()
-                assert body == case.envelope.body_canonical.encode()
+                assert canonical_bytes(json.loads(body)) == case.envelope.body_canonical.encode()
                 assert (
                     headers["Idempotency-Key"] == case.envelope.idempotency_key.get_secret_value()
                 )
@@ -218,10 +219,15 @@ def hp_control(lane, path, case_id, control):
             elif control == "merchant_503":
                 assert call.status == 503
             elif control in {"proxy_503", "timeout_before_forward"}:
-                wait_until(lambda: call.status == 503, "local non-forwarded response")
+
+                def local_response():
+                    assert call.status == 503
+
+                wait_until(local_response, "local non-forwarded response")
                 assert not call.answered.is_set()
             else:
                 assert call.status == 409
+            assert not lane.proxy.errors
             record["stimulus_verified"] = True
             if control == "positive":
                 assert observed == "awaiting_confirmation"
