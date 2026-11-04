@@ -1,0 +1,271 @@
+{
+  "schema": "experimental-progress-by-measured-mode/1",
+  "date": "2026-11-04",
+  "canonical_scenarios": 33,
+  "minimum_units": 37,
+  "counting_note": "Scoped passes do not close missing modes, semantic comprehension, or unmeasured paths. Controls and repetitions are not extra scenarios; Jair results are not inferred.",
+  "new_scope_measurements": [
+    "CT15 HP",
+    "CT14 HP preapproval reread",
+    "CT13 HNP one-variant",
+    "CT16 HP preapproval reread",
+    "MA22 HNP replacement",
+    "MA23 HNP replacement"
+  ],
+  "new_primary_pytest_counts": {
+    "passed": 9,
+    "failed": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "prior_exp01_intact": true,
+  "by_scenario": {
+    "UX01": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "real LLM cost authorization and frozen protocol pending; UX01/11/12 preparation document available"
+    },
+    "UX02": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "real LLM cost authorization and frozen protocol pending; UX01/11/12 preparation document available"
+    },
+    "UX03": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP"
+      ],
+      "dependency": "conditional representation and P3 authoritative total protocol pending"
+    },
+    "UX04": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "conditional representation and P3 authoritative total protocol pending"
+    },
+    "UX05": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "conditional representation and P3 authoritative total protocol pending"
+    },
+    "UX06": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "conditional representation and P3 authoritative total protocol pending"
+    },
+    "UX07": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "real LLM cost authorization and frozen protocol pending; UX01/11/12 preparation document available"
+    },
+    "UX08": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "new exact conversational change/cancellation episode and barriers required"
+    },
+    "UX09": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "new exact conversational change/cancellation episode and barriers required"
+    },
+    "UX10": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HNP"
+      ],
+      "dependency": "PurchaseIntent has no quantity, grant quantity_max=1. Do not relabel malformed JSON as two-unit comprehension"
+    },
+    "UX11": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "real LLM cost authorization and frozen protocol pending; UX01/11/12 preparation document available"
+    },
+    "UX12": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "real LLM cost authorization and frozen protocol pending; UX01/11/12 preparation document available"
+    },
+    "CT13": {
+      "mode": "HNP",
+      "result": "passed scoped",
+      "scope": "post-consent stock, one-variant grant; alternative fallback unmeasured",
+      "run": 41897313836
+    },
+    "CT14": {
+      "mode": "HP",
+      "result": "passed revalidation only",
+      "scope": "post-checkout stock; no approval or complete attempt",
+      "run": 41895755779
+    },
+    "CT15": {
+      "mode": "HP",
+      "result": "passed scoped",
+      "scope": "old feed, price rise, exact and above maximum; HNP unmeasured",
+      "run": 41895460657
+    },
+    "CT16": {
+      "mode": "HP",
+      "result": "passed revalidation only",
+      "scope": "shipping increase; new terms/reapproval unmeasured",
+      "run": 41897599243
+    },
+    "CT17": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "native coupons unsupported"
+    },
+    "CT18": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "last-unit race may need new completed synthetic competitor purchase, outside zero-payment ceiling"
+    },
+    "CT19": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "next commercial candidate: isolated variant disappearance/identity change and restoration controls required, distinct from stock"
+    },
+    "CT20": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "conditional representation and P3 authoritative total protocol pending"
+    },
+    "CT21": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "real LLM cost authorization and frozen protocol pending; UX01/11/12 preparation document available"
+    },
+    "MA22": {
+      "mode": "HNP",
+      "result": "passed scoped",
+      "scope": "revoke then consent lower budget",
+      "run": 41898998656
+    },
+    "MA23": {
+      "mode": "HNP",
+      "result": "passed scoped",
+      "scope": "revoke then exclude cheaper X, same maximum",
+      "run": 41899701762
+    },
+    "MA24": {
+      "mode": "HNP",
+      "result": "passed scoped",
+      "scope": "revocation before trigger",
+      "run": 41846571407
+    },
+    "MA25": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HNP"
+      ],
+      "dependency": "post-commit race requires precise barriers and new effect authorization"
+    },
+    "MA26": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HNP"
+      ],
+      "dependency": "post-commit regret requires effect authorization; refund not demonstrated"
+    },
+    "INF27": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "Jair-owned; no results attributed here"
+    },
+    "INF28": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "Jair-owned; no results attributed here"
+    },
+    "INF29": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "Jair-owned; no results attributed here"
+    },
+    "INF30": {
+      "mode": "HP",
+      "result": "passed scoped",
+      "scope": "lost POST response and historical lookup; public recovery UX unmeasured",
+      "run": 41846571407
+    },
+    "INF31": {
+      "mode": "HP",
+      "result": "incomplete / stimulus error",
+      "scope": "500 observed, native 503 not achieved",
+      "run": 41846571407
+    },
+    "INF32": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "no insufficient-funds-specific balance/reason contract"
+    },
+    "INF33": {
+      "status": "no execution attributed by this work",
+      "required_modes": [
+        "HP",
+        "HNP"
+      ],
+      "dependency": "Jair-owned; no results attributed here"
+    }
+  },
+  "recommended_next": [
+    "CT19 isolated disappearance after catalog read",
+    "CT15 HNP preparation-only validation",
+    "review authenticated UX01/11/12 adapter and authorize bounded model cost before calls"
+  ]
+}
