@@ -363,8 +363,11 @@ def delegate(page: Page) -> None:
 def delegations(page: Page) -> Locator:
     """The separate header button opens the persistent list and revocation controls."""
     page.get_by_role("button", name="Mis delegaciones", exact=True).click()
-    dialog = page.get_by_test_id("delegations")
-    expect(dialog.get_by_role("heading", name="Mis delegaciones")).to_be_visible()
+    dialog = page.get_by_role("dialog", name="Mis delegaciones", exact=True)
+    expect(dialog).to_have_attribute("data-testid", "delegations")
+    heading = dialog.locator("[data-slot='dialog-title']")
+    expect(heading).to_have_text("Mis delegaciones")
+    expect(heading).to_be_visible()
     return dialog
 
 
