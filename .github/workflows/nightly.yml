@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       test_scope:
-        description: Existing full suite or the first Merchant P0 characterization
+        description: Required historical-service baseline (full or P2 only)
         required: false
         type: choice
         default: full
@@ -14,13 +14,15 @@ on:
           - full
           - p0-catalog-bridge
       merchant_ref:
-        description: Merchant branch or commit (empty uses its default branch)
+        description: Must resolve to the historical Merchant pin; empty uses that pin
         required: false
         type: string
+        default: abf30df3b6a611284dedcc26c00accac6a853329
       payment_ref:
-        description: Payment-provider branch or commit (empty uses its default branch)
+        description: Must resolve to the historical PSP pin; empty uses that pin
         required: false
         type: string
+        default: e6ab67b5963434a9a3caae2012b70232a3cca65d
   schedule:
     - cron: "23 6 * * *"
 
@@ -39,22 +41,18 @@ jobs:
       available: ${{ steps.token.outputs.available }}
     steps:
       # Merchant and payment provider are private repositories; GITHUB_TOKEN cannot read them.
-      # Without a read-only token for both, the live job is skipped with a notice.
+      # Every scheduled/manual live invocation is required. No skipped green workflow.
       - name: Check sibling read token
         id: token
         env:
           SIBLING_TOKEN_CONFIGURED: ${{ secrets.MERCHANT_REPO_TOKEN != '' }}
-          P2_REQUIRED: ${{ github.event_name == 'workflow_dispatch' && inputs.test_scope == 'p0-catalog-bridge' }}
         run: |
           if [ "$SIBLING_TOKEN_CONFIGURED" = "true" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            if [ "$P2_REQUIRED" = "true" ]; then
-              echo "::error title=P2 not executed::Sibling read credential is missing; the requested P2 integration cannot run."
-              exit 1
-            fi
-            echo "::notice title=Live stack skipped::Secret MERCHANT_REPO_TOKEN is not configured. Add a read-only token (contents: read) for Tesis-Agentes-Comerciales/tesis-commerce-merchant and Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox to run tests/integration."
+            echo "::error title=Nightly not executed::Required sibling read credential is missing; no live validation occurred."
+            exit 1
           fi
 
   live-stack:
@@ -73,7 +71,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Tesis-Agentes-Comerciales/tesis-commerce-merchant
-          ref: ${{ inputs.merchant_ref }}
+          ref: ${{ inputs.merchant_ref || 'abf30df3b6a611284dedcc26c00accac6a853329' }}
           token: ${{ secrets.MERCHANT_REPO_TOKEN }}
           path: merchant
           persist-credentials: false
@@ -82,7 +80,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox
-          ref: ${{ inputs.payment_ref }}
+          ref: ${{ inputs.payment_ref || 'e6ab67b5963434a9a3caae2012b70232a3cca65d' }}
           token: ${{ secrets.MERCHANT_REPO_TOKEN }}
           path: payment
           persist-credentials: false
@@ -98,6 +96,16 @@ jobs:
           (cd agent && uv python install && uv sync --frozen --all-groups)
           (cd merchant && uv python install && uv sync --frozen --all-groups)
           (cd payment && uv python install && uv sync --frozen --all-groups)
+
+      - name: Verify pinned baseline before starting services
+        working-directory: agent
+        env:
+          MERCHANT_REPO: ${{ github.workspace }}/merchant
+          PAYMENT_REPO: ${{ github.workspace }}/payment
+        run: >-
+          uv run python -m tests.support.nightly_evidence --preflight
+          --scope "${{ inputs.test_scope || 'full' }}"
+          --output "$RUNNER_TEMP/nightly-manifest.json"
 
       - name: Install Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -129,6 +137,20 @@ jobs:
           uv run pytest "$TEST_PATH" -rs -p no:cacheprovider
           --basetemp="$RUNNER_TEMP/live-stack"
           --junitxml="$RUNNER_TEMP/live-junit.xml"
+          -p commerce_evaluation.p0_pytest_report
+          --p0-report="$RUNNER_TEMP/live-outcomes.json"
+
+      - name: Require complete live evidence
+        if: ${{ !cancelled() }}
+        working-directory: agent
+        run: >-
+          uv run python -m tests.support.nightly_evidence
+          --scope "${{ inputs.test_scope || 'full' }}"
+          --manifest "$RUNNER_TEMP/nightly-manifest.json"
+          --junit "$RUNNER_TEMP/live-junit.xml"
+          --outcomes "$RUNNER_TEMP/live-outcomes.json"
+          --evidence "$RUNNER_TEMP/live-stack"
+          --output "$RUNNER_TEMP/nightly-report.json"
 
       # Evidence, service logs, the browser screenshot and the JUnit report; workers never
       # log tokens or bodies.
@@ -136,11 +158,15 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: live-stack-evidence
+          name: nightly-${{ inputs.test_scope || 'full' }}-evidence
           path: |
             ${{ runner.temp }}/live-stack/**/*.jsonl
             ${{ runner.temp }}/live-stack/**/*.log
             ${{ runner.temp }}/live-stack/**/*.png
             ${{ runner.temp }}/live-junit.xml
-          if-no-files-found: ignore
+            ${{ runner.temp }}/live-outcomes.json
+            ${{ runner.temp }}/nightly-manifest.json
+            ${{ runner.temp }}/nightly-report.json
+            ${{ runner.temp }}/nightly-SHA256SUMS
+          if-no-files-found: error
           retention-days: 14

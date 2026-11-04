@@ -105,7 +105,7 @@ class P2EvidenceTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", text)
 
     @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "requires POSIX runner")
-    def test_actual_workflow_gate_fails_missing_manual_p2_but_preserves_schedule(self) -> None:
+    def test_actual_workflow_gate_fails_missing_credentials_for_every_required_run(self) -> None:
         lines = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8").splitlines()
         start = lines.index("      - name: Check sibling read token")
         begin = next(i for i in range(start, len(lines)) if lines[i] == "        run: |") + 1
@@ -118,7 +118,7 @@ class P2EvidenceTests(unittest.TestCase):
         for configured, required, expected in (
             ("true", "true", 0),
             ("false", "true", 1),
-            ("false", "false", 0),
+            ("false", "false", 1),
         ):
             with (
                 self.subTest(configured=configured, required=required),
@@ -138,7 +138,7 @@ class P2EvidenceTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, expected)
                 self.assertIn("available=" + configured, output.read_text())
-                if required == "true" and configured == "false":
+                if configured == "false":
                     self.assertIn("::error", result.stdout)
 
 
