@@ -15,10 +15,9 @@ scheduler's trigger (the service token) and the Merchant's price change come fro
   from the card leaves the trigger with 409 and no order; and the first journey again on a
   390 x 844 phone, which must never scroll sideways.
 
-Each journey leaves its video, a screenshot per step and, if it fails, the Playwright trace in
-`.local/browser-journeys/<journey>/` (tests/integration/README.md). What a journey expects and
-the product does not do yet is a `ProductGap`: those journeys are xfail(strict=True) on that type
-only, after the whole journey ran.
+Each journey leaves its video, screenshots, control state and sanitized Playwright trace in
+`.local/browser-journeys/<journey>/` (tests/integration/README.md). Every required control fails
+normally when missing, including payment authorization and the phone's layout.
 """
 
 import json
@@ -47,7 +46,6 @@ from commerce_evaluation.governance_pilot import D1RunKeys
 from tests.integration.live_browser import (
     BuyerUi,
     Journey,
-    ProductGap,
     agent_errors,
     browser_requirements,
     journey,
@@ -65,8 +63,9 @@ from tests.integration.live_purchase import (
 
 # What a person asks before delegating: the chat searches and shows the options, nothing more.
 SEARCH_REQUEST = "Busca teléfonos Sony nuevos de 256 GB; quiero que los compres tú más tarde."
-SEARCH_ANSWER = (
-    "Estas son las opciones que cumplen. Si quieres que compre sin ti, autorízalo en «Delegar»."
+# This message supplies no budget. The buyer enters one in the real consent form.
+SEARCH_INTENT = PHONE_INTENT.model_copy(
+    update={"hard": PHONE_INTENT.hard.model_copy(update={"max_total_amount_minor": None})}
 )
 # The POL-11 turn: a total budget below every phone of the lane (test_live_b2_pol11_budget.py).
 BUDGET_MINOR = 100_000_00
@@ -94,7 +93,7 @@ DELEGATED_STEPS = [
     "order_confirmed",
 ]
 # What the card's governance shows of a delegated purchase that completed (trace-panel.md,
-# «Compra delegada»); «Pago autorizado» is checked in the trace, with its own xfail.
+# «Compra delegada»), including the payment proved by the PSP's verified receipt.
 PURCHASED_CONTROLS = [
     "Delegación autorizada",
     "Compra delegada en marcha",
@@ -102,6 +101,7 @@ PURCHASED_CONTROLS = [
     "Uso único reservado",
     "Autorización cerrada por el agente",
     "Despacho autorizado",
+    "Pago autorizado",
     "Orden confirmada",
     "Uso único consumido",
 ]
@@ -120,8 +120,7 @@ def pesos(minor: int) -> str:
 
 
 class SearchOnlyRouter(StaticConversationRouter):
-    """The purchase turn up to the catalog search: it shows the options and stops (`clarify`),
-    as a model that leaves the purchase to «Delegar». No checkout is created."""
+    """Script only interpretation. The delegated turn must stop before candidate selection."""
 
     def choose_candidate(
         self,
@@ -129,8 +128,7 @@ class SearchOnlyRouter(StaticConversationRouter):
         intent: PurchaseIntent,
         candidates: tuple[RankedCandidate, ...],
     ) -> CandidateDecision:
-        super().choose_candidate(messages, intent, candidates)
-        return CandidateDecision(action="clarify", assistant_message=SEARCH_ANSWER)
+        raise AssertionError("Delegated search must not choose a candidate before consent")
 
 
 def b2_condition(lane: PurchaseLane) -> dict[str, str]:
@@ -175,6 +173,14 @@ def ask(page: Page, request: str) -> None:
     page.get_by_role("button", name="Enviar mensaje").click()
 
 
+def expand(button: Locator) -> None:
+    """Inspect the current state instead of accidentally closing an already open control."""
+    expect(button).to_have_attribute("aria-expanded", re.compile("^(true|false)$"))
+    if button.get_attribute("aria-expanded") == "false":
+        button.click()
+    expect(button).to_have_attribute("aria-expanded", "true")
+
+
 def effects(lane: PurchaseLane) -> dict[str, int]:
     merchant = lane.rpc("effects")
     return {
@@ -212,9 +218,7 @@ def test_browser_b2_governed_purchase_shows_d1_and_d2_allowing_it(b0):
         expect(page.get_by_text("Compra completada").first).to_be_visible(timeout=30_000)
         activity = page.get_by_test_id("purchase-activity")
         expect(activity).to_have_attribute("data-status", "completed", timeout=15_000)
-        session.observe("hp-before-activity-toggle")
-        activity.get_by_role("button", name=re.compile("Compra completada")).click()
-        session.observe("hp-after-activity-toggle")
+        expand(activity.get_by_role("button", name=re.compile("Compra completada")))
         expect(activity.get_by_text("Activa: detiene la compra si no cumple")).to_be_visible()
         expect(activity.get_by_text("Política de compra: permitida")).to_be_visible()
         expect(activity.get_by_text("Autorización verificada", exact=True)).to_be_visible()
@@ -292,7 +296,7 @@ def test_browser_b2_budget_below_the_price_explains_pol11_without_a_checkout(b0)
 def delegation_ui(hnp: PurchaseLane, name: str) -> BuyerUi:
     episode = hnp.episode(name)
     return BuyerUi(
-        hnp, episode, SearchOnlyRouter(SEARCH_REQUEST, PHONE_INTENT), b2_hnp_condition(hnp)
+        hnp, episode, SearchOnlyRouter(SEARCH_REQUEST, SEARCH_INTENT), b2_hnp_condition(hnp)
     )
 
 
@@ -306,13 +310,14 @@ def catalog(ui: BuyerUi) -> tuple[str, int]:
 
 class Fit:
     """On a phone, after each step: the page never scrolls sideways and nothing sticks out of
-    the «Delegaciones» dialog. A miss is a `ProductGap`, so the journey goes on."""
+    the inline delegation or «Mis delegaciones» dialog. Misses fail after the complete journey."""
 
     PAGE = "document.documentElement.scrollWidth <= window.innerWidth"
     # Once nothing animates, the dialog's sideways overflow and the elements that stick out.
     SETTLED = "document.getAnimations().every((animation) => animation.playState !== 'running')"
     DIALOG = """(() => {
       const dialog = document.querySelector("[data-testid='delegations']")
+        || document.querySelector("[data-testid='delegation-in-chat']")
       if (!dialog) return { scroll: 0, outside: [] }
       const box = dialog.getBoundingClientRect()
       const outside = [...dialog.querySelectorAll("*")].filter((child) => {
@@ -348,12 +353,16 @@ class Fit:
             )
 
 
-def delegate(page: Page) -> Locator:
-    """«Delegar» in the header's purchase mode («Comprar conmigo» is the chat): it opens the
-    «Delegaciones» dialog, modal, so the selector behind it is hidden from the accessibility
-    tree while it is open."""
+def delegate(page: Page) -> None:
+    """The approved chat mode: choosing it opens no dialog and authorizes nothing."""
     page.get_by_role("group", name="Modo de compra").get_by_text("Delegar", exact=True).click()
-    expect(page.get_by_role("radio", name="Delegar", include_hidden=True)).to_be_checked()
+    expect(page.get_by_role("radio", name="Delegar")).to_be_checked()
+    expect(page.get_by_test_id("delegations")).to_have_count(0)
+
+
+def delegations(page: Page) -> Locator:
+    """The separate header button opens the persistent list and revocation controls."""
+    page.get_by_role("button", name="Mis delegaciones", exact=True).click()
     dialog = page.get_by_test_id("delegations")
     expect(dialog.get_by_role("heading", name="Mis delegaciones")).to_be_visible()
     return dialog
@@ -361,30 +370,39 @@ def delegate(page: Page) -> Locator:
 
 def consent(ui: BuyerUi, session: Journey, page: Page, fit: Fit) -> tuple[str, int, int, Locator]:
     """From the chat to an active delegation, as a person: search, «Delegar», the form with the
-    phone, the maximum they write and «6 horas», the consent card and «Autorizar». Returns the
-    title, the catalog price, the consented maximum and the delegation's status card."""
+    phone, the maximum they write and «6 horas», the inline consent card and «Autorizar».
+    Returns title, catalog price, consented maximum and the delegation's status card."""
     title, price = catalog(ui)
     total_max = price + SHIPPING_ROOM_MINOR
+    before = effects(ui.lane)
+    dialog = delegations(page)
+    expect(dialog.get_by_text("Todavía no tienes delegaciones.")).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(dialog).to_have_count(0)
+    delegate(page)
     ask(page, SEARCH_REQUEST)
-    expect(page.get_by_text(SEARCH_ANSWER)).to_be_visible(timeout=60_000)
-    # The finished turn folds its steps; the person opens them to see the options again.
+    inline = page.get_by_test_id("delegation-in-chat")
+    form = inline.get_by_test_id("delegation-form")
+    expect(form).to_be_visible(timeout=60_000)
+    # Delegated search stops before choosing: no HP approval, checkout or payment.
+    expect(page.get_by_test_id("purchase-approval-card")).to_have_count(0)
+    assert ui.rows("SELECT count(*) FROM purchases WHERE purchase_mode = 'HP'") == [(0,)]
+    assert effects(ui.lane) == before
     steps = page.get_by_role("button", name=re.compile("^Pensó durante"))
-    expect(steps).to_have_attribute("aria-expanded", "false")
-    steps.click()
+    expand(steps)
     shown = page.get_by_role("heading", name=re.compile(r"\d+ coincidencias"))
     expect(shown).to_be_visible()
     fit.check("búsqueda")
     session.step("busqueda", shown)
 
-    dialog = delegate(page)
-    expect(dialog.get_by_text("Todavía no tienes delegaciones.")).to_be_visible()
-    dialog.get_by_role("button", name="Nueva delegación").click()
-    form = dialog.get_by_test_id("delegation-form")
+    # The shortlist is prechecked in the approved UI; the buyer narrows it to the same phone.
+    for checkbox in form.get_by_role("checkbox").all():
+        checkbox.uncheck()
     option = form.get_by_role("checkbox", name=re.compile(re.escape(title)))
     option.check()
     # The catalog price of the option, with «,00» (K16).
     expect(form.get_by_text(f"Catálogo: {cop(price)}")).to_be_visible()
-    # The person chooses the maximum (hnp-governed.md §3.2): the form never proposes one.
+    # No budget in this message: the person must supply the consented total themselves.
     total = form.get_by_label("Total máximo con envío (pesos)")
     expect(total).to_have_value("")
     total.fill(pesos(total_max))
@@ -395,7 +413,7 @@ def consent(ui: BuyerUi, session: Journey, page: Page, fit: Fit) -> tuple[str, i
     session.step("preparar", submit)
     submit.click()
 
-    card = dialog.get_by_test_id("delegation-consent-card")
+    card = inline.get_by_test_id("delegation-consent-card")
     expect(card).to_be_visible(timeout=15_000)
     expect(card.get_by_text("El total máximo incluye envío")).to_be_visible()
     expect(card.get_by_text(cop(total_max).removesuffix(" COP"), exact=True)).to_be_visible()
@@ -405,18 +423,26 @@ def consent(ui: BuyerUi, session: Journey, page: Page, fit: Fit) -> tuple[str, i
     expect(card.get_by_text(re.compile(r"^Vence el "))).to_be_visible()
     fit.check("consentimiento")
     session.step("consentimiento", card)
+    assert effects(ui.lane) == before
     card.get_by_role("button", name="Autorizar").click()
 
     expect(card).to_have_count(0, timeout=15_000)
-    status = dialog.get_by_test_id("delegation-status-card")
+    status = inline.get_by_test_id("delegation-status-card")
     expect(status).to_have_count(1)
     expect(status).to_have_attribute("data-status", "scheduled")
     expect(status.get_by_text("Delegación activa")).to_be_visible()
     expect(status.get_by_text(HNP_MESSAGES["task.scheduled"])).to_be_visible()
     expect(status.get_by_text(cop(total_max))).to_be_visible()
-    expect(status.get_by_role("button", name="Revocar", exact=True)).to_be_visible()
     fit.check("activa")
     session.step("activa", status)
+    # Revocation lives in the persistent list, per hnp-chat-delegate.md §6.
+    status = delegations(page).get_by_test_id("delegation-status-card")
+    expect(status).to_have_count(1)
+    expect(status).to_have_attribute("data-status", "scheduled")
+    expect(status.get_by_text(cop(total_max))).to_be_visible()
+    expect(status.get_by_role("button", name="Revocar", exact=True)).to_be_visible()
+    fit.check("lista-activa")
+    session.step("lista-activa", status)
     # «6 horas» is what the grant holds, counted from the proposal a moment before the consent.
     [(valid_from, expires_at)] = ui.rows("SELECT valid_from, expires_at FROM delegation_grants")
     validity = datetime.fromisoformat(expires_at) - datetime.fromisoformat(valid_from)
@@ -431,9 +457,9 @@ def task_id(ui: BuyerUi) -> str:
 
 
 def reopen(page: Page) -> Locator:
-    """The person comes back later: a new page load and «Delegar» again."""
+    """The person comes back later: a new page load and the persistent list."""
     page.reload()
-    status = delegate(page).get_by_test_id("delegation-status-card")
+    status = delegations(page).get_by_test_id("delegation-status-card")
     expect(status).to_have_count(1, timeout=15_000)
     return status
 
@@ -442,7 +468,6 @@ def buy_by_delegation(hnp: PurchaseLane, name: str, *, phone: bool) -> None:
     """Recorridos 3 y 6: consent in the UI, the scheduler's trigger, and the purchase as the UI
     shows it, with the order; the receipts and the HNP trace are checked in the Agent."""
     require_browser()
-    gaps: list[str] = []
     before = effects(hnp)
     with delegation_ui(hnp, name) as ui, recorded(ui, name, phone=phone) as (session, page):
         errors = agent_errors(page, ui.agent.origin)
@@ -468,14 +493,13 @@ def buy_by_delegation(hnp: PurchaseLane, name: str, *, phone: bool) -> None:
         session.step("compra-hecha", status)
         # Its governance on the card: the HNP trace that GET /purchases/{run_id}/trace serves.
         activity = governance(status, "completed")
-        activity.get_by_role("button", name=re.compile("^Compra completada")).click()
+        expand(activity.get_by_role("button", name=re.compile("^Compra completada")))
         for control in PURCHASED_CONTROLS:
             expect(activity.get_by_text(control, exact=True)).to_be_visible()
         fit.check("gobernanza")
         session.step("gobernanza", activity.get_by_text("Política de compra: permitida"))
         session.step("gobernanza-orden", activity.get_by_text("Orden confirmada", exact=True))
         assert errors == []
-        gaps += fit.misses
 
     run_id = task["run_id"]
     receipts = ui.rows(
@@ -487,14 +511,7 @@ def buy_by_delegation(hnp: PurchaseLane, name: str, *, phone: bool) -> None:
     assert trace.purchase_mode == "HNP" and trace.status == "completed"
     # Every step of a delegated purchase; the last ones share UoW-3, so only their set is fixed.
     kinds = {step.kind for step in trace.steps}
-    assert kinds >= set(DELEGATED_STEPS) - {"payment_authorized"}, kinds
-    if "payment_authorized" not in kinds:
-        gaps.append(
-            "La traza HNP de la compra completada no trae «Pago autorizado» (`payment_authorized`) "
-            "aunque `completion_results` guarda el recibo de pago: quedó «Pendiente de 09b» "
-            "(src/commerce_agent/trace/assembler.py:824, docs/design/trace-panel.md:350, "
-            "hnp-governed.md §10)"
-        )
+    assert kinds >= set(DELEGATED_STEPS), kinds
     decisions = [
         (step.decision.outcome, step.decision.effect)
         for step in trace.steps
@@ -503,9 +520,8 @@ def buy_by_delegation(hnp: PurchaseLane, name: str, *, phone: bool) -> None:
     assert decisions == [("allow", "continued")] * 3
     assert grown(hnp, before) == {"orders": 1, "checkout_sessions": 1, "tokens": 1}
     assert total_max >= amount
-    hnp.stack.record(f"browser:{name}", order_id=task["order_id"], gaps=gaps)
-    if gaps:
-        raise ProductGap("; ".join(gaps))
+    hnp.stack.record(f"browser:{name}", order_id=task["order_id"], gaps=fit.misses)
+    assert fit.misses == [], "; ".join(fit.misses)
 
 
 def grown(lane: PurchaseLane, before: dict[str, int]) -> dict[str, int]:
@@ -523,16 +539,11 @@ def governance(status: Locator, purchase: str) -> Locator:
     return activity
 
 
-PURCHASE_GAPS = "La traza HNP de la compra completada no trae «Pago autorizado»"
-
-
-@pytest.mark.xfail(strict=True, raises=ProductGap, reason=PURCHASE_GAPS)
 def test_browser_hnp_delegation_buys_once_and_shows_the_order(hnp):
     """Recorrido 3, en escritorio."""
     buy_by_delegation(hnp, "hnp-compra", phone=False)
 
 
-@pytest.mark.xfail(strict=True, raises=ProductGap, reason=PURCHASE_GAPS)
 def test_browser_hnp_delegation_on_a_phone_fits_the_screen(hnp):
     """Recorrido 6: el recorrido 3 en un teléfono de 390 x 844, sin cortes ni scroll lateral."""
     buy_by_delegation(hnp, "hnp-compra-telefono", phone=True)
@@ -576,7 +587,7 @@ def test_browser_hnp_price_over_the_limit_asks_for_a_decision_and_prefills_the_c
         trace = PurchaseTraces(ui.settings).trace(task["run_id"])
         assert trace.purchase_mode == "HNP" and trace.steps[-1].kind == "escalated"
         activity = governance(status, trace.status)
-        activity.get_by_role("button", name=re.compile(".")).first.click()
+        expand(activity.get_by_role("button", name=re.compile(".")).first)
         expect(activity.get_by_text("Delegación autorizada", exact=True)).to_be_visible()
         expect(activity.get_by_text("Necesito tu decisión", exact=True)).to_be_visible()
         session.step("gobernanza-escalada", activity)
