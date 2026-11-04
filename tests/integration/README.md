@@ -83,11 +83,11 @@ Hay cinco grupos sobre el mismo PostgreSQL:
   - `b2-presupuesto`: con un presupuesto total menor que el precio, la tarjeta «La política de
     compra detuvo esta compra» explica POL-11 con el precio del catálogo y el presupuesto, sin
     tarjeta de aprobación ni POST de creación en el Merchant.
-  - `hnp-compra` (`hnp`, condición B2-HNP): busca en el chat, elige «Delegar» en el modo de
-    compra de la cabecera, llena el formulario con las opciones vistas (escribe el total máximo,
-    que arranca vacío, y «6 horas»), autoriza en la tarjeta de consentimiento y la ve activa con
-    su vigencia; el disparo compra una vez y la tarjeta muestra la compra, la orden y su
-    «Gobernanza de la compra» (la traza HNP, de la delegación a la orden).
+  - `hnp-compra` (`hnp`, condición B2-HNP): elige «Delegar» antes de buscar en el chat, llena
+    el formulario del hilo con una sola opción vista (escribe el total máximo, vacío porque
+    este mensaje no trae presupuesto, y «6 horas»), autoriza en la tarjeta de consentimiento
+    y la ve activa. «Mis delegaciones» abre la lista persistente y la revocación; el disparo
+    compra una vez y la tarjeta muestra la orden y su gobernanza, incluido «Pago autorizado».
   - `hnp-escala`: tras consentir, el Merchant sube el precio sobre el máximo y el Agent se
     reinicia sobre el feed nuevo (HN03); el disparo escala por POL-11, la UI muestra «Necesito tu
     decisión» con su gobernanza y «Comprar desde el chat» prellena el compositor con el texto
@@ -95,13 +95,11 @@ Hay cinco grupos sobre el mismo PostgreSQL:
   - `hnp-revoca`: «Revocar» en la tarjeta deja su recibo; el disparo responde 409 sin tocar el
     Merchant ni el proveedor y la UI la muestra revocada.
   - `hnp-compra-telefono`: `hnp-compra` en un teléfono de 390 × 844; después de cada paso, con
-    las animaciones quietas, la página no se desplaza de lado y nada se sale del diálogo.
+    las animaciones quietas, la página no se desplaza de lado y nada se sale del hilo o diálogo.
 
-  Lo que un recorrido espera y el producto aún no hace es un `ProductGap`: el recorrido corre
-  completo, anota cada brecha en `evidence.jsonl` (`browser:<recorrido>`) y falla al final con
-  ese tipo; esos recorridos están marcados `xfail(strict=True, raises=ProductGap)` con el motivo,
-  así que cualquier otra falla los pone en rojo y, si el producto cierra la brecha, el `XPASS`
-  también.
+  Los recorridos fallan normalmente si falta una garantía requerida. «Pago autorizado» debe
+  aparecer en pantalla y en la traza a partir del recibo verificado del PSP. Los desbordes del
+  teléfono se registran y fallan al terminar el recorrido, sin `xfail`.
 
 ## Requisitos
 
@@ -192,9 +190,10 @@ La grabación está siempre activa. Cada recorrido deja en `.local/browser-journ
   `03-formulario.png`, `07-compra-hecha.png`). Antes de cada captura la página se desplaza solo
   hacia arriba o hacia abajo, como lo haría la persona, así que lo que una caja recorta de lado
   se ve cortado.
-- `trace.zip`: solo si el recorrido falló en el camino (una aserción o una espera vencida), con
-  capturas, DOM y red de cada acción. Un `ProductGap` se levanta al final, con el recorrido
-  completo, y no deja traza: sus brechas quedan en `evidence.jsonl`.
+- `trace.zip`: capturas, DOM y red de cada acción, también cuando el recorrido pasa. Se sanitizan
+  credenciales y sus copias con la redacción existente de evaluación; no se publica la traza cruda.
+- `trace-manifest.json`: hash SHA-256 de la traza sanitizada y recursos modificados.
+- `controls.jsonl`: estado de expansión de los controles antes de las capturas y al terminar.
 
 El video se abre con cualquier navegador (`open .local/browser-journeys/hnp-compra/video.webm` en
 macOS, `xdg-open` en Linux) y la traza con el visor de Playwright:
@@ -205,7 +204,9 @@ uv run playwright show-trace .local/browser-journeys/hnp-escala/trace.zip
 
 El artefacto de `nightly.yml` solo lleva la captura final de cada recorrido (`browser.png`, en el
 directorio de su carril); el video y las capturas por paso quedan en el checkout que corrió la
-suite.
+suite. La rama temporal `codex/ui-01-validation` del diagnóstico UI-01 amplía la subida para
+conservar explícitamente trazas sanitizadas, vídeos, controles y capturas. No cambia la puerta de
+95 casos de P2: una reproducción del módulo deja los otros 89 como `not_executed` y no valida full.
 
 Al terminar la sesión se detiene el Merchant (SIGTERM al grupo de procesos) y se elimina el
 contenedor con sus volúmenes. Si pytest muere con `kill -9`, la limpieza no corre; los restos se
@@ -236,8 +237,7 @@ pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
 - `live_browser.py`: `BuyerUi` (`auth/` y Vite como `NodeServer`, el Agent como `AgentServer`,
   uvicorn en un hilo de este proceso con `ExplicitSettings`) para un episodio de un carril y una
   condición; puede reiniciar el Agent en el mismo puerto y disparar una tarea HNP con el token de
-  servicio. `Journey` graba un recorrido (video, capturas por paso y traza si falla) y
-  `ProductGap` marca lo que el producto aún no hace. `hnp_condition` (en `live_purchase.py`) da
+  servicio. `Journey` graba vídeo, capturas, controles y traza sanitizada. `hnp_condition` da
   las variables de una condición HNP que comparten `HnpAgent` y `BuyerUi`.
 - `live_merchant_control.py`: corre con el intérprete del Merchant. Aprovisiona con las
   funciones del propio Merchant (migraciones, episodios, sesiones, catálogo gestionado) y toma

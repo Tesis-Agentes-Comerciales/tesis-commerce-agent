@@ -4,7 +4,7 @@ The browser signs up through this checkout's auth service, talks to the Agent AP
 short-lived JWT it issues and uses the purchase or the delegation the Agent prepares against the
 lane's real Merchant and payment provider. auth/ and ui/ run with `node` after `npm ci`; the
 Agent API runs in this process so the model boundary can be scripted. Each journey is recorded
-(`journey`): a video, a screenshot per named step and, when it fails, the Playwright trace, under
+(`journey`): a video, a screenshot per named step and a sanitized Playwright trace, under
 `.local/browser-journeys/<journey>/`. Replaces the September browser smoke; the mapping is in
 tests/integration/README.md.
 """
@@ -347,15 +347,9 @@ def agent_errors(page: Page, origin: str) -> list[str]:
     return errors
 
 
-class ProductGap(AssertionError):
-    """What a journey expected of the product and did not find. A journey with a known gap is
-    `xfail(strict=True, raises=ProductGap)`: any other failure still fails it, and once the gap
-    closes the XPASS fails it too."""
-
-
 class Journey:
     """A journey on video in its own browser context. `step` leaves a numbered full-page
-    screenshot; a failure keeps the Playwright trace (`trace.zip`). The last screen also goes to
+    screenshot and sanitized Playwright trace (`trace.zip`). The last screen also goes to
     `evidence/browser.png`, the run directory the nightly artifact uploads."""
 
     def __init__(self, playwright: Playwright, name: str, evidence: Path, *, phone: bool = False):

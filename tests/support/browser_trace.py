@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from commerce_evaluation.redaction import redact as redact_text
+
 REDACTED = "[REDACTED]"
-JWT = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b")
-BEARER = re.compile(r"(?i)Bearer\s+[^\s\"<>]+")
 SENSITIVE = re.compile(
     r"(?i)^(authorization|cookie|set-cookie|cookies|password|access_token|refresh_token|"
     r"token|checkout_receipt_jwt|payment_receipt_jwt|checkout_jwt|client_secret)$"
@@ -19,7 +19,7 @@ SENSITIVE = re.compile(
 
 def redact(value: Any) -> Any:
     if isinstance(value, str):
-        return BEARER.sub(REDACTED, JWT.sub(REDACTED, value))
+        return redact_text(value, marker=REDACTED)
     if isinstance(value, list):
         return [redact(item) for item in value]
     if not isinstance(value, dict):
@@ -88,9 +88,7 @@ def sanitize_trace(raw: Path, target: Path) -> dict[str, str | int]:
                     lines.append(json.dumps(redact(json.loads(line)), ensure_ascii=False) + "\n")
                 except (json.JSONDecodeError, TypeError):
                     lines.append(redact(line))
-            text = "".join(lines)
-            for secret in sorted(secrets, key=len, reverse=True):
-                text = text.replace(secret, REDACTED)
+            text = redact_text("".join(lines), secrets, marker=REDACTED)
             sanitized = text.encode("utf-8")
             changed += sanitized != data
             output.writestr(entry, sanitized)
