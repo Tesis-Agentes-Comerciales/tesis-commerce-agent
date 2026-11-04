@@ -18,8 +18,15 @@ from pydantic import SecretStr
 
 from commerce_agent.acp import ACPClient
 from commerce_agent.acp.client import ACPClientError
-from commerce_agent.acp.models import ACP_VERSION, CheckoutUpdateRequest, SelectedFulfillmentOption
+from commerce_agent.acp.creation import build_checkout_create
+from commerce_agent.acp.models import (
+    ACP_VERSION,
+    CheckoutSession,
+    CheckoutUpdateRequest,
+    SelectedFulfillmentOption,
+)
 from commerce_agent.acp.offer_snapshot import DeliveryContext, MerchantOffer
+from commerce_agent.governance.dispatch_envelope import merchant_creation_digest
 from commerce_agent.governance.remote_creation import (
     LOOKUP_PATH,
     LOOKUP_SCHEMA,
@@ -523,6 +530,13 @@ def exercise(
             key_hash,
         )
         assert found.original_response_sha256 == original_response_sha256(found.original_response)
+        expected_body = build_checkout_create(offer_id, "cop").model_dump_json().encode()
+        assert found.acp_create_fingerprint == merchant_creation_digest(expected_body).removeprefix(
+            "sha256:"
+        )
+        recovered = CheckoutSession.model_validate(found.original_response)
+        assert recovered.id == found.checkout_id
+        verify_checkout(lane, v, observed, recovered)
         assert len(state(lane, v)["checkouts"]) == 1
         facts["reconciliation"] = found.model_dump(mode="json")
         return
