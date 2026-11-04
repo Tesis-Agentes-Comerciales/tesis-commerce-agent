@@ -32,13 +32,13 @@ def git(root: Path, *args: str) -> str:
     return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
 
 
-def preflight() -> dict[str, Any]:
-    plan = read(PLAN)
+def preflight(plan_path: Path = PLAN) -> dict[str, Any]:
+    plan = read(plan_path)
     result: dict[str, Any] = {
         "schema": "exp01-preflight/1",
         "status": "blocked",
         "sources": {},
-        "protocol_sha256": sha(PLAN),
+        "protocol_sha256": sha(plan_path),
         "inputs_sha256": {},
     }
     try:
@@ -94,14 +94,30 @@ def preflight() -> dict[str, Any]:
     return result
 
 
-def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[str, Any]:
-    plan = read(PLAN)
+def report(
+    evidence: Path,
+    junit: Path,
+    outcomes: Path,
+    manifest: Path,
+    *,
+    plan_path: Path = PLAN,
+    scenario: str | None = None,
+) -> dict[str, Any]:
+    plan = read(plan_path)
+    cases = {
+        key: value
+        for key, value in plan["cases"].items()
+        if scenario is None or value["scenario"] == scenario
+    }
+    if not cases:
+        raise ValueError("Unknown or empty experimental scenario")
+    module = plan.get("test_module", MODULE)
     problems: list[str] = []
     try:
         pre = read(manifest)
     except (OSError, ValueError):
         pre = {"status": "blocked", "reason": "preflight_not_executed"}
-    if pre.get("status") != "verified" or pre.get("protocol_sha256") != sha(PLAN):
+    if pre.get("status") != "verified" or pre.get("protocol_sha256") != sha(plan_path):
         problems.append("preflight_not_verified")
     try:
         nodes = ET.parse(junit).getroot().findall(".//testcase")
@@ -109,7 +125,7 @@ def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[
     except (OSError, ValueError, ET.ParseError):
         nodes, recorder = [], {}
         problems.append("pytest_evidence_missing_or_invalid")
-    expected = {MODULE + value["test"] for value in plan["cases"].values()}
+    expected = {module + value["test"] for value in cases.values()}
     observed = [
         n.get("classname", "").replace(".", "/") + ".py::" + n.get("name", "") for n in nodes
     ]
@@ -149,7 +165,7 @@ def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[
         seen.add(sha(path))
         row = read(path)
         case_id = row["case_id"]
-        if case_id in records or case_id not in plan["cases"]:
+        if case_id in records or case_id not in cases:
             problems.append("duplicate_or_unknown_control")
         frozen = path.with_name("exp01-frozen.json")
         if not frozen.is_file() or sha(frozen) != row.get("input_sha256"):
@@ -157,8 +173,8 @@ def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[
         else:
             original = read(frozen)
             if (
-                original["protocol_sha256"] != sha(PLAN)
-                or original["oracle"] != plan["cases"][case_id]
+                original["protocol_sha256"] != sha(plan_path)
+                or original["oracle"] != cases[case_id]
                 or original["frozen_at_ns"] >= row["started_at_ns"]
             ):
                 problems.append("oracle_or_temporal_provenance_invalid:" + case_id)
@@ -177,6 +193,7 @@ def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[
                 "create_posts",
             }
         )
+        required = set(cases[case_id].get("required_observations", required))
         if row.get("status") == "passed" and not required <= observations.keys():
             problems.append("independent_observations_missing:" + case_id)
         records[case_id] = row
@@ -188,14 +205,12 @@ def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[
                 "status": "blocked" if pre.get("status") != "verified" else "not_executed",
             },
         )
-        for key in plan["cases"]
+        for key in cases
     }
     scenarios = {}
-    for scenario in ("MA24", "INF30", "INF31"):
+    for scenario in dict.fromkeys(value["scenario"] for value in cases.values()):
         statuses = [
-            controls[key]["status"]
-            for key, value in plan["cases"].items()
-            if value["scenario"] == scenario
+            controls[key]["status"] for key, value in cases.items() if value["scenario"] == scenario
         ]
         scenarios[scenario] = (
             "passed"
@@ -251,6 +266,10 @@ def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[
         "attribution_status": "verified" if not problems else "blocked",
         "stack_shutdown": shutdown,
         "scope": plan["scope"],
+        "measured_modes": {
+            key: sorted({value["mode"] for value in cases.values() if value["scenario"] == key})
+            for key in scenarios
+        },
         "limitations": plan["limitations"],
         "ux03_executed": False,
     }
@@ -259,6 +278,8 @@ def report(evidence: Path, junit: Path, outcomes: Path, manifest: Path) -> dict[
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--protocol", type=Path, default=PLAN)
+    parser.add_argument("--scenario")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--junit", type=Path)
@@ -266,11 +287,18 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path)
     args = parser.parse_args()
     if args.preflight:
-        result = preflight()
+        result = preflight(args.protocol)
         valid = result["status"] == "verified"
     else:
         assert args.evidence and args.junit and args.outcomes and args.manifest
-        result = report(args.evidence, args.junit, args.outcomes, args.manifest)
+        result = report(
+            args.evidence,
+            args.junit,
+            args.outcomes,
+            args.manifest,
+            plan_path=args.protocol,
+            scenario=args.scenario,
+        )
         valid = result["validated"]
         logs = list(args.evidence.rglob("*.log"))
         if logs:

@@ -31,14 +31,16 @@ def sqlite_snapshot(path: Path) -> dict[str, Any]:
 
 
 @contextmanager
-def recorded_case(path: Path, case_id: str, inputs: dict[str, Any]) -> Iterator[dict[str, Any]]:
+def recorded_case(
+    path: Path, case_id: str, inputs: dict[str, Any], *, protocol_path: Path = PROTOCOL
+) -> Iterator[dict[str, Any]]:
     """Freeze input and oracle before executing Agent. A failed assertion stays failed."""
-    protocol = json.loads(PROTOCOL.read_text())
+    protocol = json.loads(protocol_path.read_text())
     frozen = {
         "case_id": case_id,
         "oracle": protocol["cases"][case_id],
         "inputs": inputs,
-        "protocol_sha256": hashlib.sha256(PROTOCOL.read_bytes()).hexdigest(),
+        "protocol_sha256": hashlib.sha256(protocol_path.read_bytes()).hexdigest(),
         "frozen_at_ns": time.time_ns(),
         "semantic_evaluation": False,
     }
