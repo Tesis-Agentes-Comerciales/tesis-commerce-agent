@@ -20,6 +20,17 @@ from tests.integration.live_stack import CREATE_PATH
 PROTOCOL = ROOT / "evaluation/scenarios/exp02-commercial.json"
 
 
+@pytest.fixture
+def hp_lane(b0):
+    # B0's historical proxy omits cancel; the budget guard must reach the real Merchant.
+    routes = b0.proxy.routes
+    b0.proxy.routes |= {("POST", "/checkout_sessions/*/cancel")}
+    try:
+        yield b0
+    finally:
+        b0.proxy.routes = routes
+
+
 def observe(lane, episode):
     return lane.rpc("exp01_observe", run_id=episode.run_id)
 
@@ -84,7 +95,8 @@ def setup(lane, tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("control", ["within", "above"])
-def test_ct15_price_change(b0, tmp_path, monkeypatch, control):
+def test_ct15_price_change(hp_lane, tmp_path, monkeypatch, control):
+    b0 = hp_lane
     episode, candidates, selected, original, settings = setup(b0, tmp_path, monkeypatch)
     # The controlled replacement is another price actually observed in this Merchant episode.
     replacement = next(
@@ -203,7 +215,8 @@ def test_ct15_price_change(b0, tmp_path, monkeypatch, control):
 
 
 @pytest.mark.parametrize("control", ["stable", "depleted"])
-def test_ct14_stock_after_checkout(b0, tmp_path, monkeypatch, control):
+def test_ct14_stock_after_checkout(hp_lane, tmp_path, monkeypatch, control):
+    b0 = hp_lane
     episode, _, selected, original, settings = setup(b0, tmp_path, monkeypatch)
     maximum = original["pricing"]["total_minor"]
     intent = PurchaseIntent(
