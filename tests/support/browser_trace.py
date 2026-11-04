@@ -17,6 +17,15 @@ SENSITIVE = re.compile(
 )
 
 
+def masked(value: Any) -> Any:
+    """Keep HAR container types so the sanitized trace remains readable by Playwright."""
+    if isinstance(value, list):
+        return [masked(item) for item in value]
+    if isinstance(value, dict):
+        return {key: masked(item) for key, item in value.items()}
+    return REDACTED if isinstance(value, str) else value
+
+
 def redact(value: Any) -> Any:
     if isinstance(value, str):
         return redact_text(value, marker=REDACTED)
@@ -25,7 +34,8 @@ def redact(value: Any) -> Any:
     if not isinstance(value, dict):
         return value
     result = {
-        key: REDACTED if SENSITIVE.fullmatch(key) else redact(item) for key, item in value.items()
+        key: masked(item) if SENSITIVE.fullmatch(key) else redact(item)
+        for key, item in value.items()
     }
     # HAR headers use name/value pairs; Playwright records password fills in action params.
     if SENSITIVE.fullmatch(str(value.get("name", ""))):
@@ -52,6 +62,12 @@ def credentials(value: Any) -> set[str]:
     for key, item in value.items():
         if SENSITIVE.fullmatch(key) and isinstance(item, str) and item:
             found.add(item)
+        if key.lower() == "cookies" and isinstance(item, list):
+            found.update(
+                cookie["value"]
+                for cookie in item
+                if isinstance(cookie, dict) and isinstance(cookie.get("value"), str)
+            )
         found.update(credentials(item))
     if SENSITIVE.fullmatch(str(value.get("name", ""))) and isinstance(value.get("value"), str):
         found.add(value["value"])

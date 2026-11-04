@@ -9,7 +9,10 @@ def test_trace_redacts_credentials_and_preserves_business_evidence(tmp_path):
     jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJidXllciJ9.signature"
     events = [
         {"params": {"selector": 'getByLabel("Contraseña")', "value": "synthetic-password"}},
-        {"headers": [{"name": "Authorization", "value": "Bearer opaque-secret"}]},
+        {
+            "headers": [{"name": "Authorization", "value": "Bearer opaque-secret"}],
+            "cookies": [{"name": "session", "value": "opaque-cookie"}],
+        },
         {"password": "synthetic-password", "receipt": jwt, "total_minor": 12300},
         {"kind": "policy_decision", "outcome": "allow", "aria-expanded": "true"},
     ]
@@ -25,6 +28,8 @@ def test_trace_redacts_credentials_and_preserves_business_evidence(tmp_path):
         observed = [json.loads(line) for line in text.splitlines()]
         assert observed[0]["params"]["value"] == REDACTED
         assert observed[1]["headers"][0]["value"] == REDACTED
+        assert isinstance(observed[1]["cookies"], list)
+        assert observed[1]["cookies"][0]["value"] == REDACTED
         assert observed[2]["total_minor"] == 12300
         assert observed[3] == events[3]
         assert json.loads(archive.read("resources/body.json"))["access_token"] == REDACTED
