@@ -86,6 +86,8 @@ def p3_lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PurchaseLane]:
             pins=pins,
             agent_base=AGENT_BASE,
             agent_sha=git(AGENT, "rev-parse", "HEAD"),
+            product_tree=git(AGENT, "rev-parse", "HEAD:src/commerce_agent"),
+            base_product_tree=git(AGENT, "rev-parse", AGENT_BASE + ":src/commerce_agent"),
             required_cases=CASES,
             routes=sorted(lane.proxy.routes),
             llm=False,
@@ -142,6 +144,7 @@ def verify_checkout(lane: PurchaseLane, ep: Episode, offer: MerchantOffer, check
     totals = {row["type"]: row["amount"] for row in checkout.totals}
     assert totals["fulfillment"] == offer.pricing.shipping_total_minor
     assert checkout.expires_at == offer.expires_at
+    assert len(checkout.line_items) == 1 and checkout.line_items[0]["quantity"] == 1
     internal = next(c for c in state(lane, ep)["checkouts"] if c["id"] == checkout.id)
     assert internal["offer_id"] == offer.id and internal["quantity"] == 1
     assert internal["offer_revision"] == offer.revision
@@ -209,6 +212,8 @@ def test_offer_checkout_contract(p3_lane: PurchaseLane, case_id: str):
         episodes.extend((c, v))
         cs, vs = state(lane, c), state(lane, v)
         assert c.run_id != v.run_id and c.actor_id != v.actor_id
+        assert (cs["actor_id"], vs["actor_id"]) == (c.actor_id, v.actor_id)
+        assert cs["matches_full_fixture"] and vs["matches_full_fixture"]
         assert cs["offers"] == vs["offers"] and cs["clock_at"] == vs["clock_at"]
         assert not cs["checkouts"] and not vs["checkouts"]
         facts["initial"] = {"calibration": summary(cs), "validation": summary(vs)}
@@ -235,9 +240,23 @@ def test_offer_checkout_contract(p3_lane: PurchaseLane, case_id: str):
         }
         cal_done = cleanup(lane, c)
         # No shared run effects, and no payment preparation, even in calibration.
-        assert state(lane, v) == vs
+        after_calibration = state(lane, v)
+        assert {k: val for k, val in after_calibration.items() if not k.startswith("global_")} == {
+            k: val for k, val in vs.items() if not k.startswith("global_")
+        }
         assert psp_state(lane) == psp_before
         facts["calibration_clean"] = summary(cal_done)
+        frozen = {
+            "case_id": case_id,
+            "calibration_run": c.run_id,
+            "validation_run": v.run_id,
+            "offer": raw,
+            "checkout_total_minor": calibrated.total_minor,
+            "context": CONTEXT.model_dump(mode="json"),
+            "quantity": 1,
+        }
+        facts["calibration_sha256"] = digest(frozen)
+        lane.stack.record("P3-V01-frozen-calibration", **frozen, sha256=facts["calibration_sha256"])
         lane.proxy.reset()
         exercise(lane, c, v, raw, case_id, facts)
         cal_after = state(lane, c)
@@ -278,12 +297,36 @@ def test_offer_checkout_contract(p3_lane: PurchaseLane, case_id: str):
                     }
                     for name in initial.keys() - allowed:
                         assert final[name] == initial[name], "Unexpected persistent effect: " + name
+                last = state(lane, episodes[-1])
+                assert all(row["status"] == "canceled" for row in last["global_checkouts"])
+                existing = {row["id"] for row in facts["initial"]["validation"]["global_checkouts"]}
+                new = [row for row in last["global_checkouts"] if row["id"] not in existing]
+                assert all(row["run_id"] in {ep.run_id for ep in episodes} for row in new)
+                globals_before = facts["initial"]["validation"]["global_effects"]
+                for name in globals_before.keys() - {
+                    "checkout_sessions",
+                    "checkout_mutations",
+                    "request_observations",
+                }:
+                    assert last["global_effects"][name] == globals_before[name], name
             facts["cleanup_verified"] = bool(episodes)
         except BaseException as error:
             status = "failed"
             facts["cleanup_error_type"] = type(error).__name__
             raise
         finally:
+            facts["transport_trace"] = [
+                {
+                    "method": call.method,
+                    "path": call.path,
+                    "status": call.status,
+                    "fault": call.fault,
+                    "upstream_answered": call.answered.is_set(),
+                    "request_sha256": hashlib.sha256(call.request_body).hexdigest(),
+                    "response_sha256": hashlib.sha256(call.response_body or b"").hexdigest(),
+                }
+                for call in lane.proxy.calls
+            ]
             lane.stack.record("P3-V01-case", status=status, **facts)
 
 
@@ -376,6 +419,8 @@ def exercise(
         if blocker:
             blocker.close()
     after = state(lane, v)
+    assert after["global_effects"] == read_before["global_effects"]
+    assert after["global_checkouts"] == read_before["global_checkouts"]
     # Offer reads are commercially read-only but can write audit. Verify that exact boundary.
     for name in read_before["tables"].keys() - {"run_events"}:
         assert after["tables"][name] == read_before["tables"][name], name

@@ -433,8 +433,8 @@ class Control:
         run = command["run_id"]
         with self.connection() as connection, connection.transaction():
             connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            (clock,) = connection.execute(
-                "SELECT clock_at FROM experiment_runs WHERE run_id=%s", (run,)
+            clock, actor = connection.execute(
+                "SELECT clock_at,actor_id FROM experiment_runs WHERE run_id=%s", (run,)
             ).fetchone()
             offers = connection.execute(
                 "SELECT snapshot FROM catalog_offers WHERE run_id=%s ORDER BY offer_id", (run,)
@@ -449,6 +449,7 @@ class Control:
                 (run,),
             ).fetchall()
             tables = {}
+            global_effects = {}
             for (name,) in connection.execute(
                 "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
             ).fetchall():
@@ -472,13 +473,29 @@ class Control:
                     ).hexdigest(),
                     "scope": "run" if has_run else "global",
                 }
+                if name not in {"catalog_offers", "run_events", "experiment_runs"}:
+                    # Detect writes outside C/V too, without publishing rows or credentials.
+                    global_effects[name] = connection.execute(
+                        self.sql.SQL("SELECT count(*) FROM {}").format(self.sql.Identifier(name))
+                    ).fetchone()[0]
+            global_checkouts = connection.execute(
+                "SELECT run_id,actor_id,checkout_id,status FROM checkout_sessions "
+                "ORDER BY run_id,checkout_id"
+            ).fetchall()
         return {
             "run_id": run,
+            "actor_id": actor,
+            "matches_full_fixture": [r[0] for r in offers] == self.db.fixture_snapshot()[0],
             "clock_at": clock.isoformat(),
             "offers": [r[0] for r in offers],
             "checkouts": [r[0] for r in checkouts],
             "events": [{"type": r[0], "at": r[1].isoformat(), "payload": r[2]} for r in events],
             "tables": tables,
+            "global_effects": global_effects,
+            "global_checkouts": [
+                {"run_id": str(r[0]), "actor_id": r[1], "id": r[2], "status": r[3]}
+                for r in global_checkouts
+            ],
         }
 
     def p3_mutate(self, command: dict[str, Any]) -> dict[str, Any]:
