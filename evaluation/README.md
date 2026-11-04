@@ -3,6 +3,23 @@
 Este directorio fija la condición experimental B0 y define los escenarios que se ejecutarán sin
 gobernanza de decisión y, después, con la variante gobernada B2.
 
+## P1 — evaluación reproducible de escenarios
+
+- [Matriz versionada de los 33 escenarios](scenarios/p0/matrix.json): texto de página 06,
+  cobertura leída y brechas; ninguna ejecución nueva de escenarios.
+- [Metodología, UX03 HP y reproducción](scenarios/p0/methodology.md): cinco celdas,
+  estados desconocidos, límites comerciales y protocolo Merchant pendiente.
+- [Oráculo sintético preregistrado](scenarios/p0/ux03-oracle.json):
+  comprueba matemáticamente el evaluador; no contiene observaciones Merchant.
+- [Contrato e informe](src/commerce_evaluation/scenarios_p0.py) y
+  [tests offline](../tests/evaluation/test_scenarios_p0.py).
+- CI existente: JUnit, resultados Python diferenciados y comparación con el plan.
+  Un CI verde no acredita UX03 ni integración; las 37 celdas siguen no ejecutadas.
+
+Los resultados históricos listados más abajo conservan sus condiciones y procedencia.
+No se reinterpretan como evidencia de este preregistro. Resultados futuros:
+`evaluation/results/<run-id>/`, después de aprobar el protocolo y ejecutar.
+
 ## Alcance actualizado — 14 de octubre de 2026
 
 El diseño final incluye HP y HNP. Este directorio conserva el piloto **HP** y el

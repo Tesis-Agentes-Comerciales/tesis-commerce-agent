@@ -70,7 +70,11 @@ jobs:
 
       # Live tests (tests/integration) are collected and skipped: RUN_LIVE_STACK is unset.
       - name: Tests with coverage
-        run: uv run pytest --cov --cov-report=term
+        run: |
+          uv run pytest --cov --cov-report=term \
+            --junitxml=.local/p0/python-junit.xml \
+            -p commerce_evaluation.p0_pytest_report \
+            --p0-report=.local/p0/python-outcomes.json
 
       # The floor holds the product (src/), 4 points under its 2026-10-20 baseline (89.1 %);
       # evaluation/ is reported but not held to it. See docs/testing.md.
@@ -82,6 +86,40 @@ jobs:
         run: |
           uv run hnp-matrix --dry-run --env-file .env.example
           uv run governance-pilot --dry-run
+
+      # These reports never turn skipped live tests into integration validation.
+      - name: P0 execution summary
+        if: ${{ !cancelled() }}
+        env:
+          P0_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          P0_ACTIONS_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          # Append the diagnostic even if evidence validation fails; retain that failure.
+          status=0
+          uv run python -m commerce_evaluation.scenarios_p0 \
+            --pytest-report .local/p0/python-outcomes.json \
+            --junit .local/p0/python-junit.xml \
+            --output .local/p0/report.json \
+            --summary .local/p0/summary.md || status=$?
+          if [ -f .local/p0/summary.md ]; then
+            cat .local/p0/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+
+      - name: Upload Python test evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-test-evidence
+          path: |
+            .local/p0/python-junit.xml
+            .local/p0/python-outcomes.json
+            .local/p0/report.json
+            .local/p0/summary.md
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Coverage summary
         if: ${{ !cancelled() }}
