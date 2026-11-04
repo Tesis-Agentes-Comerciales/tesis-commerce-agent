@@ -5,6 +5,14 @@ name: Nightly system tests
 on:
   workflow_dispatch:
     inputs:
+      test_scope:
+        description: Full regression suite or preregistered EXP-01 batch (separate evidence)
+        required: false
+        type: choice
+        default: full
+        options:
+          - full
+          - exp01-first-batch
       merchant_ref:
         description: Merchant branch or commit (empty uses its default branch)
         required: false
@@ -41,12 +49,16 @@ jobs:
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
+            if [ "${{ inputs.test_scope }}" = "exp01-first-batch" ]; then
+              echo "::error::EXP-01 blocked: required sibling read credential missing"
+              exit 1
+            fi
             echo "::notice title=Live stack skipped::Secret MERCHANT_REPO_TOKEN is not configured. Add a read-only token (contents: read) for Tesis-Agentes-Comerciales/tesis-commerce-merchant and Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox to run tests/integration."
           fi
 
   live-stack:
     needs: sibling-access
-    if: needs.sibling-access.outputs.available == 'true'
+    if: ${{ !cancelled() && (inputs.test_scope == 'exp01-first-batch' || needs.sibling-access.outputs.available == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -56,11 +68,17 @@ jobs:
           path: agent
           persist-credentials: false
 
+      - name: Require access for EXP-01
+        if: inputs.test_scope == 'exp01-first-batch'
+        env:
+          ACCESS: ${{ needs.sibling-access.outputs.available }}
+        run: test "$ACCESS" = "true"
+
       - name: Checkout merchant
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Tesis-Agentes-Comerciales/tesis-commerce-merchant
-          ref: ${{ inputs.merchant_ref }}
+          ref: ${{ inputs.merchant_ref || (inputs.test_scope == 'exp01-first-batch' && 'abf30df3b6a611284dedcc26c00accac6a853329') || '' }}
           token: ${{ secrets.MERCHANT_REPO_TOKEN }}
           path: merchant
           persist-credentials: false
@@ -69,7 +87,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox
-          ref: ${{ inputs.payment_ref }}
+          ref: ${{ inputs.payment_ref || (inputs.test_scope == 'exp01-first-batch' && 'e6ab67b5963434a9a3caae2012b70232a3cca65d') || '' }}
           token: ${{ secrets.MERCHANT_REPO_TOKEN }}
           path: payment
           persist-credentials: false
@@ -87,6 +105,7 @@ jobs:
           (cd payment && uv python install && uv sync --frozen --all-groups)
 
       - name: Install Node.js
+        if: inputs.test_scope != 'exp01-first-batch'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
@@ -97,11 +116,23 @@ jobs:
 
       # The browser test drives auth/ and ui/ with the Agent's own pinned Playwright.
       - name: Install auth, UI and Chromium
+        if: inputs.test_scope != 'exp01-first-batch'
         working-directory: agent
         run: |
           (cd auth && npm ci)
           (cd ui && npm ci)
           uv run playwright install --with-deps --only-shell chromium
+
+      - name: Verify EXP-01 preregistration and exact sources
+        if: inputs.test_scope == 'exp01-first-batch'
+        working-directory: agent
+        env:
+          PYTHONPATH: evaluation/src
+          MERCHANT_REPO: ${{ github.workspace }}/merchant
+          PAYMENT_REPO: ${{ github.workspace }}/payment
+        run: >-
+          python3 -m commerce_evaluation.exp01 --preflight
+          --output "$RUNNER_TEMP/exp01-manifest.json"
 
       # Disposable PostgreSQL in Docker, the real Merchant and payment provider, and the
       # Agent with its UI; see docs/testing.md and tests/integration/README.md.
@@ -111,10 +142,26 @@ jobs:
           RUN_LIVE_STACK: "1"
           MERCHANT_REPO: ${{ github.workspace }}/merchant
           PAYMENT_REPO: ${{ github.workspace }}/payment
+        run: |
+          if [ "${{ inputs.test_scope }}" = "exp01-first-batch" ]; then
+            uv run pytest tests/integration/test_exp01_first_batch.py -vv --durations=20 -p no:cacheprovider \
+              --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
+              -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
+          else
+            uv run pytest tests/integration --ignore=tests/integration/test_exp01_first_batch.py -rs -p no:cacheprovider \
+              --basetemp="$RUNNER_TEMP/live-stack" --junitxml="$RUNNER_TEMP/live-junit.xml"
+          fi
+
+      - name: Require complete EXP-01 observations and cleanup
+        if: ${{ !cancelled() && inputs.test_scope == 'exp01-first-batch' }}
+        working-directory: agent
+        env:
+          PYTHONPATH: evaluation/src
         run: >-
-          uv run pytest tests/integration -rs -p no:cacheprovider
-          --basetemp="$RUNNER_TEMP/live-stack"
-          --junitxml="$RUNNER_TEMP/live-junit.xml"
+          python3 -m commerce_evaluation.exp01
+          --evidence "$RUNNER_TEMP/exp01-stack" --junit "$RUNNER_TEMP/exp01-junit.xml"
+          --outcomes "$RUNNER_TEMP/exp01-outcomes.json" --manifest "$RUNNER_TEMP/exp01-manifest.json"
+          --output "$RUNNER_TEMP/exp01-report.json"
 
       # Evidence, service logs, the browser screenshot and the JUnit report; workers never
       # log tokens or bodies.
@@ -122,11 +169,19 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: live-stack-evidence
+          name: ${{ inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
           path: |
             ${{ runner.temp }}/live-stack/**/*.jsonl
             ${{ runner.temp }}/live-stack/**/*.log
             ${{ runner.temp }}/live-stack/**/*.png
             ${{ runner.temp }}/live-junit.xml
-          if-no-files-found: ignore
+            ${{ runner.temp }}/exp01-stack/**/*.json
+            ${{ runner.temp }}/exp01-stack/**/*.jsonl
+            ${{ runner.temp }}/exp01-stack/**/*.log
+            ${{ runner.temp }}/exp01-manifest.json
+            ${{ runner.temp }}/exp01-junit.xml
+            ${{ runner.temp }}/exp01-outcomes.json
+            ${{ runner.temp }}/exp01-report.json
+            ${{ runner.temp }}/exp01-SHA256SUMS
+          if-no-files-found: ${{ inputs.test_scope == 'exp01-first-batch' && 'error' || 'ignore' }}
           retention-days: 14

@@ -195,6 +195,40 @@ class Control:
                 for table in EFFECT_TABLES
             }
 
+    def exp01_export(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Export the whole existing episode; no synthesized commercial observations."""
+        return module("commerce_lab.feed").export_feed(
+            Path(command["feed_dir"]),
+            run_id=command["run_id"],
+            base_url=os.environ["ACP_API_BASE_URL"],
+        )
+
+    def exp01_observe(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Independent, read-only public facts; no bearer, JWT, keys or payment instruments."""
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT checkout_id,status,offer_id,quantity,idempotency_sha256 "
+                "FROM checkout_sessions WHERE run_id=%s ORDER BY checkout_id",
+                (command["run_id"],),
+            ).fetchall()
+            events = connection.execute(
+                "SELECT event_type,count(*) FROM run_events WHERE run_id=%s "
+                "GROUP BY event_type ORDER BY event_type",
+                (command["run_id"],),
+            ).fetchall()
+            stock = connection.execute(
+                "SELECT offer_id,revision,snapshot->>'availability',"
+                "snapshot->>'available_quantity' FROM catalog_offers WHERE run_id=%s "
+                "ORDER BY offer_id",
+                (command["run_id"],),
+            ).fetchall()
+        return {
+            "tables": self.snapshot({}),
+            "checkouts": rows,
+            "run_events": events,
+            "stock": stock,
+        }
+
     def internal_create(self, command: dict[str, Any]) -> dict[str, Any]:
         """Real Merchant transaction, without (unrecoverable) or before (pending) its record."""
         ctx = self.context.authenticate_lab_session(command["bearer"])
@@ -369,6 +403,8 @@ def main() -> None:
             "session_state",
             "snapshot",
             "effects",
+            "exp01_export",
+            "exp01_observe",
             "internal_create",
             "commit_pending",
             "cancel_fixture",
