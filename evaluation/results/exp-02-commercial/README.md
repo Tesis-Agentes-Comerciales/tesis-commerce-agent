@@ -1,46 +1,46 @@
-# EXP-02 ó CT15 HP y CT14 HP
-
-Resultado comprobado: ambos escenarios pasan en el alcance tÈcnico HP registrado.
-No implica HNP, comprensiÛn sem·ntica ni completar compras. Producto base Agent 65183d5;
-Merchant abf30df3b6a611284dedcc26c00accac6a853329; PSP e6ab67b5963434a9a3caae2012b70232a3cca65d.
-PR #163 apilado explÌcitamente sobre EXP-01 #162; ninguno fusionado.
-
-| EjecuciÛn | SHA ejecutado | Resultado |
-| --- | --- | --- |
-| [41895136607](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895136607) | 243fb5fcd334a6258e90de91ab8a44c35e072260 | CT15: 1 passed, 1 failed y 1 error teardown. Proxy del arnÈs bloqueaba cancel; no atribuir como defecto de producto. |
-| [41895460657](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895460657) | 01698e89ca3b8de5d5e5eb90f88cea4bad57e3c1 | CT15: 2 passed, cero failed/error/skipped; validated=true, 22 hashes correctos. |
-| [41895755779](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895755779) | 01698e89ca3b8de5d5e5eb90f88cea4bad57e3c1 | CT14: 2 passed, cero failed/error/skipped; validated=true, 18 hashes correctos. |
-
-## Datos y or·culos independientes
-
-CT15 observÛ iPhone 12 mini 64 GB en el episodio Merchant: Ìtem 38,000,000 centavos COP,
-envÌo 2,500,000, total 40,500,000. La subida controlada aplica otro precio observado del
-mismo cat·logo, 42,000,000 al Ìtem; total autoritativo Merchant 44,500,000. No son valores
-mercantiles reales de mercado. El feed original permanece idÈntico y completo (310 ofertas).
-Con m·ximo 44,500,000 el Agent prepara y seÒala price_changed; con m·ximo 40,500,000 crea
-una vez y cancela por budget_exceeded. La respuesta HTTP Merchant determina el total.
-
-CT14 prepara y presenta tÈrminos frescos; solo entonces agota stock/revisiÛn. La relectura
-rechaza checkout_terms_changed, con changed_fields=[stock]. Precio/nombre/envÌo/contexto/
-expiraciÛn idÈnticos por comparaciÛn de todo el snapshot. El control estable mantiene
-fresh_terms. No se intentÛ aprobar: alcance de revalidaciÛn preaprobaciÛn, no complete.
-
-Protocolo evaluation/scenarios/exp02-commercial.json congelado en 243fb5f, sin alteraciones
-despuÈs de observar. Solo se corrigiÛ la ruta permitida del proxy para cancelaciÛn real.
-Cada episodio guarda inputs/or·culo/configuraciÛn/feed/hashes antes del comportamiento.
-El Agent recibe presupuesto e intenciÛn, nunca el or·culo o respuesta esperada.
-
-## Efectos, integridad y conservaciÛn
-
-Todos los checkouts creados se observan canceled despuÈs de limpieza; snapshots de ofertas
-restaurados exactamente y PSP idÈntico antes/despuÈs/limpieza. Sin aprobaciones, Ûrdenes,
-intentos de completar ni pagos nuevos. run_events y huellas de todas las tablas Merchant
-son parte de la evidencia; no se afirma que offer.read no escriba auditorÌa.
-Shutdown confirma proxy cerrado y PostgreSQL eliminado en cada ejecuciÛn. Los ZIP originales
-incluyen JUnit, recorder, preflight de tres fuentes limpias, feed completo, congelaciÛn,
-observaciones independientes, logs sanitizados y SHA256SUMS interno. summary.json conserva
-los fallos y los resultados; SHA256SUMS de esta carpeta permite verificar los archivos sin
-retenciÛn de Actions. No se modificÛ matriz/or·culo P0, producto, locks ni evidencia anterior.
-
-PreparaciÛn conversacional: docs/design/exp-conversation-readiness.md. Sin llamadas pagadas;
-UX01/11/12 propuestos, adaptaciÛn final a˙n pendiente de autorizaciÛn y prerregistro.
+# EXP-02 ‚Äî CT15 HP y CT14 HP
+
+Resultado comprobado: ambos escenarios pasan en el alcance t√©cnico HP registrado.
+No implica HNP, comprensi√≥n sem√°ntica ni completar compras. Producto base Agent 65183d5;
+Merchant abf30df3b6a611284dedcc26c00accac6a853329; PSP e6ab67b5963434a9a3caae2012b70232a3cca65d.
+PR #163 apilado expl√≠citamente sobre EXP-01 #162; ninguno fusionado.
+
+| Ejecuci√≥n | SHA ejecutado | Resultado |
+| --- | --- | --- |
+| [41895136607](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895136607) | 243fb5fcd334a6258e90de91ab8a44c35e072260 | CT15: 1 passed, 1 failed y 1 error teardown. Proxy del arn√©s bloqueaba cancel; no atribuir como defecto de producto. |
+| [41895460657](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895460657) | 01698e89ca3b8de5d5e5eb90f88cea4bad57e3c1 | CT15: 2 passed, cero failed/error/skipped; validated=true, 22 hashes correctos. |
+| [41895755779](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895755779) | 01698e89ca3b8de5d5e5eb90f88cea4bad57e3c1 | CT14: 2 passed, cero failed/error/skipped; validated=true, 18 hashes correctos. |
+
+## Datos y or√°culos independientes
+
+CT15 observ√≥ iPhone 12 mini 64 GB en el episodio Merchant: √≠tem 38,000,000 centavos COP,
+env√≠o 2,500,000, total 40,500,000. La subida controlada aplica otro precio observado del
+mismo cat√°logo, 42,000,000 al √≠tem; total autoritativo Merchant 44,500,000. No son valores
+mercantiles reales de mercado. El feed original permanece id√©ntico y completo (310 ofertas).
+Con m√°ximo 44,500,000 el Agent prepara y se√±ala price_changed; con m√°ximo 40,500,000 crea
+una vez y cancela por budget_exceeded. La respuesta HTTP Merchant determina el total.
+
+CT14 prepara y presenta t√©rminos frescos; solo entonces agota stock/revisi√≥n. La relectura
+rechaza checkout_terms_changed, con changed_fields=[stock]. Precio/nombre/env√≠o/contexto/
+expiraci√≥n id√©nticos por comparaci√≥n de todo el snapshot. El control estable mantiene
+fresh_terms. No se intent√≥ aprobar: alcance de revalidaci√≥n preaprobaci√≥n, no complete.
+
+Protocolo evaluation/scenarios/exp02-commercial.json congelado en 243fb5f, sin alteraciones
+despu√©s de observar. Solo se corrigi√≥ la ruta permitida del proxy para cancelaci√≥n real.
+Cada episodio guarda inputs/or√°culo/configuraci√≥n/feed/hashes antes del comportamiento.
+El Agent recibe presupuesto e intenci√≥n, nunca el or√°culo o respuesta esperada.
+
+## Efectos, integridad y conservaci√≥n
+
+Todos los checkouts creados se observan canceled despu√©s de limpieza; snapshots de ofertas
+restaurados exactamente y PSP id√©ntico antes/despu√©s/limpieza. Sin aprobaciones, √≥rdenes,
+intentos de completar ni pagos nuevos. run_events y huellas de todas las tablas Merchant
+son parte de la evidencia; no se afirma que offer.read no escriba auditor√≠a.
+Shutdown confirma proxy cerrado y PostgreSQL eliminado en cada ejecuci√≥n. Los ZIP originales
+incluyen JUnit, recorder, preflight de tres fuentes limpias, feed completo, congelaci√≥n,
+observaciones independientes, logs sanitizados y SHA256SUMS interno. summary.json conserva
+los fallos y los resultados; SHA256SUMS de esta carpeta permite verificar los archivos sin
+retenci√≥n de Actions. No se modific√≥ matriz/or√°culo P0, producto, locks ni evidencia anterior.
+
+Preparaci√≥n conversacional: docs/design/exp-conversation-readiness.md. Sin llamadas pagadas;
+UX01/11/12 propuestos, adaptaci√≥n final a√∫n pendiente de autorizaci√≥n y prerregistro.
