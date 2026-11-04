@@ -350,8 +350,8 @@ class Control:
             if kind == "digest":
                 value["name"] += " changed"
             if kind == "shipping":
-                value["pricing"]["shipping_total_minor"] += 1
-                value["pricing"]["total_minor"] += 1
+                value["pricing"]["shipping_total_minor"] += command.get("shipping_delta_minor", 1)
+                value["pricing"]["total_minor"] += command.get("shipping_delta_minor", 1)
             if kind == "expiry":
                 observed = datetime.fromisoformat(value["observed_at"].replace("Z", "+00:00"))
                 value["expires_at"] = (observed + timedelta(seconds=1)).strftime(

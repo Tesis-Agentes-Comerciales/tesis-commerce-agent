@@ -216,7 +216,10 @@ def test_ct15_price_change(hp_lane, tmp_path, monkeypatch, control):
 
 @pytest.mark.parametrize("control", ["stable", "depleted"])
 def test_ct14_stock_after_checkout(hp_lane, tmp_path, monkeypatch, control):
-    b0 = hp_lane
+    hp_revalidation(hp_lane, tmp_path, monkeypatch, control)
+
+
+def hp_revalidation(b0, tmp_path, monkeypatch, control, *, scenario="CT14", protocol=PROTOCOL):
     episode, _, selected, original, settings = setup(b0, tmp_path, monkeypatch)
     maximum = original["pricing"]["total_minor"]
     intent = PurchaseIntent(
@@ -225,7 +228,7 @@ def test_ct14_stock_after_checkout(hp_lane, tmp_path, monkeypatch, control):
     feed_hash = hashlib.sha256((episode.feed / "products.jsonl").read_bytes()).hexdigest()
     with recorded_case(
         tmp_path,
-        "CT14:HP:" + control,
+        scenario + ":HP:" + control,
         {
             "run_id": episode.run_id,
             "actor_id": episode.actor_id,
@@ -233,12 +236,15 @@ def test_ct14_stock_after_checkout(hp_lane, tmp_path, monkeypatch, control):
             "offer_before": original,
             "maximum_minor": maximum,
             "control": control,
+            "shipping_delta_minor": original["pricing"]["shipping_total_minor"]
+            if scenario == "CT16"
+            else None,
             "intent": intent.model_dump(mode="json"),
             "selected_input_sku": selected.variant_id,
             "feed_sha256": feed_hash,
             "clock": str(settings.agent_sandbox_clock_at),
         },
-        protocol_path=PROTOCOL,
+        protocol_path=protocol,
     ) as record:
         runtime = None
         facts = record["observations"]
@@ -249,7 +255,7 @@ def test_ct14_stock_after_checkout(hp_lane, tmp_path, monkeypatch, control):
                 merchant_before=before, psp_before=psp, offer_before=original, feed_sha256=feed_hash
             )
             runtime = build_runtime(settings)
-            local_run = "exp02-ct14-" + control
+            local_run = "exp03-" + scenario.lower() + "-" + control
             prepared = runtime.purchases.start(
                 run_id=local_run,
                 owner_id=episode.actor_id,
@@ -274,6 +280,24 @@ def test_ct14_stock_after_checkout(hp_lane, tmp_path, monkeypatch, control):
                     offer_id=selected.variant_id,
                     change="stock",
                 )
+            delta = 0
+            if control == "increased":
+                delta = original["pricing"]["shipping_total_minor"]
+                assert delta > 0
+                b0.rpc(
+                    "edit_offer",
+                    run_id=episode.run_id,
+                    offer_id=selected.variant_id,
+                    change="shipping",
+                    shipping_delta_minor=delta,
+                )
+                facts["shipping_delta_minor"] = delta
+                new_feed = tmp_path / "shipping-feed-not-given-to-agent"
+                b0.rpc("exp01_export", run_id=episode.run_id, feed_dir=str(new_feed))
+                facts["feed_after_sha256"] = hashlib.sha256(
+                    (new_feed / "products.jsonl").read_bytes()
+                ).hexdigest()
+                assert facts["feed_after_sha256"] == feed_hash
             changed = offer(b0, episode, selected.variant_id)
             expected = json.loads(json.dumps(original))
             if control == "depleted":
@@ -282,6 +306,9 @@ def test_ct14_stock_after_checkout(hp_lane, tmp_path, monkeypatch, control):
                     availability="out_of_stock",
                     available_quantity=0,
                 )
+            if control == "increased":
+                expected["pricing"]["shipping_total_minor"] += delta
+                expected["pricing"]["total_minor"] += delta
             assert changed == expected
             facts.update(offer_after=changed, mutation_at_ns=time.time_ns())
             record["stimulus_verified"] = True
@@ -314,6 +341,10 @@ def test_ct14_stock_after_checkout(hp_lane, tmp_path, monkeypatch, control):
             if control == "depleted":
                 assert result == "checkout_terms_changed"
                 assert freshness[-1]["changed_fields"] == ["stock"]
+                assert freshness[-1]["decision"] == "block"
+            elif control == "increased":
+                assert result == "checkout_terms_changed"
+                assert freshness[-1]["changed_fields"] == ["shipping_minor", "total_minor"]
                 assert freshness[-1]["decision"] == "block"
             else:
                 assert result == "fresh_terms" and freshness[-1]["outcome"] == "fresh"
