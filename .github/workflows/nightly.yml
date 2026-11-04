@@ -69,6 +69,8 @@ jobs:
         with:
           path: agent
           persist-credentials: false
+          # P3-V01 verifies product identity against the pinned ancestor, not only HEAD.
+          fetch-depth: 0
 
       - name: Checkout merchant
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

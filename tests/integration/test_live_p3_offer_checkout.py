@@ -240,6 +240,12 @@ def test_offer_checkout_contract(p3_lane: PurchaseLane, case_id: str):
         facts["calibration_clean"] = summary(cal_done)
         lane.proxy.reset()
         exercise(lane, c, v, raw, case_id, facts)
+        cal_after = state(lane, c)
+        assert cal_after["offers"] == cal_done["offers"]
+        assert cal_after["checkouts"] == cal_done["checkouts"]
+        for name in cal_done["tables"]:
+            if name != "run_events" or case_id not in {"foreign-run", "foreign-actor"}:
+                assert cal_after["tables"][name] == cal_done["tables"][name], name
         assert psp_state(lane) == psp_before
         assert not lane.proxy.errors, lane.proxy.errors
         assert not [call for call in lane.proxy.calls if call.fault == "blocked"]
@@ -344,7 +350,9 @@ def exercise(
         lane.proxy.upstream = f"http://127.0.0.1:{blocker.getsockname()[1]}"
     observed = None
     code = None
-    events_before = len(read_events(state(lane, v)))
+    read_before = state(lane, v)
+    events_before = len(read_events(read_before))
+    foreign_before = state(lane, c)
     try:
         with client(lane, actor, timeout=1 if case == "timeout-before" else 5) as gateway:
             if case == "missing-auth":
@@ -368,6 +376,9 @@ def exercise(
         if blocker:
             blocker.close()
     after = state(lane, v)
+    # Offer reads are commercially read-only but can write audit. Verify that exact boundary.
+    for name in read_before["tables"].keys() - {"run_events"}:
+        assert after["tables"][name] == read_before["tables"][name], name
     events = read_events(after)[events_before:]
     facts.update(
         offer_read=observed.model_dump(mode="json") if observed else None,
@@ -415,6 +426,13 @@ def exercise(
             facts["product_limitation"] = (
                 "ACPClient accepts a schema-valid different offer; observer rejects binding"
             )
+        if case in {"foreign-run", "foreign-actor"}:
+            foreign_events = read_events(state(lane, c))[len(read_events(foreign_before)) :]
+            assert len(foreign_events) == 1
+            assert foreign_events[0]["payload"]["actor_id"] == c.actor_id
+            facts["foreign_run_read_events"] = foreign_events
+            with client(lane, v) as gateway, pytest.raises(ACPClientError):
+                gateway.get_checkout(state(lane, c)["checkouts"][0]["id"])
         return
     if case in {"out-of-stock", "inactive", "expiry-at", "expiry-after"}:
         assert commercial == "false"
