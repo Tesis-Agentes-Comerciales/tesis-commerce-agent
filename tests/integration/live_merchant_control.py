@@ -485,7 +485,8 @@ class Control:
         return {
             "run_id": run,
             "actor_id": actor,
-            "matches_full_fixture": [r[0] for r in offers] == self.db.fixture_snapshot()[0],
+            "matches_full_fixture": [r[0] for r in offers]
+            == module("commerce_lab.db.core").fixture_snapshot()[0],
             "clock_at": clock.isoformat(),
             "offers": [r[0] for r in offers],
             "checkouts": [r[0] for r in checkouts],
