@@ -68,10 +68,13 @@ NO_DELEGATION_OFFERS_MESSAGE = (
 
 
 def delegation_offers_message(count: int) -> str:
+    """D3 (docs/design/p0-ux08-ux10.md §3.3): it names the one unit every scope allows
+    (`quantity_max` is `One`), so whoever asked for two reads what the delegation buys."""
     options = "1 opción" if count == 1 else f"{count} opciones"
     return (
-        f"Encontré {options} del catálogo para lo que pediste. Abajo puedes delegar la compra: "
-        "revisa las opciones y el total máximo y autorízala; después el agente compra solo."
+        f"Encontré {options} del catálogo para lo que pediste. Abajo puedes delegar la compra de "
+        "1 unidad: revisa las opciones y el total máximo y autorízala; después el agente la compra "
+        "solo."
     )
 
 
