@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="8" time="2.606" timestamp="2026-11-05T15:21:16.077124-05:00" hostname="Yairs-MacBook-Pro.local"><testcase classname="tests.test_assistant_transport" name="test_the_worker_reads_the_stream_cancellation_without_new_operations[stopped]" time="0.019"><failure message="assert [False] == [True]&#10;  &#10;  At index 0 diff: False != True&#10;  Use -v to get more diff">tmp_path = PosixPath('/private/var/folders/c9/30zrqynj1nb7rn_7h2srzgr00000gn/T/pytest-of-yair/pytest-350/test_the_worker_reads_the_stre0')
+cancelled = True
+
+    @pytest.mark.parametrize("cancelled", [True, False], ids=["stopped", "running"])
+    def test_the_worker_reads_the_stream_cancellation_without_new_operations(
+        tmp_path: Path, cancelled: bool
+    ) -&gt; None:
+        """The stream marks the run cancelled when the client goes. A worker waiting on the model has
+        no operation in flight, so no event-loop step would tell it: it reads the mark itself."""
+        transport = build_app(tmp_path / "agent.db").state.assistant_transport
+        controller: Any = SimpleNamespace(is_cancelled=cancelled)
+        seen: list[bool] = []
+    
+        asyncio.run(transport._pump(controller, lambda emit, stopped: seen.append(stopped())))
+    
+&gt;       assert seen == [cancelled]
+E       assert [False] == [True]
+E         
+E         At index 0 diff: False != True
+E         Use -v to get more diff
+
+tests/test_assistant_transport.py:1169: AssertionError</failure></testcase><testcase classname="tests.test_assistant_transport" name="test_the_worker_reads_the_stream_cancellation_without_new_operations[running]" time="0.015" /><testcase classname="tests.test_assistant_transport" name="test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[0-stopped]" time="0.572"><failure message="AssertionError: assert 1 == 0&#10; +  where 1 = &lt;built-in method count of list object at 0x10df03b80&gt;('POST /checkout_sessions')&#10; +    where &lt;built-in method count of list object at 0x10df03b80&gt; = ['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessions/cs_storybook_1', 'GET /checkout_sessions/cs_storybook_1'].count&#10; +      where ['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessions/cs_storybook_1', 'GET /checkout_sessions/cs_storybook_1'] = Merchant(fail_checkout=False, requests=['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessio...book_1', 'GET /checkout_sessions/cs_storybook_1'], status='ready_for_payment', created=1, order_number='STORYBOOK-001').requests">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10e0e7f80&gt;
+tmp_path = PosixPath('/private/var/folders/c9/30zrqynj1nb7rn_7h2srzgr00000gn/T/pytest-of-yair/pytest-350/test_stopping_while_the_model_0')
+delay_ms = 0, stop = True
+
+    @pytest.mark.parametrize("stop", [True, False], ids=["stopped", "control"])
+    @pytest.mark.parametrize("delay_ms", [0, 5, 20])
+    def test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, delay_ms: int, stop: bool
+    ) -&gt; None:
+        """UX09-HP-race: uvicorn on 127.0.0.1 and a client that closes its connection while
+        `choose_a` is held. The answer is released 0, 5 or 20 ms after the server marked the run
+        cancelled, so the outcome depends on neither the TCP close nor the scheduler. The control
+        reads the stream to its end: the same script prepares the checkout."""
+        marked, finished = threading.Event(), threading.Event()
+        mark, work = RunController._mark_cancelled, AssistantTransport._turn_worker
+    
+        def marking(controller: RunController) -&gt; None:
+            mark(controller)
+            marked.set()
+    
+        def tracked(self: AssistantTransport, *args: Any, **kwargs: Any) -&gt; None:
+            try:
+                work(self, *args, **kwargs)
+            finally:
+                finished.set()
+    
+        monkeypatch.setattr(RunController, "_mark_cancelled", marking)
+        monkeypatch.setattr(AssistantTransport, "_turn_worker", tracked)
+        choice = held(choose("SON-XM6-BLK"))
+        model = ModelServer(structured(ROUTED_A), choice)
+        model.install(monkeypatch)
+        merchant = Merchant()
+        agent = AgentServer(model_app(tmp_path / "agent.db", merchant))
+        agent.start()
+        body = assistant_body([add_message(PURCHASE_REQUEST)], turn_id="turn-race")
+        try:
+            with (
+                httpx.Client(trust_env=False, timeout=10) as client,
+                client.stream("POST", agent.origin + "/assistant", json=body) as response,
+            ):
+                lines = response.iter_lines()
+                next(lines)
+                assert choice.entered.wait(10)
+                if not stop:
+                    choice.release()
+                    for _ in lines:
+                        pass
+            if stop:
+                # The connection is closed («Detener respuesta»): wait for the server's mark.
+                assert marked.wait(10)
+                time.sleep(delay_ms / 1000)
+                choice.release()
+            assert finished.wait(10)
+        finally:
+            agent.stop()
+    
+        assert len(model.requests) == 2
+        with sqlite3.connect(tmp_path / "agent.db") as connection:
+            (turn,) = connection.execute(
+                "SELECT response IS NULL FROM conversation_turns WHERE turn_id = 'turn-race'"
+            ).fetchone()
+            stages = connection.execute("SELECT stage FROM purchases").fetchall()
+        if stop:
+&gt;           assert merchant.requests.count("POST /checkout_sessions") == 0
+E           AssertionError: assert 1 == 0
+E            +  where 1 = &lt;built-in method count of list object at 0x10df03b80&gt;('POST /checkout_sessions')
+E            +    where &lt;built-in method count of list object at 0x10df03b80&gt; = ['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessions/cs_storybook_1', 'GET /checkout_sessions/cs_storybook_1'].count
+E            +      where ['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessions/cs_storybook_1', 'GET /checkout_sessions/cs_storybook_1'] = Merchant(fail_checkout=False, requests=['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessio...book_1', 'GET /checkout_sessions/cs_storybook_1'], status='ready_for_payment', created=1, order_number='STORYBOOK-001').requests
+
+tests/test_assistant_transport.py:1270: AssertionError</failure></testcase><testcase classname="tests.test_assistant_transport" name="test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[0-control]" time="0.221" /><testcase classname="tests.test_assistant_transport" name="test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[5-stopped]" time="0.221"><failure message="AssertionError: assert 1 == 0&#10; +  where 1 = &lt;built-in method count of list object at 0x10e2e4480&gt;('POST /checkout_sessions')&#10; +    where &lt;built-in method count of list object at 0x10e2e4480&gt; = ['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessions/cs_storybook_1', 'GET /checkout_sessions/cs_storybook_1'].count&#10; +      where ['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessions/cs_storybook_1', 'GET /checkout_sessions/cs_storybook_1'] = Merchant(fail_checkout=False, requests=['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessio...book_1', 'GET /checkout_sessions/cs_storybook_1'], status='ready_for_payment', created=1, order_number='STORYBOOK-001').requests">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10f431cd0&gt;
+tmp_path = PosixPath('/private/var/folders/c9/30zrqynj1nb7rn_7h2srzgr00000gn/T/pytest-of-yair/pytest-350/test_stopping_while_the_model_2')
+delay_ms = 5, stop = True
+
+    @pytest.mark.parametrize("stop", [True, False], ids=["stopped", "control"])
+    @pytest.mark.parametrize("delay_ms", [0, 5, 20])
+    def test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, delay_ms: int, stop: bool
+    ) -&gt; None:
+        """UX09-HP-race: uvicorn on 127.0.0.1 and a client that closes its connection while
+        `choose_a` is held. The answer is released 0, 5 or 20 ms after the server marked the run
+        cancelled, so the outcome depends on neither the TCP close nor the scheduler. The control
+        reads the stream to its end: the same script prepares the checkout."""
+        marked, finished = threading.Event(), threading.Event()
+        mark, work = RunController._mark_cancelled, AssistantTransport._turn_worker
+    
+        def marking(controller: RunController) -&gt; None:
+            mark(controller)
+            marked.set()
+    
+        def tracked(self: AssistantTransport, *args: Any, **kwargs: Any) -&gt; None:
+            try:
+                work(self, *args, **kwargs)
+            finally:
+                finished.set()
+    
+        monkeypatch.setattr(RunController, "_mark_cancelled", marking)
+        monkeypatch.setattr(AssistantTransport, "_turn_worker", tracked)
+        choice = held(choose("SON-XM6-BLK"))
+        model = ModelServer(structured(ROUTED_A), choice)
+        model.install(monkeypatch)
+        merchant = Merchant()
+        agent = AgentServer(model_app(tmp_path / "agent.db", merchant))
+        agent.start()
+        body = assistant_body([add_message(PURCHASE_REQUEST)], turn_id="turn-race")
+        try:
+            with (
+                httpx.Client(trust_env=False, timeout=10) as client,
+                client.stream("POST", agent.origin + "/assistant", json=body) as response,
+            ):
+                lines = response.iter_lines()
+                next(lines)
+                assert choice.entered.wait(10)
+                if not stop:
+                    choice.release()
+                    for _ in lines:
+                        pass
+            if stop:
+                # The connection is closed («Detener respuesta»): wait for the server's mark.
+                assert marked.wait(10)
+                time.sleep(delay_ms / 1000)
+                choice.release()
+            assert finished.wait(10)
+        finally:
+            agent.stop()
+    
+        assert len(model.requests) == 2
+        with sqlite3.connect(tmp_path / "agent.db") as connection:
+            (turn,) = connection.execute(
+                "SELECT response IS NULL FROM conversation_turns WHERE turn_id = 'turn-race'"
+            ).fetchone()
+            stages = connection.execute("SELECT stage FROM purchases").fetchall()
+        if stop:
+&gt;           assert merchant.requests.count("POST /checkout_sessions") == 0
+E           AssertionError: assert 1 == 0
+E            +  where 1 = &lt;built-in method count of list object at 0x10e2e4480&gt;('POST /checkout_sessions')
+E            +    where &lt;built-in method count of list object at 0x10e2e4480&gt; = ['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessions/cs_storybook_1', 'GET /checkout_sessions/cs_storybook_1'].count
+E            +      where ['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessions/cs_storybook_1', 'GET /checkout_sessions/cs_storybook_1'] = Merchant(fail_checkout=False, requests=['GET /.well-known/acp.json', 'POST /checkout_sessions', 'POST /checkout_sessio...book_1', 'GET /checkout_sessions/cs_storybook_1'], status='ready_for_payment', created=1, order_number='STORYBOOK-001').requests
+
+tests/test_assistant_transport.py:1270: AssertionError</failure></testcase><testcase classname="tests.test_assistant_transport" name="test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[5-control]" time="0.220" /><testcase classname="tests.test_assistant_transport" name="test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[20-stopped]" time="0.369" /><testcase classname="tests.test_assistant_transport" name="test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[20-control]" time="0.219" /></testsuite></testsuites>
