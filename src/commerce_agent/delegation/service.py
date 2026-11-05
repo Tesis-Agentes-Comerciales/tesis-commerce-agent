@@ -68,6 +68,7 @@ INSTRUMENT_LABEL = "Tarjeta de prueba del sandbox"
 _CONSENT_ERRORS = {
     "not_found": "delegation_proposal_not_found",
     "scope_mismatch": "delegation_scope_mismatch",
+    "proposal_superseded": "delegation_proposal_superseded",
     "proposal_expired": "delegation_proposal_expired",
 }
 
@@ -159,6 +160,9 @@ class DelegationService:
     # Proposal and consent (§3.2)
 
     def propose(self, owner_id: str, request: DelegationProposalRequest) -> DelegationProposal:
+        """The new proposal replaces the owner's open ones (D2, docs/design/p0-ux08-ux10.md §3.3).
+        The owner is the whole context: the request names no conversation, tab or turn, so a
+        proposal from any of them leaves only the newest one to consent, and that fails closed."""
         if request.valid_for_seconds > self._max_validity:
             raise DelegationError("delegation_validity_exceeded")
         # POL-08 compares this binding with D2's over the merchant's echo: bind (and later send)
@@ -239,7 +243,9 @@ class DelegationService:
     def consent(
         self, owner_id: str, request: DelegationConsentRequest
     ) -> tuple[DelegationView, bool]:
-        """The view and whether this call created the grant (201) or found it (200)."""
+        """The view and whether this call created the grant (201) or found it (200). A consented
+        proposal answers its grant before any replacement check: repeating a consent stays
+        idempotent after a newer proposal."""
         proposal = self._ledger.proposal(owner_id, request.proposal_id)
         if proposal is None:
             raise DelegationError("delegation_proposal_not_found")
@@ -247,6 +253,8 @@ class DelegationService:
             raise DelegationError("delegation_scope_mismatch")
         if proposal.grant_id is not None:
             return self._view(proposal.grant_id), False
+        if proposal.superseded_by is not None:
+            raise DelegationError("delegation_proposal_superseded")
         scope = parse_consent_scope(proposal.scope_json.encode())
         now = self._clock()
         # The grant's expiry was fixed at proposal time: it can lapse before the proposal does.

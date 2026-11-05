@@ -22,6 +22,10 @@ El servidor no reconoce el digest del alcance (409 `delegation_scope_mismatch`).
 
 Propuesta con `valid_for_seconds = 60`: la propuesta vale 10 min (TTL), pero el grant vence al minuto, y «Autorizar» al minuto responde 409 `delegation_proposal_expired`.
 
+## `proposal-superseded.json`
+
+Otra pestaña o conversación del mismo comprador prepara otra propuesta (fuera de la secuencia) 30 s después, y «Autorizar» la primera responde 409 `delegation_proposal_superseded`: solo la última se puede autorizar.
+
 ## `destination-unsupported.json`
 
 Un destino que el comercio no atiende (Medellín): 422 `delegation_destination_unsupported`, sin propuesta.

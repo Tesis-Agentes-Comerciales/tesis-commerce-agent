@@ -62,6 +62,7 @@ const {
   consent,
   scopeMismatch,
   proposalExpired,
+  proposalSuperseded,
   destinationUnsupported,
   revoke,
   revokeAll,
@@ -131,6 +132,7 @@ describe("los errores", () => {
   it.each([
     ["delegation_scope_mismatch", scopeMismatch],
     ["delegation_proposal_expired", proposalExpired],
+    ["delegation_proposal_superseded", proposalSuperseded],
   ] as const)("%s pide una propuesta nueva y muestra el mensaje del backend", async (code, exchanges) => {
     replay(exchanges)
     const proposal = await proposeDelegation(proposalBody(exchanges))

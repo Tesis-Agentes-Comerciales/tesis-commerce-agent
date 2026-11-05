@@ -351,6 +351,7 @@ logs. Es la misma protección que los mandatos HP (`ap2-profile.md`).
 | `checkout_details_json` | TEXT NOT NULL, **protegida**; `CheckoutDetails` (buyer y fulfillment) |
 | `presented_at`, `expires_at` | TEXT NOT NULL |
 | `grant_id` | TEXT NULL UNIQUE; se llena al consentir |
+| `superseded_by` | TEXT NULL; la propuesta más reciente del mismo dueño que la reemplazó mientras estaba abierta (D2 de `p0-ux08-ux10.md`). Nula si `grant_id` no lo es. Una base anterior la recibe al iniciar, con sus filas abiertas |
 
 **`delegation_grants`**
 
@@ -700,13 +701,21 @@ genérico de FastAPI. Las rutas HP no cambian.
 | Método y ruta | Cuerpo | Éxito | Errores |
 | --- | --- | --- | --- |
 | `POST /delegations/proposals` | `DelegationProposalRequest` | 201 `DelegationProposal` | 401; 422 `delegation_request_invalid`, `delegation_variant_unavailable`, `delegation_validity_exceeded`, `delegation_destination_unsupported` |
-| `POST /delegations` | `{proposal_id, scope_digest}` | 201 `DelegationView`; 200 con el mismo grant si la propuesta ya se consintió con ese digest | 401; 404 `delegation_proposal_not_found`; 409 `delegation_scope_mismatch`, `delegation_proposal_expired`; 503 `delegation_signer_unavailable` |
+| `POST /delegations` | `{proposal_id, scope_digest}` | 201 `DelegationView`; 200 con el mismo grant si la propuesta ya se consintió con ese digest | 401; 404 `delegation_proposal_not_found`; 409 `delegation_scope_mismatch`, `delegation_proposal_superseded`, `delegation_proposal_expired`; 503 `delegation_signer_unavailable` |
 | `GET /me/delegations` | — | 200 `DelegationList` (más recientes primero) | 401 |
 | `GET /delegations/{grant_id}` | — | 200 `DelegationView` | 401; 404 `delegation_not_found` |
 | `POST /delegations/{grant_id}/revoke` | — | 200 `RevokeReceipt`; repetir devuelve el mismo recibo; un grant ya `revoked` por otra causa (`operator`, `escalated`, `failed`) devuelve 200 con su estado actual (ver abajo) | 401; 404 `delegation_not_found`; 409 `delegation_not_revocable` (grant `consumed` o `expired`) |
 | `POST /me/delegations/revoke-all` | — | 200 `RevokeAllReceipt` (solo los grants que estaban `active`) | 401 |
 
 Un grant o una propuesta de otro dueño responden 404, igual que una inexistente.
+
+Una propuesta nueva reemplaza las propuestas abiertas del mismo dueño (D2 de `p0-ux08-ux10.md`):
+las que no se consintieron ni se reemplazaron y no vencieron, ni por su TTL ni por la vigencia del
+grant. El dueño es todo el contexto, porque la solicitud no nombra conversación, pestaña ni turno:
+una propuesta de cualquiera de ellas deja solo la última para consentir. Es a propósito y falla
+cerrado. Al consentir, el orden es digest, propuesta ya consentida (200 con el mismo grant, aunque
+después haya otra más reciente), reemplazada (409 `delegation_proposal_superseded`, sin grant) y
+vencida.
 
 Revocar un grant que ya está `revoked(operator|escalated|failed)` no escribe nada: responde 200 con
 `RevokeReceipt{state: "revoked", revoked_reason: <la causa guardada>, revoked_at: closed_at, effect:

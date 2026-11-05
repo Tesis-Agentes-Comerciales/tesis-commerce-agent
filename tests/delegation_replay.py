@@ -151,6 +151,17 @@ def proposal_expired(session: Session) -> None:
     session.exchange("POST", "/delegations", consent)
 
 
+def proposal_superseded(session: Session) -> None:
+    proposal = session.exchange("POST", "/delegations/proposals", PROPOSAL)
+    session.clock.advance(30)
+    # Another tab or conversation of the same buyer prepares another one: this page never sees it.
+    other = PROPOSAL | {"variant_ids": ["SON-XM6-BLK"], "preference_text": "Solo los Sony."}
+    session.client.post("/delegations/proposals", json=other, headers=OWNER)
+    session.clock.advance(30)
+    consent = {key: proposal[key] for key in ("proposal_id", "scope_digest")}
+    session.exchange("POST", "/delegations", consent)
+
+
 def destination_unsupported(session: Session) -> None:
     session.exchange("GET", "/me/delegations")
     session.exchange("POST", "/delegations/proposals", with_city("Medellín"))
@@ -219,6 +230,13 @@ REPLAYS = (
         "Propuesta con `valid_for_seconds = 60`: la propuesta vale 10 min (TTL), pero el grant "
         "vence al minuto, y «Autorizar» al minuto responde 409 `delegation_proposal_expired`.",
         proposal_expired,
+    ),
+    Replay(
+        "proposal-superseded",
+        "Otra pestaña o conversación del mismo comprador prepara otra propuesta (fuera de la "
+        "secuencia) 30 s después, y «Autorizar» la primera responde 409 "
+        "`delegation_proposal_superseded`: solo la última se puede autorizar.",
+        proposal_superseded,
     ),
     Replay(
         "destination-unsupported",

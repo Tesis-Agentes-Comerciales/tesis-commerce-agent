@@ -3,6 +3,7 @@ import destinationUnsupported from "./delegation-api/destination-unsupported.jso
 import flagOff from "./delegation-api/flag-off.json"
 import notRevocable from "./delegation-api/not-revocable.json"
 import proposalExpired from "./delegation-api/proposal-expired.json"
+import proposalSuperseded from "./delegation-api/proposal-superseded.json"
 import revokeAll from "./delegation-api/revoke-all.json"
 import revoke from "./delegation-api/revoke.json"
 import scopeMismatch from "./delegation-api/scope-mismatch.json"
@@ -24,6 +25,7 @@ export const DELEGATION_REPLAYS = {
   consent,
   scopeMismatch,
   proposalExpired,
+  proposalSuperseded,
   destinationUnsupported,
   revoke,
   revokeAll,

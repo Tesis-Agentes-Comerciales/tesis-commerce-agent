@@ -75,8 +75,12 @@ def _sql_list(literal: Any) -> str:
     return ",".join(f"'{value}'" for value in get_args(literal))
 
 
+# D2 (docs/design/p0-ux08-ux10.md §3.3): the owner's newer proposal that replaced this one while
+# it was open. Shared by the table and by the migration of a ledger created before D2.
+_SUPERSEDED_BY = "superseded_by TEXT CHECK(superseded_by IS NULL OR grant_id IS NULL)"
+
 _SCHEMA = (
-    """CREATE TABLE IF NOT EXISTS delegation_proposals (
+    f"""CREATE TABLE IF NOT EXISTS delegation_proposals (
         proposal_id TEXT PRIMARY KEY,
         owner_id TEXT NOT NULL,
         scope_json TEXT NOT NULL CHECK(json_valid(scope_json)),
@@ -84,7 +88,9 @@ _SCHEMA = (
         checkout_details_json TEXT NOT NULL,
         presented_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
-        grant_id TEXT UNIQUE)""",
+        grant_id TEXT UNIQUE,
+        {_SUPERSEDED_BY})""",
+    "CREATE INDEX IF NOT EXISTS delegation_proposals_owner ON delegation_proposals(owner_id)",
     """CREATE TABLE IF NOT EXISTS delegation_grants (
         grant_id TEXT PRIMARY KEY,
         proposal_id TEXT NOT NULL UNIQUE,
@@ -307,6 +313,7 @@ class SqliteDelegationLedger:
         with self._unit() as (connection, now):
             for statement in _SCHEMA:
                 connection.execute(statement)
+            _add_superseded_by(connection)
             if connection.execute("SELECT 1 FROM hnp_controls").fetchone() is None:
                 connection.execute(
                     "INSERT INTO hnp_controls VALUES (1, 0, 'bootstrap', ?)", (utc_text(now),)
@@ -315,10 +322,20 @@ class SqliteDelegationLedger:
     # Proposal and consent
 
     def create_proposal(self, draft: ProposalDraft) -> ProposalRecord:
+        """Store the proposal and replace the owner's open ones in the same unit (D2): from now on
+        only this one can become a grant. Open is what `consent` would still accept: not
+        consented, not replaced, and before both the proposal's and the grant's expiry."""
         if _consent_scope(draft.scope_json)["proposal_id"] != draft.proposal_id:
             raise ValueError("The consent scope belongs to another proposal")
-        record = ProposalRecord(**asdict(draft), grant_id=None)
-        with self._unit() as (connection, _):
+        record = ProposalRecord(**asdict(draft), grant_id=None, superseded_by=None)
+        with self._unit() as (connection, now):
+            at = utc_text(now)
+            connection.execute(
+                "UPDATE delegation_proposals SET superseded_by = ? "
+                "WHERE owner_id = ? AND grant_id IS NULL AND superseded_by IS NULL "
+                "AND expires_at > ? AND json_extract(scope_json, '$.expires_at') > ?",
+                (draft.proposal_id, draft.owner_id, at, at),
+            )
             _insert(connection, record)
         return record
 
@@ -350,6 +367,8 @@ class SqliteDelegationLedger:
                 grant = _one(connection, GrantRecord, "grant_id = ?", proposal.grant_id)
                 task = _one(connection, TaskRecord, "grant_id = ?", proposal.grant_id)
                 return ConsentResult("existing", grant, task)
+            if proposal.superseded_by is not None:
+                return ConsentResult("proposal_superseded")
             if now >= utc_moment(proposal.expires_at):
                 return ConsentResult("proposal_expired")
             grant, task = self._create_grant(connection, request, proposal, utc_text(now))
@@ -1103,6 +1122,13 @@ def read_events(connection: sqlite3.Connection, grant_id: str) -> tuple[Delegati
         DelegationEvent(**{**dict(zip(names, row, strict=True)), "body": json.loads(row[8])})
         for row in rows
     )
+
+
+def _add_superseded_by(connection: sqlite3.Connection) -> None:
+    """A ledger created before D2 gains the column once; its proposals stay open (NULL)."""
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(delegation_proposals)")}
+    if "superseded_by" not in columns:
+        connection.execute(f"ALTER TABLE delegation_proposals ADD COLUMN {_SUPERSEDED_BY}")
 
 
 def _consent_scope(scope_json: str) -> dict[str, Any]:
