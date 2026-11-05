@@ -83,7 +83,7 @@ def preflight(plan_path: Path = PLAN) -> dict[str, Any]:
             if source["sha"] != expected or not source["clean"]:
                 raise ValueError("Pinned clean checkout required: " + role)
         if "agent_product_tree" in plan:
-            product_tree = git(ROOT, "rev-parse", "HEAD:src")
+            product_tree = git(ROOT, "rev-parse", "HEAD:src/commerce_agent")
             result["sources"]["agent"]["product_tree"] = product_tree
             if product_tree != plan["agent_product_tree"]:
                 raise ValueError("Pinned Agent product tree required")
