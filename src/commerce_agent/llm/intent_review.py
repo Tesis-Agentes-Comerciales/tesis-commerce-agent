@@ -28,6 +28,7 @@ from commerce_agent.llm.conversation_router import (
     ReasoningEffort,
 )
 from commerce_agent.llm.delegated_choice import candidate_payloads
+from commerce_agent.llm.model_failures import classify_model_failure
 from commerce_agent.llm.model_requests import (
     ModelRequestRecorder,
     ModelRequestSink,
@@ -123,11 +124,15 @@ class ModelHnpIntentReviewer:
             usage.output_tokens = getattr(tokens, "output_tokens", None)
             verdict = response.output_parsed
             if not isinstance(verdict, IntentVerdict):
-                raise IntentInterpretationError("The intent review model returned no verdict")
+                raise IntentInterpretationError(
+                    "The intent review model returned no verdict", failure_kind="invalid_output"
+                )
             try:
                 return IntentReview(verdict.decision, verdict.reason)
             except ValueError as error:
-                raise IntentInterpretationError("The intent review was incoherent") from error
+                raise IntentInterpretationError(
+                    "The intent review was incoherent", failure_kind="invalid_output"
+                ) from error
 
     def _request(self, model_input: str) -> Any:
         options: dict[str, Any] = {}
@@ -149,7 +154,9 @@ class ModelHnpIntentReviewer:
                 )
                 pending.response = response
         except (OpenAIError, ValidationError) as error:
-            raise IntentInterpretationError("The intent review request failed") from error
+            raise IntentInterpretationError(
+                "The intent review request failed", failure_kind=classify_model_failure(error).kind
+            ) from error
         return response
 
     def close(self) -> None:
