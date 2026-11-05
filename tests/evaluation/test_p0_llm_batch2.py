@@ -176,7 +176,7 @@ def test_yair_approved_every_recommendation_and_the_review_rule():
     # The review rule reads the quote; it is Claude's interpretation, and says so.
     assert approval["interpretations"] == ["review"]
     assert approval["resolutions"]["review"].startswith("interpretation by Claude of")
-    assert [a[:3] for a in PLAN["amendments"]["applied"]] == ["A3,", "A4,", "A5,"]
+    assert [a[:3] for a in PLAN["amendments"]["applied"]] == ["A3,", "A4,", "A5,", "A6,"]
     assert "CT21-HP" in CELLS and CELLS["CT21-HP"]["conditions"] == ["B0prime", "B2"]
     assert CELLS["CT21-HNP"]["conditions"] == ["B0-HNP", "B2-HNP"]
     assert PLAN["cost"]["input_token_ceiling_per_attempt"] == 400000
@@ -267,6 +267,55 @@ def test_hnp_grants_are_valid_scopes():
         assert 1 <= len(grant["preference_text"]) <= 280
 
 
+# Code references: anchored to a symbol, never to a line (refs_at)
+
+
+def symbol_source(path: str, symbol: str) -> str:
+    """The source of `symbol` (a class, a function, or dotted parents such as Class.method)."""
+    source = (ROOT / path).read_text(encoding="utf-8")
+    node: ast.AST = ast.parse(source)
+    for part in symbol.split("."):
+        found = [
+            item
+            for item in ast.walk(node)
+            if isinstance(item, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+            and item.name == part
+            and item is not node
+        ]
+        assert len(found) == 1, (path, symbol, part, len(found))
+        node = found[0]
+    segment = ast.get_source_segment(source, node)
+    assert segment is not None
+    return segment
+
+
+def code_refs(value: Any) -> Iterator[dict[str, Any]]:
+    if isinstance(value, dict):
+        if {"path", "symbol", "contains"} <= value.keys():
+            yield value
+        for item in value.values():
+            yield from code_refs(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from code_refs(item)
+
+
+def test_every_code_reference_contains_its_guarantee_inside_its_symbol():
+    refs = list(code_refs(PLAN))
+    assert len(refs) >= 13
+    assert PLAN["refs_at"]["commit"] == PLAN["agent_base"]
+    for ref in refs:
+        assert set(ref) == {"path", "symbol", "contains", "lines_at_refs_at"}, ref
+        assert ref["path"].startswith("src/commerce_agent/"), ref
+        assert ref["contains"] in symbol_source(ref["path"], ref["symbol"]), ref
+        assert re.fullmatch(r"\d+(-\d+)?", ref["lines_at_refs_at"]), ref
+    # Line numbers are never the anchor: no path:line survives in the plan's prose.
+    assert not re.search(r"\.py:\d", json.dumps(PLAN, ensure_ascii=False))
+    # Prose that names a code_refs entry names one that exists.
+    named = set(re.findall(r"code_refs\.(\w+)", json.dumps(PLAN, ensure_ascii=False)))
+    assert named == set(PLAN["code_refs"])
+
+
 def test_not_applicable_references_contain_their_guarantee():
     rows = {row["id"]: row for row in load("evaluation/scenarios/p0/matrix.json")["scenarios"]}
     assert set(PLAN["not_applicable"]) == {
@@ -278,18 +327,24 @@ def test_not_applicable_references_contain_their_guarantee():
         assert cell_id not in CELLS
         assert "HNP" in rows[cell_id.split("-")[0]]["modes"]
         assert entry["reason"] and entry["refs"]
-        for ref in entry["refs"]:
-            assert ref["path"].startswith("src/commerce_agent/"), ref
-            lines = (ROOT / ref["path"]).read_text(encoding="utf-8").splitlines()
-            first, last = (int(n) for n in ref["lines"].split("-"))
-            assert 1 <= first <= last <= len(lines), ref
-            assert ref["contains"] in "\n".join(lines[first - 1 : last]), ref
+    symbols = {
+        cell_id: [(r["path"].rsplit("/", 1)[1], r["symbol"]) for r in entry["refs"]]
+        for cell_id, entry in PLAN["not_applicable"].items()
+    }
+    assert symbols == {
+        "UX01-HNP-execution": [
+            ("hnp_models.py", "DelegationScope"),
+            ("hnp_execution.py", "HnpExecutionService._shortlist"),
+        ],
+        "UX02-HNP-execution": [("hnp_execution.py", "HnpExecutionService._shortlist")],
+        "UX11-HNP-execution": [
+            ("hnp_models.py", "DelegationScope"),
+            ("service.py", "DelegationService._signed"),
+        ],
+    }
     # The UX02 guarantee is code, the shortlist, never prompt text.
     [shortlist] = PLAN["not_applicable"]["UX02-HNP-execution"]["refs"]
-    assert shortlist["contains"] == "def _shortlist"
-    source = (ROOT / shortlist["path"]).read_text(encoding="utf-8").splitlines()
-    first, last = (int(n) for n in shortlist["lines"].split("-"))
-    assert "preference_text" not in "\n".join(source[first - 1 : last])
+    assert "preference_text" not in symbol_source(shortlist["path"], shortlist["symbol"])
 
 
 # Oracles: every value a mutation of the plan could weaken is pinned here.
@@ -318,15 +373,15 @@ def test_the_ux12_execution_cell_needs_a_model_reason_from_a_live_reviewer():
     assert set(cell["structural_oracle"]["review_reason_in"]) == reasons - {"matches_request"}
     unavailable = cell["review_unavailable"]
     assert "review_unavailable" in unavailable and "row is error" in unavailable
-    assert cell["precheck"] == {
+    precheck = cell["precheck"]
+    assert {k: v for k, v in precheck.items() if k != "ref"} == {
         "endpoint": "GET /health",
         "field": "hnp_reviewer",
         "equals": "llm",
-        "ref": "src/commerce_agent/api.py:280",
         "otherwise": "blocked: the task is not triggered",
     }
-    path, line = cell["precheck"]["ref"].split(":")
-    assert '"hnp_reviewer"' in (ROOT / path).read_text(encoding="utf-8").splitlines()[int(line) - 1]
+    assert precheck["ref"]["symbol"] == "create_app.health"
+    assert '"hnp_reviewer"' in precheck["ref"]["contains"]
     assert cell["effects"] == ZERO
 
 
@@ -430,6 +485,7 @@ def test_the_action_criterion_uses_the_final_action_and_attributes_each_clarify(
         "postprocess",
         "postprocess_text",
         "unattributable",
+        "refs",
         "report",
     }
     # The schema names the ledger records in text_format (llm/model_requests.py).
@@ -446,15 +502,17 @@ def test_the_action_criterion_uses_the_final_action_and_attributes_each_clarify(
     # Every clarify outside the four sources is error, and the code-written ones are named.
     unattributable = sources["unattributable"]
     assert unattributable.startswith("any other clarify is unattributable and the row is error")
-    conversation = (ROOT / "src/commerce_agent/application/conversation.py").read_text(
-        encoding="utf-8"
-    )
-    lines = conversation.splitlines()
-    for span, text in (("481-488", "Ya hay una compra pendiente"), ("771-782", "_allow_checkout")):
-        assert f"conversation.py:{span}" in unattributable
-        first, last = (int(n) for n in span.split("-"))
-        assert text in "\n".join(lines[first - 1 : last]), span
-    assert "pending_purchase_guard" in unattributable
+    refs = sources["refs"]
+    assert {name: ref["symbol"] for name, ref in refs.items()} == {
+        "postprocess": "OpenAIConversationRouter.route",
+        "pending_guard_turn": "ConversationService._run",
+        "pending_guard": "ConversationService.pending_purchase_guard",
+        "studio_clarify": "ConversationService._select_product",
+    }
+    for name in ("pending_guard_turn", "pending_guard", "studio_clarify"):
+        assert refs[name]["symbol"].split(".")[-1] in unattributable, name
+    assert "Ya hay una compra pendiente" in refs["pending_guard_turn"]["contains"]
+    assert "_allow_checkout" in refs["studio_clarify"]["contains"]
     for code in ("409 d1_denied", "409 budget_exceeded", "never trigger the stop_rule"):
         assert code in oracle["governance_outcomes"]
     assert "d1_denied or budget_exceeded never stop" in PLAN["design"]["stop_rule"]
