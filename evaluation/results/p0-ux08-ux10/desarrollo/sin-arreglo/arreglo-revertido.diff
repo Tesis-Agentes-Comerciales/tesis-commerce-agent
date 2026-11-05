@@ -1,0 +1,13 @@
+diff --git a/src/commerce_agent/assistant_transport.py b/src/commerce_agent/assistant_transport.py
+index 13c3155..3a4db91 100644
+--- a/src/commerce_agent/assistant_transport.py
++++ b/src/commerce_agent/assistant_transport.py
+@@ -759,7 +759,7 @@ class AssistantTransport:
+             # The stream marks the run cancelled as soon as the client goes. A worker waiting on
+             # the model has no operation in flight to bring that to the event loop, so it reads
+             # the mark itself before its next step (p0-ux08-ux10.md §3.2). A read, no mutation.
+-            return stop.is_set() or controller.is_cancelled
++            return stop.is_set()  # measurement: §3.2 fix reverted
+ 
+         def target() -> None:
+             try:

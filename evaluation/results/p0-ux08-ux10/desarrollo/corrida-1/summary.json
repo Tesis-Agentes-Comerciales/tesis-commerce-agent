@@ -1,0 +1,287 @@
+{
+ "schema": "p0-ux08-ux10-summary/1",
+ "protocol": {
+  "path": "evaluation/scenarios/p0-ux08-ux10.json",
+  "sha256": "76ff10c070cc4c871518067bae77c57e153c46a3ef3c179873080cbda83ff83f"
+ },
+ "spec": {
+  "path": "docs/design/p0-ux08-ux10.md",
+  "sha256": "1ebc84bdbe0611e4080cc1998f6132730bf24747e3dd80628d124f66239e04a0",
+  "matches_protocol": true
+ },
+ "execution_order": {
+  "observed": [
+   "UX09-HP-a"
+  ],
+  "matches_protocol": false
+ },
+ "checkouts": {
+  "agent": {
+   "head": "df3df33a864022612c8d1d25c30d4a34b074afc7",
+   "dirty": true
+  },
+  "merchant": {
+   "head": "abf30df3b6a611284dedcc26c00accac6a853329",
+   "dirty": false
+  },
+  "payment": {
+   "head": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+   "dirty": false
+  }
+ },
+ "checkouts_match_protocol": {
+  "merchant": true,
+  "payment": true
+ },
+ "model": {
+  "double": "tests/support/model_server.py: httpx.MockTransport given to the SDK's HTTP clients in the test process; ScriptedModel (tests/integration/live_model.py) serves the case's script from this module's answers",
+  "model": "p0-scripted-model",
+  "real_provider_calls": 0,
+  "cost_usd": "0"
+ },
+ "totals": {
+  "cases": 1,
+  "passed": 0,
+  "failed": 0,
+  "error": 1
+ },
+ "not_applicable": {
+  "UX09-HP-REST": "REST is synchronous, the runners use it and it has no way to be interrupted: a second request waits for the lock and gets the pending-purchase guard (spec §2.2, §4.4). Declared, not executed, not counted.",
+  "UX10-HP": "the matrix puts UX10 only in HNP (spec §4.4).",
+  "UX10-HNP-c (live)": "the live Merchant has no fault that answers quantity 2 (spec §4.4); UX10-HNP-c runs in CI only.",
+  "UX10-HNP-a and UX08-HNP (live)": "no model and nothing the stack adds (spec §5.2); CI only."
+ },
+ "cells": {
+  "UX09-HP-a": {
+   "matrix_id": "UX09",
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "0/3",
+   "oracles": {
+    "stop.entered_marked_and_finished": "0/1",
+    "model_http_attempts_stopped_turn": "0/1",
+    "stopped_turn_saved": "1/1",
+    "checkout_posts": "1/1",
+    "purchases": "1/1",
+    "next_turn_text": "0/1",
+    "next_turn_model_http_attempts": "0/1",
+    "pending_purchase_after": "1/1",
+    "zero_effects.merchant_no_checkout_post": "1/1",
+    "zero_effects.merchant_no_checkout": "1/1",
+    "zero_effects.merchant_snapshot_equal": "1/1",
+    "zero_effects.psp_no_token": "1/1",
+    "zero_effects.psp_snapshot_equal": "1/1",
+    "zero_effects.ledger_no_new_rows": "1/1"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "error",
+     "failed_oracles": [
+      "stop.entered_marked_and_finished",
+      "model_http_attempts_stopped_turn",
+      "next_turn_text",
+      "next_turn_model_http_attempts"
+     ],
+     "exception_type": "AssertionError"
+    }
+   ],
+   "observed_first_repetition": {
+    "stop": {
+     "entered": false,
+     "marked": true,
+     "worker_finished": true
+    },
+    "model_http_attempts_stopped_turn": 0,
+    "answers": [],
+    "turn_saved": [
+     false
+    ],
+    "next_turn_text": [],
+    "next_turn_model_http_attempts": 2,
+    "pending_purchase_after": null,
+    "model_requests": [
+     {
+      "stage": "model.route",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     },
+     {
+      "stage": "model.choose_candidate",
+      "outcome": "error",
+      "error_kind": "ValidationError",
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "effects": {
+     "merchant_posts": [],
+     "merchant_checkouts": [
+      [],
+      []
+     ],
+     "merchant_snapshot_equal": true,
+     "psp_tokens_delta": 0,
+     "psp_snapshot_equal": true,
+     "ledger_delta": {
+      "approvals": 0,
+      "completion_results": 0,
+      "grant_reservations": 0,
+      "dispatch_outbox": 0,
+      "orders": 0,
+      "hp_evidence": 0,
+      "governance_evidence": 0,
+      "ap2_evidence": 0,
+      "closed_mandates": 0
+     }
+    },
+    "merchant_calls": []
+   }
+  },
+  "UX09-HP-b": {
+   "matrix_id": "UX09",
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX09-HP-race": {
+   "matrix_id": "UX09",
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX09-HNP-sel": {
+   "matrix_id": "UX09",
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX09-HNP-sel-kill": {
+   "matrix_id": "UX09",
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX09-HNP-rev": {
+   "matrix_id": "UX09",
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX08-HP": {
+   "matrix_id": "UX08",
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX09-HNP-post": {
+   "matrix_id": "UX09",
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX09-HP-control": {
+   "matrix_id": null,
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX08-HP-control": {
+   "matrix_id": null,
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX08-HNP-control": {
+   "matrix_id": null,
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX09-HNP-control": {
+   "matrix_id": null,
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX09-HNP-rev-control": {
+   "matrix_id": null,
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX10-HNP-control": {
+   "matrix_id": null,
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  },
+  "UX10-HNP-b": {
+   "matrix_id": "UX10",
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "0/3",
+   "oracles": {},
+   "observed_identical_across_repetitions": null,
+   "runs": [],
+   "observed_first_repetition": null
+  }
+ }
+}
