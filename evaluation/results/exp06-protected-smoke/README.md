@@ -53,6 +53,29 @@ del mismo candidato terminó satisfactorio. El candidato posterior añade reclam
 compartida, STOP, manifiesto, clasificación de procedencia, JUnit explícito y corte
 con exit 2; se valida de nuevo. Sus enlaces y estado final quedan en el PR.
 
+## Validación del ejecutor final
+
+[Run 41949755863](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41949755863),
+SHA `f8281a6c41a5b09588bdbe9a001a5e7c5de91434`: control de infraestructura
+**1 passed, 0 failed/error/skipped**, puerta validated=true sin atribución P0.
+Confirma el orquestador final, manifiesto previo, tres episodios congelados antes
+del primer intento, ledger, seis reservas desconocidas conciliadas, snapshots sin
+efectos, servicios detenidos y eliminación de bases privadas. Ninguna inferencia.
+
+Artefacto **13379689832**, archivado sin reempaquetar en `runs/41949755863.zip`;
+SHA-256 `ffd06e61554ba2106c0dea82e3566438c2ade39e8b80e906ebcfc1122a57c397`.
+Digest de GitHub coincidente, **27 hashes internos comprobados** y manifiestos
+públicos verificados también (44 entradas contando los alias duplicados de pytest).
+Sin bases privadas ni patrones JWT/clave privada/API detectados. El JUnit técnico
+es 1/1; `semantic-status.xml` marca los tres casos semánticos como no ejecutados,
+representados por skipped con ese motivo, nunca como éxitos.
+
+`final-run-integrity.json`, JUnit, manifest y reporte conservan estas comprobaciones.
+La validación offline final tiene **42 passed**. Los cambios posteriores a ese SHA
+son sólo este archivo y evidencia archivada; no cambian ejecutor, pruebas, protocolo
+ni condiciones. El CI general del último HEAD queda enlazado en el PR y se comprueba
+por separado. La factura y la semántica real siguen sin validar.
+
 ## Cuenta y presupuesto
 
 GET de modelo exacto devolvió HTTP 200 con la credencial del entorno: visibilidad
