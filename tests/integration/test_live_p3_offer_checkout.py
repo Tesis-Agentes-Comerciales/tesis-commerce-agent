@@ -356,10 +356,11 @@ def test_offer_checkout_contract(p3_lane: PurchaseLane, case_id: str):
             lane.stack.record("P3-V01-case", status=status, **facts)
 
 
-def change_read_field(body: bytes, field: str, value: Any) -> bytes:
+def change_read_field(body: bytes, field: str, value: Any, *, verify_schema: bool = True) -> bytes:
     payload = json.loads(body)
     payload["data"][field] = value
-    MerchantOffer.model_validate(payload["data"])
+    if verify_schema:
+        MerchantOffer.model_validate(payload["data"])
     return json.dumps(payload).encode()
 
 
@@ -505,14 +506,15 @@ def exercise(
         if case == "different-offer":
             assert observed is None and code == "offer_mismatch"
             assert events[0]["payload"]["result"] == "ok"
-            wrong_context = CONTEXT.model_copy(update={"postal_code": "999999"})
-            assert wrong_context != CONTEXT
+            wrong_context = CONTEXT.model_dump(mode="json") | {"postal_code": "999999"}
+            # The live contract accepts only CO / Bogota / 110111. Let the client
+            # reject this deliberately invalid response rather than aborting at the proxy.
             lane.proxy.response_transform[READ] = lambda body: change_read_field(
-                body, "delivery_context", wrong_context.model_dump(mode="json")
+                body, "delivery_context", wrong_context, verify_schema=False
             )
             with client(lane, v) as gateway, pytest.raises(ACPClientError) as mismatch:
                 gateway.get_offer(offer_id, CONTEXT)
-            assert mismatch.value.code == "offer_mismatch"
+            assert mismatch.value.code == "invalid_offer"
             context_after = state(lane, v)
             context_events = read_events(context_after)[len(read_events(after)) :]
             assert len(context_events) == 1
@@ -531,7 +533,7 @@ def exercise(
             facts["context_mismatch"] = {
                 "code": mismatch.value.code,
                 "commercial": "unknown",
-                "returned_context": wrong_context.model_dump(mode="json"),
+                "returned_context": wrong_context,
                 "events": context_events,
             }
         if case in {"foreign-run", "foreign-actor"}:

@@ -61,10 +61,13 @@ forwarding. Ordinary ACP creation after an intervening mutation is characterized
 Merchant terms: it does not prove atomic binding to an earlier read. Revision-only changes must
 be detected despite equal totals. The historical run observed a schema-valid wrong offer
 accepted by the old client. Since #178, the client rejects a mismatched offer ID or delivery
-context with `offer_mismatch`. The integration rerun checks each field independently with
-real upstream reads. Both failures remain `unknown`, with the original actor and request
-audited and zero validation checkouts. Malformed responses and correct bindings are checked
-separately. Foreign credential scope is verified independently of matching offer IDs.
+context with `offer_mismatch` after response-schema validation. The live schema fixes
+`CO / Bogota / 110111`. A different postal code in the returned JSON is therefore
+`invalid_offer` before the equality check. The rerun uses real upstream reads and separate
+ID and context mutations. Both failures remain `unknown`, with audited actor and request
+and zero validation checkouts. The existing client unit test exercises the defensive
+context equality branch. Malformed JSON and correct bindings are checked separately.
+Foreign credential scope is verified independently of matching offer IDs.
 
 The Merchant's separate, guarded control worker reads all public tables in repeatable-read,
 publishing counts and hashes, public Offer/checkout snapshots and run_events only. No Agent
@@ -81,11 +84,18 @@ skip, setup failure or unverified cleanup prevents validation. Original failures
 accessible in their Actions runs; later fixes do not replace historical evidence. No private
 DB, token, key or request authorization header is an artifact.
 
+The first integration rerun [42108669314](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42108669314)
+on `488ff20f7cd407ca657407029150754a9275b026` recorded 23 passed and one failure.
+The proxy tried to validate the altered context against the singleton context schema and
+closed the connection before the client could validate the response. Its artifact SHA-256
+is `205e14e2267daa9982c15b52e10dc5f94484dc74bfbabe9a0a9c3e0d268caeac`.
+
 ## Remaining decisions
 
 A passing V01 demonstrates the bounded contract in a controlled synthetic clock/context only.
 It cannot validate UX03/UX05, atomic read-to-create freshness, stock reservation, arbitrary
-quantity/context/currency, real models or purchase authorization. Before UX03 implementation,
-Yair must approve typed A/B intent and three-valued policy, identity/scope validation,
-stale-read handling (refresh or existing guarded creation), frozen independent oracle custody
-and calibration equivalence criteria. Any required product change needs separate approval.
+quantity/context/currency, real models or purchase authorization. The protocol decisions are
+tracked in [#158](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/158),
+and HP wiring is part of [#196](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/196).
+Validation of the protocol gate belongs to the separate #176 review. Experimental UX03/UX05
+execution remains blocked until its own dependencies and evidence are reviewed.
