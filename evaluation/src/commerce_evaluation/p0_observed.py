@@ -31,6 +31,32 @@ INF33_SOURCE = {
     "section": "4. Celdas y oráculos",
     "sha256": "0b70704c51f6b27ceb73f1e5f7a8be9d16cac16d08cf41e7969d6c1957492e1c",
 }
+# A local run versioned in Git has no Actions run or ZIP: its evidence is the frozen protocol, the
+# run's summary and JUnit, and the SHA256SUMS ledger of its results directory.
+LOCAL_RUN_KINDS = {"measurement", "harness_error"}
+LOCAL_RUN_KEYS = {
+    "experiment",
+    "kind",
+    "protocol",
+    "protocol_sha256",
+    "checksum_index",
+    "summary",
+    "summary_sha256",
+    "junit",
+    "junit_sha256",
+    "junit_counts",
+    "sources",
+    "note",
+}
+LOCAL_CELL_KEYS = {
+    "status",
+    "coverage",
+    "scope",
+    "limitation",
+    "local_run",
+    "cases",
+    "prior_attempts",
+}
 
 
 def require(condition: object, reason: str) -> None:
@@ -365,6 +391,166 @@ def validate_not_applicable(root: Path, key: tuple[str, str], cell: dict) -> Non
     )
 
 
+def junit_outcome(node: ElementTree.Element) -> str:
+    for outcome, tag in (("failed", "failure"), ("error", "error"), ("skipped", "skipped")):
+        if node.find(tag) is not None:
+            return outcome
+    return "passed"
+
+
+def validate_local_run(
+    root: Path, key: str, row: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any], set[str]]:
+    root = root.resolve()
+    require(
+        set(row) == LOCAL_RUN_KEYS and row["kind"] in LOCAL_RUN_KINDS, f"Invalid local run: {key}"
+    )
+    protocol_path = repo_path(root, row["protocol"], "evaluation/scenarios")
+    require(
+        preregistration_digest(protocol_path) == row["protocol_sha256"],
+        f"Local protocol hash: {key}",
+    )
+    protocol = load(protocol_path)
+    ledger = repo_path(root, row["checksum_index"], "evaluation/results")
+    require(ledger.name == "SHA256SUMS", f"Invalid checksum index: {key}")
+    entries = checksums(ledger.read_bytes())
+    for name, expected in entries.items():
+        path = (ledger.parent / name).resolve()
+        require(
+            path.is_relative_to(ledger.parent) and digest(path.read_bytes()) == expected,
+            f"Local checksum: {key}/{name}",
+        )
+    require(
+        entries.get(row["summary"]) == row["summary_sha256"]
+        and entries.get(row["junit"]) == row["junit_sha256"],
+        f"Local evidence hash: {key}",
+    )
+    summary = json.loads(
+        (ledger.parent / row["summary"]).read_bytes(), object_pairs_hook=unique_object
+    )
+    junit = (ledger.parent / row["junit"]).read_bytes()
+    spec, checkouts = protocol["spec"], summary["checkouts"]
+    require(
+        summary["protocol"] == {"path": row["protocol"], "sha256": row["protocol_sha256"]}
+        and summary["spec"] == {**spec, "matches_protocol": True}
+        and preregistration_digest(repo_path(root, spec["path"], "docs/design")) == spec["sha256"]
+        and set(checkouts) == {"agent", "merchant", "payment"}
+        and all(checkout["dirty"] is False for checkout in checkouts.values())
+        and row["sources"] == {name: checkout["head"] for name, checkout in checkouts.items()}
+        and re.fullmatch(r"[0-9a-f]{40}", row["sources"]["agent"])
+        and row["sources"]["merchant"] == protocol["merchant_sha"]
+        and row["sources"]["payment"] == protocol["payment_sha"]
+        and summary["checkouts_match_protocol"] == {"merchant": True, "payment": True}
+        and summary["model"]["real_provider_calls"] == 0,
+        f"Local run provenance mismatch: {key}",
+    )
+    if row["kind"] == "measurement":
+        require(
+            summary["execution_order"]
+            == {"observed": protocol["execution_order"], "matches_protocol": True},
+            f"Local execution order mismatch: {key}",
+        )
+    cases, repetitions = protocol["cases"], range(1, protocol["repetitions"] + 1)
+    outcomes: dict[str, str] = {}
+    for node in ElementTree.fromstring(junit).iter("testcase"):
+        parameter = node.get("name", "").partition("[")[2].removesuffix("]")
+        require(parameter not in outcomes, f"Duplicate JUnit case: {key}/{parameter}")
+        outcomes[parameter] = junit_outcome(node)
+    cells = summary["cells"]
+    require(
+        set(cells) == set(cases)
+        and all(
+            (cells[case_id]["matrix_id"], cells[case_id]["mode"])
+            == (case["matrix_id"], case["mode"])
+            and [run["status"] for run in cells[case_id]["runs"]]
+            == [outcomes.get(f"{case_id}-r{n}") for n in repetitions]
+            for case_id, case in cases.items()
+        )
+        and set(outcomes) == {f"{case_id}-r{n}" for case_id in cases for n in repetitions}
+        and junit_counts(junit) == row["junit_counts"]
+        and row["junit_counts"]["skipped"] == 0
+        and summary["totals"]
+        == {
+            "cases": len(outcomes),
+            **{outcome: row["junit_counts"][outcome] for outcome in ("passed", "failed", "error")},
+        },
+        f"Local JUnit/summary mismatch: {key}",
+    )
+    return protocol, summary, {f"{row['checksum_index']}:{name}" for name in entries}
+
+
+def matrix_case(case_id: str, case: dict[str, Any]) -> bool:
+    # Spec §4 names a matrix cell `<scenario>-<mode>` or a lettered variant (INF33-HNP-a); the
+    # `-control` cases and CTRL-* back the measurement but are not matrix cells.
+    pattern = rf"{case['matrix_id']}-{case['mode']}(-[a-z])?"
+    return case["matrix_id"] is not None and re.fullmatch(pattern, case_id) is not None
+
+
+def validate_local_cell(
+    key: tuple[str, str],
+    cell: dict[str, Any],
+    local_runs: dict[str, Any],
+    verified_local: dict[str, tuple[dict[str, Any], dict[str, Any], set[str]]],
+) -> None:
+    scenario, mode = key
+    require(
+        set(cell) == LOCAL_CELL_KEYS
+        and cell["status"] == "passed"
+        and cell["coverage"] == STATUS_COVERAGE["passed"]
+        and cell["scope"].strip()
+        and cell["limitation"].strip(),
+        f"Inconsistent local evidence: {scenario}/{mode}",
+    )
+    run = cell["local_run"]
+    require(
+        run in verified_local and local_runs[run]["kind"] == "measurement",
+        f"No attributable local evidence: {scenario}/{mode}",
+    )
+    protocol, summary, _ = verified_local[run]
+    cases = protocol["cases"]
+    attributed = sorted(
+        case_id
+        for case_id, case in cases.items()
+        if (case["matrix_id"], case["mode"]) == key and matrix_case(case_id, case)
+    )
+    controls = sorted(
+        case_id
+        for case_id, case in cases.items()
+        if case["mode"] == mode and not matrix_case(case_id, case)
+    )
+    require(
+        attributed and controls and cell["cases"] == attributed,
+        f"No attributable local evidence: {scenario}/{mode}",
+    )
+    # Every cell of the pair and every positive control of its mode passed every repetition.
+    full = f"{protocol['repetitions']}/{protocol['repetitions']}"
+    for case_id in attributed + controls:
+        result = summary["cells"][case_id]
+        require(
+            result["repetitions_passed"] == full
+            and result["oracles"]
+            and set(result["oracles"].values()) == {full}
+            and [
+                (rep["repetition"], rep["status"], rep["failed_oracles"]) for rep in result["runs"]
+            ]
+            == [(n, "passed", []) for n in range(1, protocol["repetitions"] + 1)],
+            f"Not passed in every repetition: {case_id} for {scenario}/{mode}",
+        )
+    prior_attempts = cell["prior_attempts"]
+    require(
+        len(set(prior_attempts)) == len(prior_attempts),
+        f"Duplicate prior attempt: {scenario}/{mode}",
+    )
+    for prior in prior_attempts:
+        require(
+            prior != run
+            and prior in verified_local
+            and local_runs[prior]["experiment"] == local_runs[run]["experiment"]
+            and set(attributed) <= set(verified_local[prior][0]["cases"]),
+            f"Unrelated prior attempt: {scenario}/{mode}",
+        )
+
+
 def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, Any]:
     root = root.resolve()
     matrix_path = root / P0 / "matrix.json"
@@ -387,6 +573,8 @@ def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, An
     verified = {
         run: validate_run(root, run, row, matrix_sha, oracle_sha) for run, row in runs.items()
     }
+    local_runs = data.get("local_runs", {})
+    verified_local = {run: validate_local_run(root, run, row) for run, row in local_runs.items()}
     statuses = dict.fromkeys(plan, "not_executed")
     ct19_runs, ct19_hashes = 0, 0
     for scenario, row in data["observations"].items():
@@ -404,6 +592,11 @@ def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, An
                         (case["scenario"], case["mode"]) == key
                         for protocol, _, _ in verified.values()
                         for case in protocol["cases"].values()
+                    )
+                    and not any(
+                        (case["matrix_id"], case["mode"]) == key
+                        for protocol, _, _ in verified_local.values()
+                        for case in protocol["cases"].values()
                     ),
                     "not_applicable cannot hide a registered execution",
                 )
@@ -413,13 +606,18 @@ def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, An
                 ct19_runs, ct19_hashes = validate_ct19(root, cell, matrix_sha, oracle_sha)
                 statuses[key] = status
                 continue
+            if "local_run" in cell:
+                validate_local_cell(key, cell, local_runs, verified_local)
+                statuses[key] = status
+                continue
             require(
                 STATUS_COVERAGE.get(status) == cell["coverage"]
                 and cell["scope"].strip()
                 and cell["limitation"].strip(),
                 f"Inconsistent status/scope: {scenario}/{mode}",
             )
-            run = str(cell["run_id"])
+            run = str(cell.get("run_id"))
+            require(run in verified, f"No attributable evidence: {scenario}/{mode}")
             protocol, report, hashes = verified[run]
             case_ids = [
                 case_id
@@ -478,6 +676,8 @@ def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, An
     return {
         "runs": len(runs) + ct19_runs,
         "internal_hashes": sum(info[2] for info in verified.values()) + ct19_hashes,
+        "local_runs": len(local_runs),
+        "local_hashes": len(set().union(*(info[2] for info in verified_local.values()))),
         "denominators": {
             "scenarios": len(matrix["scenarios"]),
             "scenario_modes": len(plan),
