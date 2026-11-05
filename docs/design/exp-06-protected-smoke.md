@@ -68,6 +68,12 @@ facturación permanecen no verificados.
 
 ## Operación manual después de autorización (no ejecutada aquí)
 
+El arnés de servicios usa pass_fds y grupos de procesos POSIX: la ejecución manual
+requiere Linux preparado (fuera de CI). Windows se rechaza antes de reclamar el recibo.
+Inspección local: Ubuntu WSL instalado, sin uv/Node ni integración Docker disponible.
+No se instaló infraestructura ni se cambiaron ajustes de Docker; falta elegir/preparar
+el host. Las validaciones Actions usan su Ubuntu 24.04 ya preparado.
+
 Desde el checkout validado, con Python/Node y dependencias congeladas de los tres
 repositorios, exportar MERCHANT_REPO/PAYMENT_REPO hacia los SHAs fijados. La credencial
 existente sólo se lee del entorno, nunca de prompts ni argumentos de línea de comandos.

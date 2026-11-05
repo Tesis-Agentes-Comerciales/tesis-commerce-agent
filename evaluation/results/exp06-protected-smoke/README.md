@@ -71,9 +71,12 @@ es 1/1; `semantic-status.xml` marca los tres casos semánticos como no ejecutado
 representados por skipped con ese motivo, nunca como éxitos.
 
 `final-run-integrity.json`, JUnit, manifest y reporte conservan estas comprobaciones.
-La validación offline final tiene **42 passed**. Los cambios posteriores a ese SHA
-son sólo este archivo y evidencia archivada; no cambian ejecutor, pruebas, protocolo
-ni condiciones. El CI general del último HEAD queda enlazado en el PR y se comprueba
+La validación offline del candidato tiene **42 passed**. La comprobación posterior
+agrega rechazo temprano del host Windows, antes de reclamar la autorización; su
+ruta POSIX permanece idéntica (ambas ramas verificadas offline). No cambia la ruta
+HTTP, prompts, pines ni condiciones Linux del run validado. Con esos dos controles
+adicionales hay **44 passed** en host-preflight-offline-junit.xml. El CI general del
+último HEAD queda enlazado en el PR y se comprueba
 por separado. La factura y la semántica real siguen sin validar.
 
 ## Cuenta y presupuesto
@@ -102,6 +105,11 @@ intentos/ledger, coste conocido y reservas desconocidas; la factura del proyecto
 se concilia aparte. No se presenta la reserva como cobro ni como tope global de cuenta.
 
 ## Pendientes para consumo
+
+El host manual también está pendiente: Ubuntu WSL existe pero no tiene uv/Node ni
+integración Docker. No se cambiaron sus ajustes. Falta decidir/preparar Ubuntu o
+usar otro Linux compatible; CI no habilita inferencias pagadas. Windows se rechaza
+antes de consumir una autorización válida.
 
 Revisar el nuevo candidato y su evidencia, confirmar proyecto/tarifa estándar y
 vigencia/precio al autorizar, aprobar explícitamente snapshot y máximo USD del

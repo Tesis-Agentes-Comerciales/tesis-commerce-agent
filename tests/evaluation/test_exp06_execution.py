@@ -4,6 +4,7 @@ import json
 from contextlib import nullcontext
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import openai
@@ -24,6 +25,17 @@ from tests.support.model_server import ModelServer, failure
 def test_authorization_is_required_before_any_network_or_services(tmp_path):
     with pytest.raises(SpendingBlocked, match="authorization"):
         execution.authorize(None, tmp_path / "run")
+
+
+def test_unsupported_host_rejected_before_claim_or_importing_live_helpers(monkeypatch):
+    monkeypatch.setattr(execution, "os", SimpleNamespace(name="nt"))
+    with pytest.raises(SpendingBlocked, match="no_claim_consumed"):
+        execution.require_live_host()
+
+
+def test_existing_POSIX_execution_path_is_unchanged(monkeypatch):
+    monkeypatch.setattr(execution, "os", SimpleNamespace(name="posix"))
+    assert execution.require_live_host() is None
 
 
 def test_imported_executor_routes_cannot_skip_receipt_claim(tmp_path):

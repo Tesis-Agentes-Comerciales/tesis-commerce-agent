@@ -342,8 +342,14 @@ def sources() -> dict[str, Any]:
     return result
 
 
+def require_live_host() -> None:
+    if os.name != "posix":
+        raise SpendingBlocked("manual_live_stack_requires_prepared_Linux_host_no_claim_consumed")
+
+
 def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
     # Repository-only manual runner: reuse dev harness instead of another service stack.
+    require_live_host()
     import secrets
 
     import pytest
@@ -716,6 +722,8 @@ def main() -> None:
     if args.check_account:
         print(json.dumps(check_account(), indent=2))
     elif args.execute:
+        if args.authorization is not None:
+            require_live_host()
         budget = authorize(args.authorization, args.output)
         if not os.environ.get("OPENAI_API_KEY"):
             raise SpendingBlocked("environment_API_credential_missing")
