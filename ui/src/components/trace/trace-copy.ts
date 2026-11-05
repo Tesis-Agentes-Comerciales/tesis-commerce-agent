@@ -605,15 +605,17 @@ function recoveryDetail(step: RecoveryStep) {
   return `${RECOVERY_CAUSE[step.cause]}${budget}. ${RECOVERY_OUTCOME[step.recovery]}`
 }
 
-// Compra delegada (HNP). Las causas del escalamiento son las de §8.3, como en el chat.
+// Compra delegada (HNP). Las causas del escalamiento son las de §8.3, como en el chat. Con
+// prioridad (p0-conditional-intent.md §3.9), `no_candidate_in_scope` y `selection_unavailable`
+// cubren varias causas: su texto no supone ninguna.
 
 const ESCALATION_CAUSE: Record<EscalationReason, string> = {
   budget_not_satisfiable:
     "El precio de catálogo de la opción disponible ya supera el total máximo que autorizaste.",
-  no_candidate_in_scope: "Ninguna de las opciones que autorizaste está disponible ahora.",
+  no_candidate_in_scope:
+    "Ninguna de las opciones que autorizaste se puede comprar ahora dentro de lo que autorizaste.",
   choice_not_confirmed: "No pude confirmar que la opción elegida sea la que pediste.",
-  selection_unavailable:
-    "No pude elegir entre las opciones que autorizaste porque el servicio que hace la elección falló o no respondió.",
+  selection_unavailable: "No pude elegir con seguridad entre las opciones que autorizaste.",
   offer_changed: "La oferta del comercio cambió antes de que cerrara la compra.",
   terms_out_of_scope:
     "El total del comercio, con envío, o algún término quedó fuera de lo que autorizaste.",

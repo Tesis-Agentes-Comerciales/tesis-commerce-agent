@@ -40,9 +40,14 @@ export function DelegationInChatMount() {
   return <DelegationTurn key={draftKey(view)} view={view} host={host} />
 }
 
-/** Identidad del borrador: otro turno con otras opciones, otro presupuesto u otro mensaje. */
-const draftKey = ({ offers, budget_minor, preference_text }: DelegationDraftView) =>
-  JSON.stringify([offers.map((offer) => offer.variant_id), budget_minor, preference_text])
+/** Identidad del borrador: otro turno con otras opciones, otro presupuesto, mensaje u orden. */
+const draftKey = ({ offers, budget_minor, preference_text, priority }: DelegationDraftView) =>
+  JSON.stringify([
+    offers.map((offer) => offer.variant_id),
+    budget_minor,
+    preference_text,
+    priority ?? null,
+  ])
 
 const FORM_OPEN: DelegationsState = {
   ...INITIAL_DELEGATIONS,

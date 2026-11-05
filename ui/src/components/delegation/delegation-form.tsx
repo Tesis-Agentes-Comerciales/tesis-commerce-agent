@@ -1,9 +1,16 @@
 import { cn } from "cn"
-import { ArrowRightIcon, ListChecksIcon, LoaderCircleIcon, XIcon } from "lucide-react"
-import { useId, type FormEvent } from "react"
+import {
+  ArrowDownIcon,
+  ArrowRightIcon,
+  ArrowUpIcon,
+  ListChecksIcon,
+  LoaderCircleIcon,
+  XIcon,
+} from "lucide-react"
+import { useEffect, useId, useRef, useState, type FormEvent } from "react"
 
 import { formatMoney } from "@/components/agent/agent-format"
-import { pillButton } from "@/components/agent/agent-styles"
+import { focusRing, pillButton } from "@/components/agent/agent-styles"
 import { useCardFocus } from "@/components/agent/use-card-focus"
 import { FORM_COPY, VALIDITY_OPTIONS } from "@/components/delegation/delegation-copy"
 import { CARD_SURFACE, CardHeader, ErrorNotice } from "@/components/delegation/delegation-parts"
@@ -31,24 +38,37 @@ export type DelegationFormProps = {
   className?: string
 }
 
-function draftOf(form: HTMLFormElement): DelegationDraft {
+/** Las opciones van aparte: su orden es el de la lista «Orden de compra», no el del formulario. */
+function draftOf(form: HTMLFormElement, variantIds: string[], ordered: boolean): DelegationDraft {
   const data = new FormData(form)
   const text = (name: string) => String(data.get(name) ?? "")
   return {
-    variantIds: data.getAll("variant").map(String),
+    variantIds,
     total: text("total"),
     validForSeconds: Number(text("valid_for")),
     addressLine: text("address_line"),
     city: text("city"),
     state: text("state"),
     preference: text("preference"),
+    ordered,
   }
+}
+
+type Step = -1 | 1
+
+/** `order` con la opción de `index` un lugar más arriba (−1) o más abajo (1). */
+function moved(order: string[], index: number, step: Step) {
+  const next = order.filter((_, item) => item !== index)
+  next.splice(index + step, 0, order[index]!)
+  return next
 }
 
 /**
  * El alcance que el comprador propone (§3.2, paso 1): las opciones vistas en el chat, el total
- * máximo con envío, la vigencia, la entrega y una indicación propia. Lo valida y lo devuelve; el
- * servidor responde con la propuesta exacta, que la tarjeta de consentimiento muestra.
+ * máximo con envío, la vigencia, la entrega y una indicación propia. Con «Comprar en orden», las
+ * opciones marcadas se ordenan con «Subir» y «Bajar» (p0-conditional-intent.md §3.10). Lo valida
+ * y lo devuelve; el servidor responde con la propuesta exacta, que la tarjeta de consentimiento
+ * muestra.
  */
 export function DelegationForm({
   offers,
@@ -65,10 +85,43 @@ export function DelegationForm({
   const field = (name: string) => `${id}-${name}`
   // Sin opciones no hay qué proponer: «Preparar» queda como mientras responde la API.
   const blocked = submitting || offers.length === 0
+  const titleOf = (variantId: string) => {
+    const offer = offers.find((item) => item.variant_id === variantId)
+    return offer?.variant_title || offer?.title || variantId
+  }
+  // Las marcadas, en el orden en que se marcaron: con «Comprar en orden», ese es el orden.
+  const [chosen, setChosen] = useState(() =>
+    draft.variantIds.filter((variantId) => offers.some((offer) => offer.variant_id === variantId)),
+  )
+  const [ordered, setOrdered] = useState(draft.ordered)
+  const [announcement, setAnnouncement] = useState("")
+  // El botón pulsado sigue a su opción: al moverla, React puede sacar el nodo del DOM y el foco se
+  // perdería. Solo después de mover, no al marcar una opción.
+  const moveButtons = useRef(new Map<string, HTMLButtonElement>())
+  const focusAfterMove = useRef<string | null>(null)
+  useEffect(() => {
+    const key = focusAfterMove.current
+    focusAfterMove.current = null
+    if (key) moveButtons.current.get(key)?.focus()
+  }, [chosen])
+
+  const check = (variantId: string, checked: boolean) =>
+    setChosen((current) => {
+      const rest = current.filter((item) => item !== variantId)
+      return checked ? [...rest, variantId] : rest
+    })
+
+  const move = (index: number, step: Step) => {
+    const variantId = chosen[index]!
+    const next = moved(chosen, index, step)
+    focusAfterMove.current = `${variantId}:${step}`
+    setChosen(next)
+    setAnnouncement(FORM_COPY.position(titleOf(variantId), index + step + 1, next.length))
+  }
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!blocked) onSubmit?.(draftOf(event.currentTarget))
+    if (!blocked) onSubmit?.(draftOf(event.currentTarget, chosen, ordered))
   }
 
   return (
@@ -91,7 +144,8 @@ export function DelegationForm({
       />
 
       <div className="space-y-5 p-5">
-        <fieldset className="space-y-2">
+        {/* `min-w-0`: un fieldset mide al menos su contenido, y el orden a 320 px lo desbordaba. */}
+        <fieldset className="min-w-0 space-y-2">
           <legend className="text-sm font-medium">{FORM_COPY.offers}</legend>
           {offers.length === 0 ? (
             <p className="text-sm leading-5 text-[#6b6b6b]">{FORM_COPY.noOffers}</p>
@@ -104,7 +158,8 @@ export function DelegationForm({
                       type="checkbox"
                       name="variant"
                       value={offer.variant_id}
-                      defaultChecked={draft.variantIds.includes(offer.variant_id)}
+                      checked={chosen.includes(offer.variant_id)}
+                      onChange={(event) => check(offer.variant_id, event.currentTarget.checked)}
                       className="mt-0.5 size-4 shrink-0 accent-[#0d0d0d]"
                     />
                     <span className="min-w-0">
@@ -120,6 +175,89 @@ export function DelegationForm({
               ))}
             </ul>
           )}
+          {/*
+            Un interruptor y no otra casilla: cambia el formulario al instante (muestra el orden) y no
+            es una opción que se compre.
+          */}
+          {offers.length > 0 && (
+            <div className="flex items-start justify-between gap-3 px-1 pt-1.5 text-sm leading-5">
+              <div className="min-w-0">
+                <label htmlFor={field("ordered")} className="font-medium">
+                  {FORM_COPY.ordered}
+                </label>
+                <p id={field("ordered-hint")} className="text-xs text-[#6b6b6b]">
+                  {FORM_COPY.orderedHint}
+                </p>
+              </div>
+              <button
+                id={field("ordered")}
+                type="button"
+                role="switch"
+                aria-checked={ordered}
+                aria-describedby={field("ordered-hint")}
+                onClick={() => setOrdered((current) => !current)}
+                className={cn(
+                  "group mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-[#8a8a8a] bg-white p-0.5 transition-colors aria-checked:border-[#0d0d0d] aria-checked:bg-[#0d0d0d]",
+                  focusRing,
+                )}
+              >
+                <span
+                  aria-hidden
+                  className="size-3.5 rounded-full bg-[#6b6b6b] transition-transform group-aria-checked:translate-x-4 group-aria-checked:bg-white motion-reduce:transition-none"
+                />
+              </button>
+            </div>
+          )}
+          {ordered && chosen.length > 0 && (
+            <ol aria-label={FORM_COPY.order} className="space-y-1.5">
+              {chosen.map((variantId, index) => {
+                const title = titleOf(variantId)
+                const button = (step: Step) => {
+                  const edge = step === -1 ? index === 0 : index === chosen.length - 1
+                  const Icon = step === -1 ? ArrowUpIcon : ArrowDownIcon
+                  const label = step === -1 ? FORM_COPY.moveUp(title) : FORM_COPY.moveDown(title)
+                  return (
+                    <button
+                      type="button"
+                      ref={(node) => {
+                        const key = `${variantId}:${step}`
+                        if (node) moveButtons.current.set(key, node)
+                        else moveButtons.current.delete(key)
+                      }}
+                      aria-label={label}
+                      title={label}
+                      aria-disabled={edge || undefined}
+                      onClick={edge ? undefined : () => move(index, step)}
+                      className={cn(pillButton({ tone: "ghost", size: "icon" }), "size-8")}
+                    >
+                      <Icon aria-hidden />
+                    </button>
+                  )
+                }
+                return (
+                  <li
+                    key={variantId}
+                    className="flex items-center gap-2 rounded-[16px] bg-[#f7f7f7] py-1 pr-1 pl-3 text-sm leading-5"
+                  >
+                    <span
+                      aria-hidden
+                      className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#0d0d0d] text-[11px] font-semibold text-white tabular-nums"
+                    >
+                      {index + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 font-medium wrap-break-word">{title}</span>
+                    <span className="flex shrink-0">
+                      {button(-1)}
+                      {button(1)}
+                    </span>
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+          <p role="status" className="sr-only">
+            {announcement}
+          </p>
         </fieldset>
 
         <div className="grid gap-3 @xs:grid-cols-2">
