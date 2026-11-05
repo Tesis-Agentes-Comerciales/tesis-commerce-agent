@@ -12,7 +12,16 @@ it without a cycle, and it never imports the trace or delegation view contracts.
 
 from typing import Annotated, Literal, Self
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, RootModel, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from .canonical import canonical_bytes, parse_model, sha256_digest
 from .models import (
@@ -44,6 +53,8 @@ from .models import (
 # Profile constants (§6): part of the profile and of the evidence, never settings.
 MAX_SCOPE_VARIANTS = 5
 MAX_PREFERENCE_TEXT = 280
+# One conditional evaluator branch per variant (domain/conditional.py MAX_BRANCHES, spec §3.9).
+MAX_PRIORITY_VARIANTS = 3
 SCOPE_DIGEST_DOMAIN = b"commerce-delegation-scope/v1\0"
 
 PositiveMinor = Annotated[int, Field(ge=1)]
@@ -61,6 +72,19 @@ def _ordered_set(values: tuple[str, ...]) -> tuple[str, ...]:
 
 
 OrderedIds = Annotated[tuple[Id, ...], Field(min_length=1), AfterValidator(_ordered_set)]
+# The order in which the buyer wants the scope's variants tried (p0-conditional-intent.md §3.9).
+Priority = Annotated[tuple[Id, ...], Field(min_length=1, max_length=MAX_PRIORITY_VARIANTS)]
+
+
+def _without_absent(data: dict[str, object]) -> dict[str, object]:
+    # A consent stored before `priority` and `preference_review` has neither key: omitting an
+    # absent priority and a review not promised keeps its bytes, so its `scope_digest`. An
+    # explicit null or false is then not canonical (`parse_consent_scope`).
+    if data.get("priority") is None:
+        data.pop("priority", None)
+    if data.get("preference_review") is False:
+        data.pop("preference_review")
+    return data
 
 
 class DelegationScope(ContractModel):
@@ -109,6 +133,24 @@ class ScopeDisplay(_DisplayModel):
     instrument_label: Text
     uses: One
     preference_text: PreferenceText | None
+    priority: Priority | None = None
+    # D15: the card promises that the agent reviews `preference_text` before buying (enforce
+    # with AGENT_HNP_REVIEWER=llm when proposed), with or without `priority`. What is consented
+    # rules: without it, the text is not reviewed even if a reviewer is configured later.
+    preference_review: bool = False
+
+    @model_validator(mode="after")
+    def card_is_consistent(self) -> Self:
+        variants = sorted(variant.variant_id for variant in self.variants)
+        if self.priority is not None and sorted(self.priority) != variants:
+            raise ValueError("A priority orders every variant of the card exactly once")
+        if self.preference_review and self.preference_text is None:
+            raise ValueError("Only a preference text can be reviewed")
+        return self
+
+    @model_serializer(mode="wrap")
+    def canonical_without_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        return _without_absent(handler(self))
 
 
 class ConsentScope(_DisplayModel):
@@ -122,10 +164,13 @@ class ConsentScope(_DisplayModel):
     presented_at: UtcTime
     expires_at: UtcTime
     preference_text: PreferenceText | None
+    # Absent: the executor picks among the variants as before. Present: a permutation of
+    # `scope.variant_ids` the card shows, tried in this order (§3.9).
+    priority: Priority | None = None
 
     @model_validator(mode="after")
     def card_shows_the_scope(self) -> Self:
-        """The card shows exactly what is consented: variants, total, expiry, uses, text."""
+        """The card shows exactly what is consented: variants, total, expiry, uses, text, order."""
         display, scope = self.display, self.scope
         if not self.presented_at < self.expires_at:
             raise ValueError("A consent expires after it is presented")
@@ -136,9 +181,16 @@ class ConsentScope(_DisplayModel):
             or display.expires_at != self.expires_at
             or display.uses != scope.uses_max
             or display.preference_text != self.preference_text
+            or display.priority != self.priority
         ):
             raise ValueError("The display differs from the consented scope")
+        if self.priority is not None and tuple(sorted(self.priority)) != scope.variant_ids:
+            raise ValueError("A priority orders every variant of the scope exactly once")
         return self
+
+    @model_serializer(mode="wrap")
+    def canonical_without_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        return _without_absent(handler(self))
 
 
 def consent_scope_bytes(consent: ConsentScope) -> bytes:
