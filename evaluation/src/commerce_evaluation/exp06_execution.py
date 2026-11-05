@@ -61,6 +61,27 @@ def plan() -> dict[str, Any]:
     }
 
 
+class SmokeBudget(AttemptBudget):
+    approval: dict[str, Any] | None = None
+
+
+def approved_budget(budget: AttemptBudget) -> None:
+    if budget.infrastructure_only:
+        return  # Each transport must still prove it is MockTransport.
+    if not isinstance(budget, SmokeBudget) or budget.approval is None:
+        raise SpendingBlocked("manual_receipt_claim_missing")
+    claim = json.loads(Path(budget.approval["claim"]).read_text(encoding="utf-8"))
+    if (
+        claim["receipt_sha256"] != budget.approval["receipt_sha256"]
+        or Decimal(claim["cap_usd"]) != budget.cap
+        or budget.max_attempts != 18
+        or budget.cap > Decimal("9")
+        or protocol_hash() != ORIGINAL_HASH
+        or git(ROOT, "rev-parse", "HEAD") != budget.approval["executor_sha"]
+    ):
+        raise SpendingBlocked("manual_claim_or_executed_scope_changed")
+
+
 def authorize(receipt: Path | None, output: Path) -> AttemptBudget:
     # Before environment credentials, services, imports of POSIX helpers or any request.
     if os.environ.get("GITHUB_ACTIONS") == "true" or receipt is None:
@@ -84,7 +105,7 @@ def authorize(receipt: Path | None, output: Path) -> AttemptBudget:
         data["stage"],
         data["human_reference"],
     )
-    budget = AttemptBudget(auth)
+    budget = SmokeBudget(auth)
     if budget.cap > Decimal("9"):
         raise SpendingBlocked("smoke_cap_exceeds_registered_proposal")
     claim = (
@@ -108,6 +129,14 @@ def authorize(receipt: Path | None, output: Path) -> AttemptBudget:
             os.fsync(stream.fileno())
     except FileExistsError as error:
         raise SpendingBlocked("authorization_already_claimed_no_automatic_resume") from error
+    budget.approval = {
+        "claim": str(claim),
+        "receipt_sha256": hashlib.sha256(receipt.read_bytes()).hexdigest(),
+        "executor_sha": data["executor_sha"],
+        "authorization_id_sha256": hashlib.sha256(
+            str(data["authorization_id"]).encode()
+        ).hexdigest(),
+    }
     return budget
 
 
@@ -126,6 +155,9 @@ class Journal:
 
 class ReservedTransport(httpx.BaseTransport):
     def __init__(self, inner: httpx.BaseTransport, budget: AttemptBudget, journal: Journal):
+        approved_budget(budget)
+        if budget.infrastructure_only and not isinstance(inner, httpx.MockTransport):
+            raise SpendingBlocked("infrastructure_requires_MockTransport")
         self.inner, self.budget, self.journal = inner, budget, journal
         self.stopped = False
 
@@ -186,6 +218,7 @@ class ReservedTransport(httpx.BaseTransport):
 @contextmanager
 def protected_models(budget: AttemptBudget, journal: Journal):
     """Dedicated process only: install before runtime and retain through its shutdown."""
+    approved_budget(budget)
     factory, initialize = ModelRequestRecorder.http_client, openai.OpenAI.__init__
     send, async_send = httpx.Client.send, httpx.AsyncClient.send
     guarded: set[httpx.Client] = set()
@@ -326,6 +359,7 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
     from tests.integration.test_exp02_commercial import local_effects, observe
     from tests.integration.test_live_b2_d2_authorization import settings_for
 
+    approved_budget(budget)
     provenance = sources()
     output.mkdir(parents=True, exist_ok=False)
     public = output / "evidence"
@@ -586,6 +620,10 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
             "billing_dashboard_reconciled": False,
         }
         summary.update(
+            effective_cap_usd=str(budget.cap),
+            approval={
+                k: v for k, v in (getattr(budget, "approval", None) or {}).items() if k != "claim"
+            },
             attempts=budget.attempts,
             reserved_or_spent_usd=str(budget.reserved_or_spent),
             budget_events=budget.events,

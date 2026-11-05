@@ -17,13 +17,45 @@ from commerce_agent.llm.intent_review import ModelHnpIntentReviewer
 from commerce_agent.llm.model_requests import ModelRequestRecorder
 from commerce_agent.persistence.model_requests_sqlite import SqliteModelRequests
 from commerce_evaluation import exp06_execution as execution
-from commerce_evaluation.exp06 import AttemptBudget, SpendingBlocked
+from commerce_evaluation.exp06 import AttemptBudget, Authorization, SpendingBlocked
 from tests.support.model_server import ModelServer, failure
 
 
 def test_authorization_is_required_before_any_network_or_services(tmp_path):
     with pytest.raises(SpendingBlocked, match="authorization"):
         execution.authorize(None, tmp_path / "run")
+
+
+def test_imported_executor_routes_cannot_skip_receipt_claim(tmp_path):
+    budget = AttemptBudget(
+        Authorization(
+            execution.protocol()["model"],
+            Decimal("9"),
+            execution.ORIGINAL_HASH,
+            "smoke",
+            "unit-only",
+        )
+    )
+    with pytest.raises(SpendingBlocked, match="claim_missing"):
+        execution.ReservedTransport(
+            httpx.MockTransport(lambda req: httpx.Response(503)),
+            budget,
+            execution.Journal(tmp_path / "a.jsonl"),
+        )
+    with (
+        pytest.raises(SpendingBlocked, match="claim_missing"),
+        execution.protected_models(budget, execution.Journal(tmp_path / "a.jsonl")),
+    ):
+        pytest.fail("unclaimed budget must not enter the executor")
+
+
+def test_infrastructure_transport_itself_rejects_real_network(tmp_path):
+    with httpx.HTTPTransport() as inner, pytest.raises(SpendingBlocked, match="MockTransport"):
+        execution.ReservedTransport(
+            inner,
+            AttemptBudget(None, infrastructure_only=True),
+            execution.Journal(tmp_path / "a.jsonl"),
+        )
 
 
 @pytest.fixture
