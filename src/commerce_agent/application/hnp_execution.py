@@ -13,6 +13,19 @@ reserves; 8. the merchant's signed checkout, the Agent Key close and UoW-C; 9. D
 commits the outbox row and moves the purchase to `completing`; 11-12. the `Dispatcher`
 (`application/hnp_dispatch.py`) sends it and UoW-3 records the order.
 
+A consent with `priority` (docs/design/p0-conditional-intent.md §3.9) replaces step 2's shortlist
+and selector with the conditional evaluator: the grant's variants, in the consented order, each
+read as the merchant's offer; the first for sale within the grant's total is the choice, with no
+model. None for sale within it ends `no_candidate_in_scope`; an offer that cannot be verified,
+or a variant of the order missing from the feed or against the intent before the choice, ends
+`selection_unavailable`, never trying the next one. The decision goes to
+`conditional_decisions` under the task's run, and after `start` the checkout must carry the
+offer's total (§3.4), or the run ends `offer_changed` with no other variant tried. The reviewer
+runs on that choice only if the consent promised it (`preference_review`, D8).
+
+D15, with or without `priority`: a consent that promised the review never buys without a
+reviewer; it ends `choice_not_confirmed`.
+
 B0-HNP (`off`) runs the same ledger steps with `NullHnpPolicyGate`, without D1, freshness or
 escalation: what B2-HNP escalates ends `failed` with the same code (§8.1, §11).
 
@@ -50,6 +63,17 @@ from commerce_agent.ap2_hnp import (
     closed_issued_at,
 )
 from commerce_agent.ap2_hnp import SignedMandate as SignedAp2Mandate
+from commerce_agent.application.conditional import (
+    BranchEvaluation,
+    ConditionalClarification,
+    ConditionalDecision,
+    ResolvedConditional,
+    effective_intent,
+    evaluate_branches,
+    record_decision,
+    resolve_branches,
+    verify_checkout,
+)
 from commerce_agent.application.hnp_intent_review import (
     REVIEW_UNAVAILABLE,
     HnpIntentReviewer,
@@ -57,7 +81,7 @@ from commerce_agent.application.hnp_intent_review import (
     checked,
 )
 from commerce_agent.application.hnp_selection import HnpSelector
-from commerce_agent.application.offer_freshness import FreshnessStage
+from commerce_agent.application.offer_freshness import FreshnessStage, OfferReader
 from commerce_agent.application.purchase import (
     CheckoutDetails,
     CheckoutGateway,
@@ -66,6 +90,7 @@ from commerce_agent.application.purchase import (
     PurchaseStage,
 )
 from commerce_agent.approval import ApprovalError
+from commerce_agent.delegation.contract import HNP_MESSAGES, escalation_message
 from commerce_agent.delegation.models import (
     Authority,
     CheckoutCancel,
@@ -84,6 +109,7 @@ from commerce_agent.delegation.models import (
 )
 from commerce_agent.delegation.ports import TransactionHook
 from commerce_agent.domain import PurchaseIntent, RankedCandidate, rank_candidates
+from commerce_agent.domain.conditional import BranchMatch, ConditionalIntent, PurchaseBranch
 from commerce_agent.governance.canonical import canonical_bytes, sha256_digest
 from commerce_agent.governance.evaluator import GovernanceError
 from commerce_agent.governance.evidence import DecisionRecord
@@ -145,6 +171,15 @@ _D1_UNAVAILABLE = frozenset(
         "d1_dispatch_blocked",
     }
 )
+# A consented order that buys nothing (p0-conditional-intent.md §3.9): none of its variants for
+# sale within the total; or one it could not verify, or one against the intent before the choice,
+# which is never skipped to buy the next one (D14). The decision `branch` has no terminal.
+OrderOutcome = Literal["no_candidate_in_scope", "selection_unavailable"]
+_ORDER_OUTCOMES: dict[str, OrderOutcome] = {
+    "none": "no_candidate_in_scope",
+    "undetermined": "selection_unavailable",
+    "clarify": "selection_unavailable",
+}
 _START_OUTCOMES: dict[str, OutcomeCode] = {
     "budget_exceeded": "budget_guard",
     "invalid_candidate": "selection_not_eligible",
@@ -422,7 +457,10 @@ class HnpExecutionService:
         d1_denials: Callable[[str], tuple[str, ...]] | None = None,
         dispatcher: Dispatcher | None = None,
         reviewer: HnpIntentReviewer | None = None,
+        offers: OfferReader | None = None,
     ) -> None:
+        """`offers` reads the merchant's offers of a consented `priority` (the runtime's
+        `ACPClient`); without it such a consent ends `selection_unavailable`, buying nothing."""
         # B0-HNP runs no PDP and no freshness; B2-HNP never runs without them (spec §11).
         if (mode == "off") != isinstance(gate, NullHnpPolicyGate) or (mode == "off") != (
             freshness is None and d1_denials is None
@@ -436,7 +474,7 @@ class HnpExecutionService:
         self._checkout, self._closer, self._gate, self._selector = checkout, closer, gate, selector
         self._feed, self._clock, self._new_id = feed, clock, id_factory
         self._freshness, self._d1_denials = freshness, d1_denials
-        self._dispatcher, self._reviewer = dispatcher, reviewer
+        self._dispatcher, self._reviewer, self._offers = dispatcher, reviewer, offers
 
     def run(self, task_id: str) -> Step:
         """Steps 1 to 12 of one task in this thread: `claim`, then `resume` if it got the lease."""
@@ -525,16 +563,39 @@ class HnpExecutionService:
             feed = self._feed()
         except Exception:
             self._end(run, "checkout_failed")
-        shortlist = self._shortlist(run, feed, intent, consent)
-        variant_id = self._select(run, shortlist, intent, consent)
+        decision: ConditionalDecision | None = None
+        if consent.priority is None:
+            shortlist = self._shortlist(feed, intent, consent)
+            if not shortlist:
+                self._end(run, "no_candidate_in_scope")
+            variant_id = self._select(run, shortlist, intent, consent)
+            start_intent = intent
+            # Today's rule: a configured reviewer reviews any choice of the shortlist, and a
+            # review the card promised needs one (D15).
+            reviews = _listed(shortlist, variant_id) and (
+                self._reviewer is not None or consent.display.preference_review
+            )
+        else:
+            decision, start_intent = self._in_order(run, feed, intent, consent)
+            variant_id = _chosen(decision).variant_id
+            # The reviewer sees today's shortlist (D8); what is consented rules (D15).
+            shortlist = self._shortlist(feed, intent, consent)
+            reviews = consent.display.preference_review
         self._hold(run, ex.authority)
-        if self._reviewer is not None and _listed(shortlist, variant_id):
+        if reviews:
+            if self._reviewer is None:
+                # D15: the card promised a review and there is no reviewer to run it.
+                self._end(run, "choice_not_confirmed")
             self._review(run, self._reviewer, shortlist, intent, consent, variant_id)
             self._hold(run, ex.authority)  # the review is a model call too
-        checkout = self._start(run, feed, intent, consent, details, variant_id)
+        checkout = self._start(
+            run, feed, start_intent, consent, details, variant_id, in_order=decision is not None
+        )
         purchase = self._store.purchase_state_version(run.run_id)
         if self._stage(run.run_id) != PurchaseStage.CHECKOUT_PREPARED or purchase is None:
             raise LookupError("start returned without a prepared HNP purchase")
+        if decision is not None:
+            self._verify(run, decision, checkout, purchase)
         self._check_freshness(run, checkout, purchase)
         reservation_id, operation_id = self._new_id("rsv"), self._new_id("op")
         ids = (reservation_id, operation_id)
@@ -603,18 +664,97 @@ class HnpExecutionService:
 
     # Steps 2 to 5
 
+    @staticmethod
     def _shortlist(
-        self, run: _Run, feed: ProductFeed, intent: PurchaseIntent, consent: ConsentScope
+        feed: ProductFeed, intent: PurchaseIntent, consent: ConsentScope
     ) -> tuple[RankedCandidate, ...]:
+        """Step 2's shortlist: `rank_candidates` ∩ the grant's variants, in the ranking's order.
+        Without `priority` an empty one ends the task; with it, it is what the reviewer sees."""
         granted = set(consent.scope.variant_ids)
-        shortlist = tuple(
+        return tuple(
             item
             for item in rank_candidates(feed, intent).ranked
             if item.candidate.variant_id in granted
         )
-        if not shortlist:
-            self._end(run, "no_candidate_in_scope")
-        return shortlist
+
+    def _in_order(
+        self, run: _Run, feed: ProductFeed, intent: PurchaseIntent, consent: ConsentScope
+    ) -> tuple[ConditionalDecision, PurchaseIntent]:
+        """Step 2 with a consented `priority` (p0-conditional-intent.md §3.9): one branch per
+        variant, in that order, each limited by the grant's total; resolved against the feed,
+        evaluated with the merchant's offers and recorded before any effect. The choice and the
+        effective intent `start` receives, or the terminal of a decision that buys nothing."""
+        try:
+            conditional = ConditionalIntent(
+                branches=tuple(
+                    PurchaseBranch(match=BranchMatch(variant_id=variant))
+                    for variant in consent.priority or ()
+                ),
+                currency="COP",
+            )
+        except ValueError:
+            self._end(run, "state_conflict")  # a stored order the evaluator cannot type
+        if self._offers is None:
+            _log.warning("HNP task %s has a priority and no offer reader", run.task_id)
+            self._end(run, "selection_unavailable")
+        resolution = resolve_branches(conditional, feed, hard=intent.hard)
+        if isinstance(resolution, ConditionalClarification):
+            # A variant of the order missing from the feed: nobody is here to answer the
+            # question, and the next variant is never tried instead.
+            self._record(run, conditional, intent, resolution, None, "selection_unavailable")
+            self._end(run, "selection_unavailable")
+        decision = evaluate_branches(resolution, self._offers)
+        outcome = _ORDER_OUTCOMES.get(decision.outcome)
+        self._record(run, conditional, intent, resolution, decision, outcome)
+        if outcome is not None:
+            self._end(run, outcome)
+        return decision, effective_intent(resolution, _chosen(decision).index)
+
+    def _record(
+        self,
+        run: _Run,
+        conditional: ConditionalIntent,
+        intent: PurchaseIntent,
+        resolution: ResolvedConditional | ConditionalClarification,
+        decision: ConditionalDecision | None,
+        outcome: OrderOutcome | None,
+    ) -> None:
+        """The run's `decision` row (§3.7), before any effect. Its explanation is what the buyer
+        is told, hashed: the task's own text, the running one when it buys and the terminal's
+        otherwise (the escalation in B2-HNP, the failure in B0-HNP)."""
+        if outcome is None:
+            explanation = HNP_MESSAGES["task.running"]
+        elif self._mode == "enforce":
+            explanation = escalation_message(outcome)
+        else:
+            explanation = HNP_MESSAGES["task.failed"]
+        record_decision(
+            self._store,
+            run.run_id,
+            purchase_mode="HNP",
+            governance_mode=self._mode,
+            intent=conditional,
+            hard=intent.hard,
+            resolution=resolution,
+            decision=decision,
+            explanation=explanation,
+        )
+
+    def _verify(
+        self, run: _Run, decision: ConditionalDecision, checkout: CheckoutSession, purchase: int
+    ) -> None:
+        """§3.4: the prepared checkout carries the chosen variant at the offer's total, or the
+        run ends `offer_changed` without trying another variant. The check is recorded either
+        way; an escalation cancels the checkout (§8.2) and B0-HNP leaves it to expire."""
+        try:
+            check = verify_checkout(self._store, run.run_id, decision, checkout)
+        except ValueError:
+            # A checkout of another variant than the decision's: `start` refuses it first, so
+            # this ends the run with its terminal rather than an exception without a trace.
+            _log.warning("HNP task %s prepared a checkout its decision did not choose", run.task_id)
+            self._end(run, "offer_changed", purchase=purchase, checkout=checkout)
+        if not check.matches:
+            self._end(run, "offer_changed", purchase=purchase, checkout=checkout)
 
     def _select(
         self,
@@ -696,7 +836,11 @@ class HnpExecutionService:
         consent: ConsentScope,
         details: CheckoutDetails,
         variant_id: str,
+        *,
+        in_order: bool = False,
     ) -> CheckoutSession:
+        """`in_order`: the choice of a consented `priority`, whose offer fit the total. A budget
+        guard that cancels its checkout means the offer changed before the creation (§3.4)."""
         grant = HnpGrant(grant_id=run.grant_id, variant_ids=consent.scope.variant_ids)
         try:
             prepared = self._purchases.start(
@@ -722,6 +866,8 @@ class HnpExecutionService:
             outcome, refused, mismatched = "checkout_failed", None, None
         else:
             return prepared.checkout
+        if in_order and outcome == "budget_guard":
+            outcome = "offer_changed"  # the guard already canceled it: no checkout to cancel
         # §4.6: the terminal fails or cancels a `received` purchase and keeps what `start` left.
         outcome = self._unrecovered(run.run_id) or outcome
         refusal = self._refusal(run.run_id, outcome, refused)
@@ -1051,6 +1197,13 @@ def _creation_refusal(error: ACPClientError) -> str | None:
 
 def _listed(shortlist: tuple[RankedCandidate, ...], variant_id: str) -> bool:
     return variant_id in {item.candidate.variant_id for item in shortlist}
+
+
+def _chosen(decision: ConditionalDecision) -> BranchEvaluation:
+    chosen = decision.chosen
+    if chosen is None:
+        raise LookupError("A decision to buy without its branch")
+    return chosen
 
 
 def _kind(error: BaseException) -> str:
