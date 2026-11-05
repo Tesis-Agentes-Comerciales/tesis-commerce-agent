@@ -17,16 +17,16 @@ por separado.
 
 | Estado observado | Escenarios distintos | Pares escenario–modo |
 | --- | ---: | ---: |
-| `passed` dentro del alcance medido | 14 | 20 |
+| `passed` dentro del alcance medido | 14 | 21 |
 | `partial` con evidencia positiva de una fase | 3 | 3 |
 | `failed` del escenario | 0 | 0 |
 | `blocked` con medición incompleta | 0 | 0 |
 | `harness_error` como resultado primario | 0 | 0 |
 | `not_applicable` | 1 | 1 |
-| `not_executed` | 16 sin ejecución en ningún modo | 32 |
+| `not_executed` | 16 sin ejecución en ningún modo | 31 |
 
-Los 32 pares pendientes incluyen CT19 HNP, INF30 HNP e INF31 HNP, aunque los tres tienen
-medición HP. En total hay 19 escenarios con al menos un modo pendiente. INF33 HP no aplica
+Los 31 pares pendientes incluyen INF30 HNP e INF31 HNP, ambos con
+medición HP. En total hay 18 escenarios con al menos un modo pendiente. INF33 HP no aplica
 porque HP no tiene revisor LLM y la aprobación corresponde al comprador. La exclusión se
 vincula a la [sección 4 de la especificación](../../../docs/design/p0-model-failures.md#4-celdas-y-oráculos),
 verificada por hash. INF33 HNP sí tiene revisor y se midió en la corrida local. Los fallos de
@@ -44,7 +44,8 @@ AUTH-TRANSPORT valida infraestructura y queda fuera del conteo P0.
 | CT15 | HP | Aprobado en alcance | Total actualizado por Merchant. Preparación dentro del máximo y cancelación por exceso. Sin aprobación ni compra completada. | [EXP-02](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895460657) |
 | CT15 | HNP | Aprobado en alcance | Guarda de presupuesto con feed antiguo. El caso dentro del máximo termina por revocación de seguridad tras preparar checkout. | [EXP-05](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41913671886) |
 | CT16 | HP | Parcial | Envío modificado e invalidación de términos. Faltan términos nuevos, reaprobación y prueba de complete. | [EXP-03](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41897599243) |
-| CT19 | HP | Aprobado en alcance | Desaparición de la identidad tras D1. 404 nativo, un POST y cero sustituciones. SKU explícito, sin semántica ni medición HNP. | [CT19](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42033289049) |
+| CT19 | HP | Aprobado en alcance | Desaparición de la identidad tras D1. 404 nativo, un POST y cero sustituciones. SKU explícito, sin semántica. | [CT19 HP](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42033289049) |
+| CT19 | HNP | Aprobado en alcance | SKU único retirado tras consentir. 404 nativo, un POST y cero sustituciones. Feed congelado, sin LLM, despacho, pago ni compra. El stock agotado es un control. | [EXP-09](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42122901771) |
 | MA22 | HNP | Aprobado en alcance | Revocación y nuevo consentimiento por API. Escalado por presupuesto sin crear checkout. Sin edición in-place. | [EXP-04](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41898998656) |
 | MA23 | HNP | Aprobado en alcance | Nuevo grant solo para Y, con X asequible fuera del alcance. Escalado sin compra. Sin edición in-place. | [EXP-04](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41899701762) |
 | MA24 | HNP | Aprobado en alcance | Revocación efectiva antes del trigger, 409 y cero nuevos efectos. Medición por API. | [EXP-01](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41846571407) |
