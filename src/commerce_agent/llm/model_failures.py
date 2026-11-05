@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import httpx
-from openai import APIConnectionError, APIStatusError
+from openai import APIConnectionError, APIStatusError, OpenAIError
 from pydantic import ValidationError
 
 _log = logging.getLogger(__name__)
@@ -94,6 +94,20 @@ def classify_model_failure(error: BaseException) -> ModelFailure:
     if isinstance(error, ValidationError):
         return ModelFailure("invalid_output")
     return ModelFailure("provider_error")
+
+
+def model_failure_kind(error: BaseException) -> ModelFailureKind | None:
+    """The kind of a failed model call, or None when the model was not the cause.
+
+    The kind a client gave its `IntentInterpretationError`, else that of its SDK cause or of a raw
+    SDK error. Anything else (a bug, a selector without an answer) names no kind.
+    """
+    if isinstance(error, IntentInterpretationError) and error.failure_kind is not None:
+        return error.failure_kind
+    sdk_error = error.__cause__ if isinstance(error, IntentInterpretationError) else error
+    if isinstance(sdk_error, OpenAIError | ValidationError):
+        return classify_model_failure(sdk_error).kind
+    return None
 
 
 def refuse_quota_retry(response: httpx.Response) -> None:

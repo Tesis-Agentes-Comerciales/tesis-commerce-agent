@@ -24,7 +24,11 @@ from commerce_agent.llm import (
 )
 from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
 from commerce_agent.llm.intent_review import IntentVerdict, ModelHnpIntentReviewer
-from commerce_agent.llm.model_failures import ModelFailure, classify_model_failure
+from commerce_agent.llm.model_failures import (
+    ModelFailure,
+    classify_model_failure,
+    model_failure_kind,
+)
 from commerce_agent.llm.reasoning import reasoning_listener
 from commerce_agent.persistence.model_requests_sqlite import SqliteModelRequests
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
@@ -204,6 +208,43 @@ def test_the_error_keeps_its_code_and_whoever_builds_it_today() -> None:
         "SON-99",
     )
     assert str(unknown) == "The candidate model selected an unknown variant"
+
+
+def wrapped(cause: BaseException | None) -> IntentInterpretationError:
+    error = IntentInterpretationError("failed")
+    error.__cause__ = cause
+    return error
+
+
+@pytest.mark.parametrize(
+    ("error", "kind"),
+    [
+        (IntentInterpretationError("failed", failure_kind="unreachable"), "unreachable"),
+        (UnknownVariantSelection("SON-99"), "invalid_output"),
+        # Without its kind, a client error is named by its SDK cause.
+        (wrapped(openai.APIConnectionError(request=httpx.Request("POST", URL))), "unreachable"),
+        (status_error(openai.RateLimitError, 429, SPENT_QUOTA), "quota_exhausted"),
+        (validation_error(), "invalid_output"),
+        # Not the model: the graph's own error, or anything else a selector or reviewer raised.
+        (IntentInterpretationError("No conversation model is configured"), None),
+        (wrapped(ValueError("bad")), None),
+        (RuntimeError("bug"), None),
+        (TimeoutError("slow"), None),
+    ],
+    ids=[
+        "client-kind",
+        "unknown-variant",
+        "sdk-cause",
+        "raw-sdk",
+        "raw-validation",
+        "graph",
+        "other-cause",
+        "bug",
+        "builtin-timeout",
+    ],
+)
+def test_only_a_model_failure_has_a_kind(error: BaseException, kind: str | None) -> None:
+    assert model_failure_kind(error) == kind
 
 
 # The three clients ----------------------------------------------------------------------------

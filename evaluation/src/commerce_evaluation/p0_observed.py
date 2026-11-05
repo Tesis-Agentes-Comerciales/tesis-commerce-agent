@@ -20,8 +20,17 @@ STATUS_COVERAGE = {
     "blocked": "incomplete",
     "harness_error": "incomplete",
     "not_executed": "none",
+    "not_applicable": "none",
 }
 RUN_KINDS = {"measurement", "harness_error", "reporting_error", "infrastructure", "blocked"}
+CT19_INDEX = "../../results/ct19-hp/runs.json"
+CT19_RUN = "42033289049"
+CT19_FIXTURE = "41967635493"
+INF33_SOURCE = {
+    "path": "docs/design/p0-model-failures.md",
+    "section": "4. Celdas y oráculos",
+    "sha256": "0b70704c51f6b27ceb73f1e5f7a8be9d16cac16d08cf41e7969d6c1957492e1c",
+}
 
 
 def require(condition: object, reason: str) -> None:
@@ -140,6 +149,222 @@ def validate_run(
     return protocol, report, len(inner)
 
 
+def validate_ct19_archive(root: Path, run: str, row: dict, protocol_path: Path) -> tuple[dict, int]:
+    archive_ref = f"runs/{run}/original.zip"
+    require(
+        row["url"] == ACTION_RUN + run and row["original_zip"] == archive_ref,
+        f"CT19 archive reference mismatch: {run}",
+    )
+    archive = root / "evaluation/results/ct19-hp" / archive_ref
+    data = archive.read_bytes()
+    require(
+        len(data) == row["bytes"] and digest(data) == row["zip_sha256"], f"CT19 ZIP hash: {run}"
+    )
+    require(
+        digest(protocol_path.read_bytes()) == row["protocol_sha256"],
+        f"CT19 protocol hash: {run}",
+    )
+    protocol = load(protocol_path)
+    with ZipFile(archive) as bundle:
+        names = bundle.namelist()
+        require(
+            len(names) == len(set(names)) and bundle.testzip() is None, f"Corrupt CT19 ZIP: {run}"
+        )
+        inner = checksums(bundle.read("exp01-SHA256SUMS"))
+        require(len(inner) == row["entries_verified"], f"CT19 hash count: {run}")
+        for name, expected in inner.items():
+            require(digest(bundle.read(name)) == expected, f"CT19 internal hash: {run}/{name}")
+        for name, field in (
+            ("exp01-manifest.json", "manifest_sha256"),
+            ("exp01-junit.xml", "junit_sha256"),
+            ("exp01-report.json", "report_sha256"),
+        ):
+            require(inner.get(name) == row[field], f"CT19 index hash: {run}/{name}")
+        manifest = json.loads(bundle.read("exp01-manifest.json"))
+        report = json.loads(bundle.read("exp01-report.json"))
+        junit = bundle.read("exp01-junit.xml")
+        tests = [
+            (node.get("classname"), node.get("name"))
+            for node in ElementTree.fromstring(junit).iter("testcase")
+        ]
+        module = protocol["test_module"].removesuffix(".py::").replace("/", ".")
+        require(
+            sorted(tests) == sorted((module, case["test"]) for case in protocol["cases"].values())
+            and junit_counts(junit) == report["junit"] == row["junit"],
+            f"CT19 JUnit mismatch: {run}",
+        )
+        require(
+            report["manifest"] == manifest
+            and manifest["status"] == "verified"
+            and manifest["sources"] == row["sources"]
+            and manifest["protocol_sha256"] == row["protocol_sha256"]
+            and manifest["inputs_sha256"]
+            == {
+                "evaluation/scenarios/p0/matrix.json": protocol["matrix_sha256"],
+                "evaluation/scenarios/p0/ux03-oracle.json": protocol["ux03_oracle_sha256"],
+            }
+            and set(manifest["sources"]) == {"agent", "merchant", "payment"}
+            and all(
+                source["clean"] is True
+                and re.fullmatch(r"[a-f0-9]{40}", source["sha"])
+                and re.fullmatch(r"[a-f0-9]{64}", source["uv_lock_sha256"])
+                for source in manifest["sources"].values()
+            )
+            and manifest["sources"]["merchant"]["sha"] == protocol["merchant_sha"]
+            and manifest["sources"]["payment"]["sha"] == protocol["payment_sha"],
+            f"CT19 source manifest mismatch: {run}",
+        )
+        require(
+            set(report["controls"]) == set(protocol["cases"])
+            and report["validated"] is row["validated"]
+            and report["control_counts"] == row["control_counts"]
+            and report["issues"] == row["issues"]
+            and report["stack_shutdown"] == row["shutdown"],
+            f"CT19 outcome mismatch: {run}",
+        )
+        if report["validated"]:
+            frozen_cases = set()
+            for name in inner:
+                if not name.endswith("/exp01-frozen.json"):
+                    continue
+                frozen = json.loads(bundle.read(name))
+                case = frozen["case_id"]
+                control = report["controls"][case]
+                observed_name = name.replace("/exp01-frozen.json", "/exp01-observed.json")
+                require(
+                    case not in frozen_cases
+                    and inner[name] == control["input_sha256"]
+                    and observed_name in inner
+                    and json.loads(bundle.read(observed_name)) == control
+                    and frozen["protocol_sha256"] == row["protocol_sha256"]
+                    and frozen["oracle"] == protocol["cases"][case]
+                    and frozen["frozen_at_ns"] < control["started_at_ns"]
+                    and frozen["semantic_evaluation"] is False
+                    and control["status"] == "passed"
+                    and control["cleanup_verified"] is True,
+                    f"CT19 frozen evidence mismatch: {run}/{case}",
+                )
+                frozen_cases.add(case)
+            require(
+                frozen_cases == protocol["cases"].keys(), f"Missing CT19 frozen evidence: {run}"
+            )
+    return report, len(inner)
+
+
+def validate_ct19(root: Path, cell: dict, matrix_sha: str, oracle_sha: str) -> tuple[int, int]:
+    require(
+        cell["evidence"] == CT19_INDEX
+        and str(cell["run_id"]) == CT19_RUN
+        and cell["case"] == "CT19:HP:removed"
+        and cell["status"] == "passed"
+        and cell["scope"].strip(),
+        "Invalid CT19 HP attribution",
+    )
+    index = load(root / P0 / CT19_INDEX)
+    fixture_runs = {"41967362290", CT19_FIXTURE}
+    hp_runs = {"41968306631", "41968564766", CT19_RUN}
+    require(set(index) == fixture_runs | hp_runs, "CT19 run history incomplete")
+    fixture_path = root / "evaluation/scenarios/ct19-fixture.json"
+    hp_path = root / "evaluation/scenarios/ct19-hp.json"
+    for path in (fixture_path, hp_path):
+        protocol = load(path)
+        require(
+            protocol["matrix_sha256"] == matrix_sha
+            and protocol["ux03_oracle_sha256"] == oracle_sha,
+            "CT19 prereregistration mismatch",
+        )
+    fixture = index[CT19_FIXTURE]
+    require(
+        load(hp_path)["fixture_prerequisite"]
+        == {
+            "run_id": int(CT19_FIXTURE),
+            "agent_sha": fixture["sources"]["agent"]["sha"],
+            "zip_sha256": fixture["zip_sha256"],
+            "protocol_sha256": fixture["protocol_sha256"],
+            "validated": True,
+        }
+        and fixture["validated"] is True,
+        "CT19 fixture prerequisite mismatch",
+    )
+    verified = {
+        run: validate_ct19_archive(root, run, row, fixture_path if run in fixture_runs else hp_path)
+        for run, row in index.items()
+    }
+    report = verified[CT19_RUN][0]
+    require(
+        cell["agent_sha"] == index[CT19_RUN]["sources"]["agent"]["sha"]
+        and report["validated"] is True
+        and not report["issues"]
+        and report["junit"] == {"passed": 2, "failed": 0, "error": 0, "skipped": 0}
+        and report["attribution_status"] == "verified"
+        and report["measured_modes"] == {"CT19": ["HP"], "CT19-STOCK": ["HP"]}
+        and report["attributed_scenarios"] == {"CT19": "passed"}
+        and report["non_scenario_controls"] == {"CT19-STOCK": "passed"}
+        and report["stack_shutdown"]
+        and all(
+            end["postgres_removed"] and end["proxy_closed"] for end in report["stack_shutdown"]
+        ),
+        "CT19 terminal attribution or cleanup mismatch",
+    )
+    for case, status, code in (
+        ("CT19:HP:removed", 404, "invalid_item"),
+        ("CT19:HP:stock_zero", 409, "out_of_stock"),
+    ):
+        control = report["controls"][case]
+        facts = control["observations"]
+        offer_id = facts["catalog_before"]["row"]["offer_id"]
+        changed = facts["catalog_changed"]["row"]
+        calls = [
+            c
+            for c in facts["acp_calls"]
+            if c["method"] == "POST" and c["path"] == "/checkout_sessions"
+        ]
+        require(
+            control["stimulus_verified"] is True
+            and len(calls) == facts["create_posts"] == 1
+            and calls[0]["status"] == status
+            and calls[0]["fault"] == "pass"
+            and calls[0]["response"]["detail"]["code"] == facts["agent_result"] == code
+            and calls[0]["request"]["line_items"] == [{"id": offer_id}]
+            and facts["pre_mutation_agent"]["d1"] == [["decision_record", "allow"]]
+            and facts["d1_observed_at_ns"] < facts["mutation_verified_at_ns"]
+            and facts["agent_after"]["purchase"] == [["failed", offer_id, None, None, code]]
+            and facts["agent_after"]["dispatch"]
+            == [["definitive_failure", None, "VERIFIED_NOT_CREATED"]]
+            and (
+                changed is None
+                if status == 404
+                else changed["offer_id"] == offer_id
+                and changed["snapshot"]["available_quantity"] == 0
+            )
+            and all(n == 0 for n in facts["agent_effect_counts"].values())
+            and not facts["after_cleanup"]["checkouts"]
+            and facts["psp_before"] == facts["psp_after"] == facts["psp_after_cleanup"]
+            and facts["catalog_restored"]["row"] == facts["catalog_before"]["row"],
+            f"CT19 native observation mismatch: {case}",
+        )
+    return len(verified), sum(count for _, count in verified.values())
+
+
+def validate_not_applicable(root: Path, key: tuple[str, str], cell: dict) -> None:
+    require(key == ("INF33", "HP"), "Unauthorized not_applicable pair")
+    require(
+        set(cell) == {"status", "justification", "source"}
+        and isinstance(cell["justification"], str)
+        and cell["justification"].strip(),
+        "not_applicable requires justification and no execution evidence",
+    )
+    require(cell["source"] == INF33_SOURCE, "Unapproved not_applicable source")
+    path = root / INF33_SOURCE["path"]
+    require(preregistration_digest(path) == INF33_SOURCE["sha256"], "not_applicable source hash")
+    section = path.read_text(encoding="utf-8").split("\n## 4. Celdas y oráculos\n", 1)[1]
+    require(
+        "**INF33-HP no aplica:** en HP no hay revisor LLM; la aprobación la hace el comprador."
+        in section.split("\n## ", 1)[0],
+        "Source does not declare INF33 HP not applicable",
+    )
+
+
 def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, Any]:
     root = root.resolve()
     matrix_path = root / P0 / "matrix.json"
@@ -157,15 +382,13 @@ def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, An
         "Preregistration mismatch",
     )
     plan = {(row["id"], mode) for row in matrix["scenarios"] for mode in row["modes"]}
-    require(
-        (len(matrix["scenarios"]), len(plan), len(planned_cells(matrix, oracle))) == (33, 56, 37),
-        "P0 denominators changed",
-    )
+    preregistered_cells = planned_cells(matrix, oracle)
     runs = data["runs"]
     verified = {
         run: validate_run(root, run, row, matrix_sha, oracle_sha) for run, row in runs.items()
     }
     statuses = dict.fromkeys(plan, "not_executed")
+    ct19_runs, ct19_hashes = 0, 0
     for scenario, row in data["observations"].items():
         require(row["modes"], f"Missing modes: {scenario}")
         for mode, cell in row["modes"].items():
@@ -174,6 +397,22 @@ def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, An
             if cell == {"status": "not_executed"}:
                 continue
             status = cell["status"]
+            if status == "not_applicable":
+                validate_not_applicable(root, key, cell)
+                require(
+                    not any(
+                        (case["scenario"], case["mode"]) == key
+                        for protocol, _, _ in verified.values()
+                        for case in protocol["cases"].values()
+                    ),
+                    "not_applicable cannot hide a registered execution",
+                )
+                statuses[key] = status
+                continue
+            if key == ("CT19", "HP"):
+                ct19_runs, ct19_hashes = validate_ct19(root, cell, matrix_sha, oracle_sha)
+                statuses[key] = status
+                continue
             require(
                 STATUS_COVERAGE.get(status) == cell["coverage"]
                 and cell["scope"].strip()
@@ -237,9 +476,14 @@ def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, An
             statuses[key] = status
     by_status = Counter(statuses.values())
     return {
-        "runs": len(runs),
-        "internal_hashes": sum(info[2] for info in verified.values()),
-        "denominators": {"scenarios": 33, "scenario_modes": 56, "preregistered_cells": 37},
+        "runs": len(runs) + ct19_runs,
+        "internal_hashes": sum(info[2] for info in verified.values()) + ct19_hashes,
+        "denominators": {
+            "scenarios": len(matrix["scenarios"]),
+            "scenario_modes": len(plan),
+            "measurable_scenario_modes": len(plan) - by_status["not_applicable"],
+            "preregistered_cells": len(preregistered_cells),
+        },
         "scenario_modes": {status: by_status[status] for status in STATUS_COVERAGE},
         "distinct_scenarios_by_status": {
             status: len({scenario for (scenario, _), value in statuses.items() if value == status})
@@ -250,9 +494,18 @@ def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, An
             for (scenario, mode), value in statuses.items()
             if value == "not_executed"
         ),
+        "not_applicable": sorted(
+            f"{scenario}/{mode}"
+            for (scenario, mode), value in statuses.items()
+            if value == "not_applicable"
+        ),
         "scenarios_without_execution": sorted(
             {scenario for scenario, _ in plan}
-            - {scenario for (scenario, _), status in statuses.items() if status != "not_executed"}
+            - {
+                scenario
+                for (scenario, _), status in statuses.items()
+                if status not in {"not_executed", "not_applicable"}
+            }
         ),
     }
 

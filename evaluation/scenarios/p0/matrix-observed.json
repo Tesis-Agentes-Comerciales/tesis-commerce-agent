@@ -63,6 +63,22 @@
         }
       }
     },
+    "CT19": {
+      "coverage": "partial",
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "case": "CT19:HP:removed",
+          "scope": "Disappearance of the observed identity after durable D1 and before checkout creation, with an explicit observed SKU and no substitution",
+          "run_id": 42033289049,
+          "agent_sha": "4fbf19104175786874666042dd4ba311ba7ac4b7",
+          "evidence": "../../results/ct19-hp/runs.json"
+        },
+        "HNP": {
+          "status": "not_executed"
+        }
+      }
+    },
     "INF30": {
       "modes": {
         "HP": {
@@ -94,6 +110,22 @@
             41842686257,
             41845792685
           ]
+        }
+      }
+    },
+    "INF33": {
+      "modes": {
+        "HP": {
+          "status": "not_applicable",
+          "justification": "En HP no hay revisor LLM y la aprobación corresponde al comprador.",
+          "source": {
+            "path": "docs/design/p0-model-failures.md",
+            "section": "4. Celdas y oráculos",
+            "sha256": "0b70704c51f6b27ceb73f1e5f7a8be9d16cac16d08cf41e7969d6c1957492e1c"
+          }
+        },
+        "HNP": {
+          "status": "not_executed"
         }
       }
     },

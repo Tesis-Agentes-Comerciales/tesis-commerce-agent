@@ -83,7 +83,9 @@ campos y, sin la columna, la fila se perdería en silencio. `error_kind` no camb
   compatibilidad con los runners y los pilotos, que solo miran código y estado. El cuerpo agrega
   `model_failure` con el `failure_kind`. El `message` se queda como está, porque REST lo consumen
   los runners y no el comprador. La única prueba que compara el cuerpo exacto
-  (`tests/test_governed_recovery.py:789`) se actualiza.
+  (`tests/test_governed_recovery.py:789`) se actualiza. Todo `intent_model_error` lleva la clave:
+  vale `null` cuando el error no vino del modelo (por ejemplo, sin modelo configurado), así un
+  runner lo distingue de un fallo del modelo y de un agente anterior a este cambio.
 - **Chat**, que es lo que ve el comprador: el transporte recibe el `failure_kind`, no solo el
   código, y `fail()` muestra el mensaje según el tipo:
 
@@ -104,7 +106,12 @@ los CHECK del ledger:
 - **selector:** un campo opcional en `TaskFinish`, que queda en el evento `task_finished`;
 - **revisor:** un campo en el cuerpo de `choice_reviewed` cuando la revisión no estuvo disponible.
 
-Los TypedDict de la traza ignoran las claves extra, así que la UI no se rompe.
+En los dos casos la clave `failure_kind` solo aparece cuando el modelo fue la causa: el tipo que
+puso el cliente o, si el error es crudo del SDK, el de `classify_model_failure`. Un selector o un
+revisor que falla por otra causa no la escribe, y los demás eventos conservan su cuerpo byte a byte.
+
+Los TypedDict de la traza ignoran las claves extra, así que la UI no se rompe. La traza no expone
+el campo: su contrato rechaza campos extra y exponerlo exige cambiar el contrato de la UI.
 
 ## 4. Celdas y oráculos
 
