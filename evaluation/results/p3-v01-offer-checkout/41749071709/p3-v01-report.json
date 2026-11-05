@@ -1,0 +1,184 @@
+{
+  "schema": "p3-v01-report/1",
+  "p3_status": "BLOCKED",
+  "collected": 24,
+  "counts": {
+    "passed": 0,
+    "failed": 0,
+    "error": 24,
+    "skipped": 0,
+    "blocked": 0,
+    "not_executed": 0
+  },
+  "cases": [
+    {
+      "case_id": "stable-zero",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "stable-positive",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "budget-minus",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "budget-equal",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "budget-plus",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "revision-only",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "shipping-feed",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "price-change",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "out-of-stock",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "inactive",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "expiry-before",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "expiry-at",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "expiry-after",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "timeout-before",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "lost-read-after",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "invalid-response",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "different-offer",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "network-error",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "foreign-run",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "foreign-actor",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "missing-auth",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "create-idempotency",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "lost-create",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "lost-cancel",
+      "status": "error",
+      "evidence_status": "not_executed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    }
+  ],
+  "validated": false
+}

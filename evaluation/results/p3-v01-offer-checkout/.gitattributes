@@ -1,0 +1,4 @@
+# Preserve original Actions evidence bytes, including XML/JSONL and checksum files.
+* -text
+# Embedded pytest tracebacks contain significant original whitespace; never rewrite JUnit.
+*.xml -whitespace

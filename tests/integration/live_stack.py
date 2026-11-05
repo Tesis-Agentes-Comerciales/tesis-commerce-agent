@@ -428,7 +428,18 @@ class FaultProxy:
     """
 
     FAULTS = frozenset(
-        {"pass", "drop", "reset", "delay", "status_503", "scope", "digest", "profile", "malformed"}
+        {
+            "pass",
+            "drop",
+            "reset",
+            "delay",
+            "timeout_before",
+            "status_503",
+            "scope",
+            "digest",
+            "profile",
+            "malformed",
+        }
     )
 
     def __init__(self, routes: frozenset[tuple[str, str]] = ROUTES):
@@ -439,6 +450,7 @@ class FaultProxy:
         self.delay_seconds = 1.5
         self.before_forward: dict[str, Callable[[bytes, dict[str, str]], None]] = {}
         self.after_answer: dict[str, Callable[[], None]] = {}
+        self.response_transform: dict[str, Callable[[bytes], bytes]] = {}
         self.errors: list[str] = []
         # One client for the hop; still a fresh upstream connection per request.
         self.client = httpx.Client(
@@ -477,6 +489,7 @@ class FaultProxy:
         self.faults.clear()
         self.before_forward.clear()
         self.after_answer.clear()
+        self.response_transform.clear()
         self.errors.clear()
         self.delay_seconds = 1.5
 
@@ -509,6 +522,11 @@ class FaultProxy:
             # Fail closed: a broken expectation never reaches the Merchant.
             self.errors.append(f"before_forward:{path}:{type(error).__name__}:{error}")
             self._abort(handler, reset=True)
+            return
+        if fault == "timeout_before":
+            # Deliberate timeout without ever forwarding, including after the client gives up.
+            time.sleep(self.delay_seconds)
+            self._abort(handler, reset=False)
             return
         if fault == "status_503":
             raw = json.dumps({"type": "error", "code": "proxy_unavailable"}).encode()
@@ -560,6 +578,8 @@ class FaultProxy:
             raw = json.dumps(payload).encode()
         elif fault == "malformed":
             raw = b"{"
+        if transform := self.response_transform.get(path):
+            raw = transform(raw)
         forwarded = {
             key: value
             for key, value in response.headers.items()

@@ -1,0 +1,184 @@
+{
+  "schema": "p3-v01-report/1",
+  "p3_status": "BLOCKED",
+  "collected": 24,
+  "counts": {
+    "passed": 0,
+    "failed": 24,
+    "error": 0,
+    "skipped": 0,
+    "blocked": 0,
+    "not_executed": 0
+  },
+  "cases": [
+    {
+      "case_id": "stable-zero",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "stable-positive",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "budget-minus",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "budget-equal",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "budget-plus",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "revision-only",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "shipping-feed",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "price-change",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "out-of-stock",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "inactive",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "expiry-before",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "expiry-at",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "expiry-after",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "timeout-before",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "lost-read-after",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "invalid-response",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "different-offer",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "network-error",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "foreign-run",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "foreign-actor",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "missing-auth",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "create-idempotency",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "lost-create",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    },
+    {
+      "case_id": "lost-cancel",
+      "status": "failed",
+      "evidence_status": "failed",
+      "commercial": "unknown",
+      "cleanup_verified": false
+    }
+  ],
+  "validated": false
+}

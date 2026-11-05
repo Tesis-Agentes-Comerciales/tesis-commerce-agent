@@ -1,0 +1,2449 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="24" failures="0" skipped="0" tests="24" time="1.027" timestamp="2026-11-04T00:45:40.575143+00:00" hostname="runnervm48cm3"><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[stable-zero]" time="0.033"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[stable-positive]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[budget-minus]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[budget-equal]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[budget-plus]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[revision-only]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[shipping-feed]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[price-change]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[out-of-stock]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[inactive]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[expiry-before]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[expiry-at]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[expiry-after]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[timeout-before]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[lost-read-after]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[invalid-response]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[different-offer]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[network-error]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[foreign-run]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[foreign-actor]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[missing-auth]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[create-idempotency]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[lost-create]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase><testcase classname="tests.integration.test_live_p3_offer_checkout" name="test_offer_checkout_contract[lost-cancel]" time="0.000"><error message="failed on setup with &quot;subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.&quot;">tmp_path_factory = TempPathFactory(_given_basetemp=PosixPath('/home/runner/work/_temp/live-stack'), _trace=&lt;pluggy._tracing.TagTracerSub object at 0x7f547519cd10&gt;, _basetemp=None, _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def p3_lane(tmp_path_factory: pytest.TempPathFactory) -&gt; Iterator[PurchaseLane]:
+        if problems := missing_requirements() + payment_requirements():
+            pytest.fail("; ".join(problems), pytrace=False)
+        pins = {}
+        for variable, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP)):
+            root = Path(os.environ[variable])
+            assert git(root, "rev-parse", "HEAD") == sha, "Exact sibling pin required"
+            assert not git(root, "status", "--porcelain=v1"), "Clean sibling required"
+            pins[variable] = {
+                "sha": sha,
+                "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
+            }
+&gt;       assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_live_p3_offer_checkout.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_live_p3_offer_checkout.py:50: in git
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:466: in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', ...],)
+kwargs = {'stdout': -1, 'text': True}
+process = &lt;Popen: returncode: 128 args: ['git', '-C', '/home/runner/work/tesis-commerc...&gt;
+stdout = '', stderr = None, retcode = 128
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', '-C', '/home/runner/work/tesis-commerce-agent/tesis-commerce-agent/agent', 'diff', 'a11f78bd5e5c18cd3a81ab74c2edc96e274367af', '--', 'src/commerce_agent']' returned non-zero exit status 128.
+
+../../../_temp/uv-python-dir/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/subprocess.py:571: CalledProcessError</error></testcase></testsuite></testsuites>
