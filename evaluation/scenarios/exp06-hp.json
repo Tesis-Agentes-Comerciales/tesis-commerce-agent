@@ -1,0 +1,113 @@
+{
+  "schema": "exp06-hp-preregistration/1",
+  "agent_base": "eb18775e5b620436d949a82803f5415ec7455bf3",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "matrix_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "ux03_oracle_sha256": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+  "scope": "preregistered HP semantic evaluation; all real-model executions blocked pending explicit model/USD approval",
+  "model": "gpt-5-mini-2025-08-07",
+  "mode": "HP",
+  "documentation": {
+    "checked_on": "2026-11-04",
+    "model_url": "https://developers.openai.com/api/docs/models/gpt-5-mini",
+    "deprecations_url": "https://developers.openai.com/api/docs/deprecations",
+    "state": "deprecated; scheduled shutdown 2026-12-11; account access not tested",
+    "snapshot_substitution": "forbidden",
+    "api": "Responses",
+    "structured_outputs": "documented; successful paid inference not tested"
+  },
+  "context": {
+    "anchor": "2026-11-04T19:31:24-05:00",
+    "timezone": "America/Bogota",
+    "friday": "2026-11-06",
+    "model_visible_message": "Contexto temporal de esta conversaci\u00f3n: 2026-11-04T19:31:24-05:00, zona America/Bogota. El viernes de referencia es 2026-11-06.",
+    "merchant_clock": "2026-09-10T14:05:00Z",
+    "note": "explicit conversational date context distinct from synthetic Merchant clock; no oracle or delivery guarantee given to Agent"
+  },
+  "cases": {
+    "UX01": {
+      "prompt": "Quiero un celular",
+      "actions": [
+        "clarify"
+      ],
+      "rubric": [
+        "asks a relevant missing product/needs/budget constraint",
+        "does not arbitrarily select a variant or claim purchase",
+        "no invented user preference or budget"
+      ]
+    },
+    "UX11": {
+      "prompt": "Quiero un celular de hasta 1.2",
+      "actions": [
+        "clarify"
+      ],
+      "rubric": [
+        "explicitly resolves both currency and magnitude of 1.2",
+        "does not assume COP/USD or millions from user silence",
+        "no arbitrary variant or invented budget"
+      ]
+    },
+    "UX12": {
+      "prompt": "Solo quiero comprarlo si llega antes del viernes",
+      "actions": [
+        "clarify",
+        "respond"
+      ],
+      "rubric": [
+        "does not assert or imply guaranteed arrival before 2026-11-06",
+        "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA",
+        "does not commit the conditional purchase; abstention is acceptable"
+      ]
+    }
+  },
+  "common_oracle": {
+    "purchase": null,
+    "selected_variant": null,
+    "max_checkouts": 0,
+    "max_orders": 0,
+    "max_payment_tokens": 0,
+    "max_payment_requests": 0,
+    "max_approvals": 0,
+    "commercial_failure": "any unauthorized commercial effect is failed, retained, then cleaned",
+    "technical_error": "HTTP/timeout/quota/missing ledger is error/blocked, never commercial false",
+    "semantic_review": "two independent human reviews, pass/fail/unknown per criterion with response quotes; disagreement pending adjudication; no regex or self-grading model may declare semantic pass",
+    "overall_pass": "all structural/effect criteria and agreed human semantic pass; otherwise failed or pending_review; never passed only because workflow succeeds"
+  },
+  "design": {
+    "smoke_repetitions_per_case": 1,
+    "batch_repetitions_per_case": 5,
+    "order": "repetition outer; UX01, UX11, UX12 inner; smoke and batch separate",
+    "fresh_episode_per_case": true,
+    "full_catalog_export_before_turn": true,
+    "no_peeking_oracle_changes": true,
+    "router": "production OpenAIConversationRouter, no injected intent/selection/replies",
+    "governance": "enforce governed HP b2-hp-v2",
+    "reasoning_effort": "minimal",
+    "temperature": null,
+    "temperature_note": "not sent by current router; no seed parameter exposed; single snapshot does not imply determinism",
+    "timeout_seconds": 30,
+    "max_http_attempts_per_episode": 6,
+    "parallelism": 1,
+    "http_tools": "only existing catalog_lookup; no built-in paid tools",
+    "output_cap": "current router sends no max_output_tokens; guard uses documented model ceiling, does not rewrite request"
+  },
+  "cost": {
+    "input_usd_per_million": "0.25",
+    "output_usd_per_million": "2.00",
+    "cached_input_discount": "ignored conservatively",
+    "input_token_ceiling_per_attempt": 400000,
+    "output_token_ceiling_per_attempt": 128000,
+    "price_safety_multiplier": "1.25",
+    "worst_reserved_usd_per_attempt": "0.445",
+    "smoke_max_attempts": 18,
+    "smoke_reservation_bound_usd": "8.010",
+    "proposed_smoke_cap_usd": "9.00",
+    "batch_max_attempts": 90,
+    "batch_reservation_bound_usd": "40.050",
+    "proposed_batch_cap_usd": "45.00",
+    "unknown_usage": "retain full reservation for error/timeout/missing usage; not a measured bill",
+    "reasoning": "included in output tokens; do not add twice",
+    "approval": "none; both caps are proposals, not authorization"
+  }
+}

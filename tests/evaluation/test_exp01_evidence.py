@@ -163,7 +163,7 @@ def test_protocol_selection_requires_exact_controls_and_does_not_claim_other_mod
         )
 
 
-@pytest.mark.parametrize("scenario", ["AUTH-TRANSPORT", "UNREGISTERED-CONTROL"])
+@pytest.mark.parametrize("scenario", ["AUTH-TRANSPORT", "EXP06-INFRA", "UNREGISTERED-CONTROL"])
 def test_transport_validation_cannot_be_counted_as_p0(bundle, scenario):
     root, _, _, manifest = bundle
     plan = read(PLAN)
@@ -186,9 +186,9 @@ def test_transport_validation_cannot_be_counted_as_p0(bundle, scenario):
     assert result["p0_compatible_projection"]["passed"] == 0
     assert result["attributed_scenarios"] == {}
     assert result["minimum_plan_counts"] == {"not_executed": 37}
-    if scenario == "AUTH-TRANSPORT":
+    if scenario in {"AUTH-TRANSPORT", "EXP06-INFRA"}:
         assert result["validated"]
-        assert result["non_scenario_controls"] == {"AUTH-TRANSPORT": "passed"}
+        assert result["non_scenario_controls"] == {scenario: "passed"}
     else:
         assert not result["validated"]
         assert "unregistered_scenario_or_control" in result["issues"]
