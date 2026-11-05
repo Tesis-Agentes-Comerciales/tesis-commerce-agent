@@ -1,0 +1,56 @@
+{
+  "run": 41956029223,
+  "artifact_id": 13383146485,
+  "zip_sha256": "ccd93bbee11e23285164ac22d3c770089697b753095457c66a5d39b8b20f53e9",
+  "inner_hashes_verified": 27,
+  "sources": {
+    "agent": {
+      "sha": "3281a2d79ac807fd79965ac2f6a8c4a87bcaea23",
+      "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+    },
+    "merchant": {
+      "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+      "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+    },
+    "psp": {
+      "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+      "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+    }
+  },
+  "offline_guards": {
+    "passed": 73,
+    "failed": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "integration_control": {
+    "failed": 0,
+    "skipped": 0,
+    "error": 0,
+    "passed": 1
+  },
+  "infrastructure_validated_only": true,
+  "attributed_scenarios": {},
+  "semantic_statuses": {
+    "UX01": "not_executed",
+    "UX11": "not_executed",
+    "UX12": "not_executed"
+  },
+  "financial": {
+    "settled_attempts": 0,
+    "unknown_attempts": 6,
+    "known_usage_upper_cost_usd": "0",
+    "unknown_reserved_usd": "2.670",
+    "reservation_reconciled": true,
+    "billing_dashboard_reconciled": false
+  },
+  "all_six_wire_attempts_default_service_tier": true,
+  "all_inputs_frozen_before_first_attempt": true,
+  "effects_verified_zero": true,
+  "cleanup_verified": true,
+  "private_removed": true,
+  "real_provider_calls": 0,
+  "no_private_databases_or_receipts": true,
+  "secret_patterns_detected": 0,
+  "secret_scan_limitation": "pattern-based, not exhaustive"
+}
