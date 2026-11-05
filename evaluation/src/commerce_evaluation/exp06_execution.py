@@ -1,4 +1,4 @@
-"""Manual-only HP smoke. Default/CI never enables a paid provider."""
+"""Manual-only HP smoke or batch. Default/CI never enables a paid provider."""
 
 import argparse
 import hashlib
@@ -35,6 +35,7 @@ from commerce_evaluation.redaction import redact
 
 ORIGINAL_HASH = "bd813f2541546ddacb1bfd27fdd23f785477ecb95454fdf394b10e56491f2d2b"
 CASES = ("UX01", "UX11", "UX12")
+STAGES = ("smoke", "batch")
 
 
 def git(root: Path, *args: str) -> str:
@@ -46,17 +47,44 @@ def write(path: Path, value: Any) -> None:
     path.write_text(redact(json.dumps(value, indent=2, ensure_ascii=True)) + "\n", encoding="utf-8")
 
 
-def plan() -> dict[str, Any]:
+def limits(stage: str) -> dict[str, Any]:
+    """Repetitions, attempts and USD bounds of a stage, as exp06-hp.json registers them."""
+    if stage not in STAGES:
+        raise SpendingBlocked("stage_not_preregistered")
+    cost = protocol()["cost"]
+    attempts = cost[stage + "_max_attempts"]
+    per_attempt = (
+        cost["input_token_ceiling_per_attempt"] * Decimal(cost["input_usd_per_million"])
+        + cost["output_token_ceiling_per_attempt"] * Decimal(cost["output_usd_per_million"])
+    ) / 1_000_000
+    return {
+        "repetitions": protocol()["design"][stage + "_repetitions_per_case"],
+        "http_attempts_max": attempts,
+        "theoretical_upper_usd": str((attempts * per_attempt).quantize(Decimal("0.001"))),
+        "reserved_upper_usd": cost[stage + "_reservation_bound_usd"],
+        "proposed_cap_usd": cost["proposed_" + stage + "_cap_usd"],
+    }
+
+
+def schedule(stage: str = "smoke") -> list[tuple[str, str]]:
+    """(episode, case): repetition outer, UX01/UX11/UX12 inner. Smoke keeps the bare case IDs."""
+    return [
+        (case_id if stage == "smoke" else f"{case_id}-r{repetition}", case_id)
+        for repetition in range(1, limits(stage)["repetitions"] + 1)
+        for case_id in CASES
+    ]
+
+
+def plan(stage: str = "smoke") -> dict[str, Any]:
     return {
         "model": protocol()["model"],
         "mode": "HP",
+        "stage": stage,
         "service_tier": "default",
         "cases": list(CASES),
-        "repetitions": 1,
+        **limits(stage),
+        "order": [episode for episode, _ in schedule(stage)],
         "protocol_sha256": protocol_hash(),
-        "theoretical_upper_usd": "6.408",
-        "reserved_upper_usd": "8.010",
-        "proposed_cap_usd": "9.00",
         "authorized": False,
         "context": protocol()["context"],
         "semantic_status": "not_executed",
@@ -73,23 +101,27 @@ def approved_budget(budget: AttemptBudget) -> None:
     if not isinstance(budget, SmokeBudget) or budget.approval is None:
         raise SpendingBlocked("manual_receipt_claim_missing")
     claim = json.loads(Path(budget.approval["claim"]).read_text(encoding="utf-8"))
+    stage = budget.approval["stage"]
     if (
         claim["receipt_sha256"] != budget.approval["receipt_sha256"]
+        or claim["stage"] != stage
+        or budget.stage != stage
         or Decimal(claim["cap_usd"]) != budget.cap
-        or budget.max_attempts != 18
-        or budget.cap > Decimal("9")
+        or budget.max_attempts != limits(stage)["http_attempts_max"]
+        or budget.cap > Decimal(limits(stage)["proposed_cap_usd"])
         or protocol_hash() != ORIGINAL_HASH
         or git(ROOT, "rev-parse", "HEAD") != budget.approval["executor_sha"]
     ):
         raise SpendingBlocked("manual_claim_or_executed_scope_changed")
 
 
-def authorize(receipt: Path | None, output: Path) -> AttemptBudget:
+def authorize(receipt: Path | None, output: Path, stage: str = "smoke") -> AttemptBudget:
     # Before environment credentials, services, imports of POSIX helpers or any request.
     if receipt is None:
         raise SpendingBlocked("manual_explicit_authorization_required_outside_CI")
     if protocol_hash() != ORIGINAL_HASH:
         raise SpendingBlocked("historical_protocol_changed")
+    registered_cap = Decimal(limits(stage)["proposed_cap_usd"])
     data = json.loads(receipt.read_text(encoding="utf-8"))
     if os.environ.get("GITHUB_ACTIONS") == "true":
         from commerce_evaluation.exp06_actions import matches_dispatch
@@ -100,7 +132,7 @@ def authorize(receipt: Path | None, output: Path) -> AttemptBudget:
             )
     if (
         data.get("authorized") is not True
-        or data.get("stage") != "smoke"
+        or data.get("stage") != stage
         or data.get("executor_sha") != git(ROOT, "rev-parse", "HEAD")
         or data.get("billing_project_confirmed") is not True
         or data.get("standard_pricing_confirmed") is not True
@@ -116,8 +148,8 @@ def authorize(receipt: Path | None, output: Path) -> AttemptBudget:
         data["human_reference"],
     )
     budget = SmokeBudget(auth)
-    if budget.cap > Decimal("9"):
-        raise SpendingBlocked("smoke_cap_exceeds_registered_proposal")
+    if budget.cap > registered_cap:
+        raise SpendingBlocked(stage + "_cap_exceeds_registered_proposal")
     common = Path(git(ROOT, "rev-parse", "--git-common-dir"))
     if not common.is_absolute():
         common = ROOT / common
@@ -135,6 +167,7 @@ def authorize(receipt: Path | None, output: Path) -> AttemptBudget:
                         "receipt_sha256": hashlib.sha256(receipt.read_bytes()).hexdigest(),
                         "output": str(output.resolve()),
                         "cap_usd": str(budget.cap),
+                        "stage": stage,
                     }
                 )
             )
@@ -149,6 +182,7 @@ def authorize(receipt: Path | None, output: Path) -> AttemptBudget:
         "authorization_id_sha256": hashlib.sha256(
             str(data["authorization_id"]).encode()
         ).hexdigest(),
+        "stage": stage,
     }
     return budget
 
@@ -406,6 +440,7 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
 
     approved_budget(budget)
     provenance = sources()
+    stage, order = budget.stage, schedule(budget.stage)
     output.mkdir(parents=True, exist_ok=False)
     public = output / "evidence"
     public.mkdir()
@@ -413,7 +448,7 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
     private = Path(private_workspace.name)
     journal = Journal(public / "attempts.jsonl")
     summary: dict[str, Any] = {
-        "plan": plan(),
+        "plan": plan(stage),
         "sources": provenance,
         "cases": {},
         "cleanup_verified": False,
@@ -423,7 +458,7 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
     write(
         public / "execution-manifest.json",
         {
-            "plan": plan(),
+            "plan": plan(stage),
             "sources": provenance,
             "effective_cap_usd": str(budget.cap),
             "execution_authorized": not budget.infrastructure_only,
@@ -440,13 +475,14 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
         lane.start()
         lane.proxy.routes |= {("POST", "/checkout_sessions/*/cancel")}
         episodes = {}
-        # All three frozen before any router exists or provider request can be sent.
-        for case_id in CASES:
-            episode = lane.episode("exp06-" + case_id)
-            episodes[case_id] = episode
+        # Every episode frozen before any router exists or provider request can be sent.
+        for episode_id, case_id in order:
+            episode = lane.episode("exp06-" + episode_id)
+            episodes[episode_id] = episode
             write(
-                public / (case_id + "-frozen.json"),
+                public / (episode_id + "-frozen.json"),
                 {
+                    "episode": episode_id,
                     "protocol_sha256": ORIGINAL_HASH,
                     "messages": messages(case_id),
                     "oracle": protocol()["cases"][case_id],
@@ -467,13 +503,13 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
             hashlib.sha256((e.feed / "products.jsonl").read_bytes()).hexdigest()
             for e in episodes.values()
         }
-        if len(frozen_files) != 3 or len(product_hashes) != 1:
+        if len(frozen_files) != len(order) or len(product_hashes) != 1:
             raise SpendingBlocked("full_catalog_or_episode_equivalence_not_demonstrated")
         summary["catalog_products_sha256"] = next(iter(product_hashes))
         with protected_models(budget, journal):
-            for case_id in CASES:
-                episode = episodes[case_id]
-                directory = private / case_id
+            for episode_id, case_id in order:
+                episode = episodes[episode_id]
+                directory = private / episode_id
                 directory.mkdir()
                 port = free_port()
                 origin = f"http://127.0.0.1:{port}"
@@ -493,10 +529,14 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
                     "/api/auth/jwks",
                 )
                 server = None
-                row: dict[str, Any] = {"status": "error", "commercial_truth": "unknown"}
-                summary["cases"][case_id] = row
+                row: dict[str, Any] = {
+                    "scenario": case_id,
+                    "status": "error",
+                    "commercial_truth": "unknown",
+                }
+                summary["cases"][episode_id] = row
                 before, psp = observe(lane, episode), sqlite_snapshot(lane.root / "payments.sqlite")
-                journal.case_id = case_id
+                journal.case_id = episode_id
                 budget.begin_episode()
                 try:
                     with pytest.MonkeyPatch.context() as environment:
@@ -528,7 +568,7 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
                             server.origin,
                             "/conversation/turn",
                             {
-                                "turn_id": "exp06-" + case_id,
+                                "turn_id": "exp06-" + episode_id,
                                 "messages": messages(case_id),
                                 "details": DETAILS,
                             },
@@ -620,7 +660,10 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
                         if row["status"] == "error"
                         else "pending_human_semantic_review"
                     )
-                    write(public / (case_id + "-review.json"), review_template(case_id))
+                    write(
+                        public / (episode_id + "-review.json"),
+                        {"episode": episode_id, **review_template(case_id)},
+                    )
                 finally:
                     if server is not None:
                         server.stop()
@@ -643,13 +686,14 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
                         and auth_server.process is None
                     )
                     row["psp_after_cleanup"] = sqlite_snapshot(lane.root / "payments.sqlite")
-                    write(public / (case_id + "-observed.json"), row)
+                    write(public / (episode_id + "-observed.json"), row)
                 if not budget.infrastructure_only and row["status"] != "pending_review":
                     break
     finally:
-        for case_id in CASES:
+        for episode_id, case_id in order:
             summary["cases"].setdefault(
-                case_id, {"status": "not_executed", "reason": "earlier_stop"}
+                episode_id,
+                {"scenario": case_id, "status": "not_executed", "reason": "earlier_stop"},
             )
         try:
             if lane is not None:
@@ -715,7 +759,7 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
             )
         )
         write(public / "summary.json", summary)
-        suite = ET.Element("testsuite", name="EXP06-smoke-technical", tests="3")
+        suite = ET.Element("testsuite", name=f"EXP06-{stage}-technical", tests=str(len(order)))
         for case_id, result in summary["cases"].items():
             case = ET.SubElement(suite, "testcase", name=case_id)
             # Semantic pending is NEVER encoded as a successful testcase.
@@ -752,23 +796,26 @@ def main() -> None:
     group.add_argument("--execute", action="store_true")
     group.add_argument("--check-account", action="store_true")
     parser.add_argument("--authorization", type=Path)
-    parser.add_argument("--output", type=Path, default=ROOT / ".local/exp06-smoke")
+    parser.add_argument("--stage", choices=STAGES, default="smoke")
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    args.output = args.output or ROOT / (".local/exp06-" + args.stage)
     if args.check_account:
         print(json.dumps(check_account(), indent=2))
     elif args.execute:
         if args.authorization is not None:
             require_live_host()
-        budget = authorize(args.authorization, args.output)
+        budget = authorize(args.authorization, args.output, args.stage)
         if not os.environ.get("OPENAI_API_KEY"):
             raise SpendingBlocked("environment_API_credential_missing")
+        bounds = limits(args.stage)
         print(
             json.dumps(
                 {
                     "effective_cap_usd": str(budget.cap),
-                    "theoretical_upper_usd": "6.408",
-                    "reservation_upper_usd": "8.010",
-                    "http_attempts_max": 18,
+                    "theoretical_upper_usd": bounds["theoretical_upper_usd"],
+                    "reservation_upper_usd": bounds["reserved_upper_usd"],
+                    "http_attempts_max": bounds["http_attempts_max"],
                 }
             ),
             flush=True,
@@ -792,7 +839,7 @@ def main() -> None:
         ):
             raise SystemExit(2)
     else:
-        print(json.dumps(plan(), indent=2))
+        print(json.dumps(plan(args.stage), indent=2))
 
 
 if __name__ == "__main__":

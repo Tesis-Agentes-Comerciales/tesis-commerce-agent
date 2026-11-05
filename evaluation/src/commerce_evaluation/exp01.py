@@ -11,6 +11,7 @@ import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 from xml.etree import ElementTree as ET
 
 from .scenarios_p0 import count_plan, planned_cells
@@ -93,6 +94,39 @@ def preflight(plan_path: Path = PLAN) -> dict[str, Any]:
     except (KeyError, OSError, ValueError, subprocess.SubprocessError) as error:
         result["reason"] = str(error) if isinstance(error, ValueError) else type(error).__name__
     return result
+
+
+def native_inf31_verified(observations: dict[str, Any]) -> bool:
+    """Corroborate the native outage independently of pytest's terminal status."""
+    try:
+        before = observations["merchant_before"]
+        psp = observations["psp_before"]
+        return bool(
+            observations["postgres_before"] is True
+            and observations["postgres_before_forward"] is False
+            and observations["postgres_during_response"] is False
+            and observations["postgres_restored"] is True
+            and observations["create_posts"] == 1
+            and observations["proxy_fault"] == "pass"
+            and observations["upstream_answered"] is True
+            and observations["merchant_http_status"] == 503
+            and observations["merchant_error_code"] == "lab_session_store_unavailable"
+            and UUID(observations["merchant_request_id"]).version == 4
+            and observations["agent_result"] == "d1_dispatch_uncertain"
+            and observations["agent_state"][0][:2] == ["uncertain", None]
+            and observations["operation_state"] == [["uncertain"]]
+            and observations["recovery"]["reason"] == "NOT_FOUND_NOT_ABSENCE"
+            and before["checkouts"] == observations["after_cleanup"]["checkouts"] == []
+            and "request_observations" in before["tables"]
+            and before == observations["merchant_after"]
+            and isinstance(psp, dict)
+            and psp
+            and psp == observations["psp_after"] == observations["psp_after_cleanup"]
+            and observations["agent_effect_counts"]
+            == dict.fromkeys(("approvals", "orders", "completion_results"), 0)
+        )
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return False
 
 
 def report(
@@ -197,6 +231,13 @@ def report(
         required = set(cases[case_id].get("required_observations", required))
         if row.get("status") == "passed" and not required <= observations.keys():
             problems.append("independent_observations_missing:" + case_id)
+        if (
+            plan.get("schema") == "inf31-hp-reassessment/1"
+            and case_id == "INF31:merchant_503"
+            and row.get("status") == "passed"
+            and not native_inf31_verified(observations)
+        ):
+            problems.append("native_inf31_outage_not_verified")
         records[case_id] = row
     controls = {
         key: records.get(

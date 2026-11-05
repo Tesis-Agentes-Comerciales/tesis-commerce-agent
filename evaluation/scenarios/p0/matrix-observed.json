@@ -189,17 +189,25 @@
     "INF31": {
       "modes": {
         "HP": {
-          "status": "blocked",
-          "coverage": "incomplete",
-          "scope": "Cinco controles aprobados; el control de indisponibilidad de PostgreSQL produjo 500 y quedó uncertain.",
-          "limitation": "Falta 503 nativo prerregistrado. El 503 del proxy no cierra la brecha.",
-          "run_id": 41846571407,
-          "prior_attempts": [
-            41841403584,
-            41842063615,
-            41842686257,
-            41845792685
-          ]
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Seis controles HP en preparación D1. PostgreSQL detenido produjo 503 nativo de Merchant; el Agent quedó uncertain y reconcilió sin reenviar ni tratar not_found como ausencia.",
+          "limitation": "Flujo de preparación con SKU observado, sin HNP, conversación, aprobación, orden ni pago. La negativa TCP medida no cubre todas las causas de indisponibilidad.",
+          "run_id": 42096081220,
+          "prior_attempts": [],
+          "historical_observation": {
+            "status": "blocked",
+            "coverage": "incomplete",
+            "scope": "Cinco controles aprobados; el control de indisponibilidad de PostgreSQL produjo 500 y quedó uncertain.",
+            "limitation": "Falta 503 nativo prerregistrado. El 503 del proxy no cierra la brecha.",
+            "run_id": 41846571407,
+            "prior_attempts": [
+              41841403584,
+              41842063615,
+              41842686257,
+              41845792685
+            ]
+          }
         }
       }
     },
@@ -814,6 +822,31 @@
       },
       "gate": true,
       "note": "Transporte autenticado; UX01/UX11/UX12 semánticos no ejecutados."
+    },
+    "42096081220": {
+      "experiment": "EXP-08",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42096081220",
+      "conclusion": "success",
+      "sources": {
+        "agent": "3e724f2ed7c33b4f9f167181cdc1c1943e6324f3",
+        "merchant": "5db4bd5da814fc621be7b1caf067eaa88e6a1a67",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp08-inf31-hp.json",
+      "protocol_sha256": "bfe8a97bd5f49949c378528f05ffa563c027ce8fe10aa6eae818a622723d5c8b",
+      "archive": "evaluation/results/exp-08-inf31-hp/runs/42096081220.zip",
+      "sha256": "121b8d9a09144d0bbc115365cc724d9a2429d042742dae6f15be5a3d39f5c245",
+      "checksum_index": "evaluation/results/exp-08-inf31-hp/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "skipped": 0,
+        "error": 0,
+        "passed": 6
+      },
+      "gate": true,
+      "note": "Seis controles HP, incluido el 503 nativo, con restauración verificada y cero efectos comerciales no autorizados. La medición histórica EXP-01 sigue bloqueada."
     }
   },
   "local_runs": {

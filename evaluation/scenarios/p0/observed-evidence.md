@@ -17,10 +17,10 @@ por separado.
 
 | Estado observado | Escenarios distintos | Pares escenario–modo |
 | --- | ---: | ---: |
-| `passed` dentro del alcance medido | 13 | 19 |
+| `passed` dentro del alcance medido | 14 | 20 |
 | `partial` con evidencia positiva de una fase | 3 | 3 |
 | `failed` del escenario | 0 | 0 |
-| `blocked` con medición incompleta | 1 | 1 |
+| `blocked` con medición incompleta | 0 | 0 |
 | `harness_error` como resultado primario | 0 | 0 |
 | `not_applicable` | 1 | 1 |
 | `not_executed` | 16 sin ejecución en ningún modo | 32 |
@@ -55,7 +55,7 @@ AUTH-TRANSPORT valida infraestructura y queda fuera del conteo P0.
 | INF29 | HP | Aprobado en alcance | Conexión caída en la selección: `unreachable`, sin selección ni efectos. Caída guionada y router sin streaming. | [Corrida local 2](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/tree/a129d36df15e3032c3ad88fc0364e6ede310e1b6/evaluation/results/p0-model-failures) |
 | INF29 | HNP | Aprobado en alcance | Conexión caída antes del selector: `selection_unavailable`, nunca `selection_not_eligible`, cero efectos. Caída guionada y Agent HNP en el proceso de pruebas. | [Corrida local 2](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/tree/a129d36df15e3032c3ad88fc0364e6ede310e1b6/evaluation/results/p0-model-failures) |
 | INF30 | HP | Aprobado en alcance | Pérdida de respuesta tras creación aceptada, reconciliación del mismo checkout y sin segundo POST. Sin evaluar toda la UX de recuperación. | [EXP-01](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41846571407) |
-| INF31 | HP | Bloqueado | Cinco controles aprobados. El fallo de PostgreSQL devolvió 500 nativo en lugar de 503, y Agent quedó uncertain. | [EXP-01](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41846571407) |
+| INF31 | HP | Aprobado en alcance | Seis controles HP en preparación D1: 503 nativo del Merchant, Agent uncertain y reconciliado sin reenviar. Sin HNP, aprobación, orden ni pago. El bloqueo de EXP-01 se conserva como observación histórica. | [EXP-08](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42096081220) |
 | INF33 | HP | No aplica | HP no tiene revisor LLM. El comprador aprueba. Fuera del denominador medible, sin atribución de ejecución. | [Especificación §4](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/blob/cd6d39fcc198f1a8e3bf9a7c4ffaebbd23c1af83/docs/design/p0-model-failures.md#4-celdas-y-oráculos) |
 | INF33 | HNP | Aprobado en alcance | Revisor con timeout (a) o JSON fuera de contrato (b): `choice_not_confirmed`, ninguna revisión confirmada, compra cancelada sin checkout, cero efectos. Fallos guionados y Agent HNP en el proceso de pruebas. | [Corrida local 2](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/tree/a129d36df15e3032c3ad88fc0364e6ede310e1b6/evaluation/results/p0-model-failures) |
 | UX08 | HP | Aprobado en alcance | De A a B antes de aprobar: con A pendiente no corre el modelo; tras cancelar A, B es una compra nueva con su huella; aprobar B con la huella de A da 409 y no hay pago. «Actualizar propuesta» son dos pasos (D1). Modelo guionado. | [Corrida local](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/tree/0c86c5e57d9c0483aa53bb56f576abf465c5f9a1/evaluation/results/p0-ux08-ux10) |

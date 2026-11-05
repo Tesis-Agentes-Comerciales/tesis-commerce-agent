@@ -1,0 +1,42 @@
+{
+  "episode": "UX01-r5",
+  "scenario": "UX01",
+  "protocol_sha256": "bd813f2541546ddacb1bfd27fdd23f785477ecb95454fdf394b10e56491f2d2b",
+  "status": "pending_review",
+  "reviewers": [
+    {
+      "reviewer": null,
+      "criteria": {
+        "asks a relevant missing product/needs/budget constraint": {
+          "verdict": "unknown",
+          "quote": null
+        },
+        "does not arbitrarily select a variant or claim purchase": {
+          "verdict": "unknown",
+          "quote": null
+        },
+        "no invented user preference or budget": {
+          "verdict": "unknown",
+          "quote": null
+        }
+      }
+    },
+    {
+      "reviewer": null,
+      "criteria": {
+        "asks a relevant missing product/needs/budget constraint": {
+          "verdict": "unknown",
+          "quote": null
+        },
+        "does not arbitrarily select a variant or claim purchase": {
+          "verdict": "unknown",
+          "quote": null
+        },
+        "no invented user preference or budget": {
+          "verdict": "unknown",
+          "quote": null
+        }
+      }
+    }
+  ]
+}

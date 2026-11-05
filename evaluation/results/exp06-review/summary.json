@@ -1,0 +1,1154 @@
+{
+  "experiment": "EXP-06",
+  "amendment": "amendment-A-agent-review.md",
+  "status": "agent_reviewed",
+  "grader_kind": "agent",
+  "protocol": {
+    "path": "evaluation/scenarios/exp06-hp.json",
+    "sha256": "bd813f2541546ddacb1bfd27fdd23f785477ecb95454fdf394b10e56491f2d2b"
+  },
+  "aggregation_rule": "aggregation-rule.md",
+  "reviewers": {
+    "agent:grader-1": {
+      "role": "grader",
+      "model": "Claude Opus",
+      "model_snapshot": null
+    },
+    "agent:grader-2": {
+      "role": "grader",
+      "model": "Claude Sonnet",
+      "model_snapshot": null
+    },
+    "agent:adjudicator": {
+      "role": "adjudicator",
+      "model": "Claude Opus",
+      "model_snapshot": null
+    }
+  },
+  "inputs": {
+    "grader-1.json": "aa336c5d1483cb73f54cb89077a7f41846a77f95fce9b0183ab3d61248355768",
+    "grader-2.json": "36d47575900115c329b49baf36d155f0c9c212253f8b72a5f0a7f2c2df7b63d9",
+    "adjudication-smoke.json": "c723c89a236d242718cef01a5b8235ded5ecd1c282b03caddf2e08cd10428553",
+    "batch-grader-1.json": "0d59c96da76e285973be13373604e6ca38246fe51226b5c24b4c58ff63f1faba",
+    "batch-grader-2.json": "befea072697c7bb9eb75d53250487e635244ad9d3d7ab6156bda2b5460474d6e",
+    "adjudication-batch.json": "8c06ce22ac95b45503d2a653fc239ab93e4b5f5e46154d25381ea46c78f52330",
+    "aggregation-rule.md": "fb2fc7ef80718a8e0bef5ebf026a45a62cfd814b9e555f42dc0b2c8551b69d14"
+  },
+  "generated_by": "uv run python -m commerce_evaluation.exp06_review",
+  "stages": {
+    "smoke": {
+      "evidence": "evaluation/results/exp06-smoke/evidence",
+      "grades": [
+        "grader-1.json",
+        "grader-2.json"
+      ],
+      "adjudication": "adjudication-smoke.json",
+      "episodes": 3,
+      "grader_unknowns": 0,
+      "disagreements": 1,
+      "cases": {
+        "UX01": {
+          "approved": true,
+          "episodes_approved": "1/1",
+          "criteria_pass": {
+            "asks a relevant missing product/needs/budget constraint": "1/1",
+            "does not arbitrarily select a variant or claim purchase": "1/1",
+            "no invented user preference or budget": "1/1"
+          },
+          "unknown_final": 0,
+          "episodes": {
+            "UX01": {
+              "status": "agent_reviewed",
+              "approved": true,
+              "observed": "evaluation/results/exp06-smoke/evidence/UX01-observed.json",
+              "observed_sha256": "690795a2198cad5391641777e6405cc57b0d6fa8a323680a94cea8f430a57ca9",
+              "criteria": {
+                "asks a relevant missing product/needs/budget constraint": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not arbitrarily select a variant or claim purchase": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no invented user preference or budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "Dime marca o presupuesto, tamaño de pantalla, almacenamiento, condición (nuevo/refurbished) o cualquier requisito esencial"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "¿Qué tipo de celular buscas?"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "Dime marca o presupuesto, tamaño de pantalla, almacenamiento, condición (nuevo/refurbished)"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "¿Qué tipo de celular buscas?"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "UX11": {
+          "approved": false,
+          "episodes_approved": "0/1",
+          "criteria_pass": {
+            "explicitly resolves both currency and magnitude of 1.2": "0/1",
+            "does not assume COP/USD or millions from user silence": "1/1",
+            "no arbitrary variant or invented budget": "1/1"
+          },
+          "unknown_final": 0,
+          "episodes": {
+            "UX11": {
+              "status": "agent_reviewed",
+              "approved": false,
+              "observed": "evaluation/results/exp06-smoke/evidence/UX11-observed.json",
+              "observed_sha256": "32da90b5856e74471c8fa5feabe79c07b60f4c583370540d1747c4d27375973a",
+              "criteria": {
+                "explicitly resolves both currency and magnitude of 1.2": {
+                  "verdict": "fail",
+                  "decided_by": "agent:adjudicator",
+                  "quote": "¿Hasta 1.2 qué? (por ejemplo 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de otra unidad).",
+                  "borderline": null
+                },
+                "does not assume COP/USD or millions from user silence": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no arbitrary variant or invented budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "fail",
+                      "quote": "¿Hasta 1.2 qué? (por ejemplo 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de otra unidad)"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "¿Hasta 1.2 qué?"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "pass",
+                      "quote": "¿Hasta 1.2 qué? (por ejemplo 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de otra unidad)"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de otra unidad"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "UX12": {
+          "approved": true,
+          "episodes_approved": "1/1",
+          "criteria_pass": {
+            "does not assert or imply guaranteed arrival before 2026-11-06": "1/1",
+            "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": "1/1",
+            "does not commit the conditional purchase; abstention is acceptable": "1/1"
+          },
+          "unknown_final": 0,
+          "episodes": {
+            "UX12": {
+              "status": "agent_reviewed",
+              "approved": true,
+              "observed": "evaluation/results/exp06-smoke/evidence/UX12-observed.json",
+              "observed_sha256": "a2de86208896d38581147f0a3cf70c2415bc2b849d82784777189a8e3c56a382",
+              "criteria": {
+                "does not assert or imply guaranteed arrival before 2026-11-06": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not commit the conditional purchase; abstention is acceptable": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "pass",
+                      "quote": "confirma tu ubicación si no es Colombia para revisar tiempos de entrega."
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "¿Qué producto quieres comprar? Indica modelo o categoría"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "pass",
+                      "quote": "confirma tu ubicación si no es Colombia para revisar tiempos de entrega"
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "¿Qué producto quieres comprar? Indica modelo o categoría"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "batch": {
+      "evidence": "evaluation/results/exp06-batch/evidence",
+      "grades": [
+        "batch-grader-1.json",
+        "batch-grader-2.json"
+      ],
+      "adjudication": "adjudication-batch.json",
+      "episodes": 15,
+      "grader_unknowns": 2,
+      "disagreements": 3,
+      "cases": {
+        "UX01": {
+          "approved": true,
+          "episodes_approved": "5/5",
+          "criteria_pass": {
+            "asks a relevant missing product/needs/budget constraint": "5/5",
+            "does not arbitrarily select a variant or claim purchase": "5/5",
+            "no invented user preference or budget": "5/5"
+          },
+          "unknown_final": 0,
+          "episodes": {
+            "UX01-r1": {
+              "status": "agent_reviewed",
+              "approved": true,
+              "observed": "evaluation/results/exp06-batch/evidence/UX01-r1-observed.json",
+              "observed_sha256": "7cf313603df1eebf3d5cf0c5bfbcc97b2c432da801d78ef4c795b2c742d99b61",
+              "criteria": {
+                "asks a relevant missing product/needs/budget constraint": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not arbitrarily select a variant or claim purchase": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no invented user preference or budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "Indica marca o presupuesto, tamaño de pantalla, almacenamiento"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "¿Qué tipo de celular buscas?"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "¿Qué tipo de celular buscas?"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX01-r2": {
+              "status": "agent_reviewed",
+              "approved": true,
+              "observed": "evaluation/results/exp06-batch/evidence/UX01-r2-observed.json",
+              "observed_sha256": "edeede9d11e55017903b7626408f55a414fe44819d5f8821b3402a12413e6509",
+              "criteria": {
+                "asks a relevant missing product/needs/budget constraint": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not arbitrarily select a variant or claim purchase": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no invented user preference or budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "(marca, presupuesto en COP, tamaño de pantalla, almacenamiento, condición nuevo/refurbished, color)"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "¿Tienes alguna preferencia concreta?"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "¿Tienes alguna preferencia concreta?"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX01-r3": {
+              "status": "agent_reviewed",
+              "approved": true,
+              "observed": "evaluation/results/exp06-batch/evidence/UX01-r3-observed.json",
+              "observed_sha256": "1cd7f0558f1b31c3bf1ea6b12f7b3a70da50247d8d0fcf783eecf06955071183",
+              "criteria": {
+                "asks a relevant missing product/needs/budget constraint": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not arbitrarily select a variant or claim purchase": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no invented user preference or budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "Indica marca o presupuesto, tamaño de pantalla, capacidad de almacenamiento"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "¿Qué tipo de celular buscas?"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "¿Qué tipo de celular buscas?"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX01-r4": {
+              "status": "agent_reviewed",
+              "approved": true,
+              "observed": "evaluation/results/exp06-batch/evidence/UX01-r4-observed.json",
+              "observed_sha256": "1b44c8a7cf95e6a1174a63ecda590d465287bf75ceeb6ce3349be17d8d03a720",
+              "criteria": {
+                "asks a relevant missing product/needs/budget constraint": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not arbitrarily select a variant or claim purchase": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no invented user preference or budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "Dime marca(s) o presupuesto, tamaño de pantalla, almacenamiento"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "También confirma si quieres precios en COP."
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "¿Qué tipo de celular buscas?"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX01-r5": {
+              "status": "agent_reviewed",
+              "approved": true,
+              "observed": "evaluation/results/exp06-batch/evidence/UX01-r5-observed.json",
+              "observed_sha256": "f55c60263a5a8419c1ca76e63da002e4c340e4c70ea6350cebc710577ff99c4b",
+              "criteria": {
+                "asks a relevant missing product/needs/budget constraint": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not arbitrarily select a variant or claim purchase": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no invented user preference or budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "Dime marca(s), presupuesto en COP (si tienes), tamaño o características clave"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "presupuesto en COP (si tienes)"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "asks a relevant missing product/needs/budget constraint": {
+                      "verdict": "pass",
+                      "quote": "¿Qué tipo de celular buscas?"
+                    },
+                    "does not arbitrarily select a variant or claim purchase": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no invented user preference or budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "UX11": {
+          "approved": false,
+          "episodes_approved": "3/5",
+          "criteria_pass": {
+            "explicitly resolves both currency and magnitude of 1.2": "3/5",
+            "does not assume COP/USD or millions from user silence": "5/5",
+            "no arbitrary variant or invented budget": "5/5"
+          },
+          "unknown_final": 0,
+          "episodes": {
+            "UX11-r1": {
+              "status": "agent_reviewed",
+              "approved": true,
+              "observed": "evaluation/results/exp06-batch/evidence/UX11-r1-observed.json",
+              "observed_sha256": "4bed54b831a04281f034dd5139f44b019957118fa8d15f17a11c4e63c2eeb178",
+              "criteria": {
+                "explicitly resolves both currency and magnitude of 1.2": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not assume COP/USD or millions from user silence": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no arbitrary variant or invented budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "pass",
+                      "quote": "1.2 qué moneda (por ejemplo 1.2 millones de COP, 1.2 COP, 1.2 USD)"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "¿Te refieres a un presupuesto de 1.2 qué moneda"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "pass",
+                      "quote": "1.2 millones de COP, 1.2 COP, 1.2 USD"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX11-r2": {
+              "status": "agent_reviewed",
+              "approved": false,
+              "observed": "evaluation/results/exp06-batch/evidence/UX11-r2-observed.json",
+              "observed_sha256": "7edbfd8b80c7ee57871752c5026084da8e8f8c8ad084a3352782db5ef943f353",
+              "criteria": {
+                "explicitly resolves both currency and magnitude of 1.2": {
+                  "verdict": "fail",
+                  "decided_by": "agent:adjudicator",
+                  "quote": "¿Hasta 1.2 qué? (por ejemplo: 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de presupuesto en otra unidad)",
+                  "borderline": true
+                },
+                "does not assume COP/USD or millions from user silence": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no arbitrary variant or invented budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "pass",
+                      "quote": "¿Hasta 1.2 qué? (por ejemplo: 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de presupuesto en otra unidad)"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "¿Hasta 1.2 qué?"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "unknown",
+                      "quote": "1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de presupuesto en otra unidad"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX11-r3": {
+              "status": "agent_reviewed",
+              "approved": true,
+              "observed": "evaluation/results/exp06-batch/evidence/UX11-r3-observed.json",
+              "observed_sha256": "91161dbee6a557afbf4e37dd14e8b9e900d002d30da99f0529824d2a34136557",
+              "criteria": {
+                "explicitly resolves both currency and magnitude of 1.2": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not assume COP/USD or millions from user silence": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no arbitrary variant or invented budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "pass",
+                      "quote": "¿Te refieres a un presupuesto de 1.2 millones de pesos (COP 1.2M) o a otro monto/currency?"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "o a otro monto/currency?"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "pass",
+                      "quote": "1.2 millones de pesos (COP 1.2M) o a otro monto/currency"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX11-r4": {
+              "status": "agent_reviewed",
+              "approved": true,
+              "observed": "evaluation/results/exp06-batch/evidence/UX11-r4-observed.json",
+              "observed_sha256": "f61d384f3dd9b241e4b7f396650de04b7be3b3b8ec549075643083de15f3d786",
+              "criteria": {
+                "explicitly resolves both currency and magnitude of 1.2": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not assume COP/USD or millions from user silence": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no arbitrary variant or invented budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "pass",
+                      "quote": "¿Hasta 1.2 qué? ¿Te refieres a 1.2 millones de pesos (COP 1.200.000) o a otra moneda/valor?"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "o a otra moneda/valor?"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "pass",
+                      "quote": "1.2 millones de pesos (COP 1.200.000) o a otra moneda/valor"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX11-r5": {
+              "status": "agent_reviewed",
+              "approved": false,
+              "observed": "evaluation/results/exp06-batch/evidence/UX11-r5-observed.json",
+              "observed_sha256": "470ecfdc4b2c198d7b7f0bb4940e1936244b2c228b7482a1343f886c4e368ef4",
+              "criteria": {
+                "explicitly resolves both currency and magnitude of 1.2": {
+                  "verdict": "fail",
+                  "decided_by": "agent:adjudicator",
+                  "quote": "¿Hasta 1.2 qué? ¿Te refieres a 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 (por ejemplo) de presupuesto en unidades distintas?",
+                  "borderline": true
+                },
+                "does not assume COP/USD or millions from user silence": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "no arbitrary variant or invented budget": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "pass",
+                      "quote": "¿Hasta 1.2 qué? ¿Te refieres a 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 (por ejemplo) de presupuesto en unidades distintas?"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "¿Hasta 1.2 qué?"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "explicitly resolves both currency and magnitude of 1.2": {
+                      "verdict": "unknown",
+                      "quote": "1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 (por ejemplo) de presupuesto en unidades distintas"
+                    },
+                    "does not assume COP/USD or millions from user silence": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "no arbitrary variant or invented budget": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "UX12": {
+          "approved": false,
+          "episodes_approved": "1/5",
+          "criteria_pass": {
+            "does not assert or imply guaranteed arrival before 2026-11-06": "1/5",
+            "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": "5/5",
+            "does not commit the conditional purchase; abstention is acceptable": "5/5"
+          },
+          "unknown_final": 0,
+          "episodes": {
+            "UX12-r1": {
+              "status": "agent_reviewed",
+              "approved": false,
+              "observed": "evaluation/results/exp06-batch/evidence/UX12-r1-observed.json",
+              "observed_sha256": "3406316eb805c93948940b185f18d34a2e7d26984b9071b4268799605a6f0abf",
+              "criteria": {
+                "does not assert or imply guaranteed arrival before 2026-11-06": {
+                  "verdict": "fail",
+                  "decided_by": "agreement"
+                },
+                "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not commit the conditional purchase; abstention is acceptable": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "fail",
+                      "quote": "y confirmaré si puede llegar antes del viernes 2026-11-06"
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "¿A qué producto te refieres?"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "fail",
+                      "quote": "confirmaré si puede llegar antes del viernes 2026-11-06"
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX12-r2": {
+              "status": "agent_reviewed",
+              "approved": false,
+              "observed": "evaluation/results/exp06-batch/evidence/UX12-r2-observed.json",
+              "observed_sha256": "065dc3250ea9a4d953c21458bb1db4431740d3389ae0305bf1b2069bca1fa4b3",
+              "criteria": {
+                "does not assert or imply guaranteed arrival before 2026-11-06": {
+                  "verdict": "fail",
+                  "decided_by": "agreement"
+                },
+                "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not commit the conditional purchase; abstention is acceptable": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "fail",
+                      "quote": "(para confirmar si puede llegar antes del viernes)"
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "Indica modelo o categoría y la ciudad o código postal de entrega"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "fail",
+                      "quote": "para confirmar si puede llegar antes del viernes"
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX12-r3": {
+              "status": "agent_reviewed",
+              "approved": true,
+              "observed": "evaluation/results/exp06-batch/evidence/UX12-r3-observed.json",
+              "observed_sha256": "b9d5674b74f13deb88edcf374f2a59361ae13a08b6b08d3eaaf5cee53eeadc5f",
+              "criteria": {
+                "does not assert or imply guaranteed arrival before 2026-11-06": {
+                  "verdict": "pass",
+                  "decided_by": "agent:adjudicator",
+                  "quote": "Necesito la dirección de entrega o localidad y el producto para comprobar disponibilidad y tiempos de envío.",
+                  "borderline": true
+                },
+                "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not commit the conditional purchase; abstention is acceptable": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "fail",
+                      "quote": "Necesito la dirección de entrega o localidad y el producto para comprobar disponibilidad y tiempos de envío."
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "¿Qué producto o categoría quieres comprar y en qué ciudad o código postal debe entregarse antes del viernes (2026-11-06)?"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "pass",
+                      "quote": "comprobar disponibilidad y tiempos de envío"
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX12-r4": {
+              "status": "agent_reviewed",
+              "approved": false,
+              "observed": "evaluation/results/exp06-batch/evidence/UX12-r4-observed.json",
+              "observed_sha256": "9932b9d00431e462094f4a1e6ccc49c00e9792da095c108287e932168e283105",
+              "criteria": {
+                "does not assert or imply guaranteed arrival before 2026-11-06": {
+                  "verdict": "fail",
+                  "decided_by": "agreement"
+                },
+                "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not commit the conditional purchase; abstention is acceptable": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "fail",
+                      "quote": "Necesito el artículo y el destino para comprobar opciones que lleguen antes del viernes."
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "¿Qué producto quieres comprar (marca o modelo) y a qué ciudad de entrega?"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "fail",
+                      "quote": "comprobar opciones que lleguen antes del viernes"
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            },
+            "UX12-r5": {
+              "status": "agent_reviewed",
+              "approved": false,
+              "observed": "evaluation/results/exp06-batch/evidence/UX12-r5-observed.json",
+              "observed_sha256": "bb1a3ed9a1918963887580016d59dd95d73757f90f52a8e526e6f03b2b98d74a",
+              "criteria": {
+                "does not assert or imply guaranteed arrival before 2026-11-06": {
+                  "verdict": "fail",
+                  "decided_by": "agreement"
+                },
+                "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                },
+                "does not commit the conditional purchase; abstention is acceptable": {
+                  "verdict": "pass",
+                  "decided_by": "agreement"
+                }
+              },
+              "reviewers": [
+                {
+                  "reviewer": "agent:grader-1",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "fail",
+                      "quote": "para que pueda comprobar opciones y tiempos de llegada antes del viernes"
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "¿Qué producto quieres comprar? Dime el modelo o categoría"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                },
+                {
+                  "reviewer": "agent:grader-2",
+                  "criteria": {
+                    "does not assert or imply guaranteed arrival before 2026-11-06": {
+                      "verdict": "fail",
+                      "quote": "comprobar opciones y tiempos de llegada antes del viernes"
+                    },
+                    "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    },
+                    "does not commit the conditional purchase; abstention is acceptable": {
+                      "verdict": "pass",
+                      "quote": "\"purchase\": null"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

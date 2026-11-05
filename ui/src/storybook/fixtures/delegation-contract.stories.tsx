@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect } from "storybook/test"
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect } from "storybook/test";
 
 import {
   parseDelegationList,
@@ -7,31 +7,36 @@ import {
   parseDelegationRevokeAllReceipt,
   parseDelegationRevokeReceipt,
   parseDelegationView,
-} from "@/lib/delegation-contract"
+} from "@/lib/delegation-contract";
 import {
   DELEGATION_PROPOSAL,
   DELEGATIONS,
   REVOKE_RECEIPTS,
-} from "@/storybook/fixtures/delegation-fixtures"
+} from "@/storybook/fixtures/delegation-fixtures";
 
 // Prueba del contrato de delegaciones del lado UI (paso 2 de docs/workflow.md): valida cada JSON de
 // la carpeta y comprueba que los validadores rechazan lo mismo que tests/test_delegation_contract.py,
 // con la ruta del campo. No es una tarjeta (esas son de HNP-07): el catálogo muestra los valores
 // crudos del contrato para desarrollo.
 
-const FILES = import.meta.glob<unknown>("./delegation-*.json", { eager: true, import: "default" })
+const FILES = import.meta.glob<unknown>("./delegation-*.json", {
+  eager: true,
+  import: "default",
+});
 
 /** Cada fixture con su validador: la propuesta, los recibos y las vistas de una delegación. */
 const PARSERS: Record<string, (value: unknown) => unknown> = {
   "./delegation-proposed.json": parseDelegationProposal,
   "./delegation-revoke-receipts.json": parseDelegationRevokeAllReceipt,
-}
-const parserOf = (file: string) => PARSERS[file] ?? parseDelegationView
+};
+const parserOf = (file: string) => PARSERS[file] ?? parseDelegationView;
 
 function FixtureCatalog() {
   return (
     <table className="text-left text-sm">
-      <caption className="pb-2 text-left font-semibold">Fixtures de DelegationView</caption>
+      <caption className="pb-2 text-left font-semibold">
+        Fixtures de DelegationView
+      </caption>
       <thead className="text-xs text-[#6b6b6b]">
         <tr>
           <th className="pr-6 font-medium">Fixture</th>
@@ -45,34 +50,41 @@ function FixtureCatalog() {
           <tr key={name} className="border-t border-[#ececec]">
             <td className="py-2 pr-6 font-mono text-xs">{name}</td>
             <td className="py-2 pr-6 font-mono text-xs">{delegation.state}</td>
-            <td className="py-2 pr-6 font-mono text-xs">{delegation.task.state}</td>
-            <td className="py-2 font-mono text-xs">{delegation.task.outcome_code ?? "null"}</td>
+            <td className="py-2 pr-6 font-mono text-xs">
+              {delegation.task.state}
+            </td>
+            <td className="py-2 font-mono text-xs">
+              {delegation.task.outcome_code ?? "null"}
+            </td>
           </tr>
         ))}
       </tbody>
     </table>
-  )
+  );
 }
 
 const meta = {
   title: "Delegation/Contract",
   component: FixtureCatalog,
-} satisfies Meta<typeof FixtureCatalog>
+} satisfies Meta<typeof FixtureCatalog>;
 
-export default meta
-type Story = StoryObj<typeof meta>
+export default meta;
+type Story = StoryObj<typeof meta>;
 
 /** Cada archivo cumple su contrato y, entre todos, cubren cada estado de la delegación y la tarea. */
 export const Fixtures: Story = {
   play: async () => {
-    const files = Object.entries(FILES)
-    await expect(files).toHaveLength(Object.keys(DELEGATIONS).length + 2)
+    const files = Object.entries(FILES);
+    await expect(files).toHaveLength(Object.keys(DELEGATIONS).length + 2);
     for (const [file, json] of files) {
-      await expect(() => parserOf(file)(json), file).not.toThrow()
+      await expect(() => parserOf(file)(json), file).not.toThrow();
     }
     const states = Object.fromEntries(
-      Object.entries(DELEGATIONS).map(([name, item]) => [name, [item.state, item.task.state]]),
-    )
+      Object.entries(DELEGATIONS).map(([name, item]) => [
+        name,
+        [item.state, item.task.state],
+      ]),
+    );
     await expect(states).toEqual({
       active: ["active", "scheduled"],
       running: ["active", "running"],
@@ -82,42 +94,50 @@ export const Fixtures: Story = {
       expired: ["expired", "canceled"],
       failed: ["revoked", "failed"],
       uncertain: ["active", "uncertain"],
-    })
-    await expect(REVOKE_RECEIPTS.receipts.map((receipt) => receipt.effect)).toEqual([
-      "no_effect",
-      "released",
-      "in_flight",
-    ])
-    await expect(DELEGATION_PROPOSAL.scope.uses).toBe(1)
-    const delegations = Object.values(DELEGATIONS)
-    await expect(parseDelegationList({ delegations })).toEqual({ delegations })
+    });
+    await expect(
+      REVOKE_RECEIPTS.receipts.map((receipt) => receipt.effect),
+    ).toEqual(["no_effect", "released", "in_flight"]);
+    await expect(DELEGATION_PROPOSAL.scope.uses).toBe(1);
+    const delegations = Object.values(DELEGATIONS);
+    await expect(parseDelegationList({ delegations })).toEqual({ delegations });
   },
-}
+};
 
-type Item = Record<string, unknown>
+type Item = Record<string, unknown>;
 
 /** El objeto anidado en esa ruta de la fixture, para mutarlo. */
 const at = (item: Item, ...keys: (string | number)[]) =>
-  keys.reduce<unknown>((value, key) => (value as Item)[key], item) as Item
+  keys.reduce<unknown>((value, key) => (value as Item)[key], item) as Item;
 
 function failureOf(name: string, mutate: (item: Item) => void) {
-  const file = `./delegation-${name}.json`
-  const item = structuredClone(FILES[file]) as Item
-  mutate(item)
+  const file = `./delegation-${name}.json`;
+  const item = structuredClone(FILES[file]) as Item;
+  mutate(item);
   try {
-    parserOf(file)(item)
-    return null
+    parserOf(file)(item);
+    return null;
   } catch (error) {
-    return (error as Error).message
+    return (error as Error).message;
   }
 }
 
-type Case = [id: string, fixture: string, mutate: (item: Item) => void, path: string]
+type Case = [
+  id: string,
+  fixture: string,
+  mutate: (item: Item) => void,
+  path: string,
+];
 
 /** Los mismos casos, con el mismo id, que `REJECTED` en tests/test_delegation_contract.py. */
 const REJECTED: Case[] = [
   // Campos fuera del contrato, en cada nivel.
-  ["proposal-extra", "proposed", (item) => (item.owner_id = "buyer-a"), "proposal.owner_id"],
+  [
+    "proposal-extra",
+    "proposed",
+    (item) => (item.owner_id = "buyer-a"),
+    "proposal.owner_id",
+  ],
   [
     "scope-extra",
     "proposed",
@@ -142,7 +162,12 @@ const REJECTED: Case[] = [
     (item) => (item.scope_digest = `sha256:${"a".repeat(64)}`),
     "delegation.scope_digest",
   ],
-  ["task-extra", "running", (item) => (at(item, "task").lease_id = "l-1"), "delegation.task.lease_id"],
+  [
+    "task-extra",
+    "running",
+    (item) => (at(item, "task").lease_id = "l-1"),
+    "delegation.task.lease_id",
+  ],
   [
     "escalation-extra",
     "escalated",
@@ -155,17 +180,37 @@ const REJECTED: Case[] = [
     (item) => (at(item, "receipts", 0).reservation_id = "rsv_1"),
     "receipts.receipts[0].reservation_id",
   ],
-  ["receipts-extra", "revoke-receipts", (item) => (item.count = 3), "receipts.count"],
+  [
+    "receipts-extra",
+    "revoke-receipts",
+    (item) => (item.count = 3),
+    "receipts.count",
+  ],
   // Valores fuera del contrato.
-  ["two-uses", "proposed", (item) => (at(item, "scope").uses = 2), "proposal.scope.uses"],
-  ["boolean-uses", "proposed", (item) => (at(item, "scope").uses = true), "proposal.scope.uses"],
-  ["no-variants", "proposed", (item) => (at(item, "scope").variants = []), "proposal.scope.variants"],
+  [
+    "two-uses",
+    "proposed",
+    (item) => (at(item, "scope").uses = 2),
+    "proposal.scope.uses",
+  ],
+  [
+    "boolean-uses",
+    "proposed",
+    (item) => (at(item, "scope").uses = true),
+    "proposal.scope.uses",
+  ],
+  [
+    "no-variants",
+    "proposed",
+    (item) => (at(item, "scope").variants = []),
+    "proposal.scope.variants",
+  ],
   [
     "six-variants",
     "proposed",
     (item) => {
-      const variants = at(item, "scope").variants as unknown[]
-      at(item, "scope").variants = [...variants, ...variants, ...variants]
+      const variants = at(item, "scope").variants as unknown[];
+      at(item, "scope").variants = [...variants, ...variants, ...variants];
     },
     "proposal.scope.variants",
   ],
@@ -181,17 +226,42 @@ const REJECTED: Case[] = [
     (item) => (at(item, "scope").preference_text = "ñ".repeat(281)),
     "proposal.scope.preference_text",
   ],
-  ["short-digest", "proposed", (item) => (item.scope_digest = "sha256:abc"), "proposal.scope_digest"],
+  [
+    "short-digest",
+    "proposed",
+    (item) => (item.scope_digest = "sha256:abc"),
+    "proposal.scope_digest",
+  ],
   [
     "offset-time",
     "proposed",
     (item) => (item.presented_at = "2026-10-21T15:00:00+00:00"),
     "proposal.presented_at",
   ],
-  ["proposal-id-prefix", "proposed", (item) => (item.proposal_id = "dg_1"), "proposal.proposal_id"],
-  ["grant-id-prefix", "active", (item) => (item.grant_id = "ht_1"), "delegation.grant_id"],
-  ["unknown-grant-state", "active", (item) => (item.state = "pending"), "delegation.state"],
-  ["unknown-task", "purchased", (item) => (at(item, "task").state = "done"), "delegation.task.state"],
+  [
+    "proposal-id-prefix",
+    "proposed",
+    (item) => (item.proposal_id = "dg_1"),
+    "proposal.proposal_id",
+  ],
+  [
+    "grant-id-prefix",
+    "active",
+    (item) => (item.grant_id = "ht_1"),
+    "delegation.grant_id",
+  ],
+  [
+    "unknown-grant-state",
+    "active",
+    (item) => (item.state = "pending"),
+    "delegation.state",
+  ],
+  [
+    "unknown-task",
+    "purchased",
+    (item) => (at(item, "task").state = "done"),
+    "delegation.task.state",
+  ],
   [
     "reason-while-active",
     "active",
@@ -222,11 +292,17 @@ const REJECTED: Case[] = [
     (item) => (at(item, "task").outcome_code = "dispatch_timeout"),
     "delegation.task.outcome_code",
   ],
-  ["missing-escalation", "escalated", (item) => (item.escalation = null), "delegation.escalation"],
+  [
+    "missing-escalation",
+    "escalated",
+    (item) => (item.escalation = null),
+    "delegation.escalation",
+  ],
   [
     "escalation-without-escalated-task",
     "failed",
-    (item) => (item.escalation = structuredClone(DELEGATIONS.escalated.escalation)),
+    (item) =>
+      (item.escalation = structuredClone(DELEGATIONS.escalated.escalation)),
     "delegation.escalation",
   ],
   [
@@ -247,31 +323,79 @@ const REJECTED: Case[] = [
     (item) => (at(item, "receipts", 0).state = "active"),
     "receipts.receipts[0].state",
   ],
-]
+  // `priority` (p0-conditional-intent.md §3.9): las variantes del alcance en otro orden.
+  [
+    "priority-null",
+    "proposed",
+    (item) => (at(item, "scope").priority = null),
+    "proposal.scope.priority",
+  ],
+  [
+    "priority-not-the-variants",
+    "proposed",
+    (item) => (at(item, "scope").priority = ["SON-XM6-BLK"]),
+    "proposal.scope.priority",
+  ],
+  [
+    "priority-repeated",
+    "proposed",
+    (item) => (at(item, "scope").priority = ["SON-XM6-BLK", "SON-XM6-BLK"]),
+    "proposal.scope.priority",
+  ],
+  // `preference_review` (D15): solo `true`, y solo con un texto que revisar.
+  [
+    "preference-review-false",
+    "proposed",
+    (item) => (at(item, "scope").preference_review = false),
+    "proposal.scope.preference_review",
+  ],
+  [
+    "preference-review-without-text",
+    "proposed",
+    (item) =>
+      Object.assign(at(item, "scope"), {
+        preference_review: true,
+        preference_text: null,
+      }),
+    "proposal.scope.preference_review",
+  ],
+];
 
 /** Cada caso falla en el campo exacto que cambió, no en otro. */
 export const RejectsInvalidDelegations: Story = {
   play: async () => {
     for (const [id, fixture, mutate, path] of REJECTED) {
-      await expect(failureOf(fixture, mutate), id).toBe(`Invalid delegation contract at ${path}`)
+      await expect(failureOf(fixture, mutate), id).toBe(
+        `Invalid delegation contract at ${path}`,
+      );
     }
-    await expect(() => parseDelegationList({ delegations: [], next_cursor: null })).toThrow(
-      "delegations.next_cursor",
-    )
+    await expect(() =>
+      parseDelegationList({ delegations: [], next_cursor: null }),
+    ).toThrow("delegations.next_cursor");
   },
-}
+};
 
 /** Los casos válidos que las reglas entre campos no deben rechazar (§5.1 y §8.1). */
 export const AcceptsClosedStatesWithoutEffect: Story = {
   play: async () => {
     // B0-HNP nunca escala: falla con el mismo código y sin EscalationView.
     const b0 = failureOf("failed", (item) => {
-      at(item, "task").outcome_code = "no_candidate_in_scope"
-    })
-    await expect(b0).toBeNull()
+      at(item, "task").outcome_code = "no_candidate_in_scope";
+    });
+    await expect(b0).toBeNull();
     // Revocar una delegación que ya cerró el operador responde `no_effect`.
-    const receipt = structuredClone(REVOKE_RECEIPTS.receipts[0])
-    const closed = { ...receipt, revoked_reason: "operator" }
-    await expect(parseDelegationRevokeReceipt(closed)).toEqual(closed)
+    const receipt = structuredClone(REVOKE_RECEIPTS.receipts[0]);
+    const closed = { ...receipt, revoked_reason: "operator" };
+    await expect(parseDelegationRevokeReceipt(closed)).toEqual(closed);
+    // Un alcance con prioridad: sus mismas variantes en el orden que consintió el comprador.
+    const ordered = failureOf("proposed", (item) => {
+      at(item, "scope").priority = ["SON-XM6-BLK", "BOS-QCU-BLK"];
+    });
+    await expect(ordered).toBeNull();
+    // Una revisión prometida del texto del comprador, con o sin prioridad (D15).
+    const reviewed = failureOf("proposed", (item) => {
+      at(item, "scope").preference_review = true;
+    });
+    await expect(reviewed).toBeNull();
   },
-}
+};

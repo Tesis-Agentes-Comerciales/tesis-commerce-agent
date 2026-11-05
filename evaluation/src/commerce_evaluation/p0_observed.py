@@ -9,6 +9,7 @@ from typing import Any
 from xml.etree import ElementTree
 from zipfile import ZipFile
 
+from .exp01 import native_inf31_verified
 from .scenarios_p0 import planned_cells
 
 P0 = Path("evaluation/scenarios/p0")
@@ -148,6 +149,12 @@ def validate_run(
         report = (
             json.loads(bundle.read("exp01-report.json")) if "exp01-report.json" in names else {}
         )
+        if protocol.get("schema") == "inf31-hp-reassessment/1":
+            require(
+                row["experiment"] == "EXP-08" and row["conclusion"] == "success",
+                f"Invalid INF31 measurement provenance: {run_id}",
+            )
+            validate_inf31_archive(bundle, inner, protocol, manifest, report, run_id)
     require(
         junit == row["junit"] and report.get("validated") == row["gate"],
         f"JUnit or evidence gate mismatch: {run_id}",
@@ -177,6 +184,66 @@ def validate_run(
             f"Unverified sources: {run_id}",
         )
     return protocol, report, len(inner)
+
+
+def validate_inf31_archive(
+    bundle: ZipFile, hashes: dict[str, str], protocol: dict, manifest: dict, report: dict, run: str
+) -> None:
+    tests = list(ElementTree.fromstring(bundle.read("exp01-junit.xml")).iter("testcase"))
+    recorder = json.loads(bundle.read("exp01-outcomes.json"))
+    module = protocol["test_module"].removesuffix(".py::").replace("/", ".")
+    cases = protocol["cases"]
+    require(
+        len(tests) == len(cases) == 6
+        and {(test.get("classname"), test.get("name")) for test in tests}
+        == {(module, case["test"]) for case in cases.values()}
+        and all(len(test) == 0 for test in tests)
+        and recorder == report["recorder"]
+        and recorder["collected"] == recorder["counts"]["passed"] == len(tests)
+        and recorder["status"] == "completed"
+        and recorder["exit_code"] == recorder["deselected"] == recorder["collection_errors"] == 0
+        and all(
+            recorder["counts"][outcome] == 0
+            for outcome in ("failed", "skipped", "xfail", "xpass", "not_executed")
+        )
+        and report["manifest"] == manifest
+        and report["validated"] is True
+        and report["issues"] == []
+        and report["measured_modes"] == {"INF31": ["HP"]}
+        and set(report["controls"]) == set(cases)
+        and {"exp01-manifest.json", "exp01-junit.xml", "exp01-report.json", "exp01-outcomes.json"}
+        <= hashes.keys(),
+        f"INF31 required evidence mismatch: {run}",
+    )
+    seen = set()
+    for name in hashes:
+        if not name.endswith("/exp01-frozen.json"):
+            continue
+        frozen = json.loads(bundle.read(name))
+        case_id = frozen["case_id"]
+        control = report["controls"][case_id]
+        observed = name.replace("exp01-frozen.json", "exp01-observed.json")
+        feed = name.replace("exp01-frozen.json", "feed/products.jsonl")
+        require(
+            case_id not in seen
+            and hashes[name] == control["input_sha256"]
+            and observed in hashes
+            and json.loads(bundle.read(observed)) == control
+            and frozen["oracle"] == cases[case_id]
+            and frozen["protocol_sha256"] == manifest["protocol_sha256"]
+            and frozen["frozen_at_ns"] < control["started_at_ns"]
+            and frozen["semantic_evaluation"] is False
+            and frozen["inputs"]["feed_sha256"] == hashes.get(feed)
+            and control["status"] == "passed"
+            and control["cleanup_verified"] is True,
+            f"INF31 frozen input or control mismatch: {run}/{case_id}",
+        )
+        seen.add(case_id)
+    require(
+        seen == cases.keys()
+        and native_inf31_verified(report["controls"]["INF31:merchant_503"]["observations"]),
+        f"INF31 native outage or frozen input missing: {run}",
+    )
 
 
 def validate_ct19_archive(root: Path, run: str, row: dict, protocol_path: Path) -> tuple[dict, int]:
@@ -688,6 +755,38 @@ def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, An
             run = str(cell.get("run_id"))
             require(run in verified, f"No attributable evidence: {scenario}/{mode}")
             protocol, report, hashes = verified[run]
+            if protocol.get("schema") == "inf31-hp-reassessment/1":
+                history = cell.get("historical_observation", {})
+                original = str(protocol["historical"]["run_id"])
+                require(
+                    key == ("INF31", "HP")
+                    and status == "passed"
+                    and isinstance(history, dict)
+                    and str(history.get("run_id")) == original
+                    and history.get("status") == protocol["historical"]["status"] == "blocked"
+                    and history.get("coverage") == "incomplete"
+                    and history.get("scope", "").strip()
+                    and history.get("limitation", "").strip()
+                    and original in verified
+                    and runs[original]["sha256"] == protocol["historical"]["archive_sha256"]
+                    and runs[original]["protocol_sha256"]
+                    == protocol["historical"]["protocol_sha256"]
+                    and verified[original][1]["scenarios"]["INF31"] == "error"
+                    and verified[original][1]["validated"] is False,
+                    "Missing or incompatible historical INF31 observation",
+                )
+                attempts = history.get("prior_attempts", [])
+                require(
+                    bool(attempts)
+                    and len(attempts) == len(set(attempts))
+                    and all(
+                        str(attempt) in verified
+                        and str(attempt) != original
+                        and runs[str(attempt)]["experiment"] == runs[original]["experiment"]
+                        for attempt in attempts
+                    ),
+                    "Invalid prior attempts for the historical INF31 observation",
+                )
             case_ids = [
                 case_id
                 for case_id, case in protocol["cases"].items()

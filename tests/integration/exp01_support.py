@@ -11,6 +11,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL = ROOT / "evaluation/scenarios/exp01-first-batch.json"
+INF31_REASSESSMENT = ROOT / "evaluation/scenarios/exp08-inf31-hp.json"
 
 
 def digest(value: Any) -> str:

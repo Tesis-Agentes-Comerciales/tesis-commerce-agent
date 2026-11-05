@@ -5,7 +5,7 @@ from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from threading import Lock
-from typing import Any, Literal, NotRequired, Protocol, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, Protocol, Self, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -13,7 +13,15 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 from langgraph.types import Command, interrupt
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.acp.models import CheckoutSessionWithOrder
@@ -131,6 +139,34 @@ class DelegationDraftView(BaseModel):
     budget_minor: int | None = Field(default=None, gt=0)
     currency: Literal["COP"] = "COP"
     preference_text: str = Field(min_length=1)
+    # The order the turn read among its offers (p0-conditional-intent.md §3.9), at most one per
+    # evaluator branch; the form proposes it and the buyer consents to it on the card. Absent
+    # when the turn read none; never null.
+    priority: Annotated[tuple[str, ...], Field(min_length=1, max_length=3)] | None = None
+
+    @field_validator("priority")
+    @classmethod
+    def _priority_is_absent_not_null(cls, value: tuple[str, ...] | None) -> tuple[str, ...]:
+        # Runs only on a given value, never on the default: a null is a second form of absent.
+        if value is None:
+            raise ValueError("An absent priority is omitted, not null")
+        return value
+
+    @model_validator(mode="after")
+    def _priority_is_among_the_offers(self) -> Self:
+        offered = {offer.variant_id for offer in self.offers}
+        if self.priority is not None and (
+            len(set(self.priority)) != len(self.priority) or not set(self.priority) <= offered
+        ):
+            raise ValueError("A priority orders distinct variants of the offers")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _without_absent_priority(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("priority") is None:
+            data.pop("priority", None)
+        return data
 
 
 class TurnObserver(Protocol):
