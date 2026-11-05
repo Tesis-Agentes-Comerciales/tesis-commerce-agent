@@ -10,6 +10,7 @@ import json
 import threading
 import time
 from contextlib import closing
+from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
@@ -26,9 +27,21 @@ from commerce_agent.governance.runtime_dispatch import (
     SingleAttemptPostCreateDispatch,
 )
 from commerce_agent.persistence import SqliteAgentStore
-from tests.integration.exp01_support import recorded_case, sqlite_snapshot
+from tests.integration.exp01_support import (
+    INF31_REASSESSMENT,
+    PROTOCOL,
+    recorded_case,
+    sqlite_snapshot,
+)
 from tests.integration.live_purchase import PHONE, HnpAgent, delegation_request
-from tests.integration.live_stack import CREATE_PATH, FIXED_CLOCK, JointCase, connect, wait_until
+from tests.integration.live_stack import (
+    CREATE_PATH,
+    FIXED_CLOCK,
+    JointCase,
+    closed,
+    connect,
+    wait_until,
+)
 from tests.integration.test_live_hnp import catalog
 
 CONTROLS = (
@@ -137,8 +150,10 @@ def test_inf31_preparation_faults(b0, tmp_path, control):
     hp_control(b0, tmp_path, "INF31:" + control, control)
 
 
-def hp_control(lane, path, case_id, control):
+def hp_control(lane, path, case_id, control, *, protocol_path=PROTOCOL):
+    reassessment = protocol_path == INF31_REASSESSMENT
     case = JointCase.open(lane.stack, "exp01")
+    run_id, offer = case.episode["run_id"], case.episode["offer"]
     case.origin = lane.origin
     feed_dir = path / "feed"
     lane.rpc("exp01_export", run_id=case.episode["run_id"], feed_dir=str(feed_dir))
@@ -148,6 +163,13 @@ def hp_control(lane, path, case_id, control):
     lane.proxy.routes |= {("POST", LOOKUP_PATH), ("POST", "/checkout_sessions/*/cancel")}
     release, entered = threading.Event(), threading.Event()
     postgres_stopped = False
+    postgres = lane.stack.postgres
+
+    def postgres_running():
+        state = postgres.docker("inspect", "-f", "{{.State.Running}}", postgres.name)
+        assert state in {"true", "false"}
+        return state == "true"
+
     with recorded_case(
         path,
         case_id,
@@ -160,6 +182,7 @@ def hp_control(lane, path, case_id, control):
             "clock": FIXED_CLOCK.model_dump(mode="json"),
             "fault": control,
         },
+        protocol_path=protocol_path,
     ) as record:
         gateway = ACPClient(
             lane.origin,
@@ -170,18 +193,29 @@ def hp_control(lane, path, case_id, control):
             if control in {"timeout_before_forward", "timeout_after_accept"}
             else 5,
         )
+        original_stock = psp_before = None
         try:
+            if reassessment:
+                original_stock = lane.rpc("exp01_observe", run_id=case.episode["run_id"])["stock"]
             if control == "definitive_stock_refusal":
-                lane.rpc(
-                    "alter_offer_fixture",
-                    run_id=case.episode["run_id"],
-                    variant=case.episode["offer"]["id"],
-                )
+                if reassessment:
+                    lane.rpc("edit_offer", run_id=run_id, offer_id=offer["id"], change="stock")
+                    changed = lane.rpc("observe_offer", run_id=run_id, offer_id=offer["id"])
+                    record["observations"]["offer_at_dispatch"] = changed
+                    assert changed == {
+                        **offer,
+                        "revision": offer["revision"] + 1,
+                        "available_quantity": 0,
+                        "availability": "out_of_stock",
+                    }
+                else:
+                    lane.rpc("alter_offer_fixture", run_id=run_id, variant=offer["id"])
             before = lane.rpc("exp01_observe", run_id=case.episode["run_id"])
             psp_before = sqlite_snapshot(lane.root / "payments.sqlite")
             record["observations"].update(merchant_before=before, psp_before=psp_before)
 
             def before_forward(body, headers):
+                nonlocal postgres_stopped
                 case.recover_envelope()
                 assert canonical_bytes(json.loads(body)) == case.envelope.body_canonical.encode()
                 assert (
@@ -190,6 +224,14 @@ def hp_control(lane, path, case_id, control):
                 if control == "timeout_before_forward":
                     entered.set()
                     assert release.wait(10)
+                if reassessment and control == "merchant_503":
+                    record["observations"]["postgres_before"] = postgres_running()
+                    assert record["observations"]["postgres_before"] is True
+                    postgres_stopped = True
+                    postgres.stop()
+                    record["observations"]["postgres_before_forward"] = postgres_running()
+                    assert record["observations"]["postgres_before_forward"] is False
+                    assert closed(postgres.port)
 
             lane.proxy.before_forward[CREATE_PATH] = before_forward
             if control in {"drop", "timeout_after_accept"}:
@@ -197,14 +239,20 @@ def hp_control(lane, path, case_id, control):
                 lane.proxy.delay_seconds = 1.0
             if control in {"proxy_503", "timeout_before_forward"}:
                 lane.proxy.faults[CREATE_PATH] = "status_503"
-            if control == "merchant_503":
-                lane.stack.postgres.stop()
+            if control == "merchant_503" and not reassessment:
+                postgres.stop()
                 postgres_stopped = True
             observed = start_product(case, gateway, feed)
             release.set()
             if postgres_stopped:
-                lane.stack.postgres.restart()
+                if reassessment:
+                    record["observations"]["postgres_during_response"] = postgres_running()
+                    assert record["observations"]["postgres_during_response"] is False
+                postgres.restart()
                 postgres_stopped = False
+                if reassessment:
+                    record["observations"]["postgres_restored"] = postgres_running()
+                    assert record["observations"]["postgres_restored"] is True
             case.recover_envelope()
             create_calls = [c for c in lane.proxy.calls if c.path == CREATE_PATH]
             assert len(create_calls) == 1
@@ -234,6 +282,15 @@ def hp_control(lane, path, case_id, control):
                 assert call.status == 201
             elif control == "merchant_503":
                 assert call.status == 503
+                if reassessment:
+                    assert call.fault == "pass"
+                    assert call.response_body is not None and call.response_request_id is not None
+                    code = json.loads(call.response_body)["detail"]["code"]
+                    assert code == "lab_session_store_unavailable"
+                    assert UUID(call.response_request_id).version == 4
+                    record["observations"].update(
+                        merchant_error_code=code, merchant_request_id=call.response_request_id
+                    )
             elif control in {"proxy_503", "timeout_before_forward"}:
 
                 def local_response():
@@ -243,8 +300,18 @@ def hp_control(lane, path, case_id, control):
                 assert not call.answered.is_set()
             else:
                 assert call.status == 409
+                if reassessment:
+                    assert call.response_body is not None
+                    assert json.loads(call.response_body)["detail"]["code"] == "out_of_stock"
             assert not lane.proxy.errors
             record["stimulus_verified"] = True
+            if reassessment:
+                record["observations"].update(
+                    proxy_fault=call.fault, merchant_http_status=call.status
+                )
+                if control == "merchant_503":
+                    assert state[0][1] is None
+                    assert after == before
             if control == "positive":
                 assert observed == "awaiting_confirmation"
                 assert state[0][0] == "awaiting_confirmation"
@@ -290,10 +357,18 @@ def hp_control(lane, path, case_id, control):
             assert sqlite_snapshot(lane.root / "payments.sqlite") == psp_before
             assert after["stock"] == before["stock"]
             assert not any("complete" in c.path for c in lane.proxy.calls)
+            if reassessment:
+                with closing(connect(case.path)) as db:
+                    effects = {
+                        table: db.execute("SELECT count(*) FROM " + table).fetchone()[0]
+                        for table in ("approvals", "orders", "completion_results")
+                    }
+                record["observations"]["agent_effect_counts"] = effects
+                assert all(count == 0 for count in effects.values())
         finally:
             release.set()
             if postgres_stopped:
-                lane.stack.postgres.restart()
+                postgres.restart()
             lane.proxy.faults.clear()
             lane.proxy.before_forward.clear()
             # Observe Merchant directly: uncertain creation may have no local checkout id.
@@ -314,11 +389,19 @@ def hp_control(lane, path, case_id, control):
                     change="restore",
                     snapshot=case.episode["offer"],
                 )
+                if reassessment:
+                    restored = lane.rpc("observe_offer", run_id=run_id, offer_id=offer["id"])
+                    record["observations"]["offer_restored"] = restored
+                    assert restored == offer
             final = lane.rpc("exp01_observe", run_id=case.episode["run_id"])
             record["observations"]["after_cleanup"] = final
             record["observations"]["psp_after_cleanup"] = sqlite_snapshot(
                 lane.root / "payments.sqlite"
             )
+            if reassessment and original_stock is not None:
+                assert final["stock"] == original_stock
+            if reassessment and psp_before is not None:
+                assert record["observations"]["psp_after_cleanup"] == psp_before
             record["cleanup_verified"] = all(c[1] == "canceled" for c in final["checkouts"])
             assert record["cleanup_verified"]
             gateway.close()

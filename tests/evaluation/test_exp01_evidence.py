@@ -1,6 +1,7 @@
 """Offline artifact guards only; these synthetic records are never experimental observations."""
 
 import json
+from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -8,16 +9,16 @@ import pytest
 from commerce_evaluation.exp01 import PLAN, read, report, sha
 
 
-@pytest.fixture
-def bundle(tmp_path):
-    plan = read(PLAN)
+def _bundle(tmp_path, plan_path=PLAN):
+    plan = read(plan_path)
+    module = plan.get("test_module", "tests/integration/test_exp01_first_batch.py::")
     suite = ET.Element("testsuite")
     for key, oracle in plan["cases"].items():
         directory = tmp_path / key.replace(":", "-")
         directory.mkdir()
         frozen = directory / "exp01-frozen.json"
         frozen.write_text(
-            json.dumps({"oracle": oracle, "protocol_sha256": sha(PLAN), "frozen_at_ns": 1})
+            json.dumps({"oracle": oracle, "protocol_sha256": sha(plan_path), "frozen_at_ns": 1})
         )
         observations = dict.fromkeys(
             (
@@ -36,6 +37,7 @@ def bundle(tmp_path):
             ),
             "offline-contract-fixture-not-a-merchant-observation",
         )
+        observations.update(dict.fromkeys(oracle.get("required_observations", []), "offline"))
         (directory / "exp01-observed.json").write_text(
             json.dumps(
                 {
@@ -51,7 +53,7 @@ def bundle(tmp_path):
         ET.SubElement(
             suite,
             "testcase",
-            classname="tests.integration.test_exp01_first_batch",
+            classname=module.removesuffix(".py::").replace("/", "."),
             name=oracle["test"],
         )
     junit = tmp_path / "junit.xml"
@@ -62,19 +64,116 @@ def bundle(tmp_path):
             {
                 "status": "completed",
                 "exit_code": 0,
-                "collected": 8,
+                "collected": len(suite),
                 "deselected": 0,
                 "collection_errors": 0,
-                "counts": {"passed": 8, "failed": 0, "skipped": 0},
+                "counts": {"passed": len(suite), "failed": 0, "skipped": 0},
             }
         )
     )
     manifest = tmp_path / "manifest.json"
-    manifest.write_text(json.dumps({"status": "verified", "protocol_sha256": sha(PLAN)}))
+    manifest.write_text(json.dumps({"status": "verified", "protocol_sha256": sha(plan_path)}))
     (tmp_path / "evidence.jsonl").write_text(
         json.dumps({"scenario": "shutdown", "proxy_closed": True, "postgres_removed": True}) + "\n"
     )
     return tmp_path, junit, outcomes, manifest
+
+
+@pytest.fixture
+def bundle(tmp_path):
+    return _bundle(tmp_path)
+
+
+INF31 = PLAN.with_name("exp08-inf31-hp.json")
+
+
+def test_inf31_protocol_keeps_exact_controls_and_historical_evidence():
+    plan = read(INF31)
+    assert set(plan["cases"]) == {
+        "INF31:proxy_503",
+        "INF31:timeout_before_forward",
+        "INF31:merchant_503",
+        "INF31:timeout_after_accept",
+        "INF31:definitive_stock_refusal",
+        "INF31:positive",
+    }
+    assert {(case["scenario"], case["mode"]) for case in plan["cases"].values()} == {
+        ("INF31", "HP")
+    }
+    historical = plan["historical"]
+    archive = PLAN.parents[1] / "results/exp-01-first-batch/runs" / f"{historical['run_id']}.zip"
+    assert sha(archive) == historical["archive_sha256"]
+    assert sha(PLAN) == historical["protocol_sha256"]
+
+
+@pytest.fixture
+def inf31_bundle(tmp_path: Path):
+    artifact = _bundle(tmp_path, INF31)
+    row_path = tmp_path / "INF31-merchant_503/exp01-observed.json"
+    row = read(row_path)
+    merchant = {"checkouts": [], "tables": {"request_observations": {"count": 0}}}
+    psp = {"synthetic_payments": {"count": 0}}
+    row["observations"].update(
+        postgres_before=True,
+        postgres_before_forward=False,
+        postgres_during_response=False,
+        postgres_restored=True,
+        create_posts=1,
+        proxy_fault="pass",
+        upstream_answered=True,
+        merchant_http_status=503,
+        merchant_error_code="lab_session_store_unavailable",
+        merchant_request_id="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        agent_result="d1_dispatch_uncertain",
+        agent_state=[["uncertain", None, "offline"]],
+        operation_state=[["uncertain"]],
+        recovery={"reason": "NOT_FOUND_NOT_ABSENCE"},
+        merchant_before=merchant,
+        merchant_after=merchant,
+        after_cleanup=merchant,
+        psp_before=psp,
+        psp_after=psp,
+        psp_after_cleanup=psp,
+        agent_effect_counts={"approvals": 0, "orders": 0, "completion_results": 0},
+    )
+    row_path.write_text(json.dumps(row))
+    return artifact, row_path
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("postgres_before_forward", True),
+        ("postgres_restored", False),
+        ("merchant_http_status", 500),
+        ("proxy_fault", "status_503"),
+        ("upstream_answered", False),
+        ("merchant_request_id", None),
+        ("create_posts", 2),
+        ("recovery", {"reason": "VERIFIED_NOT_CREATED"}),
+        ("psp_after", {"synthetic_payments": {"count": 1}}),
+        ("merchant_after", {"checkouts": ["unexpected"]}),
+    ],
+)
+def test_inf31_green_junit_cannot_replace_native_outage_proof(inf31_bundle, field, value):
+    artifact, path = inf31_bundle
+    original = report(*artifact, plan_path=INF31, scenario="INF31")
+    assert original["validated"] and original["junit"]["passed"] == 6
+    row = read(path)
+    row["observations"][field] = value
+    path.write_text(json.dumps(row))
+    changed = report(*artifact, plan_path=INF31, scenario="INF31")
+    assert not changed["validated"]
+    assert "native_inf31_outage_not_verified" in changed["issues"]
+    assert changed["attributed_scenarios"] == {"INF31": "blocked"}
+
+
+def test_inf31_missing_control_is_not_attributed(inf31_bundle):
+    artifact, _ = inf31_bundle
+    (artifact[0] / "INF31-positive/exp01-observed.json").unlink()
+    result = report(*artifact, plan_path=INF31, scenario="INF31")
+    assert not result["validated"]
+    assert result["controls"]["INF31:positive"]["status"] == "not_executed"
 
 
 def test_missing_execution_is_blocked_not_success(tmp_path):
