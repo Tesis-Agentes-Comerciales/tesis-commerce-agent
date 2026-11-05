@@ -565,7 +565,9 @@ class HnpExecutionService:
             self._end(run, "checkout_failed")
         decision: ConditionalDecision | None = None
         if consent.priority is None:
-            shortlist = self._shortlist(run, feed, intent, consent)
+            shortlist = self._shortlist(feed, intent, consent)
+            if not shortlist:
+                self._end(run, "no_candidate_in_scope")
             variant_id = self._select(run, shortlist, intent, consent)
             start_intent = intent
             # Today's rule: a configured reviewer reviews any choice of the shortlist, and a
@@ -577,7 +579,7 @@ class HnpExecutionService:
             decision, start_intent = self._in_order(run, feed, intent, consent)
             variant_id = _chosen(decision).variant_id
             # The reviewer sees today's shortlist (D8); what is consented rules (D15).
-            shortlist = _granted(feed, intent, consent)
+            shortlist = self._shortlist(feed, intent, consent)
             reviews = consent.display.preference_review
         self._hold(run, ex.authority)
         if reviews:
@@ -662,13 +664,18 @@ class HnpExecutionService:
 
     # Steps 2 to 5
 
+    @staticmethod
     def _shortlist(
-        self, run: _Run, feed: ProductFeed, intent: PurchaseIntent, consent: ConsentScope
+        feed: ProductFeed, intent: PurchaseIntent, consent: ConsentScope
     ) -> tuple[RankedCandidate, ...]:
-        shortlist = _granted(feed, intent, consent)
-        if not shortlist:
-            self._end(run, "no_candidate_in_scope")
-        return shortlist
+        """Step 2's shortlist: `rank_candidates` ∩ the grant's variants, in the ranking's order.
+        Without `priority` an empty one ends the task; with it, it is what the reviewer sees."""
+        granted = set(consent.scope.variant_ids)
+        return tuple(
+            item
+            for item in rank_candidates(feed, intent).ranked
+            if item.candidate.variant_id in granted
+        )
 
     def _in_order(
         self, run: _Run, feed: ProductFeed, intent: PurchaseIntent, consent: ConsentScope
@@ -1190,18 +1197,6 @@ def _creation_refusal(error: ACPClientError) -> str | None:
 
 def _listed(shortlist: tuple[RankedCandidate, ...], variant_id: str) -> bool:
     return variant_id in {item.candidate.variant_id for item in shortlist}
-
-
-def _granted(
-    feed: ProductFeed, intent: PurchaseIntent, consent: ConsentScope
-) -> tuple[RankedCandidate, ...]:
-    """Step 2's shortlist: `rank_candidates` ∩ the grant's variants, in the ranking's order."""
-    granted = set(consent.scope.variant_ids)
-    return tuple(
-        item
-        for item in rank_candidates(feed, intent).ranked
-        if item.candidate.variant_id in granted
-    )
 
 
 def _chosen(decision: ConditionalDecision) -> BranchEvaluation:
