@@ -69,6 +69,10 @@ facturación permanecen no verificados.
 
 ## Operación manual después de autorización (no ejecutada aquí)
 
+Nota 2026-11-05: el requisito real es POSIX, no Linux. `require_live_host()` solo rechaza
+Windows y el arnés admite macOS (`tests/integration/README.md`); el smoke local corrió en macOS
+(`evaluation/results/exp06-smoke/`). Texto original:
+
 El arnés de servicios usa pass_fds y grupos de procesos POSIX: la ejecución manual
 requiere Linux; se reutiliza ubuntu-24.04 de GitHub Actions, sin preparar Ubuntu local. Windows se rechaza antes de reclamar el recibo.
 Inspección local: Ubuntu WSL instalado, sin uv/Node ni integración Docker disponible.
