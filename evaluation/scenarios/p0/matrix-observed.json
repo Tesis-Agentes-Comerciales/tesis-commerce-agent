@@ -79,6 +79,96 @@
         }
       }
     },
+    "INF27": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "429 persistente al interpretar: 2 intentos por superficie, REST 502 `rate_limited`, copia del chat y cero efectos.",
+          "limitation": "Modelo falso por transporte, sin proveedor real ni esperas reales; router HP sin streaming.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF27-HP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "429 persistente en el selector: 2 intentos, escalado `selection_unavailable` con `failure_kind=rate_limited` y cero efectos.",
+          "limitation": "Modelo falso por transporte, sin proveedor real. `ModelHnpAgent` en el proceso de pruebas: sin caídas ni reinicios del Agent.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF27-HNP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        }
+      }
+    },
+    "INF28": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "429 `insufficient_quota` al interpretar: 1 intento por superficie, hook `x-should-retry: false`, REST 502 `quota_exhausted` y cero efectos.",
+          "limitation": "Modelo falso por transporte, sin proveedor real: no prueba cabeceras ni cuerpo reales de la cuota; router HP sin streaming.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF28-HP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "429 `insufficient_quota` en el selector: 1 intento, escalado `selection_unavailable` con `failure_kind=quota_exhausted` y cero efectos.",
+          "limitation": "Modelo falso por transporte, sin proveedor real. `ModelHnpAgent` en el proceso de pruebas: sin caídas ni reinicios del Agent.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF28-HNP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        }
+      }
+    },
+    "INF29": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Conexión caída en la selección tras interpretar: 3 intentos por superficie (1+2), REST 502 `unreachable`, chat falla en `select_product`; sin selección ni efectos.",
+          "limitation": "`ConnectError` guionado, sin red ni proveedor real; router HP sin streaming.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF29-HP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Conexión caída antes del selector: 2 intentos, `selection_unavailable` y nunca `selection_not_eligible`; `failure_kind=unreachable`; cero efectos.",
+          "limitation": "`ConnectError` guionado, sin proveedor real. `ModelHnpAgent` en el proceso de pruebas: sin caídas ni reinicios del Agent.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF29-HNP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        }
+      }
+    },
     "INF30": {
       "modes": {
         "HP": {
@@ -125,7 +215,18 @@
           }
         },
         "HNP": {
-          "status": "not_executed"
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Revisor con timeout (a) o JSON fuera de contrato (b): `choice_not_confirmed` con `review_unavailable`, sin revisión confirmada; compra cancelada sin checkout y cero efectos.",
+          "limitation": "Timeout inmediato y JSON guionados, sin proveedor real. `ModelHnpAgent` en el proceso de pruebas: sin caídas ni reinicios del Agent.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF33-HNP-a",
+            "INF33-HNP-b"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
         }
       }
     },
@@ -620,6 +721,54 @@
       },
       "gate": true,
       "note": "Transporte autenticado; UX01/UX11/UX12 semánticos no ejecutados."
+    }
+  },
+  "local_runs": {
+    "p0-model-failures-corrida-1": {
+      "experiment": "P0-MODEL-FAILURES",
+      "kind": "harness_error",
+      "protocol": "evaluation/scenarios/p0-model-failures.json",
+      "protocol_sha256": "e2406af9b667d9b9f9a4b68e1f682fef304eaa513c34a959112a182bf3d397ae",
+      "checksum_index": "evaluation/results/p0-model-failures/SHA256SUMS",
+      "summary": "corrida-1/summary.json",
+      "summary_sha256": "6785e8dd5f4ce91ca628be954e206f68be339c93b8f2c34acaf6386695a8628f",
+      "junit": "corrida-1/junit.xml",
+      "junit_sha256": "a10005c1d8cc0c5b8ba84671c89b01dae60b48cfbc427f64aa860472776bfd84",
+      "junit_counts": {
+        "failed": 3,
+        "error": 0,
+        "skipped": 0,
+        "passed": 33
+      },
+      "sources": {
+        "agent": "54ebd5b32fecdc5b0965c9109ba70f332edb6a5e",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "note": "Corrida local conservada: INF29-HP 0/3 por el guion compartido entre REST y chat; orden distinto del prerregistro."
+    },
+    "p0-model-failures-corrida-2": {
+      "experiment": "P0-MODEL-FAILURES",
+      "kind": "measurement",
+      "protocol": "evaluation/scenarios/p0-model-failures.json",
+      "protocol_sha256": "e2406af9b667d9b9f9a4b68e1f682fef304eaa513c34a959112a182bf3d397ae",
+      "checksum_index": "evaluation/results/p0-model-failures/SHA256SUMS",
+      "summary": "summary.json",
+      "summary_sha256": "9a56adce6fe430e7bd14b23a7ad78cae5a3614599f19523940f83b130c13e7df",
+      "junit": "junit.xml",
+      "junit_sha256": "f899bd7629be8721bedcc2eb326c1933c5cb101364fc3d0f773cda91202ec18b",
+      "junit_counts": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 36
+      },
+      "sources": {
+        "agent": "d3740a8816b5fea21124bbfedc40b91b78175032",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "note": "Corrida local registrada: 12 celdas × 3 repeticiones contra el stack vivo, con el SDK real sobre un transporte guionado; sin LLM ni proveedor real."
     }
   }
 }
