@@ -1,0 +1,376 @@
+{
+  "41967362290": {
+    "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41967362290",
+    "artifact_id": 13388455574,
+    "original_zip": "runs/41967362290/original.zip",
+    "zip_sha256": "05807d45c763b532c8f8662fc2f331071ff07a35d49b579ad44e1b7636f7af00",
+    "bytes": 596013,
+    "entries_verified": 18,
+    "junit_sha256": "ac21bc6bda5e5def3aa9196d6d98cfcd2f3e773007e828fa2ee96c99429aa8a0",
+    "report_sha256": "d2305bb70ca416233ebc77c1f3df84b256da0a6d8dcd17e7b97f54cbe1fbd117",
+    "manifest_sha256": "dcdb23b13bf95d1c9c67275614a4037d1f969fe80d4ac102516a79ef62883fe1",
+    "sources": {
+      "agent": {
+        "sha": "2c6b729b608154731b821d2bfc89c266cd6ccb92",
+        "clean": true,
+        "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+      },
+      "merchant": {
+        "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "clean": true,
+        "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+      },
+      "payment": {
+        "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+        "clean": true,
+        "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+      }
+    },
+    "protocol_sha256": "2aa5627cfe6a30441fd03f0d4a2c74f9217aa6cd7bff2b1676f96fc77b609744",
+    "validated": false,
+    "junit": {
+      "failed": 1,
+      "skipped": 0,
+      "error": 0,
+      "passed": 0
+    },
+    "control_counts": {
+      "error": 1
+    },
+    "issues": [
+      "cleanup_not_verified:CT19:fixture"
+    ],
+    "shutdown": [
+      {
+        "scenario": "shutdown",
+        "merchant_pids": [
+          3240
+        ],
+        "proxy_closed": true,
+        "postgres_removed": true
+      }
+    ],
+    "note": "Fixture HP: AttributeError en la observacion PSP del arnes."
+  },
+  "41967635493": {
+    "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41967635493",
+    "artifact_id": 13387704126,
+    "original_zip": "runs/41967635493/original.zip",
+    "zip_sha256": "237b04b72973fe106003b41766029311845e0fd5007a12aeed20d648467a8a28",
+    "bytes": 594473,
+    "entries_verified": 18,
+    "junit_sha256": "719861b57243ac7dd22aa8bc52b001092001a5e69800caf91fac0d0ab5eb5377",
+    "report_sha256": "32d867047b34ad23ab97d8d76af9968b43f9387b80e286734212b9c820efd668",
+    "manifest_sha256": "2dd9dc14c912110c284a374b46fd1d51e1ce7763b586e9886fdabf6f65caf50c",
+    "sources": {
+      "agent": {
+        "sha": "e2537f2632a586010ef9734b0cf17d0cbb2c970b",
+        "clean": true,
+        "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+      },
+      "merchant": {
+        "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "clean": true,
+        "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+      },
+      "payment": {
+        "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+        "clean": true,
+        "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+      }
+    },
+    "protocol_sha256": "2aa5627cfe6a30441fd03f0d4a2c74f9217aa6cd7bff2b1676f96fc77b609744",
+    "validated": true,
+    "junit": {
+      "failed": 0,
+      "skipped": 0,
+      "error": 0,
+      "passed": 1
+    },
+    "control_counts": {
+      "passed": 1
+    },
+    "issues": [],
+    "shutdown": [
+      {
+        "scenario": "shutdown",
+        "merchant_pids": [
+          3441
+        ],
+        "proxy_closed": true,
+        "postgres_removed": true
+      }
+    ],
+    "note": "Puerta del estimulo. Sin atribucion P0."
+  },
+  "41968306631": {
+    "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41968306631",
+    "artifact_id": 13389150239,
+    "original_zip": "runs/41968306631/original.zip",
+    "zip_sha256": "ac0564067bff15f5eddfa385307450880d53e55fffc2aadc22b43df26e50a51e",
+    "bytes": 3626,
+    "entries_verified": 4,
+    "junit_sha256": "3ca553d911d3ec7308fcd990e086fa7556a65ee6ee19d35396e8766748e6f8b3",
+    "report_sha256": "1d739dfd3d4682df1fda1af15610da465e582cbc4144510a9c2740f0092f1d72",
+    "manifest_sha256": "7f7f0616466457622cdac716d868eaf9ee76a2355b1a29812aa2c25ab3571d20",
+    "sources": {
+      "agent": {
+        "sha": "fca5e7574d47ef44e878e17995091c19c2e64ee7",
+        "clean": true,
+        "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+      },
+      "merchant": {
+        "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "clean": true,
+        "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+      },
+      "payment": {
+        "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+        "clean": true,
+        "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+      }
+    },
+    "protocol_sha256": "62c21f2088ffb19cc28d43e0a46410d347199f1fbe07cff1d1164385d19848c2",
+    "validated": false,
+    "junit": {
+      "failed": 0,
+      "skipped": 0,
+      "error": 2,
+      "passed": 0
+    },
+    "control_counts": {
+      "not_executed": 2
+    },
+    "issues": [
+      "junit_recorder_mismatch:failed",
+      "stack_evidence_missing"
+    ],
+    "shutdown": [],
+    "note": "Fixture pytest ausente. Ambos episodios sin ejecutar."
+  },
+  "41968564766": {
+    "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41968564766",
+    "artifact_id": 13388935873,
+    "original_zip": "runs/41968564766/original.zip",
+    "zip_sha256": "b5b1e32e73ec48b30220e56c1e69ea3d548e93f9dc69e06b9159b34c8149b0f8",
+    "bytes": 937908,
+    "entries_verified": 22,
+    "junit_sha256": "6deeef79d56e3c1591d6645324b1a27af50e0b9102277376a504f16d6b07ac0d",
+    "report_sha256": "b368a83056a5abed248051df69eab92541ce24f5f08212ef341ca8eab07d885e",
+    "manifest_sha256": "3801ba11880ad9948db8b11bf3f386df8bd9cbfad7cfb4e82cc3d7262364ead6",
+    "sources": {
+      "agent": {
+        "sha": "a85681efa1c8d59aa58c5a5512f9eecb57f1e9b7",
+        "clean": true,
+        "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+      },
+      "merchant": {
+        "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "clean": true,
+        "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+      },
+      "payment": {
+        "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+        "clean": true,
+        "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+      }
+    },
+    "protocol_sha256": "62c21f2088ffb19cc28d43e0a46410d347199f1fbe07cff1d1164385d19848c2",
+    "validated": false,
+    "junit": {
+      "failed": 2,
+      "skipped": 0,
+      "error": 0,
+      "passed": 0
+    },
+    "control_counts": {
+      "failed": 2
+    },
+    "issues": [
+      "cleanup_not_verified:CT19:HP:removed",
+      "cleanup_not_verified:CT19:HP:stock_zero"
+    ],
+    "shutdown": [
+      {
+        "scenario": "shutdown",
+        "merchant_pids": [
+          3236
+        ],
+        "proxy_closed": true,
+        "postgres_removed": true
+      }
+    ],
+    "note": "Ambos rechazos nativos observados. Fallo de comparacion de auditoria en cuerpo y cleanup."
+  },
+  "42033289049": {
+    "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42033289049",
+    "artifact_id": 13417092291,
+    "original_zip": "runs/42033289049/original.zip",
+    "zip_sha256": "493c463e7bde219966fe4b7fc35f982399a364be9091af67cac21baed93b1463",
+    "bytes": 947213,
+    "entries_verified": 22,
+    "junit_sha256": "7d237e589e9a83185aaec227e9241c792ed4c835d4426c446f098520dd49e772",
+    "report_sha256": "2a5f3a54f21cee0fbc312ca68a17e2d36b9246f91e24807cf060eacf016638a8",
+    "manifest_sha256": "02add49e12abfc165d6accdb222ef82ccf7dd43df4c285728ef9010c4cfd30af",
+    "sources": {
+      "agent": {
+        "sha": "4fbf19104175786874666042dd4ba311ba7ac4b7",
+        "clean": true,
+        "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+      },
+      "merchant": {
+        "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "clean": true,
+        "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+      },
+      "payment": {
+        "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+        "clean": true,
+        "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+      }
+    },
+    "protocol_sha256": "62c21f2088ffb19cc28d43e0a46410d347199f1fbe07cff1d1164385d19848c2",
+    "validated": true,
+    "junit": {
+      "failed": 0,
+      "skipped": 0,
+      "error": 0,
+      "passed": 2
+    },
+    "control_counts": {
+      "passed": 2
+    },
+    "issues": [],
+    "shutdown": [
+      {
+        "scenario": "shutdown",
+        "merchant_pids": [
+          3166
+        ],
+        "proxy_closed": true,
+        "postgres_removed": true
+      }
+    ],
+    "note": "CT19 HP validado y control independiente de stock agotado.",
+    "verified_observations": {
+      "CT19:HP:removed": {
+        "offer": "BBiPhone12mini-64GB",
+        "revision": 1,
+        "available_quantity": 11,
+        "pricing": {
+          "currency": "cop",
+          "total_minor": 40500000,
+          "tax_included": true,
+          "items_total_minor": 38000000,
+          "shipping_total_minor": 2500000
+        },
+        "request_observation": {
+          "result": "error",
+          "run_id": "cbb6f4aa-8aeb-48e9-ae61-dcd1234c00d2",
+          "actor_id": "b0-exp02-5f859c60",
+          "order_id": null,
+          "operation": "create",
+          "error_code": "invalid_item",
+          "request_id": "05273106-b397-4cf2-af1a-79c6931693e6",
+          "checkout_id": null,
+          "http_status": 404,
+          "idempotency_sha256": "b18c84f37dc82245e37844a2d62927be47a2f8e254b2216a9ef6a3f3c1777449"
+        },
+        "offer_read_results": [
+          "ok",
+          "OFFER_NOT_FOUND"
+        ],
+        "agent_result": {
+          "purchase": [
+            [
+              "failed",
+              "BBiPhone12mini-64GB",
+              null,
+              null,
+              "invalid_item"
+            ]
+          ],
+          "d1": [
+            [
+              "decision_record",
+              "allow"
+            ]
+          ],
+          "dispatch": [
+            [
+              "definitive_failure",
+              null,
+              "VERIFIED_NOT_CREATED"
+            ]
+          ]
+        },
+        "catalog_sha256_restored": "047f0200464ebf033450f79c65a085113535d02ac1bf73e4fd16995459ada856",
+        "psp_unchanged": true,
+        "checkout_count": 0,
+        "agent_effect_counts": {
+          "approvals": 0,
+          "completion_results": 0
+        }
+      },
+      "CT19:HP:stock_zero": {
+        "offer": "BBiPhone12mini-64GB",
+        "revision": 1,
+        "available_quantity": 11,
+        "pricing": {
+          "currency": "cop",
+          "total_minor": 40500000,
+          "tax_included": true,
+          "items_total_minor": 38000000,
+          "shipping_total_minor": 2500000
+        },
+        "request_observation": {
+          "result": "error",
+          "run_id": "bb7c8d20-73d3-4677-8346-cd175514c3b0",
+          "actor_id": "b0-exp02-391b948f",
+          "order_id": null,
+          "operation": "create",
+          "error_code": "out_of_stock",
+          "request_id": "1d58d0db-b522-4764-866d-8106afe43aa3",
+          "checkout_id": null,
+          "http_status": 409,
+          "idempotency_sha256": "2acdec66beac1adf96d0c8496628a960b9377a9537a857c30a72dbe2c7560824"
+        },
+        "offer_read_results": [
+          "ok",
+          "ok"
+        ],
+        "agent_result": {
+          "purchase": [
+            [
+              "failed",
+              "BBiPhone12mini-64GB",
+              null,
+              null,
+              "out_of_stock"
+            ]
+          ],
+          "d1": [
+            [
+              "decision_record",
+              "allow"
+            ]
+          ],
+          "dispatch": [
+            [
+              "definitive_failure",
+              null,
+              "VERIFIED_NOT_CREATED"
+            ]
+          ]
+        },
+        "catalog_sha256_restored": "9da32717a01594fb4de67755063ef1503a52159e77df52e35231f6e461bc75aa",
+        "psp_unchanged": true,
+        "checkout_count": 0,
+        "agent_effect_counts": {
+          "approvals": 0,
+          "completion_results": 0
+        }
+      }
+    }
+  }
+}

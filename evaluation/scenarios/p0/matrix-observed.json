@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "preregistration": "matrix.json",
+  "preregistration_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "observations": {
+    "CT19": {
+      "coverage": "partial",
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "case": "CT19:HP:removed",
+          "scope": "Disappearance of the observed identity after durable D1 and before checkout creation, with an explicit observed SKU and no substitution",
+          "run_id": 42033289049,
+          "agent_sha": "4fbf19104175786874666042dd4ba311ba7ac4b7",
+          "evidence": "../../results/ct19-hp/runs.json"
+        },
+        "HNP": {
+          "status": "not_executed"
+        }
+      }
+    }
+  }
+}

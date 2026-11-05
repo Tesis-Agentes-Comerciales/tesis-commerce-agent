@@ -18,7 +18,7 @@ from .scenarios_p0 import count_plan, planned_cells
 ROOT = Path(__file__).resolve().parents[3]
 PLAN = ROOT / "evaluation/scenarios/exp01-first-batch.json"
 MODULE = "tests/integration/test_exp01_first_batch.py::"
-NON_SCENARIO_CONTROLS = frozenset({"AUTH-TRANSPORT", "EXP06-INFRA"})
+NON_SCENARIO_CONTROLS = frozenset({"AUTH-TRANSPORT", "EXP06-INFRA", "CT19-FIXTURE", "CT19-STOCK"})
 
 
 def sha(path: Path) -> str:
