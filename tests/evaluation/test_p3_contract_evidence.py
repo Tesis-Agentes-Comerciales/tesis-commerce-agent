@@ -116,8 +116,10 @@ def test_green_junit_needs_verified_sources_and_stack_cleanup(tmp_path: Path, co
         "manifest_unverified" if corruption.startswith("wrong") else "stack_cleanup_unverified"
     ]
 
+
 @pytest.mark.parametrize(
-    "defect", [None, "skipped", "missing_shutdown", "missing_manifest", "missing_psp", "wrong_tree"]
+    "defect",
+    [None, "skipped", "missing_shutdown", "missing_manifest", "missing_psp", "wrong_tree"],
 )
 def test_protocol_report_rejects_unverified_evidence(tmp_path: Path, defect: str | None):
     """A green JUnit alone cannot validate the protocol gate or its cleanup."""
