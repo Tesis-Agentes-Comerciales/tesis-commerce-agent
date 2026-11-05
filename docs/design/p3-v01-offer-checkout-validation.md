@@ -10,12 +10,17 @@ No changes to Agent product, Merchant, PSP, existing P0 matrix/oracles or P1/P2/
 
 ## Fixed sources and execution
 
-- Agent product: `a11f78bd5e5c18cd3a81ab74c2edc96e274367af`.
+- Historical Agent product: `a11f78bd5e5c18cd3a81ab74c2edc96e274367af`.
+- Agent product for the integration rerun: `9d932647f77f61135bd503874b266a96661854c8`.
+  The `src/commerce_agent` tree must equal `3316c4ce2a6f88f9222eeafd0a66bbf64148c2ce`.
 - Merchant: `abf30df3b6a611284dedcc26c00accac6a853329`.
 - PSP: `e6ab67b5963434a9a3caae2012b70232a3cca65d`.
 
-Dispatch existing `nightly.yml` on the PR branch with `test_scope=p3-offer-checkout`,
-`merchant_ref` and `payment_ref` exactly as above. Sibling access, setup or pin errors fail.
+Dispatch `nightly.yml` on the PR branch with `test_scope=p3-offer-checkout`.
+The default sibling pins for this profile are those above. Explicit overrides must match
+them. The manifest identifies the exact executed Agent SHA and its product tree.
+Sibling access, setup, pin or evidence errors fail. The P3 test files are excluded from
+`full` and the scheduled run. `p3-protocol-gate` requires the separate #176 implementation.
 Ubuntu 24.04, locked uv dependencies, existing LiveStack disposable PostgreSQL, PurchaseLane
 ACP and FaultProxy are reused. No model, approval, delegation, completion or purchase is run.
 Local collection skips live tests by design and is not real-service evidence.
@@ -54,9 +59,12 @@ identity/scope failure cannot. This observer is not new Agent behavior and never
 including the case where its successful response is lost. No-write timeout is injected before
 forwarding. Ordinary ACP creation after an intervening mutation is characterized using current
 Merchant terms: it does not prove atomic binding to an earlier read. Revision-only changes must
-be detected despite equal totals. Schema-valid wrong-offer acceptance is a known client limit,
-recorded explicitly rather than patched in product. Foreign credential scope is not inferred
-from matching offer IDs.
+be detected despite equal totals. The historical run observed a schema-valid wrong offer
+accepted by the old client. Since #178, the client rejects a mismatched offer ID or delivery
+context with `offer_mismatch`. The integration rerun checks each field independently with
+real upstream reads. Both failures remain `unknown`, with the original actor and request
+audited and zero validation checkouts. Malformed responses and correct bindings are checked
+separately. Foreign credential scope is verified independently of matching offer IDs.
 
 The Merchant's separate, guarded control worker reads all public tables in repeatable-read,
 publishing counts and hashes, public Offer/checkout snapshots and run_events only. No Agent

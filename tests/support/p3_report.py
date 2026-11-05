@@ -3,16 +3,26 @@
 import argparse
 import hashlib
 import json
+import os
+import re
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
 
-from tests.support.p3_contract import CASES
+from tests.support.p3_contract import (
+    AGENT_BASE,
+    CASES,
+    INTEGRATED_AGENT_BASE,
+    INTEGRATED_PRODUCT_TREE,
+    MERCHANT,
+    PSP,
+)
 
 
-def report(junit: Path, evidence: Path) -> dict:
+def report(junit: Path, evidence: Path, expected_agent: str | None = None) -> dict:
     nodes = ET.parse(junit).getroot().findall(".//testcase") if junit.is_file() else []
     records = {}
+    manifests, shutdowns, psp_shutdowns = [], [], []
     for path in sorted({p.resolve() for p in evidence.rglob("evidence.jsonl")}):
         for line in path.read_text(encoding="utf-8").splitlines():
             row = json.loads(line)
@@ -21,6 +31,12 @@ def report(junit: Path, evidence: Path) -> dict:
                 if key in records:
                     raise ValueError("Duplicate case evidence")
                 records[key] = row
+            elif row.get("scenario") == "P3-V01-manifest":
+                manifests.append(row)
+            elif row.get("scenario") == "shutdown":
+                shutdowns.append(row)
+            elif row.get("scenario") == "P3-V01-psp-shutdown":
+                psp_shutdowns.append(row)
     results = []
     for case in CASES:
         matching = [n for n in nodes if n.get("name") == f"test_offer_checkout_contract[{case}]"]
@@ -53,13 +69,45 @@ def report(junit: Path, evidence: Path) -> dict:
         )
     counts = {key: 0 for key in ("passed", "failed", "error", "skipped", "blocked", "not_executed")}
     counts.update(Counter(row["status"] for row in results))
+    issues = []
+    manifest = manifests[0] if len(manifests) == 1 else {}
+    pins = manifest.get("pins", {})
+    agent_sha = manifest.get("agent_sha", "")
+    if not (
+        re.fullmatch(r"[0-9a-f]{40}", agent_sha)
+        and (expected_agent is None or agent_sha == expected_agent)
+        and manifest.get("historical_agent_base") == AGENT_BASE
+        and manifest.get("agent_base") == INTEGRATED_AGENT_BASE
+        and manifest.get("product_tree")
+        == manifest.get("base_product_tree")
+        == INTEGRATED_PRODUCT_TREE
+        and manifest.get("required_cases") == list(CASES)
+        and manifest.get("llm") is False
+        and manifest.get("payments") is False
+        and all(
+            pins.get(role, {}).get("sha") == sha
+            and re.fullmatch(r"[0-9a-f]{64}", pins[role].get("lock_sha256", ""))
+            for role, sha in (("MERCHANT_REPO", MERCHANT), ("PAYMENT_REPO", PSP))
+        )
+    ):
+        issues.append("manifest_unverified")
+    if (
+        len(shutdowns) != 1
+        or shutdowns[0].get("proxy_closed") is not True
+        or shutdowns[0].get("postgres_removed") is not True
+        or len(psp_shutdowns) != 1
+        or psp_shutdowns[0].get("psp_stopped") is not True
+    ):
+        issues.append("stack_cleanup_unverified")
     return {
         "schema": "p3-v01-report/1",
         "p3_status": "BLOCKED",
         "collected": len(nodes),
         "counts": counts,
         "cases": results,
-        "validated": counts["passed"] == len(CASES) and len(nodes) == len(CASES),
+        "manifest": manifest,
+        "issues": issues,
+        "validated": counts["passed"] == len(CASES) and len(nodes) == len(CASES) and not issues,
     }
 
 
@@ -69,7 +117,7 @@ def main() -> None:
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    result = report(args.junit, args.evidence)
+    result = report(args.junit, args.evidence, os.environ.get("GITHUB_SHA"))
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     paths = {p.resolve() for p in args.evidence.rglob("evidence.jsonl")}
     paths |= {p.resolve() for p in (args.junit, args.output) if p.is_file()}
@@ -79,7 +127,14 @@ def main() -> None:
     )
     args.output.with_name("p3-v01-SHA256SUMS").write_text(sums, encoding="utf-8")
     print(
-        json.dumps({"validated": result["validated"], "counts": result["counts"], "p3": "BLOCKED"})
+        json.dumps(
+            {
+                "validated": result["validated"],
+                "counts": result["counts"],
+                "issues": result["issues"],
+                "p3": "BLOCKED",
+            }
+        )
     )
     if not result["validated"]:
         raise SystemExit(1)
