@@ -755,9 +755,15 @@ class AssistantTransport:
             except RuntimeError:
                 stop.set()  # The event loop is closed.
 
+        def cancelled() -> bool:
+            # The stream marks the run cancelled as soon as the client goes. A worker waiting on
+            # the model has no operation in flight to bring that to the event loop, so it reads
+            # the mark itself before its next step (p0-ux08-ux10.md §3.2). A read, no mutation.
+            return stop.is_set() or controller.is_cancelled
+
         def target() -> None:
             try:
-                work(post, stop.is_set)
+                work(post, cancelled)
             finally:
                 post(None)
 

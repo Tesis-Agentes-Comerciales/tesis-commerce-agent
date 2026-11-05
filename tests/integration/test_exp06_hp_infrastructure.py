@@ -28,8 +28,9 @@ class InvalidAuth:
 def test_real_router_ledger_without_paid_model(b0, tmp_path, monkeypatch):
     # POSIX service helpers are reused lazily, keeping offline collection portable.
     from commerce_evaluation.governance_pilot import AuthClient
-    from tests.integration.live_browser import AgentServer, ExplicitSettings, NodeServer
+    from tests.integration.live_browser import ExplicitSettings, NodeServer
     from tests.integration.test_live_b2_d2_authorization import settings_for
+    from tests.support.agent_server import AgentServer
 
     model_server = ModelServer(failure(503), failure(503))
     model_server.install(monkeypatch)
