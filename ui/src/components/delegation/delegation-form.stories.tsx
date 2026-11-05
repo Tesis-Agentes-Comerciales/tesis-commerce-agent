@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn } from "storybook/test"
+import { expect, fn, within } from "storybook/test"
 
 import { DelegationForm } from "@/components/delegation/delegation-form"
 import {
@@ -23,6 +23,7 @@ const BLANK: DelegationDraft = {
   city: DEMO_PROFILE.city,
   state: DEMO_PROFILE.state,
   preference: "",
+  ordered: false,
 }
 
 const meta = {
@@ -71,6 +72,7 @@ export const Filled: Story = {
       city: "Bogotá",
       state: "DC",
       preference: "Prefiero los Sony.",
+      ordered: false,
     })
   },
 }
@@ -147,9 +149,121 @@ export const Keyboard: Story = {
     await expect(first).toHaveFocus()
     await userEvent.keyboard(" ")
     await expect(first).toBeChecked()
-    // Dos opciones más, cinco campos, la indicación y «Cancelar».
-    for (let step = 0; step < 10; step += 1) await userEvent.tab()
+    // Dos opciones más, el interruptor del orden, cinco campos, la indicación y «Cancelar».
+    for (let step = 0; step < 11; step += 1) await userEvent.tab()
     await expectKeyboardFocus(canvas.getByRole("button", { name: "Preparar la autorización" }))
+  },
+}
+
+const ORDER = "Orden de compra"
+const IN_ORDER = /Comprar en orden de preferencia/
+const [SONY, BOSE, SENNHEISER] = ["Sony WH-1000XM6 negro", "Bose QuietComfort Ultra negro", "Sennheiser Momentum 4 Wireless negro"]
+
+/** Los títulos de «Orden de compra», en orden. */
+function orderOf(canvas: PlayContext["canvas"]) {
+  const list = canvas.getByRole("list", { name: ORDER })
+  return within(list).getAllByRole("listitem").map((item) => item.textContent?.replace(/^\d/, ""))
+}
+
+type PlayContext = Parameters<NonNullable<Story["play"]>>[0]
+
+/**
+ * Comprar en orden (p0-conditional-intent.md §3.9): las opciones marcadas, en el orden en que se
+ * marcaron, con botones para subir y bajar. Desmarcar quita la opción del orden y marcar la agrega
+ * al final. Enviar devuelve el orden en `variantIds`.
+ */
+export const Ordered: Story = {
+  play: async ({ args, canvas, userEvent }) => {
+    await expect(canvas.queryByRole("list", { name: ORDER })).toBeNull()
+    await userEvent.click(canvas.getByRole("checkbox", { name: new RegExp(SONY) }))
+    await userEvent.click(canvas.getByRole("checkbox", { name: new RegExp(BOSE) }))
+    await userEvent.click(canvas.getByRole("switch", { name: IN_ORDER }))
+    await expect(orderOf(canvas)).toEqual([SONY, BOSE])
+    await userEvent.click(canvas.getByRole("button", { name: `Subir ${BOSE}` }))
+    await expect(orderOf(canvas)).toEqual([BOSE, SONY])
+    await userEvent.click(canvas.getByRole("checkbox", { name: new RegExp(SENNHEISER) }))
+    await expect(orderOf(canvas)).toEqual([BOSE, SONY, SENNHEISER])
+    await userEvent.click(canvas.getByRole("checkbox", { name: new RegExp(SONY) }))
+    await expect(orderOf(canvas)).toEqual([BOSE, SENNHEISER])
+    await userEvent.type(canvas.getByLabelText("Total máximo con envío (pesos)"), "2.000.000")
+    await userEvent.click(canvas.getByRole("button", { name: "Preparar la autorización" }))
+    await expect(args.onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ variantIds: ["BOS-QCU-BLK", "SEN-MOM4-BLK"], ordered: true }),
+    )
+  },
+}
+
+/**
+ * El orden con el teclado: Tab llega a «Bajar», Enter mueve la opción y el foco la sigue, y un aviso
+ * dice su nuevo lugar. En el extremo el botón queda deshabilitado y conserva el foco.
+ */
+export const KeyboardReorder: Story = {
+  args: {
+    draft: { ...BLANK, variantIds: ["SON-XM6-BLK", "BOS-QCU-BLK", "SEN-MOM4-BLK"], ordered: true },
+  },
+  play: async ({ canvas, userEvent }) => {
+    canvas.getByRole("switch", { name: IN_ORDER }).focus()
+    await userEvent.tab()
+    // «Subir» de la primera está deshabilitado pero se enfoca: el foco nunca se pierde.
+    const firstUp = canvas.getByRole("button", { name: `Subir ${SONY}` })
+    await expect(firstUp).toHaveFocus()
+    await expect(firstUp).toHaveAttribute("aria-disabled", "true")
+    await userEvent.keyboard("{Enter}")
+    await expect(orderOf(canvas)).toEqual([SONY, BOSE, SENNHEISER])
+    await userEvent.tab()
+    const down = canvas.getByRole("button", { name: `Bajar ${SONY}` })
+    await expectKeyboardFocus(down)
+    await userEvent.keyboard("{Enter}")
+    await expect(orderOf(canvas)).toEqual([BOSE, SONY, SENNHEISER])
+    await expect(down).toHaveFocus()
+    await expect(canvas.getByRole("status")).toHaveTextContent(`${SONY}: opción 2 de 3`)
+    await userEvent.keyboard(" ")
+    await expect(orderOf(canvas)).toEqual([BOSE, SENNHEISER, SONY])
+    await expect(down).toHaveFocus()
+    await expect(down).toHaveAttribute("aria-disabled", "true")
+    await userEvent.keyboard("{Enter}")
+    await expect(orderOf(canvas)).toEqual([BOSE, SENNHEISER, SONY])
+    await expect(canvas.getByRole("status")).toHaveTextContent(`${SONY}: opción 3 de 3`)
+  },
+}
+
+/** El borrador del chat trae un orden: «Comprar en orden» ya marcado y solo esas opciones. */
+export const OrderedFromChat: Story = {
+  args: { draft: { ...BLANK, variantIds: ["BOS-QCU-BLK", "SON-XM6-BLK"], ordered: true } },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByRole("switch", { name: IN_ORDER })).toBeChecked()
+    await expect(orderOf(canvas)).toEqual([BOSE, SONY])
+    await expect(canvas.getByRole("checkbox", { name: new RegExp(SENNHEISER) })).not.toBeChecked()
+  },
+}
+
+/** Quitar «Comprar en orden» esconde el orden y envía solo el alcance. */
+export const OrderTurnedOff: Story = {
+  args: { draft: { ...BLANK, variantIds: ["BOS-QCU-BLK", "SON-XM6-BLK"], ordered: true, total: "2.000.000" } },
+  play: async ({ args, canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("switch", { name: IN_ORDER }))
+    await expect(canvas.queryByRole("list", { name: ORDER })).toBeNull()
+    await expect(canvas.getByRole("checkbox", { name: new RegExp(BOSE) })).toBeChecked()
+    await userEvent.click(canvas.getByRole("button", { name: "Preparar la autorización" }))
+    await expect(args.onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ variantIds: ["BOS-QCU-BLK", "SON-XM6-BLK"], ordered: false }),
+    )
+  },
+}
+
+/** A 320 px el orden de tres opciones, con sus botones, cabe sin desbordar. */
+export const OrderedPhone320: Story = {
+  args: {
+    draft: { ...BLANK, variantIds: ["SEN-MOM4-BLK", "SON-XM6-BLK", "BOS-QCU-BLK"], ordered: true },
+  },
+  render: (args) => (
+    <div className={PHONE_DIALOG_COLUMN} data-testid="phone-column">
+      <DelegationForm {...args} />
+    </div>
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    await expect(orderOf(canvas)).toEqual([SENNHEISER, SONY, BOSE])
+    await expectFitsPhoneColumn(canvasElement)
   },
 }
 

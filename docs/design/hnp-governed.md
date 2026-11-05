@@ -236,6 +236,43 @@ con `record_hnp_completion` en la misma transacción. Un recibo de error válido
 puede volver a obtener los recibos, la tarea sigue `running` y la próxima corrida repite las dos
 peticiones idempotentes.
 
+**Orden consentido (`priority`, `p0-conditional-intent.md` §3.9).** Si el consentimiento trae
+`priority`, el paso 2 no usa la lista corta ni el selector: cada variante del orden es una rama del
+evaluador condicional (`application/conditional.py`) con solo su `variant_id` y el total del grant
+como límite. `resolve_branches` la ata al feed del paso y `evaluate_branches` lee, en ese orden,
+la oferta del comercio (`POST /lab/offers/get` con el `ACPClient` del runtime, que
+`build_hnp_executor` recibe como `offers`). La primera variante activa, con stock, que el feed da
+como disponible y cuyo `total_minor` con envío es ≤ el total del grant (la igualdad cabe) es la
+elección; las siguientes no se leen. El modelo no participa: el selector no se consulta. La
+decisión va a `conditional_decisions` con el `run_id` de la tarea antes de cualquier efecto, y los
+finales son los de siempre:
+
+- ninguna variante del orden a la venta dentro del total (agotada, inactiva o sobre el total):
+  `no_candidate_in_scope`, sin efectos;
+- una oferta que no se pudo leer (cualquier error del cliente ACP, también `offer_expired` y
+  `OFFER_NOT_FOUND`), o que el feed da como no disponible: `selection_unavailable`, sin
+  `failure_kind` y **sin leer la siguiente**;
+- **una variante del orden que ya no está en el feed** (por ejemplo, la primera): la resolución
+  pide aclaración y la tarea termina `selection_unavailable` antes de leer ninguna oferta. No sigue
+  con el resto del orden, porque comprar la segunda sin saber nada de la primera saltaría la
+  prioridad que consintió el comprador;
+- una variante que contradice la intención del grant (otra moneda en el feed) antes de la elegida:
+  `selection_unavailable`, aunque una posterior sea elegible (D14); después de la elegida no
+  importa.
+
+Con la elección, `start` recibe el intent efectivo de la rama, que en HNP es el del grant, y
+después `verify_checkout` exige que el checkout preparado sea de esa variante y lleve el mismo
+`total_minor` que su oferta (D4, igualdad estricta) y lo anota como fila `checkout_check`. Si no
+coincide, o si la guarda de presupuesto cancela el checkout (la oferta cambió entre la lectura y la
+creación), la tarea termina `offer_changed` sin probar otra variante: en B2-HNP escala y cancela su
+checkout (§8.2); en B0-HNP falla y el checkout queda abierto hasta que vence, como con la frescura
+de hoy. Sin `priority` el ejecutor es el de siempre.
+
+**Revisión prometida (D15).** El revisor (`hnp-intent-review.md`) corre sobre la elección del orden
+solo si el consentimiento trae `preference_review`; sin él no revisa, aunque después se configure
+el revisor. Con o sin `priority`, un consentimiento con `preference_review` y sin revisor en la
+corrida termina `choice_not_confirmed` antes de cualquier efecto y sin evento `choice_reviewed`.
+
 **Arranque (HNP-09a).** Con `AGENT_HNP_ENABLED`, `build_runtime` arma el executor en un solo lugar,
 `delegation/bootstrap.build_hnp_executor`, que desde 09b le enchufa el `HnpDispatcher` con el mismo
 ledger, el `DelegatedPaymentClient` y el `ACPClient` del runtime. En `enforce`, la
@@ -313,6 +350,16 @@ Lo que el comprador consiente es `ConsentScope`:
 }
 ```
 
+Dos campos opcionales (`p0-conditional-intent.md` §3.9 y D15) **se omiten** cuando no aplican, así
+que un consentimiento guardado sin ellos conserva sus bytes y su `scope_digest`; un `null` o un
+`false` explícitos no son canónicos:
+
+- `priority` (y `display.priority`, igual): el orden en que el comprador quiere que se prueben las
+  variantes, una permutación completa de `scope.variant_ids`, de 1 a 3;
+- `display.preference_review: true`: la tarjeta promete que el agente revisa `preference_text`
+  antes de comprar. `propose` lo pone solo con `preference_text`, en `enforce` y con
+  `AGENT_HNP_REVIEWER=llm` (`build_delegation_service`).
+
 `scope_digest = "sha256:" + hex(SHA256(b"commerce-delegation-scope/v1\0" + bytes))`, con `bytes` en
 `commerce-canonical-json/1` (policy-v1 §5).
 
@@ -331,7 +378,8 @@ bytes que recibe y HNP-V1 los reutiliza para recalcular el digest.
   consiente. La vigencia efectiva pierde a lo sumo el TTL de la propuesta.
 - **Decisión de spec, indicación del comprador:** `preference_text` (opcional, 1 a 280 caracteres) es
   texto del propio comprador, no del modelo. Se muestra tal cual en la tarjeta, entra en el digest y
-  solo lo lee el selector LLM. Nunca entra en `DelegationScope` ni en el PDP. Lo necesita HN10.
+  solo lo leen el selector LLM y, si la tarjeta lo prometió (`preference_review`), el revisor.
+  Nunca entra en `DelegationScope` ni en el PDP. Lo necesita HN10.
 
 ### 4.3 Tablas SQLite
 
@@ -723,10 +771,12 @@ Revocar un grant que ya está `revoked(operator|escalated|failed)` no escribe na
 
 `DelegationProposalRequest`: `variant_ids` (1 a 5, únicos), `total_max_minor` (entero > 0),
 `currency` (`"COP"`), `valid_for_seconds` (60 ≤ v ≤ `AGENT_HNP_MAX_VALIDITY_SECONDS`), `details`
-(`CheckoutDetails` de HP) y `preference_text` (opcional). Variante fuera del feed actual del comercio
-configurado o en otra moneda: `delegation_variant_unavailable`. Una dirección que el comercio no
-acepta: `delegation_destination_unsupported`. Un total menor que todos los precios no
-se rechaza: D1 lo escalará con POL-11.
+(`CheckoutDetails` de HP), `preference_text` (opcional) y `priority` (opcional: el orden de
+`variant_ids`, de 1 a 3, que se guarda tal cual en el consentimiento y la tarjeta; omitido, nunca
+`null`). El backend agrega `display.preference_review` (§4.2), nunca el cliente. Variante
+fuera del feed actual del comercio configurado o en otra moneda: `delegation_variant_unavailable`.
+Una dirección que el comercio no acepta: `delegation_destination_unsupported`. Un total menor que
+todos los precios no se rechaza: D1 lo escalará con POL-11.
 
 **Cómo lo arma HNP-08** (`delegation_api.py`, `delegation/service.py`, `delegation/views.py`):
 
@@ -794,7 +844,7 @@ código, y un `RevokeReceipt` de otra causa que `owner` solo con `no_effect` (§
 
 | Tipo | Campos |
 | --- | --- |
-| `ScopeView` | `merchant_name`, `variants: [{variant_id, title}]`, `total_max: Money`, `expires_at`, `destination_label` («Ciudad, Departamento»), `instrument_label`, `uses: 1`, `preference_text: str \| null` |
+| `ScopeView` | `merchant_name`, `variants: [{variant_id, title}]`, `total_max: Money`, `expires_at`, `destination_label` («Ciudad, Departamento»), `instrument_label`, `uses: 1`, `preference_text: str \| null`; y, solo cuando aplican, `priority: [variant_id]` y `preference_review: true` (§4.2) |
 | `DelegationProposal` | `proposal_id`, `scope: ScopeView`, `scope_digest`, `presented_at`, `expires_at` (de la propuesta) |
 | `TaskView` | `task_id`, `state`, `outcome_code \| null`, `run_id \| null`, `order_id \| null`, `message \| null`, `updated_at` |
 | `EscalationView` | `reason` (código de escalamiento), `title`, `message`, `prefill_request` |
@@ -946,10 +996,10 @@ Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP d
 | Estado | `outcome_code` | Causa | Reserva | Grant | Aviso |
 | --- | --- | --- | --- | --- | --- |
 | `escalated` | `budget_not_satisfiable` | D1 POL-11 | — | `revoked(escalated)` | Escalamiento |
-| `escalated` | `no_candidate_in_scope` | Lista corta vacía | — | `revoked(escalated)` | Escalamiento |
-| `escalated` | `choice_not_confirmed` | El revisor de intención no confirmó la elección (o no respondió), antes de D1 (`hnp-intent-review.md`) | — | `revoked(escalated)` | Escalamiento |
-| `escalated` | `selection_unavailable` | El selector falló o no respondió (excepción, timeout, salida inválida o `None`): no hubo elección, antes del revisor, de D1 y de cualquier POST | — | `revoked(escalated)` | Escalamiento |
-| `escalated` | `offer_changed` | Frescura `changed` al cerrar; se cancela el checkout propio | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `no_candidate_in_scope` | Lista corta vacía; con `priority`, ninguna variante del orden a la venta dentro del total según su oferta (§3.3) | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `choice_not_confirmed` | El revisor de intención no confirmó la elección (o no respondió), antes de D1 (`hnp-intent-review.md`); o la tarjeta prometió la revisión (`preference_review`) y la corrida no tiene revisor (D15) | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `selection_unavailable` | El selector falló o no respondió (excepción, timeout, salida inválida o `None`): no hubo elección, antes del revisor, de D1 y de cualquier POST. Con `priority` (§3.3): una oferta que no se pudo verificar, una variante del orden que no está en el feed o una que contradice la intención antes de la elegida; nunca se pasa a la siguiente | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `offer_changed` | Frescura `changed` al cerrar; con `priority`, también un checkout cuyo total no es el de la oferta elegida (o que la guarda de presupuesto canceló); se cancela el checkout propio | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `terms_out_of_scope` | D2 niega solo con POL-05 y/o POL-08 | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `authorization_profile_unresolved` | `GOV_AUTHORIZATION_PROFILE_UNRESOLVED`: perfil, `open_proof` o `closed_proof` en `unresolved` | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `verifier_unresolved_constraint`, `verifier_mandates_not_supported` | Recibo de error del PSP con ese código | `released(psp_error_receipt)` | `revoked(escalated)` | Escalamiento |
@@ -1012,6 +1062,12 @@ escalamiento: **«Necesito tu decisión»** (clave `escalation.title`; el prelle
 seguido del sufijo (`escalation_message`): `suffix_rejected_by_psp` para los dos `verifier_*`, y
 `suffix_before_presentation` para los demás.
 
+**Textos neutros (`p0-conditional-intent.md` §3.9).** `escalation.no_candidate_in_scope` y
+`escalation.selection_unavailable` no nombran la causa. El primero cubre la lista corta vacía y un
+orden consentido sin variante a la venta dentro del total; el segundo, un selector que falló, una
+oferta que no se pudo verificar y una variante del orden que no se pudo probar (fuera del feed o
+contra la intención), donde no falló ningún servicio.
+
 **Rechazo del comercio al crear el checkout (CT13).** Una tarea `failed(checkout_failed)` usa
 `task.refused.<código>` en lugar de `task.failed` solo si su `task_finished` trae
 `merchant_refusal`. El executor lo pone cuando, y solo cuando, el comercio rechazó la creación con
@@ -1032,9 +1088,9 @@ sigue en el chat HP y en el texto del modelo.
 | Clave | Texto |
 | --- | --- |
 | `escalation.budget_not_satisfiable` | El precio de catálogo de la opción disponible ya supera el total máximo que autorizaste. |
-| `escalation.no_candidate_in_scope` | Ninguna de las opciones que autorizaste está disponible ahora. |
+| `escalation.no_candidate_in_scope` | Ninguna de las opciones que autorizaste se puede comprar ahora dentro de tu autorización. |
 | `escalation.choice_not_confirmed` | No pude confirmar que la opción elegida sea la que pediste. |
-| `escalation.selection_unavailable` | No pude elegir entre las opciones que autorizaste porque el servicio que hace la elección falló o no respondió. |
+| `escalation.selection_unavailable` | No pude elegir con seguridad entre las opciones que autorizaste. |
 | `escalation.offer_changed` | La oferta del comercio cambió antes de que cerrara la compra. |
 | `escalation.terms_out_of_scope` | El total del comercio, con envío, o algún término quedó fuera de lo que autorizaste. |
 | `escalation.authorization_profile_unresolved` | No pude comprobar que la compra encaje en tu autorización. |

@@ -4,7 +4,7 @@ import { expect, fn, waitFor, within } from "storybook/test"
 import { DelegationInChat } from "@/components/delegation/delegation-in-chat"
 import { asDelegationDraft } from "@/features/agent-results"
 import { DEMO_PROFILE } from "@/lib/commerce-types"
-import type { DelegationView } from "@/lib/delegation-contract"
+import { parseDelegationProposal, type DelegationView } from "@/lib/delegation-contract"
 import { chatDraft } from "@/lib/delegation-draft"
 import { fixtureState } from "@/storybook/assistant-transport"
 import { DELEGATION_PROPOSAL, DELEGATIONS } from "@/storybook/fixtures/delegation-fixtures"
@@ -83,6 +83,28 @@ export const FormWithoutBudget: Story = {
   },
 }
 
+/**
+ * El turno leyó un orden («prefiero Bose; si no, Sony», p0-conditional-intent.md §3.9): solo esas
+ * opciones quedan marcadas, «Comprar en orden» encendido y el orden del turno. Enviar lo conserva.
+ */
+export const FormInOrder: Story = {
+  args: { draft: chatDraft({ ...VIEW, priority: ["BOS-QCU-BLK", "SON-XM6-BLK"] }, DEMO_PROFILE) },
+  play: async ({ args, canvas, userEvent }) => {
+    const form = within(canvas.getByTestId("delegation-form"))
+    await expect(form.getByRole("switch", { name: /Comprar en orden/ })).toBeChecked()
+    await expect(form.getByRole("checkbox", { name: /Sennheiser/ })).not.toBeChecked()
+    const order = within(form.getByRole("list", { name: "Orden de compra" }))
+    await expect(order.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "1Bose QuietComfort Ultra negro",
+      "2Sony WH-1000XM6 negro",
+    ])
+    await userEvent.click(form.getByRole("button", { name: "Preparar la autorización" }))
+    await expect(args.onPropose).toHaveBeenCalledWith(
+      expect.objectContaining({ variantIds: ["BOS-QCU-BLK", "SON-XM6-BLK"], ordered: true }),
+    )
+  },
+}
+
 /** Mientras responde la propuesta, «Preparar» gira y conserva el foco. */
 export const Proposing: Story = {
   args: { flow: { step: "form", submitting: true, error: null } },
@@ -112,6 +134,35 @@ export const Consent: Story = {
     })
     await userEvent.click(card.getByRole("button", { name: "Cancelar" }))
     await expect(args.onBackToForm).toHaveBeenCalled()
+  },
+}
+
+/** La propuesta en orden, con la revisión que calculó el backend (D15), en el hilo. */
+export const ConsentInOrder: Story = {
+  args: {
+    flow: {
+      step: "consent",
+      proposal: parseDelegationProposal({
+        ...DELEGATION_PROPOSAL,
+        scope: {
+          ...DELEGATION_PROPOSAL.scope,
+          priority: ["SON-XM6-BLK", "BOS-QCU-BLK"],
+          preference_review: true,
+        },
+      }),
+      authorizing: false,
+      error: null,
+      canAuthorize: true,
+    },
+  },
+  play: async ({ canvas }) => {
+    const card = within(canvas.getByTestId("delegation-consent-card"))
+    const order = within(card.getByRole("list", { name: /en este orden/ }))
+    await expect(order.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Sony WH-1000XM6 negro",
+      "Bose QuietComfort Ultra negro",
+    ])
+    await expect(card.getByText(/Antes de comprar, el agente revisa tu indicación/)).toBeVisible()
   },
 }
 

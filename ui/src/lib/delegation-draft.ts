@@ -32,11 +32,15 @@ export type DelegationDraft = {
   city: string;
   state: string;
   preference: string;
+  /** Comprar en el orden de `variantIds` (`priority`); sin él, el servidor recibe solo el alcance. */
+  ordered: boolean;
 };
 
 /** §6: 5 variantes por alcance y 280 caracteres de indicación. */
 export const MAX_DELEGATION_VARIANTS = 5;
 export const MAX_PREFERENCE_CHARS = 280;
+/** p0-conditional-intent.md §3.9: un orden lleva de 1 a 3 variantes. */
+export const MAX_PRIORITY_VARIANTS = 3;
 
 /** Pesos con o sin separadores de miles («2.000.000»), sin centavos. */
 function pesos(total: string) {
@@ -56,13 +60,20 @@ export function proposalRequest(
   draft: DelegationDraft,
   profile: BuyerProfile,
 ): DraftCheck {
-  const variantIds = [...new Set(draft.variantIds)].sort();
+  const chosen = [...new Set(draft.variantIds)];
+  const variantIds = [...chosen].sort();
   if (variantIds.length === 0)
     return { ok: false, problem: "Elige al menos una opción." };
   if (variantIds.length > MAX_DELEGATION_VARIANTS) {
     return {
       ok: false,
       problem: `Elige como máximo ${MAX_DELEGATION_VARIANTS} opciones.`,
+    };
+  }
+  if (draft.ordered && chosen.length > MAX_PRIORITY_VARIANTS) {
+    return {
+      ok: false,
+      problem: `Para comprar en orden, elige como máximo ${MAX_PRIORITY_VARIANTS} opciones.`,
     };
   }
   const total = pesos(draft.total);
@@ -101,6 +112,7 @@ export function proposalRequest(
       valid_for_seconds: draft.validForSeconds,
       details: checkoutDetails({ ...profile, ...destination }),
       preference_text: preference,
+      ...(draft.ordered && { priority: chosen }),
     },
   };
 }
@@ -119,16 +131,20 @@ function pesosText(amountMinor: number) {
 /**
  * El formulario del hilo prellenado con lo que encontró el turno (hnp-chat-delegate.md): las
  * opciones marcadas, el total con el presupuesto que escribió el comprador (o vacío), su mensaje
- * como indicación y la entrega del perfil. Todo sigue editable.
+ * como indicación y la entrega del perfil. Si el turno leyó un orden (p0-conditional-intent.md
+ * §3.9), quedan marcadas solo esas opciones, en ese orden. Todo sigue editable.
  */
 export function chatDraft(
   view: DelegationDraftView,
   profile: BuyerProfile,
 ): DelegationDraft {
   return {
-    variantIds: view.offers
-      .slice(0, MAX_DELEGATION_VARIANTS)
-      .map((offer) => offer.variant_id),
+    variantIds:
+      view.priority ??
+      view.offers
+        .slice(0, MAX_DELEGATION_VARIANTS)
+        .map((offer) => offer.variant_id),
+    ordered: view.priority !== undefined,
     total: view.budget_minor ? pesosText(view.budget_minor) : "",
     validForSeconds: DEFAULT_VALIDITY_SECONDS,
     addressLine: profile.addressLine,
