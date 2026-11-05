@@ -6,6 +6,7 @@ show it holds with this batch's budget, its receipt and its three model clients.
 """
 
 import json
+import subprocess
 from contextlib import nullcontext
 from decimal import Decimal
 from pathlib import Path
@@ -407,3 +408,62 @@ def test_execute_without_a_receipt_stops_before_any_credential(tmp_path, monkeyp
     monkeypatch.setattr(exp06_execution, "check_account", lambda: pytest.fail("account read"))
     with pytest.raises(SpendingBlocked, match="authorization"):
         execution.execute(None, tmp_path / "run", "smoke")
+
+
+# Amendment A1
+
+
+AMENDMENT = json.loads(
+    (execution.REPOSITORY / "evaluation/scenarios/p0-llm-batch2-a1.json").read_text()
+)
+# What the run executes besides the product: the executor, its live episode and its controls.
+EXECUTOR = (
+    "evaluation/src/commerce_evaluation/p0_llm_batch2.py",
+    "evaluation/src/commerce_evaluation/p0_llm_batch2_execution.py",
+    "tests/integration/p0_llm_batch2_live.py",
+    "tests/integration/test_p0_llm_batch2_controls.py",
+    "tests/integration/live_merchant_control.py",
+)
+
+
+def test_amendment_a1_fixes_the_run_ref_and_keeps_the_frozen_bytes():
+    assert AMENDMENT["id"] == "A1"
+    assert AMENDMENT["amends"]["preregistration"]["sha256"] == execution.FROZEN_PROTOCOL_SHA256
+    assert AMENDMENT["amends"]["spec"]["sha256"] == execution.FROZEN_SPEC_SHA256
+    # The preregistration keeps its bytes, run_ref null included: A1 lives in its own file.
+    assert protocol_hash() == execution.FROZEN_PROTOCOL_SHA256 and PLAN["run_ref"] is None
+    assert PLAN["amendments"]["allowed_before_first_live_call"][0].startswith("A1: fix run_ref")
+    assert AMENDMENT["agent_base"] == PLAN["agent_base"]
+    base = AMENDMENT["product_base"]
+    assert base["commit"] == execution.PRODUCT_BASE
+    assert base["paths"] == list(execution.PRODUCT_PATHS)
+    run_ref = AMENDMENT["run_ref"]
+    assert run_ref["tag"] == "p0-llm-batch2-run" and len(run_ref["commit"]) == 40
+    assert AMENDMENT["controls"]["on"] == run_ref["commit"]
+    included = [item["pr"] for item in AMENDMENT["included"]]
+    assert included == [181, 157, 182, 185, 184, 183, 187, 188, 186]
+    assert [item["pr"] for item in AMENDMENT["included"] if item["product_code"]] == [185, 187]
+    assert AMENDMENT["included"][-1]["merge"] == execution.PRODUCT_BASE
+    [excluded] = AMENDMENT["excluded"]
+    assert excluded["pr"] == 190 and "prompt" in excluded["changes"]
+
+
+def in_clone(commit: str) -> bool:
+    found = subprocess.run(
+        ["git", "-C", str(execution.REPOSITORY), "cat-file", "-e", commit + "^{commit}"],
+        capture_output=True,
+    )
+    return found.returncode == 0
+
+
+def test_the_run_ref_is_the_product_base_plus_this_executor():
+    """Where the clone has the run_ref: its product is the base's, and the executor this
+    branch carries is the one it runs. A shallow checkout without it skips."""
+    commit = AMENDMENT["run_ref"]["commit"]
+    if not in_clone(commit) or not in_clone(execution.PRODUCT_BASE):
+        pytest.skip("run_ref or product_base not in this clone")
+    repository = str(execution.REPOSITORY)
+    product = ["git", "-C", repository, "diff", "--quiet", execution.PRODUCT_BASE, commit, "--"]
+    assert subprocess.run([*product, *execution.PRODUCT_PATHS]).returncode == 0
+    executor = ["git", "-C", repository, "diff", "--quiet", commit, "HEAD", "--", *EXECUTOR]
+    assert subprocess.run(executor).returncode == 0
