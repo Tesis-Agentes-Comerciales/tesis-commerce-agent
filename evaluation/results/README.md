@@ -52,3 +52,8 @@ El piloto del revisor de intención HNP (manifiesto `HNP-REVIEW-PILOT-v1`) está
 - Contiene la corrida registrada y el smoke sobre `ef0d493`, que no cuenta como resultado, con `SHA256SUMS`.
 - `hnp-review-pilot-v1-report.md` resume la corrida frente a los criterios pre-registrados.
 - Los archivos se copiaron byte por byte. En estos resúmenes, el campo `results` conserva la ruta absoluta y el nombre que les dio el runner. No se reescribió.
+
+La evidencia P0 de fallos del modelo (INF27, INF28, INF29 e INF33; protocolo `evaluation/scenarios/p0-model-failures.json`) está en `p0-model-failures/`.
+- Contiene la corrida registrada y la corrida 1, conservada con su fallo de arnés, con `SHA256SUMS`.
+- Su `README.md` explica el fallo de arnés y su corrección, los SHAs y los límites.
+- Los archivos se copiaron byte por byte.
