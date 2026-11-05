@@ -14,6 +14,7 @@ on:
           - full
           - p0-catalog-bridge
           - p3-offer-checkout
+          - p3-protocol-gate
       merchant_ref:
         description: Merchant branch or commit (empty uses its default branch)
         required: false
@@ -45,7 +46,7 @@ jobs:
         id: token
         env:
           SIBLING_TOKEN_CONFIGURED: ${{ secrets.MERCHANT_REPO_TOKEN != '' }}
-          P2_REQUIRED: ${{ github.event_name == 'workflow_dispatch' && (inputs.test_scope == 'p0-catalog-bridge' || inputs.test_scope == 'p3-offer-checkout') }}
+          P2_REQUIRED: ${{ github.event_name == 'workflow_dispatch' && (inputs.test_scope == 'p0-catalog-bridge' || inputs.test_scope == 'p3-offer-checkout' || inputs.test_scope == 'p3-protocol-gate') }}
         run: |
           if [ "$SIBLING_TOKEN_CONFIGURED" = "true" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
@@ -113,11 +114,22 @@ jobs:
 
       # The browser test drives auth/ and ui/ with the Agent's own pinned Playwright.
       - name: Install auth, UI and Chromium
+        if: inputs.test_scope != 'p3-protocol-gate'
         working-directory: agent
         run: |
           (cd auth && npm ci)
           (cd ui && npm ci)
           uv run playwright install --with-deps --only-shell chromium
+
+      - name: Install auth for the HP protocol guard
+        if: inputs.test_scope == 'p3-protocol-gate'
+        working-directory: agent/auth
+        run: npm ci
+
+      - name: Require offline protocol controls before live
+        if: inputs.test_scope == 'p3-protocol-gate'
+        working-directory: agent
+        run: uv run pytest tests/evaluation/test_p3_protocol.py tests/evaluation/test_p3_contract_evidence.py -q
 
       # Disposable PostgreSQL in Docker, the real Merchant and payment provider, and the
       # Agent with its UI; see docs/testing.md and tests/integration/README.md.
@@ -125,13 +137,16 @@ jobs:
         working-directory: agent
         env:
           RUN_LIVE_STACK: "1"
-          TEST_PATH: ${{ inputs.test_scope == 'p3-offer-checkout' && 'tests/integration/test_live_p3_offer_checkout.py' || inputs.test_scope == 'p0-catalog-bridge' && 'tests/integration/test_live_p0_catalog_bridge.py' || 'tests/integration' }}
+          TEST_PATH: ${{ inputs.test_scope == 'p3-protocol-gate' && 'tests/integration/test_live_p3_protocol.py' || inputs.test_scope == 'p3-offer-checkout' && 'tests/integration/test_live_p3_offer_checkout.py' || inputs.test_scope == 'p0-catalog-bridge' && 'tests/integration/test_live_p0_catalog_bridge.py' || 'tests/integration' }}
           MERCHANT_REPO: ${{ github.workspace }}/merchant
           PAYMENT_REPO: ${{ github.workspace }}/payment
-        run: >-
-          uv run pytest "$TEST_PATH" -rs -p no:cacheprovider
-          --basetemp="$RUNNER_TEMP/live-stack"
-          --junitxml="$RUNNER_TEMP/live-junit.xml"
+        run: |
+          args=()
+          if [ "$TEST_PATH" = tests/integration ]; then
+            args+=(--ignore=tests/integration/test_live_p3_protocol.py)
+          fi
+          uv run pytest "$TEST_PATH" "${args[@]}" -rs -p no:cacheprovider \
+            --basetemp="$RUNNER_TEMP/live-stack" --junitxml="$RUNNER_TEMP/live-junit.xml"
 
       - name: Require complete P3-V01 evidence
         if: ${{ !cancelled() && inputs.test_scope == 'p3-offer-checkout' }}
@@ -141,6 +156,15 @@ jobs:
           --junit "$RUNNER_TEMP/live-junit.xml"
           --evidence "$RUNNER_TEMP/live-stack"
           --output "$RUNNER_TEMP/p3-v01-report.json"
+
+      - name: Require complete protocol gate evidence
+        if: ${{ !cancelled() && inputs.test_scope == 'p3-protocol-gate' }}
+        working-directory: agent
+        run: >-
+          uv run python -m tests.support.p3_report --protocol-gate
+          --junit "$RUNNER_TEMP/live-junit.xml"
+          --evidence "$RUNNER_TEMP/live-stack"
+          --output "$RUNNER_TEMP/p3-point5-report.json"
 
       # Evidence, service logs, the browser screenshot and the JUnit report; workers never
       # log tokens or bodies.
@@ -156,5 +180,7 @@ jobs:
             ${{ runner.temp }}/live-junit.xml
             ${{ runner.temp }}/p3-v01-report.json
             ${{ runner.temp }}/p3-v01-SHA256SUMS
+            ${{ runner.temp }}/p3-point5-report.json
+            ${{ runner.temp }}/p3-point5-SHA256SUMS
           if-no-files-found: ignore
           retention-days: 14

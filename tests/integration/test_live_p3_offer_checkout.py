@@ -159,9 +159,18 @@ def verify_checkout(lane: PurchaseLane, ep: Episode, offer: MerchantOffer, check
     assert internal["delivery_context"] == offer.delivery_context.model_dump(mode="json")
 
 
-def prepare(lane: PurchaseLane, ep: Episode, offer: MerchantOffer, facts: dict[str, Any]):
+def prepare(
+    lane: PurchaseLane,
+    ep: Episode,
+    offer: MerchantOffer,
+    facts: dict[str, Any],
+    *,
+    creation_key: str | None = None,
+):
     with client(lane, ep) as gateway:
-        checkout = gateway.create_checkout(offer.id, currency="cop", idempotency_key=str(uuid4()))
+        checkout = gateway.create_checkout(
+            offer.id, currency="cop", idempotency_key=creation_key or str(uuid4())
+        )
         verify_checkout(lane, ep, offer, checkout)
         details = buyer_details("p3")
         options = checkout.model_extra["fulfillment_options"] if checkout.model_extra else []
