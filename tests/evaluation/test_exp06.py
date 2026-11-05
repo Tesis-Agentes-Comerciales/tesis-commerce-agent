@@ -127,9 +127,14 @@ def test_structural_success_never_claims_semantic_success(case_id):
         "ledger_complete": True,
     }
     assert classify(case_id, **args)["status"] == "pending_review"
-    assert classify(case_id, **(args | {"status": 502}))["commercial_truth"] == "unknown"
-    assert classify(case_id, **(args | {"effects": {"tokens": 1}}))["status"] == "failed"
     assert classify(case_id, **args, simulated=True)["status"] == "not_executed"
-    assert classify(case_id, **(args | {"body": {"action": "purchase"}}))["status"] == "failed"
+    args["status"] = 502
+    assert classify(case_id, **args)["commercial_truth"] == "unknown"
+    args["status"] = 200
+    args["effects"] = {"tokens": 1}
+    assert classify(case_id, **args)["status"] == "failed"
+    args["effects"] = {"tokens": 0}
+    args["body"] = {"action": "purchase"}
+    assert classify(case_id, **args)["status"] == "failed"
     assert review_template(case_id)["status"] == "pending_review"
     assert messages(case_id)[-1]["content"] == protocol()["cases"][case_id]["prompt"]
