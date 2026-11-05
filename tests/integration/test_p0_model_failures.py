@@ -104,16 +104,21 @@ LEDGER = (
 class ScriptedModel(ModelServer):
     """`ModelServer` serving a named script of the protocol whose last answer persists: an attempt
     beyond the oracle gets the same stimulus and is counted, instead of breaking the double. Each
-    served response keeps its `x-should-retry` as scripted, before the Agent's hooks see it."""
+    served response keeps its `x-should-retry` as scripted, before the Agent's hooks see it.
+    `restart` starts the script again: the protocol runs it per surface (HP) or per task run."""
 
     def __init__(self, script: list[str]) -> None:
         super().__init__()
         self.script = script
         self.served: list[tuple[str, httpx.Response | None, str | None]] = []
+        self.origin = 0
+
+    def restart(self) -> None:
+        self.origin = len(self.requests)
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        name = self.script[min(len(self.requests), len(self.script)) - 1]
+        name = self.script[min(len(self.requests) - self.origin, len(self.script)) - 1]
         try:
             response = ANSWERS[name](json.loads(request.content))
         except httpx.TransportError:
@@ -393,7 +398,9 @@ class HpAgent:
         return not self.server.thread.is_alive()
 
     def turn(self, surface: str, model: ScriptedModel, turn_id: str) -> dict[str, Any]:
-        """One turn of the phone request through REST or the chat, with what it cost."""
+        """One turn of the phone request through REST or the chat, with what it cost. The
+        script starts again on each surface."""
+        model.restart()
         attempts, sequence = len(model.served), last_request(self.database)
         start = len(self.lane.proxy.calls)
         if surface == "rest":
@@ -512,91 +519,6 @@ def test_p0_hp_model_failure(b0, tmp_path, monkeypatch, p0_cases, cell, repetiti
             agent.close()
             record["cleanup_verified"] = agent.stopped()
         verdict(record, checks)
-
-
-@pytest.mark.parametrize(("cell", "repetition"), plan("INF27-HP-control", "CTRL-HP"))
-def test_p0_hp_control(b0, tmp_path, monkeypatch, p0_cases, cell, repetition):
-    """INF27-HP-control and CTRL-HP: each surface in its own Agent prepares one checkout."""
-    case = CASES[cell]
-    oracle = case["oracle"]
-    episodes = {surface: b0.episode(f"p0-{cell.lower()}-{surface}") for surface in case["surfaces"]}
-    inputs = {
-        "episodes": {
-            surface: {"run_id": item.run_id, "actor_id": item.actor_id}
-            for surface, item in episodes.items()
-        },
-        "lane": "b0",
-    }
-    with p0_case(p0_cases, b0, tmp_path, cell, repetition, inputs) as record:
-        facts = record["observations"]
-        checks: dict[str, bool] = {}
-        surfaces: dict[str, Any] = {}
-        summary: dict[str, Any] = {}
-        cleaned: list[bool] = []
-        for surface, episode in episodes.items():
-            model = ScriptedModel(case["script"])
-            model.install(monkeypatch)
-            agent = HpAgent(b0, episode, tmp_path / surface, monkeypatch)
-            try:
-                agent.start()
-                before = outside(b0, episode)
-                seen = agent.turn(surface, model, f"p0-{cell}-r{repetition}-{surface}")
-                after = outside(b0, episode)
-            finally:
-                agent.close()
-                cleaned.append(agent.stopped() and cancel_checkouts(b0, episode))
-            checks |= hp_surface_checks(oracle, surface, seen)
-            if surface == "rest":
-                body = seen["body"]
-                checks["rest.purchase"] = [
-                    seen["status"],
-                    body.get("action"),
-                    (body.get("purchase") or {}).get("stage"),
-                ] == [
-                    oracle["rest"]["status"],
-                    oracle["rest"]["action"],
-                    oracle["rest"]["purchase_stage"],
-                ]
-            else:
-                view = seen["view"]
-                checks["chat.purchase"] = [view["status"], view["purchase_stage"]] == [
-                    oracle["chat"]["status"],
-                    oracle["chat"]["purchase_stage"],
-                ]
-            posts = [call for call in seen["merchant_calls"] if call[:2] == ["POST", CREATE_PATH]]
-            checks[f"{surface}.checkout_posts"] = len(posts) == oracle[
-                "checkout_posts_per_surface"
-            ] and all(call[2] == oracle["checkout_post_status"] for call in posts)
-            tables = ("orders", "checkout_completion_attempts")
-            checks[f"{surface}.no_payment"] = (
-                all(
-                    before["merchant_tables"][name] == after["merchant_tables"][name]
-                    for name in tables
-                )
-                and before["psp"] == after["psp"]
-                and before["psp_tokens"] == after["psp_tokens"]
-                and not any("complete" in call[1] for call in seen["merchant_calls"])
-            )
-            surfaces[surface] = seen | {"merchant_before": before, "merchant_after": after}
-            summary[surface] = hp_summary(seen)
-        record["stimulus_verified"] = True
-        facts.update(surfaces=surfaces, summary={"surfaces": summary})
-        record["cleanup_verified"] = all(cleaned)
-        verdict(record, checks)
-
-
-def cancel_checkouts(lane: PurchaseLane, episode: Episode) -> bool:
-    """The control's checkout canceled at the Merchant, as exp02's cleanup does; True once every
-    checkout of the episode is canceled."""
-    for checkout_id, status, *_ in observe(lane, episode)["checkouts"]:
-        if status != "canceled":
-            lane.rpc(
-                "cancel_fixture",
-                bearer=episode.bearer.get_secret_value(),
-                checkout_id=checkout_id,
-                key="p0-cleanup-" + checkout_id,
-            )
-    return all(row[1] == "canceled" for row in observe(lane, episode)["checkouts"])
 
 
 # Human Not Present ------------------------------------------------------------------------------
@@ -728,6 +650,96 @@ def test_p0_hnp_model_failure(hnp, tmp_path, monkeypatch, p0_cases, cell, repeti
         verdict(record, checks)
 
 
+# Controls ---------------------------------------------------------------------------------------
+# Pytest runs the tests in the order they are defined; the protocol's execution_order puts every
+# zero-effect cell (above) before the controls that prepare checkouts or buy (below).
+
+
+@pytest.mark.parametrize(("cell", "repetition"), plan("INF27-HP-control", "CTRL-HP"))
+def test_p0_hp_control(b0, tmp_path, monkeypatch, p0_cases, cell, repetition):
+    """INF27-HP-control and CTRL-HP: each surface in its own Agent prepares one checkout."""
+    case = CASES[cell]
+    oracle = case["oracle"]
+    episodes = {surface: b0.episode(f"p0-{cell.lower()}-{surface}") for surface in case["surfaces"]}
+    inputs = {
+        "episodes": {
+            surface: {"run_id": item.run_id, "actor_id": item.actor_id}
+            for surface, item in episodes.items()
+        },
+        "lane": "b0",
+    }
+    with p0_case(p0_cases, b0, tmp_path, cell, repetition, inputs) as record:
+        facts = record["observations"]
+        checks: dict[str, bool] = {}
+        surfaces: dict[str, Any] = {}
+        summary: dict[str, Any] = {}
+        cleaned: list[bool] = []
+        for surface, episode in episodes.items():
+            model = ScriptedModel(case["script"])
+            model.install(monkeypatch)
+            agent = HpAgent(b0, episode, tmp_path / surface, monkeypatch)
+            try:
+                agent.start()
+                before = outside(b0, episode)
+                seen = agent.turn(surface, model, f"p0-{cell}-r{repetition}-{surface}")
+                after = outside(b0, episode)
+            finally:
+                agent.close()
+                cleaned.append(agent.stopped() and cancel_checkouts(b0, episode))
+            checks |= hp_surface_checks(oracle, surface, seen)
+            if surface == "rest":
+                body = seen["body"]
+                checks["rest.purchase"] = [
+                    seen["status"],
+                    body.get("action"),
+                    (body.get("purchase") or {}).get("stage"),
+                ] == [
+                    oracle["rest"]["status"],
+                    oracle["rest"]["action"],
+                    oracle["rest"]["purchase_stage"],
+                ]
+            else:
+                view = seen["view"]
+                checks["chat.purchase"] = [view["status"], view["purchase_stage"]] == [
+                    oracle["chat"]["status"],
+                    oracle["chat"]["purchase_stage"],
+                ]
+            posts = [call for call in seen["merchant_calls"] if call[:2] == ["POST", CREATE_PATH]]
+            checks[f"{surface}.checkout_posts"] = len(posts) == oracle[
+                "checkout_posts_per_surface"
+            ] and all(call[2] == oracle["checkout_post_status"] for call in posts)
+            tables = ("orders", "checkout_completion_attempts")
+            checks[f"{surface}.no_payment"] = (
+                all(
+                    before["merchant_tables"][name] == after["merchant_tables"][name]
+                    for name in tables
+                )
+                and before["psp"] == after["psp"]
+                and before["psp_tokens"] == after["psp_tokens"]
+                and not any("complete" in call[1] for call in seen["merchant_calls"])
+            )
+            surfaces[surface] = seen | {"merchant_before": before, "merchant_after": after}
+            summary[surface] = hp_summary(seen)
+        record["stimulus_verified"] = True
+        facts.update(surfaces=surfaces, summary={"surfaces": summary})
+        record["cleanup_verified"] = all(cleaned)
+        verdict(record, checks)
+
+
+def cancel_checkouts(lane: PurchaseLane, episode: Episode) -> bool:
+    """The control's checkout canceled at the Merchant, as exp02's cleanup does; True once every
+    checkout of the episode is canceled."""
+    for checkout_id, status, *_ in observe(lane, episode)["checkouts"]:
+        if status != "canceled":
+            lane.rpc(
+                "cancel_fixture",
+                bearer=episode.bearer.get_secret_value(),
+                checkout_id=checkout_id,
+                key="p0-cleanup-" + checkout_id,
+            )
+    return all(row[1] == "canceled" for row in observe(lane, episode)["checkouts"])
+
+
 @pytest.mark.parametrize(("cell", "repetition"), plan("CTRL-HNP", "CTRL-HNP-REVIEW"))
 def test_p0_hnp_control(hnp, tmp_path, monkeypatch, p0_cases, cell, repetition):
     """CTRL-HNP and CTRL-HNP-REVIEW: a valid answer prepares the checkout and the run buys."""
@@ -803,6 +815,7 @@ def summarize(cases: list[dict[str, Any]], stack: LiveStack) -> dict[str, Any]:
             "observed_first_repetition": runs[0]["observed"] if runs else None,
         }
     statuses = [case["status"] for case in cases]
+    order = list(dict.fromkeys(case["cell"] for case in cases))
     return {
         "schema": "p0-model-failures-summary/1",
         "protocol": {"path": str(PROTOCOL.relative_to(ROOT)), "sha256": sha256(PROTOCOL)},
@@ -810,6 +823,10 @@ def summarize(cases: list[dict[str, Any]], stack: LiveStack) -> dict[str, Any]:
             "path": PLAN["spec"]["path"],
             "sha256": sha256(spec),
             "matches_protocol": sha256(spec) == PLAN["spec"]["sha256"],
+        },
+        "execution_order": {
+            "observed": order,
+            "matches_protocol": order == PLAN["execution_order"],
         },
         "checkouts": checkouts,
         "checkouts_match_protocol": {
