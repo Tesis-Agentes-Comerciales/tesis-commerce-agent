@@ -263,6 +263,9 @@ SPEC_MESSAGE_KEYS = {
     "task.grant_expired",
     "task.revoked_by_owner",
     "task.failed",
+    "task.refused.out_of_stock",
+    "task.refused.offer_expired",
+    "task.refused.invalid_item",
     "task.uncertain",
     "task.purchased",
     "task.running",
@@ -277,6 +280,23 @@ def test_the_canonical_texts_are_the_spec_table_plus_the_escalation_title_and_pr
     }
     assert HNP_MESSAGES["escalation.title"] == "Necesito tu decisión"
     assert all(text.strip() == text and text for text in HNP_MESSAGES.values())
+
+
+def test_a_refused_creation_says_why_and_what_did_not_happen() -> None:
+    """CT13: the merchant's refusal in the words of the trace (`FAILURE_COPY`,
+    ui/src/components/trace/trace-copy.ts), then what did not happen, as `task.failed` says it."""
+    suffix = "No se hizo ningún cobro y cerré la delegación."
+    assert HNP_MESSAGES["task.failed"].endswith(suffix)
+    assert {key: HNP_MESSAGES[f"task.refused.{key}"] for key in REFUSAL_CAUSES} == {
+        key: f"{cause} {suffix}" for key, cause in REFUSAL_CAUSES.items()
+    }
+
+
+REFUSAL_CAUSES = {
+    "out_of_stock": "El producto se agotó antes de completar la compra.",
+    "offer_expired": "La oferta del comercio venció.",
+    "invalid_item": "El producto ya no está disponible en el comercio.",
+}
 
 
 @pytest.mark.parametrize(

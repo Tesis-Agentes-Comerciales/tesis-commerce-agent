@@ -38,6 +38,7 @@ from ..delegation.models import (
     LedgerCounts,
     MandateKind,
     MandateRecord,
+    MerchantRefusal,
     OutboxRecord,
     OutcomeCode,
     ProposalDraft,
@@ -242,6 +243,7 @@ _DISPATCH_STEPS = ("committed", "payment_sent", "payment_accepted", "complete_se
 _SENT = ("payment_sent", "complete_sent")  # §4.4: only a send can end in doubt
 _CANCELLATIONS = frozenset({"revoked_by_owner", "kill_switch", "grant_expired"})
 _UNCERTAIN = frozenset({"dispatch_timeout", "partial_verifier_failure", "receipt_mismatch"})
+_REFUSALS: frozenset[str] = frozenset(get_args(MerchantRefusal))
 _VERIFIER_OUTCOMES: dict[Ap2Error, OutcomeCode] = {
     "invalid_credential": "verifier_invalid_credential",
     "invalid_mandate": "verifier_invalid_mandate",
@@ -489,6 +491,19 @@ class SqliteDelegationLedger:
     def events(self, grant_id: str) -> tuple[DelegationEvent, ...]:
         with self._read() as connection:
             return read_events(connection, grant_id)
+
+    def merchant_refusal(self, grant_id: str) -> MerchantRefusal | None:
+        """The refusal the task's `task_finished` recorded (`TaskFinish.merchant_refusal`), or
+        None: one task per grant, so its last terminal is the task's."""
+        with self._read() as connection:
+            row = connection.execute(
+                "SELECT json_extract(body, '$.merchant_refusal') FROM delegation_events "
+                "WHERE grant_id = ? AND event_type = 'task_finished' "
+                "ORDER BY sequence DESC LIMIT 1",
+                (grant_id,),
+            ).fetchone()
+        refusal = row[0] if row is not None else None
+        return refusal if refusal in _REFUSALS else None
 
     def counts(self) -> LedgerCounts:
         """An `active` grant past `expires_at` is not counted: the views show it expired."""
@@ -888,6 +903,10 @@ class SqliteDelegationLedger:
             raise ValueError("Only the kill switch names the stage that met it")
         if request.failure_kind is not None and request.outcome_code != "selection_unavailable":
             raise ValueError("Only selection_unavailable names why the model failed")
+        if request.merchant_refusal is not None and (
+            request.outcome_code != "checkout_failed" or request.merchant_refusal not in _REFUSALS
+        ):
+            raise ValueError("Only checkout_failed names a typed merchant refusal of the creation")
         with self._fenced(request.task_id, request.lease_id) as (connection, now, ex):
             if ex is None:
                 return Step("lease_lost")
@@ -904,6 +923,7 @@ class SqliteDelegationLedger:
                 utc_text(now),
                 stage=request.stage,
                 failure_kind=request.failure_kind,
+                merchant_refusal=request.merchant_refusal,
             )
             return _closed(connection, ex, hooks)
 
@@ -1176,6 +1196,7 @@ def _close_task(
     stage: KillSwitchStage | None = None,
     release: ReleaseBasis = "no_outbox",
     failure_kind: "ModelFailureKind | None" = None,
+    merchant_refusal: MerchantRefusal | None = None,
 ) -> None:
     """A terminal of spec §8.1: release the held reservation, close an active grant, end. A PSP
     error receipt releases a committed reservation: nothing reached the merchant."""
@@ -1207,7 +1228,15 @@ def _close_task(
             _event(connection, ex, "revoked", actor, revoked, text)
     elif released:
         _bump_grant(connection, grant, text)
-    _finish(connection, ex, state, outcome, text, failure_kind=failure_kind)
+    _finish(
+        connection,
+        ex,
+        state,
+        outcome,
+        text,
+        failure_kind=failure_kind,
+        merchant_refusal=merchant_refusal,
+    )
 
 
 def _settle_uncertain(
@@ -1246,6 +1275,7 @@ def _finish(
     text: str,
     *,
     failure_kind: "ModelFailureKind | None" = None,
+    merchant_refusal: MerchantRefusal | None = None,
 ) -> None:
     task = ex.task
     _update(
@@ -1260,9 +1290,11 @@ def _finish(
         finished_at=text,
     )
     body = {"state": state, "outcome_code": outcome, "run_id": task.run_id}
+    # Each only when there is one, so every other terminal keeps its body (and its digest).
     if failure_kind is not None:
-        # Only when there is one, so every other terminal keeps its body (and its digest).
         body["failure_kind"] = failure_kind
+    if merchant_refusal is not None:
+        body["merchant_refusal"] = merchant_refusal
     _event(connection, ex, "task_finished", "service", body, text)
 
 

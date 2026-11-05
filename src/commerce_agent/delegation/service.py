@@ -55,6 +55,7 @@ from .models import (
     Execution,
     KillSwitchState,
     LedgerCounts,
+    MerchantRefusal,
     ProposalDraft,
     ProposalRecord,
     SignedMandate,
@@ -316,18 +317,27 @@ class DelegationService:
         execution = self._ledger.execution(task_id)
         if execution is None:
             raise DelegationError("hnp_task_not_found")
-        return task_view(execution, self._run_purchase(execution), utc_text(self._clock()))
+        purchase, now = self._run_purchase(execution), utc_text(self._clock())
+        return task_view(execution, purchase, now, self._refusal(execution))
 
     def _view(self, grant_id: str) -> DelegationView:
         task = self._ledger.task_for_grant(grant_id)
         execution = self._ledger.execution(task.task_id) if task is not None else None
         if execution is None:
             raise LookupError("A grant without its task")
-        return delegation_view(execution, self._run_purchase(execution), utc_text(self._clock()))
+        purchase, now = self._run_purchase(execution), utc_text(self._clock())
+        return delegation_view(execution, purchase, now, self._refusal(execution))
 
     def _run_purchase(self, execution: Execution) -> Purchase | None:
         run_id = execution.task.run_id
         return self._purchase(run_id) if run_id is not None else None
+
+    def _refusal(self, execution: Execution) -> MerchantRefusal | None:
+        """CT13: only a `checkout_failed` task can name the merchant's refusal of the creation."""
+        task = execution.task
+        if (task.state, task.outcome_code) != ("failed", "checkout_failed"):
+            return None
+        return self._ledger.merchant_refusal(task.grant_id)
 
     # Revocation (§8.4)
 

@@ -278,16 +278,18 @@ def hnp_chain(
     street: str | None = None,
     total_max_minor: int = 80_000,
     valid_for_seconds: int = 3_600,
+    merchant: StoreMerchant | None = None,
     **changes: Any,
 ) -> Iterator[HnpChain]:
-    """One consented grant and its executor; `changes` override settings (an allowlist)."""
+    """One consented grant and its executor; `changes` override settings (an allowlist) and
+    `merchant` is the ACP double behind httpx.MockTransport (one without faults by default)."""
     path = tmp_path / "agent.db"
     settings = (
         settings_for(tmp_path, **changes)
         if mode == "enforce"
         else configuration(path, mode="off", **changes)
     )
-    merchant = StoreMerchant()
+    merchant = merchant or StoreMerchant()
     built = runtime(settings, merchant)
     try:
         clock = AuthorityClock(datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=5))
