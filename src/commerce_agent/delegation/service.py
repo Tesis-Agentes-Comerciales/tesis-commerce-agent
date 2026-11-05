@@ -10,10 +10,18 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from commerce_agent.acp.destination import merchant_fulfillment
 from commerce_agent.acp.feed import ProductFeed
@@ -34,6 +42,7 @@ from commerce_agent.governance.hnp_models import (
     ConsentScope,
     PositiveMinor,
     PreferenceText,
+    Priority,
     parse_consent_scope,
     scope_digest,
 )
@@ -95,6 +104,8 @@ class DelegationProposalRequest(_Body):
     valid_for_seconds: Annotated[int, Field(ge=60)]
     details: CheckoutDetails
     preference_text: PreferenceText | None = None
+    # The buyer's order of `variant_ids` (p0-conditional-intent.md §3.9), kept as sent.
+    priority: Priority | None = None
 
     @field_validator("variant_ids")
     @classmethod
@@ -102,6 +113,27 @@ class DelegationProposalRequest(_Body):
         if len(set(ids)) != len(ids):
             raise ValueError("The variants of a scope are distinct")
         return tuple(sorted(ids))
+
+    @field_validator("priority")
+    @classmethod
+    def _priority_is_absent_not_null(cls, value: tuple[str, ...] | None) -> tuple[str, ...]:
+        # Runs only on a given value, never on the default: a null is a second form of absent.
+        if value is None:
+            raise ValueError("An absent priority is omitted, not null")
+        return value
+
+    @model_validator(mode="after")
+    def _priority_orders_the_variants(self) -> Self:
+        if self.priority is not None and tuple(sorted(self.priority)) != self.variant_ids:
+            raise ValueError("A priority orders every requested variant exactly once")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _without_absent_priority(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("priority") is None:
+            data.pop("priority", None)
+        return data
 
 
 class DelegationConsentRequest(_Body):
@@ -165,6 +197,10 @@ class DelegationService:
         proposal from any of them leaves only the newest one to consent, and that fails closed."""
         if request.valid_for_seconds > self._max_validity:
             raise DelegationError("delegation_validity_exceeded")
+        if request.priority is not None:
+            # Until the executor tries the variants in this order (spec §7 PR 4), consenting the
+            # scope without it would let the executor pick another variant first: fail closed.
+            raise DelegationError("delegation_request_invalid")
         # POL-08 compares this binding with D2's over the merchant's echo: bind (and later send)
         # the destination as the merchant normalizes it, and refuse one it would never accept.
         fulfillment = merchant_fulfillment(request.details.fulfillment)
