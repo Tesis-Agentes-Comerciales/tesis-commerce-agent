@@ -151,14 +151,19 @@ def ap2(path: Path, *, mode: str = "enforce", flow: str = "governed") -> Setting
     )
 
 
-def app_client(settings: Settings, merchant: Ap2Merchant) -> TestClient:
+def app_client(
+    settings: Settings, merchant: Ap2Merchant, psp: list[httpx.Request] | None = None
+) -> TestClient:
+    def payment(request: httpx.Request) -> httpx.Response:
+        if psp is not None:
+            psp.append(request)
+        return httpx.Response(201, json=PAYMENT_TOKEN)
+
     return TestClient(
         create_app(
             settings=settings,
             transport=httpx.MockTransport(merchant),
-            payment_transport=httpx.MockTransport(
-                lambda request: httpx.Response(201, json=PAYMENT_TOKEN)
-            ),
+            payment_transport=httpx.MockTransport(payment),
             conversation_router=router(),
             buyer_authenticator=LocalBuyerAuthenticator("buyer-1"),
         )
@@ -351,6 +356,46 @@ def test_an_unreadable_offer_keeps_the_purchase_visible_and_cancelable(tmp_path:
         assert canceled.json()["stage"] == "canceled"
         assert pending(client) is None
     assert merchant.effects() == [("POST", "/checkout_sessions/cs_api_1/cancel")]
+
+
+def test_an_offer_of_another_id_stops_approval_payment_and_completion(tmp_path: Path) -> None:
+    settings = ap2(tmp_path / "agent.db")
+    merchant = Ap2Merchant(settings.merchant_base_url)
+    psp: list[httpx.Request] = []
+    with app_client(settings, merchant, psp) as client:
+        run_id, terms = presented(client, "turn-foreign-offer")
+        # P3-V01: the merchant answers the read with another, well-formed offer.
+        merchant.offer = {**merchant.offer, "id": "SON-02"}
+        approval = client.post(
+            f"/purchases/{run_id}/approval",
+            json={
+                "expected_fingerprint": terms["fingerprint"],
+                "checkout_jwt": terms["checkout_jwt"],
+            },
+        )
+        # The answer of any other unreadable offer; the cause stays in the evidence.
+        assert approval.status_code == 503, approval.text
+        assert approval.json()["code"] == "offer_freshness_unavailable"
+        assert "SON-02" not in approval.text
+        assert client.post(f"/purchases/{run_id}/complete").is_client_error
+        assert pending(client) == {
+            "purchase": awaiting(run_id),
+            "approval_terms": None,
+            "terms_status": "unavailable",
+        }
+    store = SqliteHpEvidenceStore(settings.agent_database_path)
+    checks = [record.body for record in store.for_run(run_id)]
+    assert [(check["stage"], check["decision"], check["reason"]) for check in checks] == [
+        ("present", "allow", None),
+        ("approve", "block", "offer_mismatch"),
+        ("present", "block", "offer_mismatch"),
+    ]
+    assert all(check["outcome"] != "fresh" for check in checks[1:])
+    assert store.verify_chain(run_id)
+    # D2 never authorized terms bound to another offer; nothing was paid or completed.
+    assert [record.decision.phase for record in decisions(settings.agent_database_path)] == ["D1"]
+    assert merchant.effects() == []
+    assert psp == []
 
 
 def test_off_mode_never_reads_the_offer_for_the_pending_purchase(tmp_path: Path) -> None:

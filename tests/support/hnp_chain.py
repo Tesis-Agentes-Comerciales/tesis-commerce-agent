@@ -116,6 +116,7 @@ class HnpChain:
     gate: Before | None
     grant_id: str
     task_id: str
+    merchant: StoreMerchant
     receipts: dict[str, str] = field(default_factory=dict)
 
     def run(self) -> Step:
@@ -286,7 +287,8 @@ def hnp_chain(
         if mode == "enforce"
         else configuration(path, mode="off", **changes)
     )
-    built = runtime(settings, StoreMerchant())
+    merchant = StoreMerchant()
+    built = runtime(settings, merchant)
     try:
         clock = AuthorityClock(datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=5))
         ledger = SqliteDelegationLedger(path, clock=clock, id_factory=Ids())
@@ -373,6 +375,7 @@ def hnp_chain(
             gate=gate,
             grant_id=view.grant_id,
             task_id=view.task.task_id,
+            merchant=merchant,
         )
     finally:
         built.close()
