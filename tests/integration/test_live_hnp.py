@@ -346,7 +346,8 @@ def test_hnp_two_triggers_at_once_make_one_order(hnp):
 def test_hnp_revocation_while_the_checkout_is_signed_releases_without_order_or_token(hnp):
     """The buyer revokes while the Agent fetches the Checkout JWT, after UoW-1 reserved: the
     revocation releases the reservation, the closed mandates are never written, and neither the
-    PSP nor the Merchant hears of a payment."""
+    PSP nor the Merchant hears of a payment. The checkout left open is canceled at the Merchant
+    (p0-ux08-ux10.md D4)."""
     with (
         hnp.fault("revocation_between_d2_and_d3") as observe,
         hnp_agent(hnp, "revoke", "B2-HNP") as agent,
@@ -379,6 +380,7 @@ def test_hnp_revocation_while_the_checkout_is_signed_releases_without_order_or_t
         assert agent.rows("SELECT count(*) FROM dispatch_outbox") == [(0,)]
         assert sent(hnp, "/ap2/checkout-jwt") == 1
         assert sent(hnp, "/ap2/complete") == 0
+        assert sent(hnp, "/cancel") == 1
         assert grown(hnp, before) == {"orders": 0, "checkout_sessions": 1, "tokens": 0}
     document = verified(agent, hnp, grant_id)
     assert document["links"]["revocation"]["status"] == "ok", document["links"]

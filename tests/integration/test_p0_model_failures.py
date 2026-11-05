@@ -31,7 +31,7 @@ from commerce_agent.llm.model_failures import NO_RETRY_HEADER
 from tests.assistant_support import add_message, assistant_body, parse_sse, rebuild_state, sse_body
 from tests.delegation.test_hnp_model_failure_kind import read_timeout
 from tests.integration.exp01_support import ROOT, recorded_case, sqlite_snapshot
-from tests.integration.live_browser import AgentServer, ExplicitSettings
+from tests.integration.live_browser import ExplicitSettings
 from tests.integration.live_model import MODEL_SETTINGS, ModelHnpAgent
 from tests.integration.live_purchase import (
     PAYMENT_REPO,
@@ -48,6 +48,7 @@ from tests.integration.live_stack import AGENT, CREATE_PATH, LiveStack, git_stat
 from tests.integration.test_exp02_commercial import local_effects, observe
 from tests.integration.test_live_b2_d2_authorization import settings_for
 from tests.integration.test_live_hnp import SHIPPING_ROOM_MINOR, catalog, effects
+from tests.support.agent_server import AgentServer
 from tests.support.model_server import (
     Answer,
     ModelServer,

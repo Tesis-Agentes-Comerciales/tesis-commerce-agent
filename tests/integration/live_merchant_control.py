@@ -395,6 +395,81 @@ class Control:
             "second_digest": guarded.offer_snapshot_sha256(second),
         }
 
+    def p0_provenance(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Read the pinned Merchant's own generator, managed catalog and episode export."""
+        fixtures = module("commerce_lab.fixtures.p0")
+        root = Path(fixtures.__file__).resolve().parents[3]
+        catalog = module("commerce_lab.managed_catalog")
+        catalog.import_current_catalog()
+        managed_run, _ = catalog.managed_catalog_context()
+        feed = module("commerce_lab.feed")
+        metadata, products = feed.current_feed(base_url=os.environ["ACP_API_BASE_URL"])
+        with self.connection() as connection:
+            offers = connection.execute(
+                "SELECT snapshot FROM catalog_offers WHERE run_id=%s ORDER BY offer_id",
+                (command["run_id"],),
+            ).fetchall()
+            managed = connection.execute(
+                "SELECT snapshot FROM catalog_offers WHERE run_id=%s ORDER BY offer_id",
+                (managed_run,),
+            ).fetchall()
+        sources = {}
+        for name in ("catalog_snapshot.json", "p0.py", "generated.py", "specs.py", "__init__.py"):
+            relative = "src/commerce_lab/fixtures/" + name
+            sources[relative] = hashlib.sha256((root / relative).read_bytes()).hexdigest()
+        for relative in ("src/commerce_lab/managed_catalog.py", "src/commerce_lab/feed.py"):
+            sources[relative] = hashlib.sha256((root / relative).read_bytes()).hexdigest()
+        snapshot = json.loads(
+            (root / "src/commerce_lab/fixtures/catalog_snapshot.json").read_text(encoding="utf-8")
+        )
+        fixture_offers, fixture_hash, _ = module("commerce_lab.db.core").fixture_snapshot()
+        exported = feed.export_feed(
+            Path(command["feed_dir"]),
+            run_id=command["run_id"],
+            base_url=os.environ["ACP_API_BASE_URL"],
+        )
+        return {
+            "sources_sha256": sources,
+            "snapshot_products": len(snapshot["products"]),
+            "fixture_sha256": fixture_hash,
+            "episode_matches_fixture": [row[0] for row in offers] == fixture_offers,
+            "managed_run_id": str(managed_run),
+            "managed_offers": [row[0] for row in managed],
+            "episode_offers": [row[0] for row in offers],
+            "metadata": metadata,
+            "products": products,
+            "exported": exported,
+        }
+
+    def p0_managed_update(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Existing production catalog operation, guarded by this worker's disposable DSN."""
+        updated = module("commerce_lab.managed_catalog").update_offer(
+            command["offer_id"], price_minor=command.get("price_minor"), stock=command.get("stock")
+        )
+        return updated.model_dump(mode="json")
+
+    def p0_episode_state(self, command: dict[str, Any]) -> dict[str, Any]:
+        with self.connection() as connection:
+            offers = connection.execute(
+                "SELECT snapshot FROM catalog_offers WHERE run_id=%s ORDER BY offer_id",
+                (command["run_id"],),
+            ).fetchall()
+            checkouts = connection.execute(
+                "SELECT checkout_id,status,offer_id FROM checkout_sessions WHERE run_id=%s "
+                "ORDER BY checkout_id",
+                (command["run_id"],),
+            ).fetchall()
+            orders = connection.execute(
+                "SELECT count(*) FROM orders WHERE run_id=%s", (command["run_id"],)
+            ).fetchone()[0]
+        return {
+            "offers": [row[0] for row in offers],
+            "checkouts": [
+                {"id": str(row[0]), "status": row[1], "offer_id": row[2]} for row in checkouts
+            ],
+            "orders": orders,
+        }
+
     def close(self) -> None:
         for connection in self.pending.values():
             connection.rollback()
@@ -617,6 +692,9 @@ def main() -> None:
             "observe_offer",
             "reprice_offer",
             "projection",
+            "p0_provenance",
+            "p0_managed_update",
+            "p0_episode_state",
             "ct19_state",
             "ct19_capture",
             "ct19_audit",

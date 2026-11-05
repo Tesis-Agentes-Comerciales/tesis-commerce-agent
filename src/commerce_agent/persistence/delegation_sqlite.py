@@ -23,6 +23,8 @@ from ..delegation.models import (
     ActorKind,
     Ap2Error,
     Authority,
+    CheckoutCancel,
+    CheckoutCancelResult,
     ClosedMandates,
     ConsentRequest,
     ConsentResult,
@@ -73,8 +75,12 @@ def _sql_list(literal: Any) -> str:
     return ",".join(f"'{value}'" for value in get_args(literal))
 
 
+# D2 (docs/design/p0-ux08-ux10.md §3.3): the owner's newer proposal that replaced this one while
+# it was open. Shared by the table and by the migration of a ledger created before D2.
+_SUPERSEDED_BY = "superseded_by TEXT CHECK(superseded_by IS NULL OR grant_id IS NULL)"
+
 _SCHEMA = (
-    """CREATE TABLE IF NOT EXISTS delegation_proposals (
+    f"""CREATE TABLE IF NOT EXISTS delegation_proposals (
         proposal_id TEXT PRIMARY KEY,
         owner_id TEXT NOT NULL,
         scope_json TEXT NOT NULL CHECK(json_valid(scope_json)),
@@ -82,7 +88,9 @@ _SCHEMA = (
         checkout_details_json TEXT NOT NULL,
         presented_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
-        grant_id TEXT UNIQUE)""",
+        grant_id TEXT UNIQUE,
+        {_SUPERSEDED_BY})""",
+    "CREATE INDEX IF NOT EXISTS delegation_proposals_owner ON delegation_proposals(owner_id)",
     """CREATE TABLE IF NOT EXISTS delegation_grants (
         grant_id TEXT PRIMARY KEY,
         proposal_id TEXT NOT NULL UNIQUE,
@@ -244,6 +252,9 @@ _SENT = ("payment_sent", "complete_sent")  # §4.4: only a send can end in doubt
 _CANCELLATIONS = frozenset({"revoked_by_owner", "kill_switch", "grant_expired"})
 _UNCERTAIN = frozenset({"dispatch_timeout", "partial_verifier_failure", "receipt_mismatch"})
 _REFUSALS: frozenset[str] = frozenset(get_args(MerchantRefusal))
+# D4 (p0-ux08-ux10.md): the terminals that record what they did with the checkout left open.
+_WITHDRAWN = frozenset({"revoked_by_owner", "kill_switch", "checkout_failed"})
+_CANCEL_RESULTS: frozenset[str] = frozenset(get_args(CheckoutCancelResult))
 _VERIFIER_OUTCOMES: dict[Ap2Error, OutcomeCode] = {
     "invalid_credential": "verifier_invalid_credential",
     "invalid_mandate": "verifier_invalid_mandate",
@@ -302,6 +313,7 @@ class SqliteDelegationLedger:
         with self._unit() as (connection, now):
             for statement in _SCHEMA:
                 connection.execute(statement)
+            _add_superseded_by(connection)
             if connection.execute("SELECT 1 FROM hnp_controls").fetchone() is None:
                 connection.execute(
                     "INSERT INTO hnp_controls VALUES (1, 0, 'bootstrap', ?)", (utc_text(now),)
@@ -310,10 +322,20 @@ class SqliteDelegationLedger:
     # Proposal and consent
 
     def create_proposal(self, draft: ProposalDraft) -> ProposalRecord:
+        """Store the proposal and replace the owner's open ones in the same unit (D2): from now on
+        only this one can become a grant. Open is what `consent` would still accept: not
+        consented, not replaced, and before both the proposal's and the grant's expiry."""
         if _consent_scope(draft.scope_json)["proposal_id"] != draft.proposal_id:
             raise ValueError("The consent scope belongs to another proposal")
-        record = ProposalRecord(**asdict(draft), grant_id=None)
-        with self._unit() as (connection, _):
+        record = ProposalRecord(**asdict(draft), grant_id=None, superseded_by=None)
+        with self._unit() as (connection, now):
+            at = utc_text(now)
+            connection.execute(
+                "UPDATE delegation_proposals SET superseded_by = ? "
+                "WHERE owner_id = ? AND grant_id IS NULL AND superseded_by IS NULL "
+                "AND expires_at > ? AND json_extract(scope_json, '$.expires_at') > ?",
+                (draft.proposal_id, draft.owner_id, at, at),
+            )
             _insert(connection, record)
         return record
 
@@ -345,6 +367,8 @@ class SqliteDelegationLedger:
                 grant = _one(connection, GrantRecord, "grant_id = ?", proposal.grant_id)
                 task = _one(connection, TaskRecord, "grant_id = ?", proposal.grant_id)
                 return ConsentResult("existing", grant, task)
+            if proposal.superseded_by is not None:
+                return ConsentResult("proposal_superseded")
             if now >= utc_moment(proposal.expires_at):
                 return ConsentResult("proposal_expired")
             grant, task = self._create_grant(connection, request, proposal, utc_text(now))
@@ -568,12 +592,16 @@ class SqliteDelegationLedger:
             _event(connection, ex, "task_claimed", "service", claimed, text, run_id=run_id)
             return Step("applied", _execution(connection, task_id))
 
-    def renew_lease(self, task_id: str, lease_id: str) -> Step:
+    def renew_lease(self, task_id: str, lease_id: str, expected: Authority | None = None) -> Step:
         """`reused` with the lease renewed while this run still holds it, even one that lapsed
-        while nobody re-claimed the task; `lease_lost` once another claim took it."""
+        while nobody re-claimed the task; `lease_lost` once another claim took it. With
+        `expected`, `blocked` with its cause once the grant no longer authorizes the run: a
+        revocation, kill switch or expiry committed meanwhile (p0-ux08-ux10.md §3.1)."""
         with self._fenced(task_id, lease_id) as (connection, now, ex):
             if ex is None:
                 return Step("lease_lost")
+            if expected is not None and (outcome := _blocking(ex, expected, now)) is not None:
+                return Step("blocked", ex, outcome)
             return _renewed(connection, ex, now)
 
     def record_choice_review(self, task_id: str, lease_id: str, review: Mapping[str, str]) -> Step:
@@ -907,6 +935,13 @@ class SqliteDelegationLedger:
             request.outcome_code != "checkout_failed" or request.merchant_refusal not in _REFUSALS
         ):
             raise ValueError("Only checkout_failed names a typed merchant refusal of the creation")
+        cancel = request.checkout_cancel
+        if cancel is not None and (
+            request.outcome_code not in _WITHDRAWN
+            or cancel.result not in _CANCEL_RESULTS
+            or (cancel.checkout_id is None and cancel.result != "left_to_d1_reconciliation")
+        ):
+            raise ValueError("Only a stop or a checkout_mismatch records its checkout's cancel")
         with self._fenced(request.task_id, request.lease_id) as (connection, now, ex):
             if ex is None:
                 return Step("lease_lost")
@@ -924,6 +959,7 @@ class SqliteDelegationLedger:
                 stage=request.stage,
                 failure_kind=request.failure_kind,
                 merchant_refusal=request.merchant_refusal,
+                checkout_cancel=request.checkout_cancel,
             )
             return _closed(connection, ex, hooks)
 
@@ -1088,6 +1124,13 @@ def read_events(connection: sqlite3.Connection, grant_id: str) -> tuple[Delegati
     )
 
 
+def _add_superseded_by(connection: sqlite3.Connection) -> None:
+    """A ledger created before D2 gains the column once; its proposals stay open (NULL)."""
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(delegation_proposals)")}
+    if "superseded_by" not in columns:
+        connection.execute(f"ALTER TABLE delegation_proposals ADD COLUMN {_SUPERSEDED_BY}")
+
+
 def _consent_scope(scope_json: str) -> dict[str, Any]:
     """The fields the ledger reads from ConsentScope (§4.2); the bytes must be canonical."""
     scope = json.loads(scope_json)
@@ -1197,6 +1240,7 @@ def _close_task(
     release: ReleaseBasis = "no_outbox",
     failure_kind: "ModelFailureKind | None" = None,
     merchant_refusal: MerchantRefusal | None = None,
+    checkout_cancel: CheckoutCancel | None = None,
 ) -> None:
     """A terminal of spec §8.1: release the held reservation, close an active grant, end. A PSP
     error receipt releases a committed reservation: nothing reached the merchant."""
@@ -1236,6 +1280,7 @@ def _close_task(
         text,
         failure_kind=failure_kind,
         merchant_refusal=merchant_refusal,
+        checkout_cancel=checkout_cancel,
     )
 
 
@@ -1276,6 +1321,7 @@ def _finish(
     *,
     failure_kind: "ModelFailureKind | None" = None,
     merchant_refusal: MerchantRefusal | None = None,
+    checkout_cancel: CheckoutCancel | None = None,
 ) -> None:
     task = ex.task
     _update(
@@ -1289,12 +1335,14 @@ def _finish(
         updated_at=text,
         finished_at=text,
     )
-    body = {"state": state, "outcome_code": outcome, "run_id": task.run_id}
+    body: dict[str, object] = {"state": state, "outcome_code": outcome, "run_id": task.run_id}
     # Each only when there is one, so every other terminal keeps its body (and its digest).
     if failure_kind is not None:
         body["failure_kind"] = failure_kind
     if merchant_refusal is not None:
         body["merchant_refusal"] = merchant_refusal
+    if checkout_cancel is not None:
+        body["checkout_cancel"] = asdict(checkout_cancel)
     _event(connection, ex, "task_finished", "service", body, text)
 
 

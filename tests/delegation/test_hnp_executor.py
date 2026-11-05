@@ -41,6 +41,8 @@ NOTHING = Effects(creates=0, signatures=0, commits=0, cancels=0)
 CREATED = Effects(creates=1, signatures=0, commits=0, cancels=0)
 CLOSED = Effects(creates=1, signatures=1, commits=0, cancels=0)
 COMMITTED = Effects(creates=1, signatures=1, commits=1, cancels=0)
+# D4 (p0-ux08-ux10.md): a revocation or kill switch after the POST cancels the checkout it left.
+WITHDRAWN = Effects(creates=1, signatures=0, commits=0, cancels=1)
 
 
 class Choose:
@@ -553,7 +555,7 @@ def test_a_revocation_before_uow1_cancels_before_the_reservation(tmp_path: Path)
     assert bench.ended() == ("canceled", "revoked_by_owner")
     assert bench.execution().reservation is None
     assert bench.purchase() == ("canceled", None)
-    assert bench.effects() == CREATED
+    assert bench.effects() == WITHDRAWN
 
 
 @pytest.mark.parametrize("mode", ["off", "enforce"])
@@ -568,7 +570,7 @@ def test_a_revocation_between_uow1_and_uow2_commits_nothing(tmp_path: Path, mode
     assert ex.reservation is not None and ex.reservation.state == "released"
     assert ex.grant.revoked_reason == "owner"
     assert bench.purchase() == ("canceled", None)
-    assert bench.effects() == CLOSED
+    assert bench.effects() == Effects(creates=1, signatures=1, commits=0, cancels=1)
 
 
 def test_a_d2_deny_after_a_committed_revocation_is_the_revocation(tmp_path: Path) -> None:
@@ -640,7 +642,9 @@ def test_nothing_between_uow1_and_uow2_escapes_the_commitment(
     assert bench.run().status == "closed"
 
     assert bench.ended() == ended
-    assert bench.effects() == CLOSED
+    # D4: the kill switch cancels the checkout; a CAS lost without a cause keeps it.
+    cancels = int(change == "pulse")
+    assert bench.effects() == Effects(creates=1, signatures=1, commits=0, cancels=cancels)
     reservation = bench.execution().reservation
     assert reservation is not None and reservation.state == "released"
     assert bench.purchase() == (("canceled", None) if change == "pulse" else ("failed", ended[1]))
@@ -770,11 +774,16 @@ def test_a_reclaim_after_start_crashed_fails_without_running_it_again(
     assert bench.purchase() == purchase
 
 
+@pytest.mark.parametrize(
+    "reasons", [(POL["POL-04"],), (POL["POL-05"],)], ids=["deny", "escalation"]
+)
 def test_a_revocation_that_lands_after_the_classification_still_names_the_terminal(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reasons: tuple[str, ...]
 ) -> None:
-    """§4.5: the owner's revocation committed first, so the terminal is `revoked_by_owner`."""
-    gate = Gate(d2=deny(POL["POL-04"]))
+    """§4.5: the owner's revocation committed first, so the terminal is `revoked_by_owner`. A
+    revocation after the POST cancels the checkout once (D4), even when the deny it renames is an
+    escalation, which cancels its own (§8.2)."""
+    gate = Gate(d2=deny(*reasons))
     bench = Bench(tmp_path, mode="enforce", gate=gate)
     read = bench.ledger.execution
 
@@ -791,3 +800,4 @@ def test_a_revocation_that_lands_after_the_classification_still_names_the_termin
     assert step.status == "closed"
     assert bench.ended() == ("canceled", "revoked_by_owner")
     assert bench.purchase() == ("canceled", None)
+    assert bench.effects() == WITHDRAWN

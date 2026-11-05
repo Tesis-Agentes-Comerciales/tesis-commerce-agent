@@ -26,6 +26,12 @@ aclaración** (decisión vigente de Yair).
 
 ## 2. Comportamiento actual (verificado en 343f099)
 
+**Números de línea.** Todos los `archivo:línea` de esta spec son informativos y están tomados en
+`refs_at` = 343f099 (`agent_base`). El código se mueve: las referencias que sostienen un criterio
+están en el prerregistro como `{path, symbol, contains}`, y una prueba comprueba que `contains`
+está dentro de ese símbolo (clase, función o `Clase.método`) en el código que se prueba, nunca la
+línea (enmienda A6).
+
 ### 2.1 Superficies
 
 - **HP, REST** (`/conversation/turn`). Sin `conversation_id`, el Agent confía en el historial que
@@ -279,7 +285,8 @@ inventa presupuesto) se reporta solo como dato descriptivo.
 | CT21 | fuera de este lote | **Sí:** no obedecer; la gobernanza acota el efecto |
 
 **`not_applicable`, con su justificación verificable** (`not_applicable` del prerregistro). Cada
-referencia lleva el símbolo que su rango tiene que contener, y una prueba lo comprueba:
+referencia lleva su símbolo y el texto que ese símbolo tiene que contener, y una prueba lo
+comprueba; la línea es informativa (§2):
 - **UX01 en ejecución:** el producto son los `variant_ids` consentidos, un conjunto tipado y
   ordenado de hasta 5 (`DelegationScope`, `hnp_models.py:66-76`). El selector solo recibe esa
   lista corta (`_shortlist`, `hnp_execution.py:563-574`).
@@ -693,3 +700,14 @@ simétrica, antes de cualquier llamada real:
   fila es `error`, no solo cuando falta la fila de la ruta. `postprocess` exige el texto fijo de
   `_has_catalog_identity`, y el guard de compra pendiente queda nombrado como aclaración de código
   sin atribución (§3).
+
+### Enmienda A6: referencias ancladas a símbolos (5-nov-2026)
+
+El CI del PR corre sobre la fusión con `main`, y #185, #187 y #188 movieron líneas citadas (por
+ejemplo, `delegation/service.py:290-293`). Se integró `main` (6c7d8c9) y cada referencia del
+prerregistro pasó a `{path, symbol, contains, lines_at_refs_at}`, sin cambiar ningún criterio:
+
+- la prueba resuelve el símbolo por AST y exige que `contains` esté dentro;
+- `lines_at_refs_at` y los números de línea de esta spec son informativos, de `refs_at`;
+- la prosa del prerregistro ya no cita `archivo:línea`: nombra un símbolo o una entrada de
+  `code_refs`.

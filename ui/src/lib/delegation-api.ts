@@ -65,6 +65,8 @@ const DELEGATION_ERROR_TEXT = {
     "Por ahora el comercio solo entrega en Bogotá D.C. (departamento DC, código postal 110111). Revisa la dirección de entrega.",
   delegation_proposal_not_found: null,
   delegation_scope_mismatch: null,
+  // Otra pestaña o conversación del mismo comprador preparó una más reciente (D2).
+  delegation_proposal_superseded: null,
   delegation_proposal_expired: null,
   delegation_signer_unavailable: null,
   delegation_not_found: null,
@@ -98,6 +100,7 @@ export function delegationErrorText(error: unknown): string {
 const NEEDS_NEW_PROPOSAL: ReadonlySet<DelegationErrorCode> = new Set([
   "delegation_proposal_not_found",
   "delegation_scope_mismatch",
+  "delegation_proposal_superseded",
   "delegation_proposal_expired",
 ])
 
