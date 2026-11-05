@@ -405,7 +405,8 @@ class OpenAIConversationRouter:
         self._catalog_tool = make_catalog_lookup(feed)
         self._vocabulary = _catalog_vocabulary(feed)
         self._instructions = f"{_INSTRUCTIONS}\nCurrent catalog vocabulary:\n{self._vocabulary}"
-        # Without a ledger (studio, tests) nothing is recorded and the SDK builds its own client.
+        # Without a ledger (studio, tests) nothing is recorded, but the SDK still gets the
+        # recorder's client, with its hook that refuses to retry a spent quota.
         self._recorder = ModelRequestRecorder(
             model_requests, model=model, reasoning_effort=reasoning_effort
         )

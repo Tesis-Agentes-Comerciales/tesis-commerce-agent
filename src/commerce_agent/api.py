@@ -188,7 +188,11 @@ def error_response(error: Exception) -> JSONResponse:
     # So does a refusal of D1's creation POST, which arrives as a service error, not ACP's.
     governed = code.startswith(("d1_", "d2_")) or code in _GOVERNED_MERCHANT_CODES
     message = error_message(code) if governed else str(error)
-    return JSONResponse({"code": code, "message": message}, status_code=status)
+    body: dict[str, str | None] = {"code": code, "message": message}
+    if isinstance(error, IntentInterpretationError):
+        # Why the model failed (p0-model-failures.md §3.4); null when it was not the cause.
+        body["model_failure"] = error.failure_kind
+    return JSONResponse(body, status_code=status)
 
 
 def create_app(

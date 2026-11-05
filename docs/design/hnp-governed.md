@@ -1084,7 +1084,7 @@ Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autoriza
 | `consented` | `user` | `proposal_id`, `scope_digest`, `presented_at`, `consented_at`, `grant_version`, `authority_epoch`, `task_id` |
 | `mandates_issued` | `service` | Por mandato abierto: `token_digest`, `link_hash`, `issuer_kid`; `cnf_kid`, `exp`, `payment_reference` |
 | `task_claimed` | `service` | `run_id`, `claim_count`, `lease_expires_at`, `trigger: "service_token"` |
-| `choice_reviewed` | `service` | `decision`, `reason`, `prompt_id`, `model` (solo con `AGENT_HNP_REVIEWER=llm`, `hnp-intent-review.md`) |
+| `choice_reviewed` | `service` | `decision`, `reason`, `prompt_id`, `model` (solo con `AGENT_HNP_REVIEWER=llm`, `hnp-intent-review.md`); `failure_kind` si el modelo no pudo revisar (`p0-model-failures.md` §3.5) |
 | `reservation_reserved` | `service` | `reservation_id`, `operation_id`, `amount_minor`, `expected_epoch`, `state_version`, `d2_evidence_id` |
 | `mandates_closed` | `service` | Por cerrado: `token_digest`, `link_hash` (`sd_hash` del último salto), `checkout_hash`, `agent_key_kid` |
 | `dispatch_committed` | `service` | `outbox_id`, `d3_evidence_id`, `authority_epoch`, `control_epoch` |
@@ -1095,7 +1095,7 @@ Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autoriza
 | `revoked` | `user`, `operator` o `service` | `revoked_reason`, `epoch_before`, `epoch_after`, `effect` |
 | `expired` | `service` | `expires_at`, `observed_at` |
 | `kill_switch_blocked` | `service` | `control_epoch`, `stage: claim \| uow1 \| uow2` |
-| `task_finished` | `service` | `state`, `outcome_code`, `run_id` |
+| `task_finished` | `service` | `state`, `outcome_code`, `run_id`; `failure_kind` si el modelo hizo fallar al selector (`selection_unavailable`, `p0-model-failures.md` §3.5) |
 
 Todos llevan `actor_kind`, `actor_ref`, `on_behalf_of`, `task_id` y `run_id` en la fila. Las
 decisiones D1/D2/D3 viven en `governance_evidence` y la frescura `close` en `hp_evidence`. La

@@ -5,9 +5,12 @@ Protected values (mandate tokens, checkout details) stay out of `repr`, events a
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..governance.canonical import canonical_bytes, sha256_digest
+
+if TYPE_CHECKING:
+    from ..llm.model_failures import ModelFailureKind
 
 EXECUTOR_REF = "service:hnp-executor"
 OPERATOR_REF = "operator"
@@ -376,6 +379,8 @@ class TaskFinish:
     state: Literal["escalated", "failed", "canceled"]
     outcome_code: OutcomeCode
     stage: KillSwitchStage | None = None  # where the kill switch was met
+    # Why the model failed a selector that made no choice (p0-model-failures.md §3.5).
+    failure_kind: "ModelFailureKind | None" = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -30,7 +30,8 @@ from commerce_agent.application.conversation import (
     request_sha256,
 )
 from commerce_agent.buyer_auth import BuyerPrincipal
-from commerce_agent.llm import ConversationMessage
+from commerce_agent.llm import ConversationMessage, IntentInterpretationError
+from commerce_agent.llm.model_failures import ModelFailureKind
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,22 @@ ERROR_MESSAGES = {
     "offer_freshness_unavailable": (
         "No pude confirmar con el comercio que el precio y la disponibilidad sigan vigentes, "
         "así que detuve la compra por precaución. No se hizo ningún cobro."
+    ),
+}
+# What the buyer can do depends on why the model failed (p0-model-failures.md §3.4); any other
+# kind keeps the copy of `intent_model_error`.
+MODEL_FAILURE_MESSAGES: dict[ModelFailureKind, str] = {
+    "rate_limited": (
+        "El modelo está recibiendo demasiadas solicitudes. Intenta de nuevo en un momento. "
+        "No se preparó ninguna compra."
+    ),
+    "quota_exhausted": (
+        "El asistente no está disponible por ahora y reintentar no servirá hasta que se "
+        "restablezca el servicio. No se preparó ninguna compra."
+    ),
+    "unreachable": (
+        "No pude comunicarme con el modelo. Intenta de nuevo en un momento. "
+        "No se preparó ninguna compra."
     ),
 }
 PURCHASE_UPDATE_TEXT = {
@@ -498,8 +515,10 @@ class AssistantMessageRecorder:
     def complete(self) -> None:
         self._finish({"type": "complete", "reason": "stop"})
 
-    def fail(self, code: str | None) -> None:
+    def fail(self, code: str | None, model_failure: ModelFailureKind | None = None) -> None:
         message = error_message(code)
+        if model_failure is not None:
+            message = MODEL_FAILURE_MESSAGES.get(model_failure, message)
         self._close_step(
             {"error": {"code": code or "agent_error", "message": message}}, is_error=True
         )
@@ -537,6 +556,11 @@ def _error_code(error: BaseException) -> str | None:
         return "catalog_unavailable"
     code = getattr(error, "code", None)
     return code if isinstance(code, str) else None
+
+
+def _model_failure(error: BaseException) -> ModelFailureKind | None:
+    """The kind the model client named; None for an error the model did not cause."""
+    return error.failure_kind if isinstance(error, IntentInterpretationError) else None
 
 
 class AssistantTransport:
@@ -585,7 +609,7 @@ class AssistantTransport:
             logger.warning("Assistant run failed: %s", type(error).__name__)
             try:
                 failed = recorder or self._direct_recorder(controller)
-                failed.fail(_error_code(error))
+                failed.fail(_error_code(error), _model_failure(error))
             except Exception:
                 logger.warning("Assistant run could not record its failure")
 
@@ -831,10 +855,14 @@ class AssistantTransport:
         except TurnCancelled:
             recorder.cancel()
         except Exception as error:
+            code, model_failure = _error_code(error), _model_failure(error)
             logger.warning(
-                "Assistant turn failed: %s (%s)", type(error).__name__, _error_code(error)
+                "Assistant turn failed: %s (%s, model_failure=%s)",
+                type(error).__name__,
+                code,
+                model_failure,
             )
-            recorder.fail(_error_code(error))
+            recorder.fail(code, model_failure)
 
 
 def _rejection(status: int, code: str, message: str) -> JSONResponse:
