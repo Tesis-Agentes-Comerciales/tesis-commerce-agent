@@ -78,6 +78,25 @@ No se leen `.env` personales ni se usan instrumentos/credenciales reales.
   Incluyen JUnit, outcomes, manifiesto, JSONL/logs/capturas, reporte y SHA256SUMS.
   Los 33 escenarios / 37 celdas nuevas permanecen sin ejecución atribuida; full no los valida.
 
-Validación: CI general del nuevo HEAD; despacho P2 con scope explícito; despacho full **sin
+Validación histórica de MAIN-03: CI general del nuevo HEAD; despacho P2 con scope explícito; despacho full **sin
 inputs**, para comprobar exactamente los defaults. Mantener todos los fallos y separar la
 validez del workflow de la corrección de las pruebas de producto. No merge en esta unidad.
+
+## Integración de #157 con main después de #180
+
+Base de organización: `343f099e6c4f1dd98e7cf04d81cfa09c99113206`, CI 42080306186.
+El perfil manual `p0-catalog-bridge` exige credencial de lectura y los dos pines
+históricos. Ejecuta los tres controles y exige JUnit, recorder, evidencia del worker y
+limpieza. Los perfiles EXP-01–07 y EXP-06 protegido conservan sus rutas. `full` mantiene
+la selección de refs de main y su aviso si falta la credencial. P2 se excluye de full.
+El plan de 95 casos de este documento corresponde al candidato histórico de MAIN-03.
+
+La ejecución programada [42048317115](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42048317115)
+corrió sobre `cd6d39f` y obtuvo 91 passed y 1 failed. El flujo de navegador llegó a
+comprobar la orden y luego no encontró «Orden confirmada» en el paso de captura.
+La causa de la desaparición no está demostrada. P2 usa el backend por TestClient y
+no instala UI ni Chromium. La regresión de full queda abierta y no se vuelve a medir aquí.
+
+Dependencia posterior: #178 exige `offer_mismatch` ante oferta de otro ID o contexto.
+Al integrar #160 se deberá comprobar ese rechazo, conservar `unknown` y cero checkouts.
+#179 explica el rechazo HNP de CT13, cuyo fallback autorizado sigue pendiente.

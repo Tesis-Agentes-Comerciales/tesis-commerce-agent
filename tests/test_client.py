@@ -9,9 +9,11 @@ from pydantic import SecretStr
 
 from commerce_agent.acp import ACPClient, ACPClientError, CheckoutUpdateRequest
 from commerce_agent.acp.models import SelectedFulfillmentOption
-from commerce_agent.acp.offer_snapshot import DeliveryContext
+from commerce_agent.acp.offer_snapshot import DeliveryContext, OfferResponse
 
 LAB_DESTINATION = DeliveryContext(country="CO", city="Bogota", postal_code="110111")
+# A destination the lab does not serve.
+MDE = {"country": "CO", "city": "Medellin", "postal_code": "050001"}
 
 
 def checkout(status: str = "not_ready_for_payment") -> dict[str, Any]:
@@ -291,6 +293,11 @@ def test_lab_offer_is_read_once_with_the_merchant_session() -> None:
             httpx.Response(200, json={"ok": True, "data": {"id": "BBGooglePixel8-128GB"}}),
             "invalid_offer",
         ),
+        # The lab model admits one destination: any other one is malformed, not another offer.
+        (
+            httpx.Response(200, json={"ok": True, "data": lab_offer() | {"delivery_context": MDE}}),
+            "invalid_offer",
+        ),
     ],
 )
 def test_lab_offer_failure_is_not_retried(response: httpx.Response, code: str) -> None:
@@ -309,6 +316,45 @@ def test_lab_offer_failure_is_not_retried(response: httpx.Response, code: str) -
     ):
         client.get_offer("BBGooglePixel8-128GB", LAB_DESTINATION)
     assert (captured.value.code, calls) == (code, 1)
+
+
+# P3-V01: a well-formed offer that is not the one asked for. The lab DeliveryContext admits
+# only Bogota, so the wider request is built without validation; it stands for the day the
+# model admits a second destination, when the merchant could answer for the wrong one.
+MISMATCHES = {
+    "another_offer_id": (lab_offer() | {"id": "BBGooglePixel8-256GB"}, LAB_DESTINATION),
+    "another_delivery_context": (lab_offer(), DeliveryContext.model_construct(None, **MDE)),
+}
+
+
+@pytest.mark.parametrize("case", MISMATCHES)
+def test_a_valid_offer_that_is_not_the_requested_one_is_an_offer_mismatch(case: str) -> None:
+    """Regression for P3-V01: fails if `get_offer` stops binding its answer to the request."""
+    served, requested = MISMATCHES[case]
+    # Well formed on its own: only the binding to the request can refuse it.
+    OfferResponse.model_validate({"ok": True, "data": served})
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "data": served})
+
+    with (
+        ACPClient(
+            "http://127.0.0.1:4120", SecretStr("test-token"), transport=httpx.MockTransport(handler)
+        ) as client,
+        pytest.raises(ACPClientError) as captured,
+    ):
+        client.get_offer("BBGooglePixel8-128GB", requested)
+
+    # Not `invalid_offer`: the trace tells a malformed answer from an answer for another offer.
+    assert captured.value.code == "offer_mismatch"
+    assert bodies == [
+        {
+            "offer_id": "BBGooglePixel8-128GB",
+            "delivery_context": requested.model_dump(mode="json"),
+        }
+    ]
 
 
 def test_the_offer_snapshot_loads_without_governance() -> None:

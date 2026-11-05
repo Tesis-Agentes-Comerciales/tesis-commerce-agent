@@ -95,17 +95,23 @@ class P2EvidenceTests(unittest.TestCase):
         ):
             pass
 
-    def test_secret_value_is_only_passed_to_the_two_checkouts(self) -> None:
+    def test_secret_value_is_not_passed_to_shell_steps(self) -> None:
         text = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
         self.assertEqual(text.count("token: $" + "{{ secrets.MERCHANT_REPO_TOKEN }}"), 2)
-        self.assertNotIn("MERCHANT_REPO_TOKEN:", text)
+        # EXP-06 delegates its repository access to the existing reusable workflow.
+        self.assertEqual(text.count("MERCHANT_REPO_TOKEN:"), 1)
+        self.assertIn(
+            "    secrets:\n      MERCHANT_REPO_TOKEN: $" + "{{ secrets.MERCHANT_REPO_TOKEN }}",
+            text,
+        )
+        self.assertNotIn("          MERCHANT_REPO_TOKEN:", text)
         self.assertIn(
             "SIBLING_TOKEN_CONFIGURED: $" + "{{ secrets.MERCHANT_REPO_TOKEN != '' }}", text
         )
         self.assertNotIn("pull_request_target", text)
 
     @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "requires POSIX runner")
-    def test_actual_workflow_gate_fails_missing_credentials_for_every_required_run(self) -> None:
+    def test_actual_workflow_gate_distinguishes_required_profiles_from_full(self) -> None:
         lines = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8").splitlines()
         start = lines.index("      - name: Check sibling read token")
         begin = next(i for i in range(start, len(lines)) if lines[i] == "        run: |") + 1
@@ -115,13 +121,14 @@ class P2EvidenceTests(unittest.TestCase):
                 break
             body.append(line[10:])
         self.assertTrue(body)
-        for configured, required, expected in (
-            ("true", "true", 0),
-            ("false", "true", 1),
-            ("false", "false", 1),
+        for configured, scope, expected in (
+            ("true", "p0-catalog-bridge", 0),
+            ("false", "p0-catalog-bridge", 1),
+            ("false", "exp07-ct19-hp", 1),
+            ("false", "full", 0),
         ):
             with (
-                self.subTest(configured=configured, required=required),
+                self.subTest(configured=configured, scope=scope),
                 tempfile.TemporaryDirectory() as directory,
             ):
                 output = Path(directory) / "output"
@@ -130,7 +137,7 @@ class P2EvidenceTests(unittest.TestCase):
                     env={
                         **os.environ,
                         "SIBLING_TOKEN_CONFIGURED": configured,
-                        "P2_REQUIRED": required,
+                        "TEST_SCOPE": scope,
                         "GITHUB_OUTPUT": str(output),
                     },
                     capture_output=True,
@@ -139,7 +146,7 @@ class P2EvidenceTests(unittest.TestCase):
                 self.assertEqual(result.returncode, expected)
                 self.assertIn("available=" + configured, output.read_text())
                 if configured == "false":
-                    self.assertIn("::error", result.stdout)
+                    self.assertIn("::error" if expected else "::notice", result.stdout)
 
 
 if __name__ == "__main__":

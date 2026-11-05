@@ -1,0 +1,7 @@
+{
+  "scope": "README encoding only; ZIPs, oracles and results unchanged",
+  "previous_commit": "0931eeedaeefb6ef855322d92056fa84bf486d49",
+  "old_readme_sha256": "0474d0a41339d492ec6231eec7bd68c62f419ec8349276a08da9fdf753ade5dd",
+  "new_readme_sha256": "fada3f5da29426f602206a5d42a864ddcf05257354e514dfd6f5574fc53a43a2",
+  "reason": "Windows default cp1252; normalize new archival prose to UTF-8 for repository tooling"
+}

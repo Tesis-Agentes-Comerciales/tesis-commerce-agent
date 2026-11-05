@@ -5,9 +5,12 @@ Protected values (mandate tokens, checkout details) stay out of `repr`, events a
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..governance.canonical import canonical_bytes, sha256_digest
+
+if TYPE_CHECKING:
+    from ..llm.model_failures import ModelFailureKind
 
 EXECUTOR_REF = "service:hnp-executor"
 OPERATOR_REF = "operator"
@@ -87,6 +90,9 @@ Ap2Error = Literal[
     "invalid_credential", "invalid_mandate", "unresolved_constraint", "mandates_not_supported"
 ]
 KillSwitchStage = Literal["claim", "uow1", "uow2"]
+# The merchant's typed refusals of the checkout creation, which it answers before creating
+# anything (`runtime_dispatch.DEFINITIVE_CREATION_REFUSALS`, `enforce.RefusalCode`).
+MerchantRefusal = Literal["out_of_stock", "offer_expired", "invalid_item"]
 DispatchStep = Literal["payment_sent", "payment_accepted", "complete_sent", "completed"]
 RevokeEffect = Literal["no_effect", "released", "in_flight"]
 # applied: this call wrote its step. reused: the step was already durable (a retry).
@@ -376,6 +382,11 @@ class TaskFinish:
     state: Literal["escalated", "failed", "canceled"]
     outcome_code: OutcomeCode
     stage: KillSwitchStage | None = None  # where the kill switch was met
+    # Why the model failed a selector that made no choice (p0-model-failures.md §3.5).
+    failure_kind: "ModelFailureKind | None" = None
+    # Why a `checkout_failed` task bought nothing: the merchant refused to create its checkout
+    # with a typed code and nothing was created. Never a guess: absent on any other path.
+    merchant_refusal: MerchantRefusal | None = None
 
 
 @dataclass(frozen=True, slots=True)

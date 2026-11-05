@@ -72,6 +72,7 @@ class Control:
         self.sql = module("psycopg.sql")
         self.jsonb = module("psycopg.types.json").Jsonb
         self.pending: dict[str, Any] = {}
+        self.ct19_originals: dict[tuple[str, str], dict[str, Any]] = {}
 
     def connection(self):
         return self.pg.connect(self.db.database_url())
@@ -195,6 +196,40 @@ class Control:
                 for table in EFFECT_TABLES
             }
 
+    def exp01_export(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Export the whole existing episode; no synthesized commercial observations."""
+        return module("commerce_lab.feed").export_feed(
+            Path(command["feed_dir"]),
+            run_id=command["run_id"],
+            base_url=os.environ["ACP_API_BASE_URL"],
+        )
+
+    def exp01_observe(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Independent, read-only public facts; no bearer, JWT, keys or payment instruments."""
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT checkout_id,status,offer_id,quantity,idempotency_sha256 "
+                "FROM checkout_sessions WHERE run_id=%s ORDER BY checkout_id",
+                (command["run_id"],),
+            ).fetchall()
+            events = connection.execute(
+                "SELECT event_type,count(*) FROM run_events WHERE run_id=%s "
+                "GROUP BY event_type ORDER BY event_type",
+                (command["run_id"],),
+            ).fetchall()
+            stock = connection.execute(
+                "SELECT offer_id,revision,snapshot->>'availability',"
+                "snapshot->>'available_quantity' FROM catalog_offers WHERE run_id=%s "
+                "ORDER BY offer_id",
+                (command["run_id"],),
+            ).fetchall()
+        return {
+            "tables": self.snapshot({}),
+            "checkouts": rows,
+            "run_events": events,
+            "stock": stock,
+        }
+
     def internal_create(self, command: dict[str, Any]) -> dict[str, Any]:
         """Real Merchant transaction, without (unrecoverable) or before (pending) its record."""
         ctx = self.context.authenticate_lab_session(command["bearer"])
@@ -291,6 +326,14 @@ class Control:
             "other_credential": self.issue(other, "live-other-catalog"),
         }
 
+    def observe_offer(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Read-only full snapshot through the isolated Merchant worker."""
+        with self.connection() as connection:
+            return connection.execute(
+                "SELECT snapshot FROM catalog_offers WHERE run_id=%s AND offer_id=%s",
+                (command["run_id"], command["offer_id"]),
+            ).fetchone()[0]
+
     def edit_offer(self, command: dict[str, Any]) -> dict[str, Any]:
         """07B-B Merchant-side changes between the Agent's observation and its guarded POST."""
         kind = command["change"]
@@ -299,13 +342,17 @@ class Control:
             if kind == "restore":
                 value.clear()
                 value.update(command["snapshot"])
+            if kind == "stock":
+                value["revision"] += 1
+                value["availability"] = "out_of_stock"
+                value["available_quantity"] = 0
             if kind == "revision":
                 value["revision"] += 1
             if kind == "digest":
                 value["name"] += " changed"
             if kind == "shipping":
-                value["pricing"]["shipping_total_minor"] += 1
-                value["pricing"]["total_minor"] += 1
+                value["pricing"]["shipping_total_minor"] += command.get("shipping_delta_minor", 1)
+                value["pricing"]["total_minor"] += command.get("shipping_delta_minor", 1)
             if kind == "expiry":
                 observed = datetime.fromisoformat(value["observed_at"].replace("Z", "+00:00"))
                 value["expires_at"] = (observed + timedelta(seconds=1)).strftime(
@@ -428,6 +475,159 @@ class Control:
             connection.rollback()
             connection.close()
 
+    def ct19_state(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Public catalog rows and constraint evidence, scoped to an owned disposable run."""
+        with self.connection() as connection, connection.transaction():
+            connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            assert (
+                connection.execute(
+                    "SELECT count(*) FROM experiment_runs WHERE run_id=%s AND actor_id=%s",
+                    (command["run_id"], command["actor_id"]),
+                ).fetchone()[0]
+                == 1
+            )
+            rows = connection.execute(
+                "SELECT to_jsonb(t) FROM catalog_offers t WHERE run_id=%s ORDER BY offer_id",
+                (command["run_id"],),
+            ).fetchall()
+            target = next((r[0] for r in rows if r[0]["offer_id"] == command["offer_id"]), None)
+            constraints = connection.execute(
+                "SELECT conname,convalidated,pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid IN ('catalog_offers'::regclass,'checkout_sessions'::regclass) "
+                "ORDER BY conname"
+            ).fetchall()
+            triggers = connection.execute(
+                "SELECT tgrelid::regclass::text,tgname,tgenabled FROM pg_trigger "
+                "WHERE tgrelid IN ('catalog_offers'::regclass,'checkout_sessions'::regclass) "
+                "ORDER BY 1,2"
+            ).fetchall()
+            references = connection.execute(
+                "SELECT count(*) FROM checkout_sessions WHERE run_id=%s AND offer_id=%s",
+                (command["run_id"], command["offer_id"]),
+            ).fetchone()[0]
+            events = connection.execute(
+                "SELECT event_type,payload FROM run_events WHERE run_id=%s "
+                "AND event_type='offer.read' ORDER BY event_id",
+                (command["run_id"],),
+            ).fetchall()
+
+        def digest(value):
+            return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+        return {
+            "row": target,
+            "catalog": [r[0] for r in rows],
+            "catalog_sha256": digest(rows),
+            "others_sha256": digest([r for r in rows if r[0]["offer_id"] != command["offer_id"]]),
+            "references": references,
+            "constraints": constraints,
+            "triggers": triggers,
+            "offer_read_events": events,
+        }
+
+    def ct19_capture(self, command: dict[str, Any]) -> dict[str, Any]:
+        state = self.ct19_state(command)
+        key = (command["run_id"], command["offer_id"])
+        assert key not in self.ct19_originals and state["row"] is not None
+        assert state["references"] == 0
+        self.ct19_originals[key] = state
+        return state
+
+    def ct19_audit(self, _: dict[str, Any]) -> dict[str, Any]:
+        """Hash full audit rows but disclose only fields needed to correlate synthetic requests."""
+        with self.connection() as connection, connection.transaction():
+            connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            requests = connection.execute(
+                "SELECT request_id, to_jsonb(t), jsonb_build_object("
+                "'request_id',request_id,'run_id',run_id,'actor_id',actor_id,"
+                "'operation',operation,'result',result,'http_status',http_status,"
+                "'checkout_id',checkout_id,'order_id',order_id,"
+                "'idempotency_sha256',idempotency_sha256,'error_code',error_code) "
+                "FROM request_observations t ORDER BY request_id"
+            ).fetchall()
+            events = connection.execute(
+                "SELECT event_id::text, to_jsonb(t), jsonb_build_object("
+                "'run_id',run_id,'event_type',event_type,'actor_id',payload->>'actor_id',"
+                "'offer_id',payload->>'offer_id','request_id',payload->>'request_id',"
+                "'result',payload->>'result') FROM run_events t ORDER BY event_id"
+            ).fetchall()
+        return {
+            table: {
+                key: {
+                    "sha256": hashlib.sha256(json.dumps(row, sort_keys=True).encode()).hexdigest(),
+                    "fields": fields,
+                }
+                for key, row, fields in rows
+            }
+            for table, rows in (("request_observations", requests), ("run_events", events))
+        }
+
+    def ct19_constraints(self, command: dict[str, Any]) -> dict[str, str]:
+        """Rollback-only invalid-row probes; these are not commercial observations."""
+        state = self.ct19_state(command)
+        assert state["row"] is None
+        key = (command["run_id"], command["offer_id"])
+        result = {}
+        for kind in ("identity", "revision", "positive_revision", "run_fk"):
+            row = json.loads(json.dumps(self.ct19_originals[key]["row"]))
+            if kind == "identity":
+                row["snapshot"]["id"] += "-invalid-probe"
+            elif kind == "revision":
+                row["revision"] += 1
+            elif kind == "positive_revision":
+                row["revision"] = row["snapshot"]["revision"] = 0
+            else:
+                row["run_id"] = str(uuid4())
+            with self.connection() as connection:
+                try:
+                    with connection.transaction():
+                        connection.execute(
+                            "INSERT INTO catalog_offers SELECT "
+                            "(jsonb_populate_record(NULL::catalog_offers,%s)).*",
+                            (self.jsonb(row),),
+                        )
+                        raise RuntimeError("CT19_CONSTRAINT_ACCEPTED_INVALID_ROW")
+                except self.pg.IntegrityError as error:
+                    result[kind] = error.sqlstate
+        assert self.ct19_state(command) == state
+        return result
+
+    def ct19_mutate(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Reversible fixture only; never disable FK, triggers or CHECK constraints."""
+        key = (command["run_id"], command["offer_id"])
+        original = self.ct19_originals[key]
+        assert self.ct19_state(command)["references"] == 0
+        with self.connection() as connection:
+            connection.execute(
+                "LOCK TABLE catalog_offers,checkout_sessions IN SHARE ROW EXCLUSIVE MODE"
+            )
+            assert (
+                connection.execute(
+                    "SELECT count(*) FROM checkout_sessions WHERE run_id=%s AND offer_id=%s", key
+                ).fetchone()[0]
+                == 0
+            )
+            if command["change"] == "retire":
+                assert self.ct19_state(command)["row"] == original["row"]
+                assert (
+                    connection.execute(
+                        "DELETE FROM catalog_offers WHERE run_id=%s AND offer_id=%s", key
+                    ).rowcount
+                    == 1
+                )
+            elif command["change"] == "restore":
+                connection.execute(
+                    "DELETE FROM catalog_offers WHERE run_id=%s AND offer_id=%s", key
+                )
+                connection.execute(
+                    "INSERT INTO catalog_offers SELECT "
+                    "(jsonb_populate_record(NULL::catalog_offers,%s)).*",
+                    (self.jsonb(original["row"]),),
+                )
+            else:
+                raise ValueError("Unknown CT19 mutation")
+        return self.ct19_state(command)
+
 
 def main() -> None:
     control = Control(bootstrap())
@@ -444,17 +644,25 @@ def main() -> None:
             "session_state",
             "snapshot",
             "effects",
+            "exp01_export",
+            "exp01_observe",
             "internal_create",
             "commit_pending",
             "cancel_fixture",
             "alter_offer_fixture",
             "managed_catalog",
             "edit_offer",
+            "observe_offer",
             "reprice_offer",
             "projection",
             "p0_provenance",
             "p0_managed_update",
             "p0_episode_state",
+            "ct19_state",
+            "ct19_capture",
+            "ct19_audit",
+            "ct19_constraints",
+            "ct19_mutate",
         )
     }
     try:

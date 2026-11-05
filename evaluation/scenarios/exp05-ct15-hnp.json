@@ -1,0 +1,86 @@
+{
+  "schema": "exp05-protocol/1",
+  "agent_base": "4ce219623ed0304a3e7378519a37f0b8844694c5",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "matrix_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "ux03_oracle_sha256": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+  "scope": "CT15 HNP B2-HNP old feed, price changes after D1 before Merchant creation; no LLM/completed payment",
+  "cases": {
+    "CT15:HNP:above": {
+      "scenario": "CT15",
+      "mode": "HNP",
+      "test": "test_ct15_hnp_old_feed[above]",
+      "expected": "real Merchant total above unchanged maximum; one create then budget cancellation; failed/budget_guard; no payment",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "after_cleanup",
+        "offer_before",
+        "offer_after",
+        "feed_sha256",
+        "feed_after_sha256",
+        "grant_id",
+        "task_id",
+        "task_after",
+        "grant_scope",
+        "mutation_at_ns",
+        "trigger_at_ns",
+        "create_posts",
+        "merchant_creation",
+        "authoritative_total_minor",
+        "agent_effect_counts",
+        "reservation_states",
+        "mandate_kinds"
+      ]
+    },
+    "CT15:HNP:within": {
+      "scenario": "CT15",
+      "mode": "HNP",
+      "test": "test_ct15_hnp_old_feed[within]",
+      "expected": "real Merchant total equals maximum; prepare then explicit safety revoke at checkout-jwt; canceled/revoked_by_owner; reservation released/no_outbox; no payment",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "after_cleanup",
+        "offer_before",
+        "offer_after",
+        "feed_sha256",
+        "feed_after_sha256",
+        "grant_id",
+        "task_id",
+        "task_after",
+        "grant_scope",
+        "mutation_at_ns",
+        "trigger_at_ns",
+        "create_posts",
+        "merchant_creation",
+        "authoritative_total_minor",
+        "agent_effect_counts",
+        "reservation_states",
+        "mandate_kinds"
+      ]
+    }
+  },
+  "effect_limits": {
+    "completed_orders": 0,
+    "payment_tokens": 0,
+    "payment_requests": 0,
+    "create_posts_per_control": 1,
+    "closed_mandates": 0,
+    "active_reservations_after_cleanup": 0,
+    "active_checkouts_after_cleanup": 0
+  },
+  "limitations": [
+    "not a replay or relabel of HN03",
+    "within ends by explicit safety revocation after preparation, not a price failure",
+    "within can create one released reservation, no closed mandate/payment",
+    "no semantic interpretation",
+    "single deterministic episode per control"
+  ],
+  "test_module": "tests/integration/test_exp05_ct15_hnp.py::"
+}

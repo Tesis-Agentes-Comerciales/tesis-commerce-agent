@@ -68,14 +68,18 @@ def test_full_and_p2_are_separate_required_plans():
         expected_cases("compatibility")  # Not silently a new-version validation profile.
 
 
-def test_workflow_defaults_resolve_historical_pins_for_schedule_and_manual_runs():
+def test_workflow_applies_pins_and_evidence_gate_to_targeted_p2():
     root = Path(__file__).resolve().parents[2]
     text = (root / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
     for field, key in (("merchant_ref", "merchant_sha"), ("payment_ref", "payment_sha")):
-        assert f"default: {contract()[key]}" in text
-        assert "ref: ${{ inputs." + field + " || '" + contract()[key] + "' }}" in text
-    assert "name: nightly-${{ inputs.test_scope || 'full' }}-evidence" in text
-    assert "if-no-files-found: error" in text
+        assert (
+            f"inputs.{field} || ((startsWith(inputs.test_scope, 'exp0') || "
+            f"inputs.test_scope == 'p0-catalog-bridge') && '{contract()[key]}') || ''"
+        ) in text
+    assert "p0-catalog-bridge' && 'nightly-p0-catalog-bridge-evidence'" in text
+    assert "tests.support.nightly_evidence --preflight" in text
+    assert "tests.support.nightly_evidence --scope p0-catalog-bridge" in text
+    assert "--ignore=tests/integration/test_live_p0_catalog_bridge.py" in text
 
 
 def test_complete_p2_evidence_can_pass(tmp_path: Path):

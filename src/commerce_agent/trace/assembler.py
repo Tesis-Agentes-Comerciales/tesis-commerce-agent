@@ -765,8 +765,18 @@ def delegation_steps(delegation: Delegation, purchase_end: TraceStep | None) -> 
                 code = body["outcome_code"]
                 if code != explained(purchase_end):
                     step_id = "failed:task" if isinstance(purchase_end, FailedStep) else "failed"
+                    # CT13: the merchant's refusal the ledger recorded, the only cause it names.
+                    refusal = body.get("merchant_refusal")
                     found.append(
-                        step("failed", at, "agent", step_id=step_id, state="error", code=code)
+                        step(
+                            "failed",
+                            at,
+                            "agent",
+                            step_id=step_id,
+                            state="error",
+                            code=code,
+                            merchant_refusal=refusal,
+                        )
                     )
             case _:
                 pass

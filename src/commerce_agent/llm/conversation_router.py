@@ -18,15 +18,12 @@ from pydantic import (
 from commerce_agent.acp.feed import ProductCandidate, ProductFeed
 from commerce_agent.domain import HardConstraints, PurchaseIntent, RankedCandidate, SoftPreferences
 from commerce_agent.llm.catalog_tool import CatalogLookupArgs, make_catalog_lookup
+from commerce_agent.llm.model_failures import IntentInterpretationError, classify_model_failure
 from commerce_agent.llm.model_requests import ModelRequestRecorder, ModelRequestSink
 from commerce_agent.llm.prices import format_minor_amount
 from commerce_agent.llm.reasoning import emit_reasoning, reasoning_requested
 
 ReasoningEffort = Literal["minimal", "low", "medium", "high"]
-
-
-class IntentInterpretationError(RuntimeError):
-    code = "intent_model_error"
 
 
 class UnknownVariantSelection(IntentInterpretationError):
@@ -37,7 +34,9 @@ class UnknownVariantSelection(IntentInterpretationError):
     """
 
     def __init__(self, variant_id: str) -> None:
-        super().__init__("The candidate model selected an unknown variant")
+        super().__init__(
+            "The candidate model selected an unknown variant", failure_kind="invalid_output"
+        )
         self.variant_id = variant_id
 
 
@@ -406,7 +405,8 @@ class OpenAIConversationRouter:
         self._catalog_tool = make_catalog_lookup(feed)
         self._vocabulary = _catalog_vocabulary(feed)
         self._instructions = f"{_INSTRUCTIONS}\nCurrent catalog vocabulary:\n{self._vocabulary}"
-        # Without a ledger (studio, tests) nothing is recorded and the SDK builds its own client.
+        # Without a ledger (studio, tests) nothing is recorded, but the SDK still gets the
+        # recorder's client, with its hook that refuses to retry a spent quota.
         self._recorder = ModelRequestRecorder(
             model_requests, model=model, reasoning_effort=reasoning_effort
         )
@@ -432,7 +432,9 @@ class OpenAIConversationRouter:
             catalog_tool=True,
         )
         if parsed is None:
-            raise IntentInterpretationError("The conversation model returned no decision")
+            raise IntentInterpretationError(
+                "The conversation model returned no decision", failure_kind="invalid_output"
+            )
         if parsed.intent is not None:
             intent = _aligned_intent(parsed.intent, self._feed)
             if parsed.action == "purchase" and not _has_catalog_identity(intent, self._feed):
@@ -493,12 +495,14 @@ class OpenAIConversationRouter:
             failure="The candidate model request failed",
         )
         if parsed is None:
-            raise IntentInterpretationError("The candidate model returned no decision")
+            raise IntentInterpretationError(
+                "The candidate model returned no decision", failure_kind="invalid_output"
+            )
         try:
             decision = CandidateDecision.model_validate(parsed.model_dump(mode="json"))
         except ValidationError as error:
             raise IntentInterpretationError(
-                "The candidate model returned an invalid decision"
+                "The candidate model returned an invalid decision", failure_kind="invalid_output"
             ) from error
         if (
             decision.selected_variant_id is not None
@@ -527,7 +531,9 @@ class OpenAIConversationRouter:
             failure="The recovery model request failed",
         )
         if parsed is None:
-            raise IntentInterpretationError("The recovery model returned no decision")
+            raise IntentInterpretationError(
+                "The recovery model returned no decision", failure_kind="invalid_output"
+            )
         return parsed
 
     def _parse[ParsedT: BaseModel](
@@ -548,6 +554,7 @@ class OpenAIConversationRouter:
         if catalog_tool:
             args_schema = self._catalog_tool.args_schema
             if not isinstance(args_schema, type) or not issubclass(args_schema, BaseModel):
+                # The agent's own tool, checked before any request: no model failure to name.
                 raise IntentInterpretationError("Catalog tool schema is invalid")
             tool_schema = {
                 "type": "function",
@@ -569,16 +576,20 @@ class OpenAIConversationRouter:
         if not calls:
             return response.output_parsed
         if len(calls) != 1 or not isinstance(model_input, list):
-            raise IntentInterpretationError("The catalog model returned invalid tool calls")
+            raise IntentInterpretationError(
+                "The catalog model returned invalid tool calls", failure_kind="invalid_output"
+            )
         call = calls[0]
         if call.name != self._catalog_tool.name:
-            raise IntentInterpretationError("The catalog model requested an unknown tool")
+            raise IntentInterpretationError(
+                "The catalog model requested an unknown tool", failure_kind="invalid_output"
+            )
         try:
             arguments = CatalogLookupArgs.model_validate_json(call.arguments)
             output = self._catalog_tool.invoke(arguments.model_dump())
         except (ValidationError, ValueError) as error:
             raise IntentInterpretationError(
-                "The catalog model returned invalid tool arguments"
+                "The catalog model returned invalid tool arguments", failure_kind="invalid_output"
             ) from error
         followup = cast(
             ResponseInputParam,
@@ -597,7 +608,9 @@ class OpenAIConversationRouter:
             tool_choice="none",
         )
         if any(item.type == "function_call" for item in getattr(final, "output", ())):
-            raise IntentInterpretationError("The catalog model exceeded the tool limit")
+            raise IntentInterpretationError(
+                "The catalog model exceeded the tool limit", failure_kind="invalid_output"
+            )
         return final.output_parsed
 
     def _request_model[ParsedT: BaseModel](
@@ -639,7 +652,8 @@ class OpenAIConversationRouter:
                     )
                     pending.response = response
             except (OpenAIError, ValidationError) as error:
-                raise IntentInterpretationError(failure) from error
+                kind = classify_model_failure(error).kind
+                raise IntentInterpretationError(failure, failure_kind=kind) from error
             return response
         reasoning = Reasoning(summary="auto")
         if effort is not None:
@@ -666,12 +680,13 @@ class OpenAIConversationRouter:
                 response = stream.get_final_response()
                 pending.response = response
         except (OpenAIError, ValidationError) as error:
-            raise IntentInterpretationError(failure) from error
+            kind = classify_model_failure(error).kind
+            raise IntentInterpretationError(failure, failure_kind=kind) from error
         except RuntimeError as error:
             # The SDK raises RuntimeError when the stream ends without response.completed.
             if isinstance(error, IntentInterpretationError):
                 raise
-            raise IntentInterpretationError(failure) from error
+            raise IntentInterpretationError(failure, failure_kind="provider_error") from error
         return response
 
     def close(self) -> None:

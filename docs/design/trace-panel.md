@@ -334,7 +334,7 @@ del ejecutor («Compra delegada»).
 | `revoked` | `revoked` con `revoked_reason` `owner` (actor `user`) u `operator` (actor `operator`, el kill switch); `effect` del evento. Las revocaciones `escalated` y `failed` las explica su terminal | `recorded_at` |
 | `escalated` | `task_finished` con `state: "escalated"`; `reason` es el `outcome_code`. `state: "blocked"` | `recorded_at` |
 | `canceled` | `expired`: `by: "expiry"` (nombre nuevo de HNP-11). Y, como en HP, el guardia de presupuesto de `start` (`checkout.cancel.budget`); una escalada o una revocación cancelan la compra sin esa operación, y las explica su terminal | `recorded_at`; el del guardia, la operación |
-| `failed` | la compra `failed`, como en HP; y `task_finished` `failed` si su código difiere del de la compra (#93): `failed` si la compra no falló, `failed:task` si sí. Su `budget_guard` ya lo explica la cancelación del guardia | `recorded_at` |
+| `failed` | la compra `failed`, como en HP; y `task_finished` `failed` si su código difiere del de la compra (#93): `failed` si la compra no falló, `failed:task` si sí. Su `budget_guard` ya lo explica la cancelación del guardia. El paso de la tarea copia `merchant_refusal` del cuerpo cuando viene (CT13); si no, lo omite | `recorded_at` |
 
 Toda la cadena del grant se verifica (`delegation.models.chain_is_valid`) y cada cuerpo leído se
 valida; si no, la traza no está disponible y su fila del historial conserva `purchase_mode`. Una
@@ -459,7 +459,7 @@ vez que la tarea avanza y cada 2 s mientras pueda cambiar, solo con el diálogo 
 | `revoked` | «Delegación revocada» | Quién (tú o el operador) y su efecto, con las frases de §8.3 |
 | `escalated` | «Necesito tu decisión» | La causa de §8.3 y «No se hizo ningún cobro.» |
 | `canceled` por vencimiento | «La delegación venció» | «Venció antes de que el agente comprara. No se hizo ningún cobro.» |
-| `failed` de una compra delegada | «La compra no se pudo completar» | La causa solo si es cierta en todos los caminos que dan ese código, y «No se hizo ningún cobro.». Si no, «Por precaución, la compra se detuvo. No se hizo ningún cobro.» |
+| `failed` de una compra delegada | «La compra no se pudo completar» | La causa solo si es cierta en todos los caminos que dan ese código, o la de `merchant_refusal` (abajo), y «No se hizo ningún cobro.». Si no, «Por precaución, la compra se detuvo. No se hizo ningún cobro.» |
 | `failed:task` | «La compra delegada se detuvo» | Igual que `failed` |
 | K15: `failed` `governance_unavailable` con la compra `uncertain` | «La compra espera la recuperación de la política de compra» | «La delegación quedó cerrada. No se hizo ningún cobro.»; en la fila de actividad, «Por confirmar: recuperación pendiente» |
 
@@ -467,7 +467,12 @@ Una causa solo se nombra si es cierta en todos los caminos de `application/hnp_e
 dan ese código:
 
 - `checkout_failed` también sale con el checkout ya creado: si el comercio rechaza el update, si
-  falla el cierre o la Agent Key, o con `d1_post_create_uncertain`. Por eso no culpa al comercio.
+  falla el cierre o la Agent Key, o con `d1_post_create_uncertain`. Por eso su código no culpa al
+  comercio. La excepción es el paso que trae `merchant_refusal` (CT13): el ledger lo registra solo
+  cuando el comercio rechazó crear el checkout con un código tipado y no quedó ninguno, así que ese
+  paso dice la causa con el texto de `FAILURE_COPY` («El producto se agotó antes de completar la
+  compra.», «La oferta del comercio venció.» o «El producto ya no está disponible en el comercio.»).
+  La tarjeta de la delegación dice lo mismo (`task.refused.*`, `hnp-governed.md` §8.3).
 - `governance_unavailable` también sale si no se pudo leer la oferta al cerrar. Por eso no culpa a
   la política: la frescura no se presenta como una decisión de la política.
 - `policy_denied` sí nombra la política: solo sale de un deny de D2 o D3 por sus reglas.

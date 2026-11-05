@@ -4,11 +4,12 @@ The browser signs up through this checkout's auth service, talks to the Agent AP
 short-lived JWT it issues and uses the purchase or the delegation the Agent prepares against the
 lane's real Merchant and payment provider. auth/ and ui/ run with `node` after `npm ci`; the
 Agent API runs in this process so the model boundary can be scripted. Each journey is recorded
-(`journey`): a video, a screenshot per named step and, when it fails, the Playwright trace, under
+(`journey`): a video, a screenshot per named step and a sanitized Playwright trace, under
 `.local/browser-journeys/<journey>/`. Replaces the September browser smoke; the mapping is in
 tests/integration/README.md.
 """
 
+import json
 import os
 import secrets
 import shutil
@@ -39,6 +40,7 @@ from tests.integration.live_purchase import (
     PurchaseLane,
 )
 from tests.integration.live_stack import AGENT, clean_environment, closed, free_port, wait_until
+from tests.support.browser_trace import sanitize_trace
 
 AUTH = AGENT / "auth"
 UI = AGENT / "ui"
@@ -345,15 +347,9 @@ def agent_errors(page: Page, origin: str) -> list[str]:
     return errors
 
 
-class ProductGap(AssertionError):
-    """What a journey expected of the product and did not find. A journey with a known gap is
-    `xfail(strict=True, raises=ProductGap)`: any other failure still fails it, and once the gap
-    closes the XPASS fails it too."""
-
-
 class Journey:
     """A journey on video in its own browser context. `step` leaves a numbered full-page
-    screenshot; a failure keeps the Playwright trace (`trace.zip`). The last screen also goes to
+    screenshot and sanitized Playwright trace (`trace.zip`). The last screen also goes to
     `evidence/browser.png`, the run directory the nightly artifact uploads."""
 
     def __init__(self, playwright: Playwright, name: str, evidence: Path, *, phone: bool = False):
@@ -392,17 +388,39 @@ class Journey:
     def step(self, label: str, focus: Locator | None = None) -> None:
         """A screenshot of what the person sees, with `focus` scrolled into view (the chat
         scrolls inside its own panel, so a full-page capture would not reach it)."""
+        self.observe(label)
         if focus is not None:
             focus.evaluate(self.REVEAL)
         self.steps += 1
         self.page.screenshot(path=self.directory / f"{self.steps:02d}-{label}.png")
 
+    def observe(self, label: str) -> None:
+        """Non-waiting control state, including the moment before a failing locator waits."""
+        state = self.page.locator(
+            "[data-testid='purchase-activity'], [data-testid='delegations'], "
+            "[data-testid='delegation-in-chat'], [role='radio'], button[aria-expanded]"
+        ).evaluate_all("""elements => elements.map(e => ({
+          testid: e.getAttribute('data-testid'), role: e.getAttribute('role'),
+          state: e.getAttribute('data-state'), expanded: e.getAttribute('aria-expanded'),
+          checked: e.getAttribute('aria-checked'), text: (e.textContent || '').slice(0, 300)
+        }))""")
+        with (self.directory / "controls.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"label": label, "controls": state}, ensure_ascii=False) + "\n")
+
     def close(self, failed: bool) -> None:
         try:
+            with suppress(Exception):
+                self.observe("close-failed" if failed else "close-passed")
             # Evidence for the nightly artifact; the run directory holds no secret.
             with suppress(Exception):
                 self.page.screenshot(path=self.evidence / "browser.png", full_page=True)
-            self.context.tracing.stop(path=self.directory / "trace.zip" if failed else None)
+            raw = self.directory / "trace.raw.zip"
+            self.context.tracing.stop(path=raw)
+            manifest = sanitize_trace(raw, self.directory / "trace.zip")
+            raw.unlink()
+            (self.directory / "trace-manifest.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
             video = self.page.video
             self.context.close()
             if video is not None:

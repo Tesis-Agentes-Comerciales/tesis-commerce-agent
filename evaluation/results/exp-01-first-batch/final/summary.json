@@ -1,0 +1,403 @@
+{
+  "schema": "exp01-final-evidence-summary/1",
+  "primary_run": 41846571407,
+  "artifact_id": 13330598787,
+  "execution_sha": "8e021a50aedee023357ac76c3db34403fe53cf4d",
+  "sources": {
+    "agent": {
+      "sha": "8e021a50aedee023357ac76c3db34403fe53cf4d",
+      "clean": true,
+      "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+    },
+    "merchant": {
+      "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+      "clean": true,
+      "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+    },
+    "payment": {
+      "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+      "clean": true,
+      "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+    }
+  },
+  "protocol_sha256": "86598a0132c75e9e72b404a6c9e53d45e1bb3ff22a27a1892c63f020ad831dfb",
+  "validated": false,
+  "issues": [],
+  "scenarios": {
+    "MA24": "passed",
+    "INF30": "passed",
+    "INF31": "error"
+  },
+  "minimum_plan_counts": {
+    "not_executed": 34,
+    "passed": 2,
+    "error": 1
+  },
+  "junit": {
+    "failed": 1,
+    "skipped": 0,
+    "error": 0,
+    "passed": 7
+  },
+  "recorder": {
+    "status": "incomplete_or_failed",
+    "exit_code": 1,
+    "counts": {
+      "passed": 7,
+      "failed": 1,
+      "skipped": 0,
+      "xfail": 0,
+      "xpass": 0,
+      "not_executed": 0
+    },
+    "collected": 8,
+    "deselected": 0,
+    "collection_errors": 0,
+    "junit_subtests": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0
+    },
+    "scope": "Python product and harness tests; not scenario execution"
+  },
+  "controls": [
+    {
+      "case_id": "MA24",
+      "status": "passed",
+      "cleanup_verified": true,
+      "input_sha256": "7c2b2909944840f83aa47999301279796d5314186611517c08beabee99e904c7",
+      "stimulus_verified": true,
+      "agent_result": null,
+      "agent_state": null,
+      "http_status_at_observation": null,
+      "create_posts": null,
+      "recovery": null,
+      "checkouts_after_cleanup": null,
+      "merchant_unchanged_after_revocation": true,
+      "psp_unchanged": true,
+      "grant_id": "dg_66df646ec66741d48ce4e252cc6362d3",
+      "task_id": "ht_fbd3cb584b144e149361f4256fe62a35",
+      "revoked_grant": [
+        [
+          "dg_66df646ec66741d48ce4e252cc6362d3",
+          "revoked",
+          "owner",
+          2
+        ]
+      ],
+      "agent_effect_counts": {
+        "dispatch_outbox": 0,
+        "grant_reservations": 0,
+        "completion_results": 0,
+        "purchases": 0
+      }
+    },
+    {
+      "case_id": "INF30",
+      "status": "passed",
+      "cleanup_verified": true,
+      "input_sha256": "9064229cd73baba9e582f36c9cc3338541a6bbc298b07fa14d569aa75f55e004",
+      "stimulus_verified": true,
+      "agent_result": "d1_dispatch_uncertain",
+      "agent_state": [
+        [
+          "uncertain",
+          null,
+          null
+        ]
+      ],
+      "http_status_at_observation": 201,
+      "create_posts": 1,
+      "recovery": {
+        "schema_version": "commerce-remote-creation-verification/1",
+        "outcome": "found_verified",
+        "reason": "HISTORICAL_CREATION_ONLY",
+        "basis": "loopback_backend_session",
+        "session_scope": {
+          "assurance": "backend_session_registry/1",
+          "remote_run_id": "2e60eaa9-1565-4edb-a5d5-f0c358359142",
+          "remote_actor_id": "exp01-owner-b741523a3903",
+          "source_ref": {
+            "schema_version": "commerce-policy/1.0",
+            "id": "provision:23bf2ca12122ff2083611f76497db2c26e2db8ff26e65de029fa731999bb7719",
+            "version": 1,
+            "digest": "sha256:23bf2ca12122ff2083611f76497db2c26e2db8ff26e65de029fa731999bb7719"
+          }
+        },
+        "remote_request_id": "d49e4fd1-fe96-40dc-a98a-627ecef36339",
+        "lookup_response_digest": "sha256:0253041ba0b30c6faad43190649be05869b031efd9b07339fb8e609db4dedbcb",
+        "original_response_digest": "sha256:cceb24642ecf53dc4fc4d6a1316e2c548914d77dd55c475edabd9c2da90c91a5",
+        "checkout_id": "chk_ed35b1eabcb349c88974606a92a21176",
+        "replay_allowed": false,
+        "continuation_allowed": false
+      },
+      "checkouts_after_cleanup": [
+        [
+          "chk_ed35b1eabcb349c88974606a92a21176",
+          "canceled",
+          "BBGooglePixel7a-128GB",
+          1,
+          "3dd9d63780df40e0219074783c157cecd074a2ac390fc0be0031df51dd6764f3"
+        ]
+      ],
+      "merchant_unchanged_after_revocation": null,
+      "psp_unchanged": true,
+      "grant_id": null,
+      "task_id": null,
+      "revoked_grant": null,
+      "agent_effect_counts": null
+    },
+    {
+      "case_id": "INF31:proxy_503",
+      "status": "passed",
+      "cleanup_verified": true,
+      "input_sha256": "ecee267494db8276785563ddc25b225ea977ab96bb76e9ec7883fbe21754ce2f",
+      "stimulus_verified": true,
+      "agent_result": "d1_dispatch_uncertain",
+      "agent_state": [
+        [
+          "uncertain",
+          null,
+          null
+        ]
+      ],
+      "http_status_at_observation": 503,
+      "create_posts": 1,
+      "recovery": {
+        "schema_version": "commerce-remote-creation-verification/1",
+        "outcome": "not_found",
+        "reason": "NOT_FOUND_NOT_ABSENCE",
+        "basis": "loopback_backend_session",
+        "session_scope": {
+          "assurance": "backend_session_registry/1",
+          "remote_run_id": "88466254-f75a-476d-8fb0-a318dc22c188",
+          "remote_actor_id": "exp01-owner-69ad5bc7e963",
+          "source_ref": {
+            "schema_version": "commerce-policy/1.0",
+            "id": "provision:c120078de61e84b0dbef0e596be8abab99002524fa49f437e424b5ff1abb7d04",
+            "version": 1,
+            "digest": "sha256:c120078de61e84b0dbef0e596be8abab99002524fa49f437e424b5ff1abb7d04"
+          }
+        },
+        "remote_request_id": "ad7601ed-15cb-4832-abc5-7a178c97b582",
+        "lookup_response_digest": "sha256:72bf831acaf208a7b8219545c6a9944983a84483cf92084cbbac419fe5a886d6",
+        "original_response_digest": null,
+        "checkout_id": null,
+        "replay_allowed": false,
+        "continuation_allowed": false
+      },
+      "checkouts_after_cleanup": [],
+      "merchant_unchanged_after_revocation": null,
+      "psp_unchanged": true,
+      "grant_id": null,
+      "task_id": null,
+      "revoked_grant": null,
+      "agent_effect_counts": null
+    },
+    {
+      "case_id": "INF31:timeout_before_forward",
+      "status": "passed",
+      "cleanup_verified": true,
+      "input_sha256": "895558be2564ea17f0108bdf7b87baa81e6c76dfe09e621b174f26a370a1a450",
+      "stimulus_verified": true,
+      "agent_result": "d1_dispatch_uncertain",
+      "agent_state": [
+        [
+          "uncertain",
+          null,
+          null
+        ]
+      ],
+      "http_status_at_observation": 503,
+      "create_posts": 1,
+      "recovery": {
+        "schema_version": "commerce-remote-creation-verification/1",
+        "outcome": "not_found",
+        "reason": "NOT_FOUND_NOT_ABSENCE",
+        "basis": "loopback_backend_session",
+        "session_scope": {
+          "assurance": "backend_session_registry/1",
+          "remote_run_id": "44d52269-2762-4973-9d31-d1e045c82979",
+          "remote_actor_id": "exp01-owner-09f697a96ff4",
+          "source_ref": {
+            "schema_version": "commerce-policy/1.0",
+            "id": "provision:4cac94031973fa1554afc5e888a884f9fc83cc2f54400cfd1ba71c02482bed30",
+            "version": 1,
+            "digest": "sha256:4cac94031973fa1554afc5e888a884f9fc83cc2f54400cfd1ba71c02482bed30"
+          }
+        },
+        "remote_request_id": "01e175a5-f4ec-45d8-8230-1f53587ab766",
+        "lookup_response_digest": "sha256:250616e939125c4323da642ae33ce56a9d66bc3edc69fff57aa72b7960ebe776",
+        "original_response_digest": null,
+        "checkout_id": null,
+        "replay_allowed": false,
+        "continuation_allowed": false
+      },
+      "checkouts_after_cleanup": [],
+      "merchant_unchanged_after_revocation": null,
+      "psp_unchanged": true,
+      "grant_id": null,
+      "task_id": null,
+      "revoked_grant": null,
+      "agent_effect_counts": null
+    },
+    {
+      "case_id": "INF31:merchant_503",
+      "status": "error",
+      "cleanup_verified": true,
+      "input_sha256": "c44fabfca2678d62c4f96182ca5102ebe72f69786ce12226b74d75d1d94e24d5",
+      "stimulus_verified": false,
+      "agent_result": "d1_dispatch_uncertain",
+      "agent_state": [
+        [
+          "uncertain",
+          null,
+          null
+        ]
+      ],
+      "http_status_at_observation": 500,
+      "create_posts": null,
+      "recovery": null,
+      "checkouts_after_cleanup": [],
+      "merchant_unchanged_after_revocation": null,
+      "psp_unchanged": true,
+      "grant_id": null,
+      "task_id": null,
+      "revoked_grant": null,
+      "agent_effect_counts": null
+    },
+    {
+      "case_id": "INF31:timeout_after_accept",
+      "status": "passed",
+      "cleanup_verified": true,
+      "input_sha256": "80903ee068e9e660ad2e22efef54cd877fb7d19a37250ae88095fd362985629e",
+      "stimulus_verified": true,
+      "agent_result": "d1_dispatch_uncertain",
+      "agent_state": [
+        [
+          "uncertain",
+          null,
+          null
+        ]
+      ],
+      "http_status_at_observation": 201,
+      "create_posts": 1,
+      "recovery": {
+        "schema_version": "commerce-remote-creation-verification/1",
+        "outcome": "found_verified",
+        "reason": "HISTORICAL_CREATION_ONLY",
+        "basis": "loopback_backend_session",
+        "session_scope": {
+          "assurance": "backend_session_registry/1",
+          "remote_run_id": "2e6107d0-a9eb-4cb9-b2bd-ecef98c75bbc",
+          "remote_actor_id": "exp01-owner-67bcc850e56f",
+          "source_ref": {
+            "schema_version": "commerce-policy/1.0",
+            "id": "provision:cd09d99ad71d75263aa9737b09e9c92447867fb9f7ca39151f38072f918a02a9",
+            "version": 1,
+            "digest": "sha256:cd09d99ad71d75263aa9737b09e9c92447867fb9f7ca39151f38072f918a02a9"
+          }
+        },
+        "remote_request_id": "15ea5b98-c1b2-42bc-92a1-234bcd51c2ed",
+        "lookup_response_digest": "sha256:d77a1dcb92145dcc42a3d2b390e38e3f15158bec2c47407a605240860c348a83",
+        "original_response_digest": "sha256:32ea2de738dcad559fec71f7c79f5713c46f881da7a321505336d689af0818a8",
+        "checkout_id": "chk_82d51aca5a3c45219ed916c5bc8623e4",
+        "replay_allowed": false,
+        "continuation_allowed": false
+      },
+      "checkouts_after_cleanup": [
+        [
+          "chk_82d51aca5a3c45219ed916c5bc8623e4",
+          "canceled",
+          "BBGooglePixel7a-128GB",
+          1,
+          "568b35b55540b1c14b225d591f89460f36181834f99b099e78fbf60603146404"
+        ]
+      ],
+      "merchant_unchanged_after_revocation": null,
+      "psp_unchanged": true,
+      "grant_id": null,
+      "task_id": null,
+      "revoked_grant": null,
+      "agent_effect_counts": null
+    },
+    {
+      "case_id": "INF31:definitive_stock_refusal",
+      "status": "passed",
+      "cleanup_verified": true,
+      "input_sha256": "62d5bcf5ac664c0ce805d95e9228f5afeda283e0c39f9c8628c8deef39ce1917",
+      "stimulus_verified": true,
+      "agent_result": "out_of_stock",
+      "agent_state": [
+        [
+          "failed",
+          null,
+          "out_of_stock"
+        ]
+      ],
+      "http_status_at_observation": 409,
+      "create_posts": 1,
+      "recovery": null,
+      "checkouts_after_cleanup": [],
+      "merchant_unchanged_after_revocation": null,
+      "psp_unchanged": true,
+      "grant_id": null,
+      "task_id": null,
+      "revoked_grant": null,
+      "agent_effect_counts": null
+    },
+    {
+      "case_id": "INF31:positive",
+      "status": "passed",
+      "cleanup_verified": true,
+      "input_sha256": "6feb3284a953d13edea5cf6befe25a911546ad9262e498d9ce09ba5a699adfca",
+      "stimulus_verified": true,
+      "agent_result": "awaiting_confirmation",
+      "agent_state": [
+        [
+          "awaiting_confirmation",
+          "chk_068fb995effb44f58a38e1cbf6ea9599",
+          null
+        ]
+      ],
+      "http_status_at_observation": 201,
+      "create_posts": 1,
+      "recovery": null,
+      "checkouts_after_cleanup": [
+        [
+          "chk_068fb995effb44f58a38e1cbf6ea9599",
+          "canceled",
+          "BBGooglePixel7a-128GB",
+          1,
+          "e3cc8c9c5c333c57bb5789de94b463dd4a2e64ba784e1994857c49371a121437"
+        ]
+      ],
+      "merchant_unchanged_after_revocation": null,
+      "psp_unchanged": true,
+      "grant_id": null,
+      "task_id": null,
+      "revoked_grant": null,
+      "agent_effect_counts": null
+    }
+  ],
+  "shutdown": [
+    {
+      "scenario": "shutdown",
+      "merchant_pids": [
+        3272
+      ],
+      "proxy_closed": true,
+      "postgres_removed": true
+    }
+  ],
+  "hashes_checked": 50,
+  "bad_hashes": [],
+  "private_files": [],
+  "credential_pattern_files": [],
+  "limitations": [
+    "no semantic evaluation",
+    "INF30/31 HNP not executed",
+    "no public recovery UX claim",
+    "no authority to continue from historical lookup"
+  ]
+}
