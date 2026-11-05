@@ -1,4 +1,4 @@
-# CT19 HP — real variant identity disappearance
+# CT19 HP â€” real variant identity disappearance
 
 Approved scope: the CT19 user instruction; harness-only, no product changes, no LLM or payments.
 Base Agent adbe120cecf6bffc3eaf22df5c9270760697a93a (main CI 41960294446, all four jobs passed).
@@ -38,3 +38,18 @@ Separate manually dispatched scopes, exact pins, no model credentials; no parall
 Retain JUnit, manifest, frozen protocol/input, observed JSON, full catalog rows, SQL/table hashes,
 Offer audit, ACP status/body without headers, service logs, shutdown gate, original ZIP and hashes.
 Fixture control is not attributed as a P0 scenario. Freeze a separate HP protocol before phase 2.
+
+## Phase-one terminal gate (before phase-two implementation)
+
+Run 41967362290 (2c6b729) failed in the harness: the HP lane has no HNP PSP proxy.
+Its original JUnit, failed gate and ZIP are retained. This is not a commercial/model failure.
+Correction e2537f2 observes the actual PSP database and token count, without changing oracle.
+Run 41967635493 passed 1/1, gate validated=true, all 18 artifact hashes verified; full row
+(including updated_at), catalog bytes, FK/CHECK definitions and enabled triggers restored.
+Rollback-only invalid-row probes returned 23514 for identity/revision checks and 23503 for
+run FK. Offer audit results are ok, OFFER_NOT_FOUND, ok and remain persisted.
+PSP tables are byte-digest identical, no checkout was created, disposable cluster removed.
+This validates the fixture only; phase two is frozen separately in ct19-hp.json.
+The HP test uses the native definitive-refusal mapper and independently queries the persisted
+D1 allow, selected identity and definitive_failure/VERIFIED_NOT_CREATED dispatch result.
+The existing HP lane observes PSP directly by all-table hashes/counts, not HNP's PSP proxy.
