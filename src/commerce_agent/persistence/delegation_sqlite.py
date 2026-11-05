@@ -23,6 +23,8 @@ from ..delegation.models import (
     ActorKind,
     Ap2Error,
     Authority,
+    CheckoutCancel,
+    CheckoutCancelResult,
     ClosedMandates,
     ConsentRequest,
     ConsentResult,
@@ -244,6 +246,9 @@ _SENT = ("payment_sent", "complete_sent")  # §4.4: only a send can end in doubt
 _CANCELLATIONS = frozenset({"revoked_by_owner", "kill_switch", "grant_expired"})
 _UNCERTAIN = frozenset({"dispatch_timeout", "partial_verifier_failure", "receipt_mismatch"})
 _REFUSALS: frozenset[str] = frozenset(get_args(MerchantRefusal))
+# D4 (p0-ux08-ux10.md): the terminals that record what they did with the checkout left open.
+_WITHDRAWN = frozenset({"revoked_by_owner", "kill_switch", "checkout_failed"})
+_CANCEL_RESULTS: frozenset[str] = frozenset(get_args(CheckoutCancelResult))
 _VERIFIER_OUTCOMES: dict[Ap2Error, OutcomeCode] = {
     "invalid_credential": "verifier_invalid_credential",
     "invalid_mandate": "verifier_invalid_mandate",
@@ -568,12 +573,16 @@ class SqliteDelegationLedger:
             _event(connection, ex, "task_claimed", "service", claimed, text, run_id=run_id)
             return Step("applied", _execution(connection, task_id))
 
-    def renew_lease(self, task_id: str, lease_id: str) -> Step:
+    def renew_lease(self, task_id: str, lease_id: str, expected: Authority | None = None) -> Step:
         """`reused` with the lease renewed while this run still holds it, even one that lapsed
-        while nobody re-claimed the task; `lease_lost` once another claim took it."""
+        while nobody re-claimed the task; `lease_lost` once another claim took it. With
+        `expected`, `blocked` with its cause once the grant no longer authorizes the run: a
+        revocation, kill switch or expiry committed meanwhile (p0-ux08-ux10.md §3.1)."""
         with self._fenced(task_id, lease_id) as (connection, now, ex):
             if ex is None:
                 return Step("lease_lost")
+            if expected is not None and (outcome := _blocking(ex, expected, now)) is not None:
+                return Step("blocked", ex, outcome)
             return _renewed(connection, ex, now)
 
     def record_choice_review(self, task_id: str, lease_id: str, review: Mapping[str, str]) -> Step:
@@ -907,6 +916,13 @@ class SqliteDelegationLedger:
             request.outcome_code != "checkout_failed" or request.merchant_refusal not in _REFUSALS
         ):
             raise ValueError("Only checkout_failed names a typed merchant refusal of the creation")
+        cancel = request.checkout_cancel
+        if cancel is not None and (
+            request.outcome_code not in _WITHDRAWN
+            or cancel.result not in _CANCEL_RESULTS
+            or (cancel.checkout_id is None and cancel.result != "left_to_d1_reconciliation")
+        ):
+            raise ValueError("Only a stop or a checkout_mismatch records its checkout's cancel")
         with self._fenced(request.task_id, request.lease_id) as (connection, now, ex):
             if ex is None:
                 return Step("lease_lost")
@@ -924,6 +940,7 @@ class SqliteDelegationLedger:
                 stage=request.stage,
                 failure_kind=request.failure_kind,
                 merchant_refusal=request.merchant_refusal,
+                checkout_cancel=request.checkout_cancel,
             )
             return _closed(connection, ex, hooks)
 
@@ -1197,6 +1214,7 @@ def _close_task(
     release: ReleaseBasis = "no_outbox",
     failure_kind: "ModelFailureKind | None" = None,
     merchant_refusal: MerchantRefusal | None = None,
+    checkout_cancel: CheckoutCancel | None = None,
 ) -> None:
     """A terminal of spec §8.1: release the held reservation, close an active grant, end. A PSP
     error receipt releases a committed reservation: nothing reached the merchant."""
@@ -1236,6 +1254,7 @@ def _close_task(
         text,
         failure_kind=failure_kind,
         merchant_refusal=merchant_refusal,
+        checkout_cancel=checkout_cancel,
     )
 
 
@@ -1276,6 +1295,7 @@ def _finish(
     *,
     failure_kind: "ModelFailureKind | None" = None,
     merchant_refusal: MerchantRefusal | None = None,
+    checkout_cancel: CheckoutCancel | None = None,
 ) -> None:
     task = ex.task
     _update(
@@ -1289,12 +1309,14 @@ def _finish(
         updated_at=text,
         finished_at=text,
     )
-    body = {"state": state, "outcome_code": outcome, "run_id": task.run_id}
+    body: dict[str, object] = {"state": state, "outcome_code": outcome, "run_id": task.run_id}
     # Each only when there is one, so every other terminal keeps its body (and its digest).
     if failure_kind is not None:
         body["failure_kind"] = failure_kind
     if merchant_refusal is not None:
         body["merchant_refusal"] = merchant_refusal
+    if checkout_cancel is not None:
+        body["checkout_cancel"] = asdict(checkout_cancel)
     _event(connection, ex, "task_finished", "service", body, text)
 
 

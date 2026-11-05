@@ -93,6 +93,10 @@ KillSwitchStage = Literal["claim", "uow1", "uow2"]
 # The merchant's typed refusals of the checkout creation, which it answers before creating
 # anything (`runtime_dispatch.DEFINITIVE_CREATION_REFUSALS`, `enforce.RefusalCode`).
 MerchantRefusal = Literal["out_of_stock", "offer_expired", "invalid_item"]
+# What a terminal did with the checkout its run left open at the merchant (p0-ux08-ux10.md D4):
+# canceled it, tried once and the merchant did not confirm, or left it to D1's reconciliation
+# because D1 recorded the purchase `uncertain`.
+CheckoutCancelResult = Literal["canceled", "cancel_failed", "left_to_d1_reconciliation"]
 DispatchStep = Literal["payment_sent", "payment_accepted", "complete_sent", "completed"]
 RevokeEffect = Literal["no_effect", "released", "in_flight"]
 # applied: this call wrote its step. reused: the step was already durable (a retry).
@@ -387,6 +391,18 @@ class TaskFinish:
     # Why a `checkout_failed` task bought nothing: the merchant refused to create its checkout
     # with a typed code and nothing was created. Never a guess: absent on any other path.
     merchant_refusal: MerchantRefusal | None = None
+    # D4: the checkout a revocation, the kill switch or a `checkout_mismatch` left open after the
+    # POST, and what the terminal did with it. Absent on any other terminal.
+    checkout_cancel: "CheckoutCancel | None" = None
+
+
+@dataclass(frozen=True, slots=True)
+class CheckoutCancel:
+    """`checkout_id` is None only when D1 did not keep the identity of a checkout it could not
+    verify (`left_to_d1_reconciliation`)."""
+
+    checkout_id: str | None
+    result: CheckoutCancelResult
 
 
 @dataclass(frozen=True, slots=True)
