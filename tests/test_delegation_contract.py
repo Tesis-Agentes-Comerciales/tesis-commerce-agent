@@ -111,9 +111,17 @@ def test_a_selector_that_made_no_choice_escalates_in_b2_and_fails_in_b0() -> Non
     failed = fixture("failed")
     failed["task"]["outcome_code"] = "selection_unavailable"
     assert parse(DelegationView, failed).escalation is None
+    # Neutral about the cause (p0-conditional-intent.md §3.9): a selector that failed, an option
+    # the merchant could not verify, or one the executor could not try in its consented order.
     assert HNP_MESSAGES["escalation.selection_unavailable"] == (
-        "No pude elegir entre las opciones que autorizaste porque el servicio que hace la "
-        "elección falló o no respondió."
+        "No pude elegir con seguridad entre las opciones que autorizaste."
+    )
+
+
+def test_no_candidate_in_scope_does_not_name_a_cause() -> None:
+    """Sold out, over the total, or both: the text says neither (p0-conditional-intent.md §3.9)."""
+    assert HNP_MESSAGES["escalation.no_candidate_in_scope"] == (
+        "Ninguna de las opciones que autorizaste se puede comprar ahora dentro de tu autorización."
     )
 
 

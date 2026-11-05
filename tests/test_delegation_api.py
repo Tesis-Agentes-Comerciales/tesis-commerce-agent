@@ -47,6 +47,7 @@ from commerce_agent.governance.hnp_models import parse_consent_scope, scope_dige
 from commerce_agent.governance.provenance import ProvenanceKeys, merchant_pseudonym, pseudonym
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
+from tests.governance.test_shadow_integration import configuration
 from tests.support.delegation import START, AuthorityClock, Flow, proposal_draft, receipt
 
 FEED = Path(__file__).parent / "fixtures" / "feed"
@@ -403,6 +404,148 @@ def test_a_proposal_outside_the_contract_is_rejected(
 ) -> None:
     error(propose(client, **changes), 422, code)
     assert client.get("/me/delegations", headers=buyer()).json() == {"delegations": []}
+
+
+# Priority and the promised review (p0-conditional-intent.md §3.9, D15)
+
+
+def test_a_proposal_keeps_the_buyers_priority_on_the_card_and_in_the_digest(
+    client: TestClient, ledger: SqliteDelegationLedger
+) -> None:
+    response = propose(client, variant_ids=["SON-07", "SON-01"], priority=["SON-07", "SON-01"])
+
+    assert response.status_code == 201, response.text
+    proposal = response.json()
+    assert proposal["scope"]["priority"] == ["SON-07", "SON-01"]
+    stored = ledger.proposal("buyer-a", proposal["proposal_id"])
+    assert stored is not None
+    scope = parse_consent_scope(stored.scope_json.encode())
+    assert scope.scope.variant_ids == ("SON-01", "SON-07")  # the scope keeps them sorted
+    assert scope.priority == scope.display.priority == ("SON-07", "SON-01")
+    assert scope_digest(scope) == stored.scope_digest == proposal["scope_digest"]
+    assert scope.display.model_dump(mode="json") == proposal["scope"]
+    assert consent(client, proposal).status_code == 201
+
+
+def test_a_proposal_without_the_new_fields_keeps_the_stored_shape(
+    client: TestClient, ledger: SqliteDelegationLedger
+) -> None:
+    """Without `priority` or a promised review, the consent has the keys of one stored before
+    them, so its bytes and `scope_digest` are what they always were."""
+    proposal = propose(client).json()
+
+    stored = ledger.proposal("buyer-a", proposal["proposal_id"])
+    assert stored is not None
+    data = json.loads(stored.scope_json)
+    assert set(data) == {
+        "schema_version",
+        "proposal_id",
+        "owner_ref",
+        "scope",
+        "display",
+        "presented_at",
+        "expires_at",
+        "preference_text",
+    }
+    assert set(data["display"]) == {
+        "merchant_name",
+        "variants",
+        "total_max",
+        "expires_at",
+        "destination_label",
+        "instrument_label",
+        "uses",
+        "preference_text",
+    }
+    assert set(proposal["scope"]) == set(data["display"])
+
+
+def unexpected_request(_: httpx.Request) -> httpx.Response:
+    raise AssertionError("The delegation API must not contact the merchant")
+
+
+def governed(tmp_path: Path, clock: AuthorityClock, **overrides: Any) -> FastAPI:
+    """B2-HNP: enforce with the governed HP flow and what HNP startup requires (§6)."""
+    settings = configuration(
+        tmp_path / "agent.db",
+        mode="enforce",
+        agent_hp_flow="governed",
+        agent_auth_mode="jwt",
+        agent_auth_issuer="http://127.0.0.1:5173",
+        agent_ap2_required=True,
+        agent_ap2_private_key_pem=SecretStr(PROVIDER_PEM),
+        agent_hnp_enabled=True,
+        agent_hnp_agent_key_pem=SecretStr(AGENT_PEM),
+        agent_hnp_service_token=SecretStr(SERVICE_TOKEN),
+        agent_hnp_operator_token=SecretStr(OPERATOR_TOKEN),
+        **overrides,
+    )
+    return create_app(
+        settings=settings,
+        transport=httpx.MockTransport(unexpected_request),
+        authority_clock=clock,
+        buyer_authenticator=TwoBuyers(),
+    )
+
+
+# Assembled, never called: the scripted tests of the reviewer are in tests/delegation.
+REVIEWER = {
+    "agent_hnp_reviewer": "llm",
+    "openai_api_key": SecretStr("test-key-never-sent"),
+    "openai_model": "test-model",
+}
+
+
+def card(tmp_path: Path, app: FastAPI, **changes: Any) -> dict[str, Any]:
+    """The proposal's card, after checking the stored consent shows the same."""
+    with TestClient(app) as client:
+        response = propose(client, **changes)
+    assert response.status_code == 201, response.text
+    proposal = response.json()
+    stored = SqliteDelegationLedger(tmp_path / "agent.db").proposal(
+        "buyer-a", proposal["proposal_id"]
+    )
+    assert stored is not None
+    scope = parse_consent_scope(stored.scope_json.encode())
+    assert scope.display.model_dump(mode="json") == proposal["scope"]
+    return proposal["scope"]
+
+
+def test_d15_the_card_promises_the_review_with_the_reviewer_and_a_text(
+    tmp_path: Path, clock: AuthorityClock
+) -> None:
+    """D15-tarjeta-rev: B2-HNP with AGENT_HNP_REVIEWER=llm and a `preference_text`."""
+    scope = card(tmp_path, governed(tmp_path, clock, **REVIEWER))
+
+    assert scope["preference_text"] == "Solo si llega esta semana."
+    assert scope["preference_review"] is True
+
+
+def test_d15_the_promise_goes_with_a_priority_too(tmp_path: Path, clock: AuthorityClock) -> None:
+    app = governed(tmp_path, clock, **REVIEWER)
+    scope = card(tmp_path, app, variant_ids=["SON-07", "SON-01"], priority=["SON-07", "SON-01"])
+
+    assert (scope["priority"], scope["preference_review"]) == (["SON-07", "SON-01"], True)
+
+
+@pytest.mark.parametrize("condition", ["b2-reviewer-off", "b0"])
+def test_d15_without_the_reviewer_the_card_does_not_promise_a_review(
+    tmp_path: Path, clock: AuthorityClock, condition: str
+) -> None:
+    """D15-tarjeta-sin-rev: the text is kept and shown, and no review is promised."""
+    app = governed(tmp_path, clock) if condition == "b2-reviewer-off" else build(tmp_path, clock)
+    scope = card(tmp_path, app)
+
+    assert scope["preference_text"] == "Solo si llega esta semana."
+    assert "preference_review" not in scope
+
+
+def test_d15_without_a_text_there_is_nothing_to_review(
+    tmp_path: Path, clock: AuthorityClock
+) -> None:
+    scope = card(tmp_path, governed(tmp_path, clock, **REVIEWER), preference_text=None)
+
+    assert scope["preference_text"] is None and "preference_review" not in scope
 
 
 def test_a_body_that_is_not_json_is_an_invalid_request(client: TestClient) -> None:
@@ -961,10 +1104,9 @@ def test_a_selector_that_made_no_choice_hands_the_decision_back_to_the_buyer(
         "reason": "selection_unavailable",
         "title": "Necesito tu decisión",
         "message": (
-            "No pude elegir entre las opciones que autorizaste porque el servicio que hace la "
-            "elección falló o no respondió. No firmé ni presenté ninguna autorización de pago, no "
-            "se hizo ningún cobro y cerré la delegación. Si todavía quieres comprar, hazlo desde "
-            "el chat y apruébala tú."
+            "No pude elegir con seguridad entre las opciones que autorizaste. No firmé ni "
+            "presenté ninguna autorización de pago, no se hizo ningún cobro y cerré la "
+            "delegación. Si todavía quieres comprar, hazlo desde el chat y apruébala tú."
         ),
         "prefill_request": (
             "Quiero comprar Audifonos Sonora SON-01 por hasta $\N{NO-BREAK SPACE}1.500,00 COP"

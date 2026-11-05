@@ -44,7 +44,8 @@ EscalationCode = Literal[
     "no_candidate_in_scope",
     # The intent reviewer did not confirm the choice (hnp-intent-review.md).
     "choice_not_confirmed",
-    # The selector failed or did not answer: there was no choice (§8.1).
+    # There was no safe choice: the selector failed or did not answer (§8.1), or the consented
+    # order stopped at an option it could not verify or try (p0-conditional-intent.md §3.9).
     "selection_unavailable",
     "offer_changed",
     "terms_out_of_scope",
@@ -95,15 +96,19 @@ HNP_MESSAGES: Mapping[str, str] = MappingProxyType(
             "El precio de catálogo de la opción disponible ya supera el total máximo que "
             "autorizaste."
         ),
+        # Neutral about the cause (p0-conditional-intent.md §3.9): an empty shortlist, or no
+        # option of the consented order for sale within the total.
         "escalation.no_candidate_in_scope": (
-            "Ninguna de las opciones que autorizaste está disponible ahora."
+            "Ninguna de las opciones que autorizaste se puede comprar ahora dentro de tu "
+            "autorización."
         ),
         "escalation.choice_not_confirmed": (
             "No pude confirmar que la opción elegida sea la que pediste."
         ),
+        # Also neutral: a selector that failed, an option the merchant could not verify, or one
+        # the consented order could not try (missing from the feed, or against the intent).
         "escalation.selection_unavailable": (
-            "No pude elegir entre las opciones que autorizaste porque el servicio que hace la "
-            "elección falló o no respondió."
+            "No pude elegir con seguridad entre las opciones que autorizaste."
         ),
         "escalation.offer_changed": "La oferta del comercio cambió antes de que cerrara la compra.",
         "escalation.terms_out_of_scope": (
