@@ -458,6 +458,35 @@ class Control:
         self.ct19_originals[key] = state
         return state
 
+    def ct19_audit(self, _: dict[str, Any]) -> dict[str, Any]:
+        """Hash full audit rows but disclose only fields needed to correlate synthetic requests."""
+        with self.connection() as connection, connection.transaction():
+            connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            requests = connection.execute(
+                "SELECT request_id, to_jsonb(t), jsonb_build_object("
+                "'request_id',request_id,'run_id',run_id,'actor_id',actor_id,"
+                "'operation',operation,'result',result,'http_status',http_status,"
+                "'checkout_id',checkout_id,'order_id',order_id,"
+                "'idempotency_sha256',idempotency_sha256,'error_code',error_code) "
+                "FROM request_observations t ORDER BY request_id"
+            ).fetchall()
+            events = connection.execute(
+                "SELECT event_id::text, to_jsonb(t), jsonb_build_object("
+                "'run_id',run_id,'event_type',event_type,'actor_id',payload->>'actor_id',"
+                "'offer_id',payload->>'offer_id','request_id',payload->>'request_id',"
+                "'result',payload->>'result') FROM run_events t ORDER BY event_id"
+            ).fetchall()
+        return {
+            table: {
+                key: {
+                    "sha256": hashlib.sha256(json.dumps(row, sort_keys=True).encode()).hexdigest(),
+                    "fields": fields,
+                }
+                for key, row, fields in rows
+            }
+            for table, rows in (("request_observations", requests), ("run_events", events))
+        }
+
     def ct19_constraints(self, command: dict[str, Any]) -> dict[str, str]:
         """Rollback-only invalid-row probes; these are not commercial observations."""
         state = self.ct19_state(command)
@@ -553,6 +582,7 @@ def main() -> None:
             "projection",
             "ct19_state",
             "ct19_capture",
+            "ct19_audit",
             "ct19_constraints",
             "ct19_mutate",
         )

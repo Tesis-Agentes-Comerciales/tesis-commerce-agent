@@ -18,6 +18,51 @@ from tests.integration.test_ct19_fixture import export, feed_snapshot, scoped_re
 from tests.integration.test_exp02_commercial import local_effects, observe, setup
 
 PROTOCOL = ROOT / "evaluation/scenarios/ct19-hp.json"
+AUDIT_TABLES = {"request_observations", "run_events"}
+
+
+def audit_delta(before, after, table):
+    assert all(after[table].get(key) == row for key, row in before[table].items()), table
+    return {key: row["fields"] for key, row in after[table].items() if key not in before[table]}
+
+
+def verify_audit(facts, episode, offer_id, status, code, control):
+    before, after = facts["audit_before"], facts["audit_after"]
+    create = next(c for c in facts["acp_calls"] if c["path"] == CREATE_PATH)
+    request_id = create["request_id"]
+    assert request_id
+    assert audit_delta(before, after, "request_observations") == {
+        request_id: dict(
+            request_id=request_id,
+            run_id=episode.run_id,
+            actor_id=episode.actor_id,
+            operation="create",
+            result="error",
+            http_status=status,
+            checkout_id=None,
+            order_id=None,
+            idempotency_sha256=facts["idempotency_sha256"],
+            error_code=code,
+        )
+    }
+    reads = audit_delta(before, after, "run_events")
+    expected = [
+        dict(
+            run_id=episode.run_id,
+            actor_id=episode.actor_id,
+            event_type="offer.read",
+            offer_id=offer_id,
+            request_id=facts[key]["request_id"],
+            result=result,
+        )
+        for key, result in (
+            ("read_before", "ok"),
+            ("read_changed", "OFFER_NOT_FOUND" if control == "removed" else "ok"),
+        )
+    ]
+    assert all(row["request_id"] for row in expected)
+    assert len(reads) == 2 and list(reads.values()) == expected
+    assert after == facts["audit_after_cleanup"]
 
 
 def agent_state(path, run_id):
@@ -48,6 +93,7 @@ def test_ct19_hp(b0, tmp_path, monkeypatch, control):
     command = dict(run_id=episode.run_id, actor_id=episode.actor_id, offer_id=selected.variant_id)
     catalog = lane.rpc("ct19_capture", **command)
     before = observe(lane, episode)
+    audit_before = lane.rpc("ct19_audit")
     psp = sqlite_snapshot(lane.root / "payments.sqlite")
     feed = feed_snapshot(episode.feed)
     intent = PurchaseIntent(
@@ -86,6 +132,7 @@ def test_ct19_hp(b0, tmp_path, monkeypatch, control):
             catalog_before=catalog,
             feed_before=feed,
             commercial_result="unknown",
+            audit_before=audit_before,
         )
         try:
             runtime = build_runtime(settings)
@@ -170,6 +217,7 @@ def test_ct19_hp(b0, tmp_path, monkeypatch, control):
                     path=c.path,
                     fault=c.fault,
                     status=c.status,
+                    request_id=c.response_request_id,
                     request=json.loads(c.request_body) if c.request_body else None,
                     response=json.loads(c.response_body) if c.response_body else None,
                 )
@@ -181,6 +229,7 @@ def test_ct19_hp(b0, tmp_path, monkeypatch, control):
                 agent_effect_counts=local_effects(settings.agent_database_path),
                 agent_tables=sqlite_snapshot(settings.agent_database_path),
                 merchant_after=observe(lane, episode),
+                audit_after=lane.rpc("ct19_audit"),
                 psp_after=sqlite_snapshot(lane.root / "payments.sqlite"),
             )
             assert record.get("stimulus_verified") is True
@@ -199,7 +248,7 @@ def test_ct19_hp(b0, tmp_path, monkeypatch, control):
             assert not facts["merchant_after"]["checkouts"]
             assert facts["psp_after"] == psp and lane.payment_tokens() == 0
             for table, value in before["tables"].items():
-                if table not in {"catalog_offers", "run_events"}:
+                if table not in AUDIT_TABLES | {"catalog_offers"}:
                     assert facts["merchant_after"]["tables"][table] == value, table
             assert not any("complete" in c.path for c in lane.proxy.calls)
         finally:
@@ -211,11 +260,13 @@ def test_ct19_hp(b0, tmp_path, monkeypatch, control):
             for key in ("row", "catalog_sha256", "others_sha256", "constraints", "triggers"):
                 assert restored[key] == catalog[key]
             facts["after_cleanup"] = observe(lane, episode)
+            facts["audit_after_cleanup"] = lane.rpc("ct19_audit")
             facts["psp_after_cleanup"] = sqlite_snapshot(lane.root / "payments.sqlite")
             assert feed_snapshot(episode.feed) == feed
             assert not facts["after_cleanup"]["checkouts"]
             assert facts["psp_after_cleanup"] == psp
             for table, value in before["tables"].items():
-                if table != "run_events":
+                if table not in AUDIT_TABLES:
                     assert facts["after_cleanup"]["tables"][table] == value, table
             record["cleanup_verified"] = True
+        verify_audit(facts, episode, selected.variant_id, status, code, control)

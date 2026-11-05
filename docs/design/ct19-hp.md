@@ -53,3 +53,14 @@ This validates the fixture only; phase two is frozen separately in ct19-hp.json.
 The HP test uses the native definitive-refusal mapper and independently queries the persisted
 D1 allow, selected identity and definitive_failure/VERIFIED_NOT_CREATED dispatch result.
 The existing HP lane observes PSP directly by all-table hashes/counts, not HNP's PSP proxy.
+
+## Audit delta for the HP rerun
+
+The commercial oracle and frozen inputs retain their original hashes. The harness requires
+exact equality for all commercial tables after cleanup. During mutation only the catalog can
+change. For the two append-only audit tables, every prior row must retain its full-row hash.
+The sole checkout POST adds exactly one `request_observations` row matched by response
+`Request-Id`, run, actor, idempotency digest, status and native error code, with empty
+checkout and order IDs. The two scoped reads add exactly two `offer.read` events matched
+by request ID, run, actor, offer and result. Restoration cannot add, remove or modify audit
+rows. These checks apply globally within the disposable cluster, including prior episodes.

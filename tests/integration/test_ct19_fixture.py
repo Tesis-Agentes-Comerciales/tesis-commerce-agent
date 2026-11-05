@@ -29,7 +29,11 @@ def scoped_read(lane, episode, original):
         json={"offer_id": original["id"], "delivery_context": original["delivery_context"]},
         timeout=10,
     )
-    return {"status": response.status_code, "body": response.json()}
+    return {
+        "status": response.status_code,
+        "body": response.json(),
+        "request_id": response.headers.get("Request-Id"),
+    }
 
 
 def export(lane, episode, directory):
