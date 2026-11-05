@@ -148,6 +148,11 @@ export const RejectsInvalidDelegatedSteps: Story = {
     await expect(rejects(review, (trace) => (trace.steps[reviewed].rationale = "otra"))).toThrow(
       `trace.steps[${reviewed}].rationale`,
     )
+    const refused = HNP_TRACES.checkoutRefused
+    const task = refused.steps.length - 1
+    await expect(
+      rejects(refused, (trace) => (trace.steps[task].merchant_refusal = "payment_declined")),
+    ).toThrow(`trace.steps[${task}].merchant_refusal`)
     // Una traza HP no trae `purchase_mode`.
     await expect(() => parsePurchaseTrace(TRACES.completedShadow)).not.toThrow()
     await expect(TRACES.completedShadow.purchase_mode).toBeUndefined()

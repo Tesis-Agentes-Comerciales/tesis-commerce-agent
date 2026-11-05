@@ -1,0 +1,21 @@
+{
+  "schema": "exp01-protocol/1",
+  "agent_base": "65183d545241937c5f741dd66378e1a7f7c83dc9",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "matrix_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "ux03_oracle_sha256": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+  "scope": "product integration, no LLM, no completed payments; INF30/31 HP only",
+  "cases": {
+    "MA24": {"scenario": "MA24", "mode": "HNP", "test": "test_ma24_revocation_before_trigger", "expected": "revoked_before_trigger; 409; no new commercial effects"},
+    "INF30": {"scenario": "INF30", "mode": "HP", "test": "test_inf30_lost_creation_response", "expected": "uncertain; historical same checkout; no replay"},
+    "INF31:proxy_503": {"scenario": "INF31", "mode": "HP", "test": "test_inf31_preparation_faults[proxy_503]", "expected": "uncertain; zero accepted creations; not_found is not absence"},
+    "INF31:timeout_before_forward": {"scenario": "INF31", "mode": "HP", "test": "test_inf31_preparation_faults[timeout_before_forward]", "expected": "uncertain; zero accepted creations; not_found is not absence"},
+    "INF31:merchant_503": {"scenario": "INF31", "mode": "HP", "test": "test_inf31_preparation_faults[merchant_503]", "expected": "real Merchant 503; uncertain; zero accepted creations"},
+    "INF31:timeout_after_accept": {"scenario": "INF31", "mode": "HP", "test": "test_inf31_preparation_faults[timeout_after_accept]", "expected": "uncertain; historical same checkout; no replay"},
+    "INF31:definitive_stock_refusal": {"scenario": "INF31", "mode": "HP", "test": "test_inf31_preparation_faults[definitive_stock_refusal]", "expected": "out_of_stock; failed; zero checkout"},
+    "INF31:positive": {"scenario": "INF31", "mode": "HP", "test": "test_inf31_preparation_faults[positive]", "expected": "awaiting_confirmation; one checkout; no approval or payment"}
+  },
+  "effect_limits": {"completed_orders": 0, "payment_tokens": 0, "payment_requests": 0, "create_posts_per_control": 1, "active_checkouts_after_cleanup": 0},
+  "limitations": ["no semantic evaluation", "INF30/31 HNP not executed", "no public recovery UX claim", "no authority to continue from historical lookup"]
+}

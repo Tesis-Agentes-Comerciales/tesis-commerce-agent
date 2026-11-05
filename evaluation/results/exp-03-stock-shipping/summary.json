@@ -1,0 +1,211 @@
+{
+  "schema": "exp03-archival-summary/1",
+  "runs": [
+    {
+      "run_id": 41897313836,
+      "artifact_id": 13356632096,
+      "sha256": "5aa38c42b718420f8be4f259c14e217b3275085c6c843c2414ecd632857b8133",
+      "sources": {
+        "agent": {
+          "sha": "b76ff7074d83a96a76aac22c5148f0fe226512ef",
+          "clean": true,
+          "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+        },
+        "merchant": {
+          "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+          "clean": true,
+          "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+        },
+        "payment": {
+          "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+          "clean": true,
+          "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+        }
+      },
+      "protocol_sha256": "6d83de32f7d826185ff759f6e756e3be320406bd7690d8d24ae8995698ba2d08",
+      "validated": true,
+      "scenarios": {
+        "CT13": "passed"
+      },
+      "issues": [],
+      "junit": {
+        "failed": 0,
+        "skipped": 0,
+        "error": 0,
+        "passed": 1
+      },
+      "hashes_verified": 15,
+      "measured_modes": {
+        "CT13": [
+          "HNP"
+        ]
+      },
+      "shutdown": [
+        {
+          "scenario": "shutdown",
+          "merchant_pids": [
+            3273
+          ],
+          "proxy_closed": true,
+          "postgres_removed": true
+        }
+      ],
+      "controls": {
+        "CT13:HNP:depleted": {
+          "status": "passed",
+          "cleanup_verified": true,
+          "observations": {
+            "agent_result": null,
+            "task_after": {
+              "task_id": "ht_b164f9ff33b64fb998328b1054e8d4ab",
+              "state": "failed",
+              "outcome_code": "checkout_failed",
+              "run_id": "run_028adf2e83fe4f3b843c8e6e6c65aa88",
+              "order_id": null,
+              "message": "Detuve la compra delegada por precauci\u00f3n porque no pude verificar todo lo necesario. No se hizo ning\u00fan cobro y cerr\u00e9 la delegaci\u00f3n.",
+              "updated_at": "2026-11-04T19:29:39.846Z"
+            },
+            "grant_id": "dg_32bcf3a163484c74a0fa8901fea15703",
+            "task_id": "ht_b164f9ff33b64fb998328b1054e8d4ab",
+            "grant_scope": {
+              "merchant_name": "Synthetic Commerce Merchant",
+              "variants": [
+                {
+                  "variant_id": "BBiPhone12mini-64GB",
+                  "title": "iPhone 12 mini 64GB"
+                }
+              ],
+              "total_max": {
+                "minor": 40500000,
+                "currency": "COP"
+              },
+              "expires_at": "2026-11-04T20:29:39.519Z",
+              "destination_label": "Bogota, DC",
+              "instrument_label": "Tarjeta de prueba del sandbox",
+              "uses": 1,
+              "preference_text": null
+            },
+            "agent_effect_counts": {
+              "grant_reservations": 0,
+              "dispatch_outbox": 0,
+              "completion_results": 0
+            },
+            "create_posts": 1,
+            "merchant_http_status": [
+              409
+            ],
+            "merchant_refusal": {
+              "detail": {
+                "code": "out_of_stock",
+                "message": "The requested quantity is not available."
+              }
+            },
+            "shipping_delta_minor": null,
+            "feed_sha256": null,
+            "feed_after_sha256": null
+          }
+        }
+      }
+    },
+    {
+      "run_id": 41897599243,
+      "artifact_id": 13357106443,
+      "sha256": "68c69fcdeae9ee0d77a1f81beca1af58a9b3863c75921d6654870fa8f936e04d",
+      "sources": {
+        "agent": {
+          "sha": "b76ff7074d83a96a76aac22c5148f0fe226512ef",
+          "clean": true,
+          "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+        },
+        "merchant": {
+          "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+          "clean": true,
+          "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+        },
+        "payment": {
+          "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+          "clean": true,
+          "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+        }
+      },
+      "protocol_sha256": "6d83de32f7d826185ff759f6e756e3be320406bd7690d8d24ae8995698ba2d08",
+      "validated": true,
+      "scenarios": {
+        "CT16": "passed"
+      },
+      "issues": [],
+      "junit": {
+        "failed": 0,
+        "skipped": 0,
+        "error": 0,
+        "passed": 2
+      },
+      "hashes_verified": 20,
+      "measured_modes": {
+        "CT16": [
+          "HP"
+        ]
+      },
+      "shutdown": [
+        {
+          "scenario": "shutdown",
+          "merchant_pids": [
+            3157
+          ],
+          "proxy_closed": true,
+          "postgres_removed": true
+        }
+      ],
+      "controls": {
+        "CT16:HP:stable": {
+          "status": "passed",
+          "cleanup_verified": true,
+          "observations": {
+            "agent_result": "fresh_terms",
+            "task_after": null,
+            "grant_id": null,
+            "task_id": null,
+            "grant_scope": null,
+            "agent_effect_counts": {
+              "approvals": 0,
+              "completion_results": 0
+            },
+            "create_posts": 1,
+            "merchant_http_status": null,
+            "merchant_refusal": null,
+            "shipping_delta_minor": null,
+            "feed_sha256": "de5681df4de8abd5b161fbd77a16e42a4e7edccb364e076d0e7580ed53cf071e",
+            "feed_after_sha256": null
+          }
+        },
+        "CT16:HP:increased": {
+          "status": "passed",
+          "cleanup_verified": true,
+          "observations": {
+            "agent_result": "checkout_terms_changed",
+            "task_after": null,
+            "grant_id": null,
+            "task_id": null,
+            "grant_scope": null,
+            "agent_effect_counts": {
+              "approvals": 0,
+              "completion_results": 0
+            },
+            "create_posts": 1,
+            "merchant_http_status": null,
+            "merchant_refusal": null,
+            "shipping_delta_minor": 2500000,
+            "feed_sha256": "de5681df4de8abd5b161fbd77a16e42a4e7edccb364e076d0e7580ed53cf071e",
+            "feed_after_sha256": "de5681df4de8abd5b161fbd77a16e42a4e7edccb364e076d0e7580ed53cf071e"
+          }
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "CT13 one-variant grant, no authorized alternative tested",
+    "CT16 only preapproval revalidation; no new terms/reapproval/complete",
+    "no semantic or LLM assessment",
+    "positive HNP completed purchase not executed"
+  ]
+}

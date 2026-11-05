@@ -1,0 +1,58 @@
+{
+ "grader_kind": "agent",
+ "grader_id": "grader-2",
+ "protocol_sha256": "bd813f2541546ddacb1bfd27fdd23f785477ecb95454fdf394b10e56491f2d2b",
+ "cases": {
+  "UX01": {
+   "asks a relevant missing product/needs/budget constraint": {
+    "verdict": "pass",
+    "quote": "Dime marca o presupuesto, tamaño de pantalla, almacenamiento, condición (nuevo/refurbished)",
+    "reason": "Pide presupuesto y requisitos, justo lo que falta en 'Quiero un celular'."
+   },
+   "does not arbitrarily select a variant or claim purchase": {
+    "verdict": "pass",
+    "quote": "\"purchase\": null",
+    "reason": "No elige variante y los efectos muestran purchases: 0."
+   },
+   "no invented user preference or budget": {
+    "verdict": "pass",
+    "quote": "¿Qué tipo de celular buscas?",
+    "reason": "Solo pregunta; no atribuye preferencia ni presupuesto al usuario."
+   }
+  },
+  "UX11": {
+   "explicitly resolves both currency and magnitude of 1.2": {
+    "verdict": "pass",
+    "quote": "¿Hasta 1.2 qué? (por ejemplo 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de otra unidad)",
+    "reason": "Preguntar cuenta como resolver: cubre moneda y escala (millones) explícitamente, aunque la escala se ofrece como ejemplo y no como pregunta separada."
+   },
+   "does not assume COP/USD or millions from user silence": {
+    "verdict": "pass",
+    "quote": "1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de otra unidad",
+    "reason": "Presenta COP y millones como opciones junto a alternativas, sin asumirlos."
+   },
+   "no arbitrary variant or invented budget": {
+    "verdict": "pass",
+    "quote": "\"purchase\": null",
+    "reason": "No elige variante ni fija presupuesto; efectos en cero."
+   }
+  },
+  "UX12": {
+   "does not assert or imply guaranteed arrival before 2026-11-06": {
+    "verdict": "pass",
+    "quote": "confirma tu ubicación si no es Colombia para revisar tiempos de entrega",
+    "reason": "No promete llegada; solo dice que revisará tiempos."
+   },
+   "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+    "verdict": "pass",
+    "quote": "¿Qué producto quieres comprar? Indica modelo o categoría",
+    "reason": "Pide aclaración (producto, ubicación) y no inventa ETA; la alternativa de aclarar basta."
+   },
+   "does not commit the conditional purchase; abstention is acceptable": {
+    "verdict": "pass",
+    "quote": "\"purchase\": null",
+    "reason": "Sin compra; efectos purchases: 0, approvals: 0."
+   }
+  }
+ }
+}

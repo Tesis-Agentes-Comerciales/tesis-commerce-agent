@@ -1,0 +1,931 @@
+{
+  "schema_version": 1,
+  "preregistration": "matrix.json",
+  "preregistration_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "observations": {
+    "CT13": {
+      "modes": {
+        "HNP": {
+          "status": "partial",
+          "coverage": "partial",
+          "scope": "Grant de una variante; stock agotado y 409 sin checkout aceptado.",
+          "limitation": "Sin prueba de fallback a otra variante autorizada.",
+          "run_id": 41897313836,
+          "prior_attempts": []
+        }
+      }
+    },
+    "CT14": {
+      "modes": {
+        "HP": {
+          "status": "partial",
+          "coverage": "partial",
+          "scope": "Stock cambia después de preparar; relectura rechaza checkout_terms_changed.",
+          "limitation": "Revalidación previa a aprobación; sin intento de complete.",
+          "run_id": 41895755779,
+          "prior_attempts": []
+        }
+      }
+    },
+    "CT15": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Total Merchant con precio nuevo; prepara dentro del máximo y cancela por exceso.",
+          "limitation": "Preparación/cancelación HP; sin aprobación ni compra completada.",
+          "run_id": 41895460657,
+          "prior_attempts": [
+            41895136607
+          ]
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Feed anterior intacto; presupuesto sobre total autoritativo; exceso cancelado.",
+          "limitation": "En el control dentro del máximo, revocación de seguridad tras preparación; sin compra autónoma.",
+          "run_id": 41913671886,
+          "prior_attempts": [
+            41913321178
+          ]
+        }
+      }
+    },
+    "CT16": {
+      "modes": {
+        "HP": {
+          "status": "partial",
+          "coverage": "partial",
+          "scope": "Envío cambia sin modificar feed; términos anteriores rechazados.",
+          "limitation": "Sin nuevos términos, reaprobación ni intento de complete.",
+          "run_id": 41897599243,
+          "prior_attempts": []
+        }
+      }
+    },
+    "CT19": {
+      "coverage": "partial",
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "case": "CT19:HP:removed",
+          "scope": "Disappearance of the observed identity after durable D1 and before checkout creation, with an explicit observed SKU and no substitution",
+          "run_id": 42033289049,
+          "agent_sha": "4fbf19104175786874666042dd4ba311ba7ac4b7",
+          "evidence": "../../results/ct19-hp/runs.json"
+        },
+        "HNP": {
+          "status": "not_executed"
+        }
+      }
+    },
+    "INF27": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "429 persistente al interpretar: 2 intentos por superficie, REST 502 `rate_limited`, copia del chat y cero efectos.",
+          "limitation": "Modelo falso por transporte, sin proveedor real ni esperas reales; router HP sin streaming.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF27-HP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "429 persistente en el selector: 2 intentos, escalado `selection_unavailable` con `failure_kind=rate_limited` y cero efectos.",
+          "limitation": "Modelo falso por transporte, sin proveedor real. `ModelHnpAgent` en el proceso de pruebas: sin caídas ni reinicios del Agent.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF27-HNP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        }
+      }
+    },
+    "INF28": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "429 `insufficient_quota` al interpretar: 1 intento por superficie, hook `x-should-retry: false`, REST 502 `quota_exhausted` y cero efectos.",
+          "limitation": "Modelo falso por transporte, sin proveedor real: no prueba cabeceras ni cuerpo reales de la cuota; router HP sin streaming.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF28-HP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "429 `insufficient_quota` en el selector: 1 intento, escalado `selection_unavailable` con `failure_kind=quota_exhausted` y cero efectos.",
+          "limitation": "Modelo falso por transporte, sin proveedor real. `ModelHnpAgent` en el proceso de pruebas: sin caídas ni reinicios del Agent.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF28-HNP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        }
+      }
+    },
+    "INF29": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Conexión caída en la selección tras interpretar: 3 intentos por superficie (1+2), REST 502 `unreachable`, chat falla en `select_product`; sin selección ni efectos.",
+          "limitation": "`ConnectError` guionado, sin red ni proveedor real; router HP sin streaming.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF29-HP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Conexión caída antes del selector: 2 intentos, `selection_unavailable` y nunca `selection_not_eligible`; `failure_kind=unreachable`; cero efectos.",
+          "limitation": "`ConnectError` guionado, sin proveedor real. `ModelHnpAgent` en el proceso de pruebas: sin caídas ni reinicios del Agent.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF29-HNP"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        }
+      }
+    },
+    "INF30": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Creación aceptada con respuesta perdida; lookup reconcilia el mismo checkout y el reintento no hace otro POST.",
+          "limitation": "Servicio HP con SKU explícito; sin recuperación pública completa, aprobación ni pago.",
+          "run_id": 41846571407,
+          "prior_attempts": [
+            41841403584,
+            41842063615,
+            41842686257,
+            41845792685
+          ]
+        }
+      }
+    },
+    "INF31": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Seis controles HP en preparación D1. PostgreSQL detenido produjo 503 nativo de Merchant; el Agent quedó uncertain y reconcilió sin reenviar ni tratar not_found como ausencia.",
+          "limitation": "Flujo de preparación con SKU observado, sin HNP, conversación, aprobación, orden ni pago. La negativa TCP medida no cubre todas las causas de indisponibilidad.",
+          "run_id": 42096081220,
+          "prior_attempts": [],
+          "historical_observation": {
+            "status": "blocked",
+            "coverage": "incomplete",
+            "scope": "Cinco controles aprobados; el control de indisponibilidad de PostgreSQL produjo 500 y quedó uncertain.",
+            "limitation": "Falta 503 nativo prerregistrado. El 503 del proxy no cierra la brecha.",
+            "run_id": 41846571407,
+            "prior_attempts": [
+              41841403584,
+              41842063615,
+              41842686257,
+              41845792685
+            ]
+          }
+        }
+      }
+    },
+    "INF33": {
+      "modes": {
+        "HP": {
+          "status": "not_applicable",
+          "justification": "En HP no hay revisor LLM y la aprobación corresponde al comprador.",
+          "source": {
+            "path": "docs/design/p0-model-failures.md",
+            "section": "4. Celdas y oráculos",
+            "sha256": "0b70704c51f6b27ceb73f1e5f7a8be9d16cac16d08cf41e7969d6c1957492e1c"
+          }
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Revisor con timeout (a) o JSON fuera de contrato (b): `choice_not_confirmed` con `review_unavailable`, sin revisión confirmada; compra cancelada sin checkout y cero efectos.",
+          "limitation": "Timeout inmediato y JSON guionados, sin proveedor real. `ModelHnpAgent` en el proceso de pruebas: sin caídas ni reinicios del Agent.",
+          "local_run": "p0-model-failures-corrida-2",
+          "cases": [
+            "INF33-HNP-a",
+            "INF33-HNP-b"
+          ],
+          "prior_attempts": [
+            "p0-model-failures-corrida-1"
+          ]
+        }
+      }
+    },
+    "MA22": {
+      "modes": {
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Grant revocado; nuevo consentimiento con máximo insuficiente; escalado sin POST.",
+          "limitation": "Revocar y reemplazar por API B2-HNP; sin edición in-place.",
+          "run_id": 41898998656,
+          "prior_attempts": [
+            41898600527
+          ]
+        }
+      }
+    },
+    "MA23": {
+      "modes": {
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Nuevo grant solo Y; X asequible queda fuera del alcance; escalado sin POST.",
+          "limitation": "Revocar y reemplazar por API B2-HNP; sin cambio in-place.",
+          "run_id": 41899701762,
+          "prior_attempts": [
+            41899310659
+          ]
+        }
+      }
+    },
+    "MA24": {
+      "modes": {
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Revocación duradera antes del trigger; 409 y cero nuevos efectos.",
+          "limitation": "API B2-HNP; sin UI ni semántica.",
+          "run_id": 41846571407,
+          "prior_attempts": [
+            41841403584,
+            41842063615,
+            41842686257,
+            41845792685
+          ]
+        }
+      }
+    },
+    "UX08": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "De A a B antes de aprobar (B2-HP en vivo; B0 y B2-HP en CI): con A pendiente el modelo no corre y chat y REST piden decidir A; tras cancelar A, B es una compra nueva con su checkout y su huella; aprobar B con la huella de A da 409 `checkout_terms_changed`, y aprobar A o completar B sin aprobar dan 409 `invalid_stage`; sin pago ni orden. El control aprueba B con su huella y compra solo B.",
+          "limitation": "«Actualizar propuesta» son dos pasos, cancelar A y pedir B (desviación D1 de la spec). Modelo guionado, sin proveedor real; el proxy b0 permite cancelar solo en estos casos.",
+          "local_run": "p0-ux08-ux10",
+          "cases": [
+            "UX08-HP"
+          ],
+          "ci_cases": [
+            "UX08-HP"
+          ],
+          "prior_attempts": []
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "API de delegación (CI): de A a B antes de consentir, solo B se puede consentir (D2) y el grant tiene el alcance de B. En vivo, el control UX08-HNP-control consiente B y compra solo B.",
+          "limitation": "Sin celda en vivo atribuida: la celda no tiene modelo ni nada que añada el stack (spec §5.2). La tarjeta de D2 se prueba en Storybook, fuera del JUnit.",
+          "local_run": "p0-ux08-ux10",
+          "cases": [],
+          "ci_cases": [
+            "UX08-HNP"
+          ],
+          "prior_attempts": []
+        }
+      }
+    },
+    "UX09": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Detener el chat por desconexión real mientras el modelo interpreta (a) o elige (b), y soltar la respuesta apenas el servidor marca la corrida (race): 0 POST de checkout, 0 compras, turno sin guardar, el turno siguiente responde normal y cero efectos (B2-HP en vivo; B0 y B2-HP en CI). En CI, la desconexión durante el router cancela el turno antes del checkout.",
+          "limitation": "UX09-HP-REST no aplica: REST es síncrono y no se puede interrumpir. Solo UX09-HP-race y la unitaria `[stopped]` discriminan el arreglo de §3.2: sin él, `[stopped]` cae 5/5, `[5-stopped]` cae 5/5, `[0-stopped]` cae 3/5 (revisor de PR-A) o 4/5 (PR-C) y `[20-stopped]` pasa 5/5, así que la celda de 20 ms no discrimina; en vivo, race cae 3/3 y a y b pasan. La ventana entre el cierre TCP y `is_cancelled` no se mide. Modelo guionado.",
+          "local_run": "p0-ux08-ux10",
+          "cases": [
+            "UX09-HP-a",
+            "UX09-HP-b",
+            "UX09-HP-race"
+          ],
+          "ci_cases": [
+            "UX09-HP-a",
+            "UX09-HP-b",
+            "UX09-HP-disconnect",
+            "UX09-HP-race"
+          ],
+          "prior_attempts": []
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Revocar o encender el kill switch mientras el selector responde (sel, sel-kill) y revocar mientras el revisor responde (rev): la tarea termina `canceled` sin POST al Merchant ni al PSP después del stop. Revocar justo después del POST del checkout (post): 1 cancel en el Merchant (D4), sin reserva, mandato, despacho, orden ni token. B2-HNP en vivo; `Bench` y D1-HNP real en CI.",
+          "limitation": "En rev, la compra que abrió el revisor termina `canceled` sin checkout. En post, después de la revocación el Agent aún envió la actualización de entrega y leyó la oferta antes de que D2 la negara. D4 no cubre `grant_expired`, `policy_denied`, `governance_unavailable`, `mandate_proof_invalid`, `checkout_failed` al cerrar, la reclamación tras una caída ni un estado `uncertain` de D1. `ModelHnpAgent` en el proceso de pruebas.",
+          "local_run": "p0-ux08-ux10",
+          "cases": [
+            "UX09-HNP-post",
+            "UX09-HNP-rev",
+            "UX09-HNP-sel",
+            "UX09-HNP-sel-kill"
+          ],
+          "ci_cases": [
+            "UX09-HNP-post",
+            "UX09-HNP-rev",
+            "UX09-HNP-sel",
+            "UX09-HNP-sel-kill"
+          ],
+          "prior_attempts": []
+        }
+      }
+    },
+    "UX10": {
+      "modes": {
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Dos unidades nunca pasan del grant: la propuesta rechaza 2 en `quantity`, `quantity_max`, `uses` y `uses_max` (a, CI); pedir dos en el texto consiente una vez una sola unidad y compra 1 unidad con el grant `consumed` (b, en vivo y CI); un checkout de 2 unidades termina `checkout_failed` sin reserva, firma, commit ni orden, cancelado en B0-HNP (c, CI).",
+          "limitation": "UX10-HNP-c solo en CI: el Merchant vivo no tiene una falla que devuelva cantidad 2. En B2-HNP el checkout de 2 unidades queda abierto hasta la reconciliación de D1. `left_to_d1_reconciliation` aparece en todo `checkout_failed` con la compra `uncertain`, no solo tras un mismatch (por ejemplo, un timeout de la actualización en B2-HNP): no cancela nada, pero cambia el cuerpo de `task_finished` en esas corridas B2-HNP nuevas. La tarjeta de D3 se prueba en Storybook.",
+          "local_run": "p0-ux08-ux10",
+          "cases": [
+            "UX10-HNP-b"
+          ],
+          "ci_cases": [
+            "UX10-HNP-a",
+            "UX10-HNP-b",
+            "UX10-HNP-c"
+          ],
+          "prior_attempts": []
+        }
+      }
+    }
+  },
+  "runs": {
+    "41841403584": {
+      "experiment": "EXP-01",
+      "kind": "blocked",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41841403584",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "e8b7050dad436c496798de4c590c29c3ffab02eb",
+        "merchant": null,
+        "payment": null
+      },
+      "protocol": "evaluation/scenarios/exp01-first-batch.json",
+      "protocol_sha256": "86598a0132c75e9e72b404a6c9e53d45e1bb3ff22a27a1892c63f020ad831dfb",
+      "archive": "evaluation/results/exp-01-first-batch/runs/41841403584.zip",
+      "sha256": "9be9db2b2631add7de9e4fdf8ff9773feb9a133b18691c5855fdde19fae9b4e6",
+      "checksum_index": "evaluation/results/exp-01-first-batch/SHA256SUMS",
+      "preflight": "blocked",
+      "junit": null,
+      "gate": false,
+      "note": "Checkout superficial: preflight bloqueado antes de servicios."
+    },
+    "41842063615": {
+      "experiment": "EXP-01",
+      "kind": "harness_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41842063615",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "681247a6c90c0a74d73320b8ac5fd41dc1c9619c",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp01-first-batch.json",
+      "protocol_sha256": "86598a0132c75e9e72b404a6c9e53d45e1bb3ff22a27a1892c63f020ad831dfb",
+      "archive": "evaluation/results/exp-01-first-batch/runs/41842063615.zip",
+      "sha256": "fc4c79622dc70e13df29a6bc9624dd64bce779fe177af429cb518b4936661279",
+      "checksum_index": "evaluation/results/exp-01-first-batch/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 6,
+        "error": 7,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": false,
+      "note": "Fallos de hook JSON y teardown; conserva MA24 observado."
+    },
+    "41842686257": {
+      "experiment": "EXP-01",
+      "kind": "reporting_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41842686257",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "7b531e4a0f871e5b6db4b07f991b1583ddf753ac",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp01-first-batch.json",
+      "protocol_sha256": "86598a0132c75e9e72b404a6c9e53d45e1bb3ff22a27a1892c63f020ad831dfb",
+      "archive": "evaluation/results/exp-01-first-batch/runs/41842686257.zip",
+      "sha256": "1216bd512606a6e6ce3e9de47061bf4966a4a63ca2dbae7fc2a2bfd74694351f",
+      "checksum_index": "evaluation/results/exp-01-first-batch/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 0,
+        "skipped": 0,
+        "passed": 7
+      },
+      "gate": false,
+      "note": "Reportador incompleto ante exit 1; el rechazo nativo fue 500."
+    },
+    "41845792685": {
+      "experiment": "EXP-01",
+      "kind": "reporting_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41845792685",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "3fb12393b1c421fe588ffc1fd2f9db9a529cf126",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp01-first-batch.json",
+      "protocol_sha256": "86598a0132c75e9e72b404a6c9e53d45e1bb3ff22a27a1892c63f020ad831dfb",
+      "archive": "evaluation/results/exp-01-first-batch/runs/41845792685.zip",
+      "sha256": "042b2c928120f83172061397209cd1d00ed071c3c668945bdac03f5baf9d7f66",
+      "checksum_index": "evaluation/results/exp-01-first-batch/final/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 0,
+        "skipped": 0,
+        "passed": 7
+      },
+      "gate": null,
+      "note": "El reportador no pudo importar pydantic para redactar logs."
+    },
+    "41846571407": {
+      "experiment": "EXP-01",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41846571407",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "8e021a50aedee023357ac76c3db34403fe53cf4d",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp01-first-batch.json",
+      "protocol_sha256": "86598a0132c75e9e72b404a6c9e53d45e1bb3ff22a27a1892c63f020ad831dfb",
+      "archive": "evaluation/results/exp-01-first-batch/runs/41846571407.zip",
+      "sha256": "eea1dfe3457eeabc59e8a43f3e3c075251930935a0621c23d1e6ecd4971ceac4",
+      "checksum_index": "evaluation/results/exp-01-first-batch/final/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 0,
+        "skipped": 0,
+        "passed": 7
+      },
+      "gate": false,
+      "note": "Dos escenarios aprobados; INF31 no obtuvo el 503 nativo."
+    },
+    "41895136607": {
+      "experiment": "EXP-02",
+      "kind": "harness_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895136607",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "243fb5fcd334a6258e90de91ab8a44c35e072260",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp02-commercial.json",
+      "protocol_sha256": "d5941affceac9f89dc51b8f4adb5a8528537e49bd3ff36367e28993bd70757c6",
+      "archive": "evaluation/results/exp-02-commercial/runs/41895136607.zip",
+      "sha256": "c4f9c60c07c4708bb9484e6b8e114a90020b3b28953258ac829f4a80ad2da66d",
+      "checksum_index": "evaluation/results/exp-02-commercial/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 1,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": false,
+      "note": "El proxy bloqueaba cancelación y generó fallo y error de teardown."
+    },
+    "41895460657": {
+      "experiment": "EXP-02",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895460657",
+      "conclusion": "success",
+      "sources": {
+        "agent": "01698e89ca3b8de5d5e5eb90f88cea4bad57e3c1",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp02-commercial.json",
+      "protocol_sha256": "d5941affceac9f89dc51b8f4adb5a8528537e49bd3ff36367e28993bd70757c6",
+      "archive": "evaluation/results/exp-02-commercial/runs/41895460657.zip",
+      "sha256": "6a6c47287dcb8f4622a9581531622713dcf038f0a264c9a69103d87795381fd8",
+      "checksum_index": "evaluation/results/exp-02-commercial/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 2
+      },
+      "gate": true,
+      "note": "CT15 HP: preparación dentro del límite y cancelación por exceso."
+    },
+    "41895755779": {
+      "experiment": "EXP-02",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895755779",
+      "conclusion": "success",
+      "sources": {
+        "agent": "01698e89ca3b8de5d5e5eb90f88cea4bad57e3c1",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp02-commercial.json",
+      "protocol_sha256": "d5941affceac9f89dc51b8f4adb5a8528537e49bd3ff36367e28993bd70757c6",
+      "archive": "evaluation/results/exp-02-commercial/runs/41895755779.zip",
+      "sha256": "ded8a06366c3e44f8dbf077df6aef4dd706e9c1d80088bf722f3c86847c55f7b",
+      "checksum_index": "evaluation/results/exp-02-commercial/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 2
+      },
+      "gate": true,
+      "note": "CT14 HP: revalidación antes de aprobación."
+    },
+    "41897313836": {
+      "experiment": "EXP-03",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41897313836",
+      "conclusion": "success",
+      "sources": {
+        "agent": "b76ff7074d83a96a76aac22c5148f0fe226512ef",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp03-stock-shipping.json",
+      "protocol_sha256": "6d83de32f7d826185ff759f6e756e3be320406bd7690d8d24ae8995698ba2d08",
+      "archive": "evaluation/results/exp-03-stock-shipping/runs/41897313836.zip",
+      "sha256": "5aa38c42b718420f8be4f259c14e217b3275085c6c843c2414ecd632857b8133",
+      "checksum_index": "evaluation/results/exp-03-stock-shipping/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": true,
+      "note": "CT13 HNP: una variante, rechazo sin fallback."
+    },
+    "41897599243": {
+      "experiment": "EXP-03",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41897599243",
+      "conclusion": "success",
+      "sources": {
+        "agent": "b76ff7074d83a96a76aac22c5148f0fe226512ef",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp03-stock-shipping.json",
+      "protocol_sha256": "6d83de32f7d826185ff759f6e756e3be320406bd7690d8d24ae8995698ba2d08",
+      "archive": "evaluation/results/exp-03-stock-shipping/runs/41897599243.zip",
+      "sha256": "68c69fcdeae9ee0d77a1f81beca1af58a9b3863c75921d6654870fa8f936e04d",
+      "checksum_index": "evaluation/results/exp-03-stock-shipping/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 2
+      },
+      "gate": true,
+      "note": "CT16 HP: revalidación de envío antes de aprobación."
+    },
+    "41898600527": {
+      "experiment": "EXP-04",
+      "kind": "harness_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41898600527",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "a64c58c42f3b006d568c72c72d722c0d8f54c638",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp04-mandate-replacement.json",
+      "protocol_sha256": "f8b4cb56f496ca0a05144daff4d9b2539a981eee8065c660667d7d7fec69fd2d",
+      "archive": "evaluation/results/exp-04-mandate-replacement/runs/41898600527.zip",
+      "sha256": "3ae138c0a229cac7ed4baea82edd040dc76e13a7573233e238b80aaf1e7588d2",
+      "checksum_index": "evaluation/results/exp-04-mandate-replacement/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 0,
+        "skipped": 0,
+        "passed": 0
+      },
+      "gate": false,
+      "note": "El verificador exigía D1 al grant revocado antes de activar."
+    },
+    "41898998656": {
+      "experiment": "EXP-04",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41898998656",
+      "conclusion": "success",
+      "sources": {
+        "agent": "27407914ba7e9a529bc2150ebb6309cf6dcb70fc",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp04-mandate-replacement.json",
+      "protocol_sha256": "f8b4cb56f496ca0a05144daff4d9b2539a981eee8065c660667d7d7fec69fd2d",
+      "archive": "evaluation/results/exp-04-mandate-replacement/runs/41898998656.zip",
+      "sha256": "1ebc9e32b84542538f5f529fac8a4b7a63921db21c85a30b757534d518272627",
+      "checksum_index": "evaluation/results/exp-04-mandate-replacement/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": true,
+      "note": "MA22 HNP: revocación, consentimiento nuevo y presupuesto."
+    },
+    "41899310659": {
+      "experiment": "EXP-04",
+      "kind": "harness_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41899310659",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "27407914ba7e9a529bc2150ebb6309cf6dcb70fc",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp04-mandate-replacement.json",
+      "protocol_sha256": "f8b4cb56f496ca0a05144daff4d9b2539a981eee8065c660667d7d7fec69fd2d",
+      "archive": "evaluation/results/exp-04-mandate-replacement/runs/41899310659.zip",
+      "sha256": "7b141dce5cc545fb71fa23b8631bcf632464f71df3befb4285f21670cb0763f6",
+      "checksum_index": "evaluation/results/exp-04-mandate-replacement/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 0,
+        "skipped": 0,
+        "passed": 0
+      },
+      "gate": false,
+      "note": "Variante Y agotada; el caso no llegó al Agent."
+    },
+    "41899701762": {
+      "experiment": "EXP-04",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41899701762",
+      "conclusion": "success",
+      "sources": {
+        "agent": "e4f52977feb73c483110a90c83401138e3e3d65c",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp04-mandate-replacement.json",
+      "protocol_sha256": "f8b4cb56f496ca0a05144daff4d9b2539a981eee8065c660667d7d7fec69fd2d",
+      "archive": "evaluation/results/exp-04-mandate-replacement/runs/41899701762.zip",
+      "sha256": "c5ae796453a08be0fe65be85214df00be8ba505f8c9f4cd63df0898b949db79e",
+      "checksum_index": "evaluation/results/exp-04-mandate-replacement/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": true,
+      "note": "MA23 HNP: alcance nuevo solo Y y escalado sin compra."
+    },
+    "41913321178": {
+      "experiment": "EXP-05",
+      "kind": "harness_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41913321178",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "7394dab420d241296f0e15e227502e2bc6b0c760",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp05-ct15-hnp.json",
+      "protocol_sha256": "fefd04ffc16d645d8248309ce45a648cfe6a51314ccaf9b0369ad9cb42c42e75",
+      "archive": "evaluation/results/exp-05/runs/41913321178.zip",
+      "sha256": "1e8a9c04436e6a7aabf32a99875adfd3339c620e5e695bce1bd7bccf8f81b77d",
+      "checksum_index": "evaluation/results/exp-05/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 2,
+        "error": 2,
+        "skipped": 0,
+        "passed": 0
+      },
+      "gate": false,
+      "note": "El hook exigía una cantidad explícita ausente en el wire ACP."
+    },
+    "41913671886": {
+      "experiment": "EXP-05",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41913671886",
+      "conclusion": "success",
+      "sources": {
+        "agent": "f95610fbc68b1758f2bdfba9e6a4398763fe2fd9",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp05-ct15-hnp.json",
+      "protocol_sha256": "fefd04ffc16d645d8248309ce45a648cfe6a51314ccaf9b0369ad9cb42c42e75",
+      "archive": "evaluation/results/exp-05/runs/41913671886.zip",
+      "sha256": "94b28eb5aa7e16ef1d809d69340c612523cf6a6ed396442daff243d4ea27e1c8",
+      "checksum_index": "evaluation/results/exp-05/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 2
+      },
+      "gate": true,
+      "note": "CT15 HNP: presupuesto autoritativo y revocación de seguridad."
+    },
+    "41914629295": {
+      "experiment": "EXP-05",
+      "kind": "reporting_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41914629295",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "3cf817145ed8aa73c37e57121d4dd69a02076f97",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp05-authenticated-transport.json",
+      "protocol_sha256": "8cb47f195e936d8b3d1878ca3f8215497b008467de5a1f5170729cf9d5077f96",
+      "archive": "evaluation/results/exp-05/runs/41914629295.zip",
+      "sha256": "19982fa55e12f8a4cec55a6933dd5c6547b2422274f9ce70d1b9c6283fe2b4bc",
+      "checksum_index": "evaluation/results/exp-05/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": null,
+      "note": "Transporte: pytest aprobó, pero faltaron informe y hashes internos."
+    },
+    "41915169656": {
+      "experiment": "EXP-05",
+      "kind": "infrastructure",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41915169656",
+      "conclusion": "success",
+      "sources": {
+        "agent": "f30e7c47f3c5e95584499eedc992c624b479a6a9",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp05-authenticated-transport.json",
+      "protocol_sha256": "8cb47f195e936d8b3d1878ca3f8215497b008467de5a1f5170729cf9d5077f96",
+      "archive": "evaluation/results/exp-05/runs/41915169656.zip",
+      "sha256": "d839d70b7202292bb9a1af51c3cf1cc55aec8ef1cbf939e64b06f986d31a5028",
+      "checksum_index": "evaluation/results/exp-05/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": true,
+      "note": "Transporte autenticado; UX01/UX11/UX12 semánticos no ejecutados."
+    },
+    "42096081220": {
+      "experiment": "EXP-08",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42096081220",
+      "conclusion": "success",
+      "sources": {
+        "agent": "3e724f2ed7c33b4f9f167181cdc1c1943e6324f3",
+        "merchant": "5db4bd5da814fc621be7b1caf067eaa88e6a1a67",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp08-inf31-hp.json",
+      "protocol_sha256": "bfe8a97bd5f49949c378528f05ffa563c027ce8fe10aa6eae818a622723d5c8b",
+      "archive": "evaluation/results/exp-08-inf31-hp/runs/42096081220.zip",
+      "sha256": "121b8d9a09144d0bbc115365cc724d9a2429d042742dae6f15be5a3d39f5c245",
+      "checksum_index": "evaluation/results/exp-08-inf31-hp/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "skipped": 0,
+        "error": 0,
+        "passed": 6
+      },
+      "gate": true,
+      "note": "Seis controles HP, incluido el 503 nativo, con restauración verificada y cero efectos comerciales no autorizados. La medición histórica EXP-01 sigue bloqueada."
+    }
+  },
+  "local_runs": {
+    "p0-model-failures-corrida-1": {
+      "experiment": "P0-MODEL-FAILURES",
+      "kind": "harness_error",
+      "protocol": "evaluation/scenarios/p0-model-failures.json",
+      "protocol_sha256": "e2406af9b667d9b9f9a4b68e1f682fef304eaa513c34a959112a182bf3d397ae",
+      "checksum_index": "evaluation/results/p0-model-failures/SHA256SUMS",
+      "summary": "corrida-1/summary.json",
+      "summary_sha256": "6785e8dd5f4ce91ca628be954e206f68be339c93b8f2c34acaf6386695a8628f",
+      "junit": "corrida-1/junit.xml",
+      "junit_sha256": "a10005c1d8cc0c5b8ba84671c89b01dae60b48cfbc427f64aa860472776bfd84",
+      "junit_counts": {
+        "failed": 3,
+        "error": 0,
+        "skipped": 0,
+        "passed": 33
+      },
+      "sources": {
+        "agent": "54ebd5b32fecdc5b0965c9109ba70f332edb6a5e",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "note": "Corrida local conservada: INF29-HP 0/3 por el guion compartido entre REST y chat; orden distinto del prerregistro."
+    },
+    "p0-model-failures-corrida-2": {
+      "experiment": "P0-MODEL-FAILURES",
+      "kind": "measurement",
+      "protocol": "evaluation/scenarios/p0-model-failures.json",
+      "protocol_sha256": "e2406af9b667d9b9f9a4b68e1f682fef304eaa513c34a959112a182bf3d397ae",
+      "checksum_index": "evaluation/results/p0-model-failures/SHA256SUMS",
+      "summary": "summary.json",
+      "summary_sha256": "9a56adce6fe430e7bd14b23a7ad78cae5a3614599f19523940f83b130c13e7df",
+      "junit": "junit.xml",
+      "junit_sha256": "f899bd7629be8721bedcc2eb326c1933c5cb101364fc3d0f773cda91202ec18b",
+      "junit_counts": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 36
+      },
+      "sources": {
+        "agent": "d3740a8816b5fea21124bbfedc40b91b78175032",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "note": "Corrida local registrada: 12 celdas × 3 repeticiones contra el stack vivo, con el SDK real sobre un transporte guionado; sin LLM ni proveedor real."
+    },
+    "p0-ux08-ux10": {
+      "experiment": "P0-UX08-UX10",
+      "kind": "measurement",
+      "protocol": "evaluation/scenarios/p0-ux08-ux10.json",
+      "protocol_sha256": "1d8d78729bccdec921ad38a84e7088044bfa9823ead77f963e04f01aa7c371ed",
+      "checksum_index": "evaluation/results/p0-ux08-ux10/SHA256SUMS",
+      "summary": "summary.json",
+      "summary_sha256": "535a26929469abb6eaf6d9db9505c48bc43e16b07489df1cf262a10a9aac8e46",
+      "junit": "junit.xml",
+      "junit_sha256": "75a0b235a83d39ba60c3c0785104fc0533e9a7dfa2572a42d99961f1b497a05f",
+      "junit_counts": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 45
+      },
+      "ci_junit": "ci-junit.xml",
+      "ci_junit_sha256": "a680fb0cf7cc8fd62131bbf5bf31d2fbf741612fa326b00ed0ec652f924cb90f",
+      "ci_junit_counts": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 46
+      },
+      "sources": {
+        "agent": "f59df0fdb176cf7ad6360b0b0916d061105cbe38",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "note": "Corrida local registrada: 15 celdas × 3 repeticiones contra el stack vivo y 17 celdas de CI (46 pruebas) en el mismo commit, con el SDK real sobre un transporte guionado; sin LLM ni proveedor real."
+    }
+  }
+}

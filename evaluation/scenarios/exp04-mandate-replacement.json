@@ -1,0 +1,89 @@
+{
+  "schema": "exp04-protocol/1",
+  "agent_base": "65183d545241937c5f741dd66378e1a7f7c83dc9",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "matrix_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "ux03_oracle_sha256": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+  "scope": "B2-HNP MA22/MA23 revocation then new consent; no in-place grant edit, no LLM, no commercial creation/payment",
+  "cases": {
+    "MA22:HNP:replacement": {
+      "scenario": "MA22",
+      "mode": "HNP",
+      "test": "test_replace_grant_before_trigger[MA22]",
+      "expected": "old grant durably revoked before both triggers; old trigger 409; new scope has lower signed maximum; budget_not_satisfiable; no commercial effects",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "after_cleanup",
+        "old_request",
+        "new_request",
+        "old_grant_id",
+        "new_grant_id",
+        "old_task_id",
+        "new_task_id",
+        "old_scope",
+        "new_scope",
+        "old_grant_after_revoke",
+        "old_trigger_status",
+        "new_task_after",
+        "revoked_at_ns",
+        "new_consented_at_ns",
+        "trigger_at_ns",
+        "create_posts",
+        "agent_effect_counts",
+        "verified_old",
+        "verified_new"
+      ]
+    },
+    "MA23:HNP:replacement": {
+      "scenario": "MA23",
+      "mode": "HNP",
+      "test": "test_replace_grant_before_trigger[MA23]",
+      "expected": "old grant revoked; new scope excludes cheaper viable X while same maximum makes remaining Y unaffordable; no X/Y creation; new task escalates budget_not_satisfiable",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "after_cleanup",
+        "old_request",
+        "new_request",
+        "old_grant_id",
+        "new_grant_id",
+        "old_task_id",
+        "new_task_id",
+        "old_scope",
+        "new_scope",
+        "old_grant_after_revoke",
+        "old_trigger_status",
+        "new_task_after",
+        "revoked_at_ns",
+        "new_consented_at_ns",
+        "trigger_at_ns",
+        "create_posts",
+        "agent_effect_counts",
+        "verified_old",
+        "verified_new"
+      ]
+    }
+  },
+  "effect_limits": {
+    "completed_orders": 0,
+    "payment_tokens": 0,
+    "payment_requests": 0,
+    "create_posts_per_control": 0,
+    "approvals": 0,
+    "active_checkouts_after_cleanup": 0
+  },
+  "limitations": [
+    "typed explicit API requests, no conversational change interpretation",
+    "MA22 reduced budget intentionally unsatisfiable",
+    "MA23 adversarial exclusion with remaining alternative over same maximum",
+    "no positive completed purchase",
+    "one deterministic episode per scenario, no population inference"
+  ],
+  "test_module": "tests/integration/test_exp04_mandate_replacement.py::"
+}

@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="9" time="16.562" timestamp="2026-11-05T15:21:57.209180-05:00" hostname="Yairs-MacBook-Pro.local"><testcase classname="tests.integration.test_p0_ux08_ux10" name="test_p0_hp_stop[UX09-HP-a-r1]" time="6.275" /><testcase classname="tests.integration.test_p0_ux08_ux10" name="test_p0_hp_stop[UX09-HP-a-r2]" time="0.714" /><testcase classname="tests.integration.test_p0_ux08_ux10" name="test_p0_hp_stop[UX09-HP-a-r3]" time="0.773" /><testcase classname="tests.integration.test_p0_ux08_ux10" name="test_p0_hp_stop[UX09-HP-b-r1]" time="0.805" /><testcase classname="tests.integration.test_p0_ux08_ux10" name="test_p0_hp_stop[UX09-HP-b-r2]" time="0.778" /><testcase classname="tests.integration.test_p0_ux08_ux10" name="test_p0_hp_stop[UX09-HP-b-r3]" time="0.975" /><testcase classname="tests.integration.test_p0_ux08_ux10" name="test_p0_hp_stop[UX09-HP-race-r1]" time="1.070"><failure message="AssertionError: ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']&#10;assert not ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']">b0 = &lt;tests.integration.live_purchase.PurchaseLane object at 0x10e3a8c80&gt;
+tmp_path = PosixPath('/private/tmp/claude-501/-Users-yair-Documents-uniandes-tesis/4ad9321c-6396-4a86-b3b6-b24a713aed0a/scratchpad/ux-c-race/live-nofix/test_p0_hp_stop_UX09_HP_race_r0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111ec3dd0&gt;
+p0_cases = [{'cell': 'UX09-HP-a', 'checks': {'checkout_posts': True, 'model_http_attempts_stopped_turn': True, 'next_turn_model_h...], 'merchant_snapshot_equal': True, ...}, 'merchant_calls': [], 'model_http_attempts_stopped_turn': 2, ...}, ...}, ...]
+cell = 'UX09-HP-race', repetition = 1
+
+    @pytest.mark.parametrize(("cell", "repetition"), plan("UX09-HP-a", "UX09-HP-b", "UX09-HP-race"))
+    def test_p0_hp_stop(b0, tmp_path, monkeypatch, p0_cases, cell, repetition):
+        """UX09-HP-a, -b and -race: the client closes the chat while the model answers; no effect."""
+        case = CASES[cell]
+        oracle = case["oracle"]
+        model = scripted(case, monkeypatch)
+        stops = Stops(monkeypatch)
+        episode, inputs = hp_episode(b0, cell)
+        with p0_case(p0_cases, b0, tmp_path, cell, repetition, inputs) as record:
+            facts = record["observations"]
+            agent = HpAgent(b0, episode, tmp_path / "agent", monkeypatch)
+            try:
+                agent.start()
+                before, ledger_before = outside(b0, episode), ledger(agent.database)
+                start, sequence = len(b0.proxy.calls), last_request(agent.database)
+                turn_id = f"p0-{cell}-r{repetition}"
+                stop = stopped_chat(
+                    agent, stops, held_answer(case, model), case["release_after_mark_ms"], turn_id
+                )
+                attempts = len(model.requests)
+                seen: dict[str, Any] = {
+                    "stop": stop,
+                    "model_http_attempts_stopped_turn": attempts,
+                    "answers": [name for name, _, _ in model.served],
+                    "turn_saved": turn_saved(agent.database, turn_id),
+                }
+                if "next_turn_text" in oracle:
+                    state = chat(agent, NEXT_TURN, turn_id + "-next")
+                    pending = agent.http.get(agent.server.origin + "/me/pending-purchase")
+                    seen |= {
+                        "next_turn_text": texts(state),
+                        "next_turn_model_http_attempts": len(model.requests) - attempts,
+                        "pending_purchase_after": pending.json(),
+                    }
+                after, ledger_after = outside(b0, episode), ledger(agent.database)
+                merchant_calls = calls(b0.proxy.calls[start:])
+                seen |= {
+                    "merchant_calls": merchant_calls,
+                    "model_requests": projected(model_requests(agent.database, sequence)),
+                }
+                record["stimulus_verified"] = stop["entered"] and stop["marked"]
+                checks = {
+                    "stop.entered_marked_and_finished": all(stop.values()),
+                    "model_http_attempts_stopped_turn": attempts
+                    == oracle["model_http_attempts_stopped_turn"],
+                    "stopped_turn_saved": seen["turn_saved"] == [oracle["stopped_turn_saved"]],
+                    "checkout_posts": len(checkout_posts(merchant_calls)) == oracle["checkout_posts"],
+                    "purchases": ledger_after["purchases"] == ledger_before["purchases"] == 0,
+                }
+                if "next_turn_text" in oracle:
+                    checks |= {
+                        "next_turn_text": seen["next_turn_text"] == [RESPOND],
+                        "next_turn_model_http_attempts": seen["next_turn_model_http_attempts"]
+                        == oracle["next_turn_model_http_attempts"],
+                        "pending_purchase_after": seen["pending_purchase_after"] is None,
+                    }
+                effect_checks, effect_facts = zero_effects(
+                    before, after, ledger_before, ledger_after, merchant_calls, None
+                )
+                checks |= effect_checks
+                facts.update(
+                    run=seen,
+                    merchant_before=before,
+                    merchant_after=after,
+                    ledger_before=ledger_before,
+                    ledger_after=ledger_after,
+                    summary={k: v for k, v in seen.items() if k != "merchant_calls"}
+                    | {"effects": effect_facts, "merchant_calls": merchant_calls},
+                )
+            finally:
+                agent.close()
+                record["cleanup_verified"] = agent.stopped()
+&gt;           verdict(record, checks)
+
+tests/integration/test_p0_ux08_ux10.py:743: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+record = {'case_id': 'UX09-HP-race', 'cleanup_verified': True, 'exception_type': 'AssertionError', 'finished_at_ns': 1793910129333903000, ...}
+checks = {'checkout_posts': False, 'model_http_attempts_stopped_turn': True, 'purchases': False, 'stop.entered_marked_and_finished': True, ...}
+
+    def verdict(record: dict[str, Any], checks: dict[str, bool]) -&gt; None:
+        """Every oracle goes to the evidence first; then the case fails with the ones that failed."""
+        record["observations"]["checks"] = checks
+        failed = [name for name, passed in checks.items() if not passed]
+&gt;       assert not failed, failed
+E       AssertionError: ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']
+E       assert not ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']
+
+tests/integration/test_p0_ux08_ux10.py:208: AssertionError</failure></testcase><testcase classname="tests.integration.test_p0_ux08_ux10" name="test_p0_hp_stop[UX09-HP-race-r2]" time="1.190"><failure message="AssertionError: ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']&#10;assert not ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']">b0 = &lt;tests.integration.live_purchase.PurchaseLane object at 0x10e3a8c80&gt;
+tmp_path = PosixPath('/private/tmp/claude-501/-Users-yair-Documents-uniandes-tesis/4ad9321c-6396-4a86-b3b6-b24a713aed0a/scratchpad/ux-c-race/live-nofix/test_p0_hp_stop_UX09_HP_race_r1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111d6c440&gt;
+p0_cases = [{'cell': 'UX09-HP-a', 'checks': {'checkout_posts': True, 'model_http_attempts_stopped_turn': True, 'next_turn_model_h...], 'merchant_snapshot_equal': True, ...}, 'merchant_calls': [], 'model_http_attempts_stopped_turn': 2, ...}, ...}, ...]
+cell = 'UX09-HP-race', repetition = 2
+
+    @pytest.mark.parametrize(("cell", "repetition"), plan("UX09-HP-a", "UX09-HP-b", "UX09-HP-race"))
+    def test_p0_hp_stop(b0, tmp_path, monkeypatch, p0_cases, cell, repetition):
+        """UX09-HP-a, -b and -race: the client closes the chat while the model answers; no effect."""
+        case = CASES[cell]
+        oracle = case["oracle"]
+        model = scripted(case, monkeypatch)
+        stops = Stops(monkeypatch)
+        episode, inputs = hp_episode(b0, cell)
+        with p0_case(p0_cases, b0, tmp_path, cell, repetition, inputs) as record:
+            facts = record["observations"]
+            agent = HpAgent(b0, episode, tmp_path / "agent", monkeypatch)
+            try:
+                agent.start()
+                before, ledger_before = outside(b0, episode), ledger(agent.database)
+                start, sequence = len(b0.proxy.calls), last_request(agent.database)
+                turn_id = f"p0-{cell}-r{repetition}"
+                stop = stopped_chat(
+                    agent, stops, held_answer(case, model), case["release_after_mark_ms"], turn_id
+                )
+                attempts = len(model.requests)
+                seen: dict[str, Any] = {
+                    "stop": stop,
+                    "model_http_attempts_stopped_turn": attempts,
+                    "answers": [name for name, _, _ in model.served],
+                    "turn_saved": turn_saved(agent.database, turn_id),
+                }
+                if "next_turn_text" in oracle:
+                    state = chat(agent, NEXT_TURN, turn_id + "-next")
+                    pending = agent.http.get(agent.server.origin + "/me/pending-purchase")
+                    seen |= {
+                        "next_turn_text": texts(state),
+                        "next_turn_model_http_attempts": len(model.requests) - attempts,
+                        "pending_purchase_after": pending.json(),
+                    }
+                after, ledger_after = outside(b0, episode), ledger(agent.database)
+                merchant_calls = calls(b0.proxy.calls[start:])
+                seen |= {
+                    "merchant_calls": merchant_calls,
+                    "model_requests": projected(model_requests(agent.database, sequence)),
+                }
+                record["stimulus_verified"] = stop["entered"] and stop["marked"]
+                checks = {
+                    "stop.entered_marked_and_finished": all(stop.values()),
+                    "model_http_attempts_stopped_turn": attempts
+                    == oracle["model_http_attempts_stopped_turn"],
+                    "stopped_turn_saved": seen["turn_saved"] == [oracle["stopped_turn_saved"]],
+                    "checkout_posts": len(checkout_posts(merchant_calls)) == oracle["checkout_posts"],
+                    "purchases": ledger_after["purchases"] == ledger_before["purchases"] == 0,
+                }
+                if "next_turn_text" in oracle:
+                    checks |= {
+                        "next_turn_text": seen["next_turn_text"] == [RESPOND],
+                        "next_turn_model_http_attempts": seen["next_turn_model_http_attempts"]
+                        == oracle["next_turn_model_http_attempts"],
+                        "pending_purchase_after": seen["pending_purchase_after"] is None,
+                    }
+                effect_checks, effect_facts = zero_effects(
+                    before, after, ledger_before, ledger_after, merchant_calls, None
+                )
+                checks |= effect_checks
+                facts.update(
+                    run=seen,
+                    merchant_before=before,
+                    merchant_after=after,
+                    ledger_before=ledger_before,
+                    ledger_after=ledger_after,
+                    summary={k: v for k, v in seen.items() if k != "merchant_calls"}
+                    | {"effects": effect_facts, "merchant_calls": merchant_calls},
+                )
+            finally:
+                agent.close()
+                record["cleanup_verified"] = agent.stopped()
+&gt;           verdict(record, checks)
+
+tests/integration/test_p0_ux08_ux10.py:743: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+record = {'case_id': 'UX09-HP-race', 'cleanup_verified': True, 'exception_type': 'AssertionError', 'finished_at_ns': 1793910130638559000, ...}
+checks = {'checkout_posts': False, 'model_http_attempts_stopped_turn': True, 'purchases': False, 'stop.entered_marked_and_finished': True, ...}
+
+    def verdict(record: dict[str, Any], checks: dict[str, bool]) -&gt; None:
+        """Every oracle goes to the evidence first; then the case fails with the ones that failed."""
+        record["observations"]["checks"] = checks
+        failed = [name for name, passed in checks.items() if not passed]
+&gt;       assert not failed, failed
+E       AssertionError: ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']
+E       assert not ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']
+
+tests/integration/test_p0_ux08_ux10.py:208: AssertionError</failure></testcase><testcase classname="tests.integration.test_p0_ux08_ux10" name="test_p0_hp_stop[UX09-HP-race-r3]" time="3.101"><failure message="AssertionError: ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']&#10;assert not ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']">b0 = &lt;tests.integration.live_purchase.PurchaseLane object at 0x10e3a8c80&gt;
+tmp_path = PosixPath('/private/tmp/claude-501/-Users-yair-Documents-uniandes-tesis/4ad9321c-6396-4a86-b3b6-b24a713aed0a/scratchpad/ux-c-race/live-nofix/test_p0_hp_stop_UX09_HP_race_r2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x11175c6e0&gt;
+p0_cases = [{'cell': 'UX09-HP-a', 'checks': {'checkout_posts': True, 'model_http_attempts_stopped_turn': True, 'next_turn_model_h...], 'merchant_snapshot_equal': True, ...}, 'merchant_calls': [], 'model_http_attempts_stopped_turn': 2, ...}, ...}, ...]
+cell = 'UX09-HP-race', repetition = 3
+
+    @pytest.mark.parametrize(("cell", "repetition"), plan("UX09-HP-a", "UX09-HP-b", "UX09-HP-race"))
+    def test_p0_hp_stop(b0, tmp_path, monkeypatch, p0_cases, cell, repetition):
+        """UX09-HP-a, -b and -race: the client closes the chat while the model answers; no effect."""
+        case = CASES[cell]
+        oracle = case["oracle"]
+        model = scripted(case, monkeypatch)
+        stops = Stops(monkeypatch)
+        episode, inputs = hp_episode(b0, cell)
+        with p0_case(p0_cases, b0, tmp_path, cell, repetition, inputs) as record:
+            facts = record["observations"]
+            agent = HpAgent(b0, episode, tmp_path / "agent", monkeypatch)
+            try:
+                agent.start()
+                before, ledger_before = outside(b0, episode), ledger(agent.database)
+                start, sequence = len(b0.proxy.calls), last_request(agent.database)
+                turn_id = f"p0-{cell}-r{repetition}"
+                stop = stopped_chat(
+                    agent, stops, held_answer(case, model), case["release_after_mark_ms"], turn_id
+                )
+                attempts = len(model.requests)
+                seen: dict[str, Any] = {
+                    "stop": stop,
+                    "model_http_attempts_stopped_turn": attempts,
+                    "answers": [name for name, _, _ in model.served],
+                    "turn_saved": turn_saved(agent.database, turn_id),
+                }
+                if "next_turn_text" in oracle:
+                    state = chat(agent, NEXT_TURN, turn_id + "-next")
+                    pending = agent.http.get(agent.server.origin + "/me/pending-purchase")
+                    seen |= {
+                        "next_turn_text": texts(state),
+                        "next_turn_model_http_attempts": len(model.requests) - attempts,
+                        "pending_purchase_after": pending.json(),
+                    }
+                after, ledger_after = outside(b0, episode), ledger(agent.database)
+                merchant_calls = calls(b0.proxy.calls[start:])
+                seen |= {
+                    "merchant_calls": merchant_calls,
+                    "model_requests": projected(model_requests(agent.database, sequence)),
+                }
+                record["stimulus_verified"] = stop["entered"] and stop["marked"]
+                checks = {
+                    "stop.entered_marked_and_finished": all(stop.values()),
+                    "model_http_attempts_stopped_turn": attempts
+                    == oracle["model_http_attempts_stopped_turn"],
+                    "stopped_turn_saved": seen["turn_saved"] == [oracle["stopped_turn_saved"]],
+                    "checkout_posts": len(checkout_posts(merchant_calls)) == oracle["checkout_posts"],
+                    "purchases": ledger_after["purchases"] == ledger_before["purchases"] == 0,
+                }
+                if "next_turn_text" in oracle:
+                    checks |= {
+                        "next_turn_text": seen["next_turn_text"] == [RESPOND],
+                        "next_turn_model_http_attempts": seen["next_turn_model_http_attempts"]
+                        == oracle["next_turn_model_http_attempts"],
+                        "pending_purchase_after": seen["pending_purchase_after"] is None,
+                    }
+                effect_checks, effect_facts = zero_effects(
+                    before, after, ledger_before, ledger_after, merchant_calls, None
+                )
+                checks |= effect_checks
+                facts.update(
+                    run=seen,
+                    merchant_before=before,
+                    merchant_after=after,
+                    ledger_before=ledger_before,
+                    ledger_after=ledger_after,
+                    summary={k: v for k, v in seen.items() if k != "merchant_calls"}
+                    | {"effects": effect_facts, "merchant_calls": merchant_calls},
+                )
+            finally:
+                agent.close()
+                record["cleanup_verified"] = agent.stopped()
+&gt;           verdict(record, checks)
+
+tests/integration/test_p0_ux08_ux10.py:743: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+record = {'case_id': 'UX09-HP-race', 'cleanup_verified': True, 'exception_type': 'AssertionError', 'finished_at_ns': 1793910132063185000, ...}
+checks = {'checkout_posts': False, 'model_http_attempts_stopped_turn': True, 'purchases': False, 'stop.entered_marked_and_finished': True, ...}
+
+    def verdict(record: dict[str, Any], checks: dict[str, bool]) -&gt; None:
+        """Every oracle goes to the evidence first; then the case fails with the ones that failed."""
+        record["observations"]["checks"] = checks
+        failed = [name for name, passed in checks.items() if not passed]
+&gt;       assert not failed, failed
+E       AssertionError: ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']
+E       assert not ['checkout_posts', 'purchases', 'zero_effects.merchant_no_checkout_post', 'zero_effects.merchant_no_checkout', 'zero_effects.merchant_snapshot_equal', 'zero_effects.ledger_no_new_rows']
+
+tests/integration/test_p0_ux08_ux10.py:208: AssertionError</failure></testcase></testsuite></testsuites>

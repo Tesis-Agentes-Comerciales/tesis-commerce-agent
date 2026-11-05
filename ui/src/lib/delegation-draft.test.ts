@@ -6,6 +6,7 @@ import { asDelegationDraft } from "@/features/agent-results"
 import {
   chatDraft,
   MAX_PREFERENCE_CHARS,
+  MAX_PRIORITY_VARIANTS,
   proposalRequest,
   type DelegationDraft,
   type DelegationProposalRequest,
@@ -27,6 +28,7 @@ describe("del formulario a la propuesta", () => {
     city: "Bogotá",
     state: DEMO_PROFILE.state,
     preference: "Si los dos están disponibles, prefiero los Sony.",
+    ordered: false,
   }
 
   it("arma el mismo cuerpo que envió la secuencia real", () => {
@@ -62,6 +64,29 @@ describe("del formulario a la propuesta", () => {
   ] satisfies [Partial<DelegationDraft>, string][])("%o: %s", (change, problem) => {
     expect(proposalRequest({ ...draft, ...change }, DEMO_PROFILE)).toEqual({ ok: false, problem })
   })
+
+  it("sin orden no envía `priority`", () => {
+    const checked = proposalRequest(draft, DEMO_PROFILE)
+    expect(checked.ok && checked.request).not.toHaveProperty("priority")
+  })
+
+  it("en orden, `priority` lleva el orden del comprador y `variant_ids` sigue ordenado", () => {
+    const ordered = { ...draft, variantIds: ["SON-XM6-BLK", "BOS-QCU-BLK", "SON-XM6-BLK"], ordered: true }
+    const checked = proposalRequest(ordered, DEMO_PROFILE)
+    if (!checked.ok) throw new Error(checked.problem)
+    expect(checked.request.variant_ids).toEqual(["BOS-QCU-BLK", "SON-XM6-BLK"])
+    expect(checked.request.priority).toEqual(["SON-XM6-BLK", "BOS-QCU-BLK"])
+  })
+
+  it(`en orden admite como máximo ${MAX_PRIORITY_VARIANTS} opciones`, () => {
+    const four = { ...draft, variantIds: ["A", "B", "C", "D"], ordered: true }
+    expect(proposalRequest(four, DEMO_PROFILE)).toEqual({
+      ok: false,
+      problem: "Para comprar en orden, elige como máximo 3 opciones.",
+    })
+    // Sin orden, las mismas cuatro valen.
+    expect(proposalRequest({ ...four, ordered: false }, DEMO_PROFILE).ok).toBe(true)
+  })
 })
 
 describe("la vigencia de una propuesta", () => {
@@ -90,6 +115,7 @@ describe("el borrador del chat (modo «Delegar»)", () => {
     expect(draft.total).toBe("2.000.000")
     expect(draft.preference).toBe("Quiero audífonos negros por menos de 2 millones")
     expect(draft.validForSeconds).toBe(3_600)
+    expect(draft.ordered).toBe(false)
     expect(draft).toMatchObject({
       addressLine: DEMO_PROFILE.addressLine,
       city: DEMO_PROFILE.city,
@@ -122,6 +148,17 @@ describe("el borrador del chat (modo «Delegar»)", () => {
     const draft = chatDraft({ ...view, offers, preference_text: long }, DEMO_PROFILE)
     expect([...draft.preference]).toHaveLength(MAX_PREFERENCE_CHARS)
     expect(draft.variantIds).toEqual(["VAR-0", "VAR-1", "VAR-2", "VAR-3", "VAR-4"])
+  })
+
+  it("con el orden que leyó el turno marca solo esas opciones, en ese orden", () => {
+    const [first, second] = view.offers.map((offer) => offer.variant_id)
+    const draft = chatDraft({ ...view, priority: [second!, first!] }, DEMO_PROFILE)
+    expect(draft.variantIds).toEqual([second, first])
+    expect(draft.ordered).toBe(true)
+    const checked = proposalRequest(draft, DEMO_PROFILE)
+    if (!checked.ok) throw new Error(checked.problem)
+    expect(checked.request.priority).toEqual([second, first])
+    expect(checked.request.variant_ids).toEqual([first, second].sort())
   })
 
   it("descarta lo que no tiene la forma del contrato y las opciones que no se pueden delegar", () => {

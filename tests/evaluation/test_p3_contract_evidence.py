@@ -1,11 +1,20 @@
 """Offline checks of uncertainty and execution evidence; no services or selection."""
 
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
 
-from tests.support.p3_contract import CASES, condition
+from tests.support.p3_contract import (
+    AGENT_BASE,
+    CASES,
+    INTEGRATED_AGENT_BASE,
+    INTEGRATED_PRODUCT_TREE,
+    MERCHANT,
+    PSP,
+    condition,
+)
 from tests.support.p3_report import PROTOCOL_CASES, report
 
 
@@ -48,26 +57,111 @@ def test_report_rejects_empty_collection_skips_and_unverified_success(tmp_path: 
     assert result["counts"]["blocked"] == 1 and not result["validated"]
 
 
-@pytest.mark.parametrize("defect", [None, "skipped", "missing_shutdown", "missing_manifest"])
-def test_live_report_requires_execution_cleanup_and_sources(tmp_path, defect):
+@pytest.mark.parametrize("corruption", ["wrong_agent", "wrong_tree", "missing_psp", "missing_pg"])
+def test_green_junit_needs_verified_sources_and_stack_cleanup(tmp_path: Path, corruption: str):
     junit = tmp_path / "junit.xml"
-    names = list(PROTOCOL_CASES.values())
-    nodes = [
-        f'<testcase name="{name}"><skipped/></testcase>'
-        if defect == "skipped" and i == 0
-        else f'<testcase name="{name}"/>'
-        for i, name in enumerate(names)
+    suite = ET.SubElement(ET.Element("testsuites"), "testsuite")
+    for case in CASES:
+        ET.SubElement(suite, "testcase", name=f"test_offer_checkout_contract[{case}]")
+    ET.ElementTree(suite).write(junit)
+    agent = "1" * 40
+    manifest = {
+        "scenario": "P3-V01-manifest",
+        "agent_sha": agent,
+        "agent_base": INTEGRATED_AGENT_BASE,
+        "historical_agent_base": AGENT_BASE,
+        "product_tree": INTEGRATED_PRODUCT_TREE,
+        "base_product_tree": INTEGRATED_PRODUCT_TREE,
+        "required_cases": list(CASES),
+        "llm": False,
+        "payments": False,
+        "pins": {
+            "MERCHANT_REPO": {"sha": MERCHANT, "lock_sha256": "2" * 64},
+            "PAYMENT_REPO": {"sha": PSP, "lock_sha256": "3" * 64},
+        },
+    }
+    pg = {"scenario": "shutdown", "proxy_closed": True, "postgres_removed": True}
+    psp = {"scenario": "P3-V01-psp-shutdown", "psp_stopped": True}
+    records = [
+        {
+            "scenario": "P3-V01-case",
+            "case_id": case,
+            "status": "passed",
+            "cleanup_verified": True,
+        }
+        for case in CASES
     ]
-    junit.write_text("<testsuite>" + "".join(nodes) + "</testsuite>", encoding="utf8")
-    rows = [
-        dict(scenario="P3-PV-case", case_id=case, status="passed", cleanup_verified=True)
+    evidence = tmp_path / "evidence.jsonl"
+
+    def write_evidence() -> None:
+        evidence.write_text(
+            "".join(json.dumps(row) + "\n" for row in [manifest, pg, psp, *records]),
+            encoding="utf-8",
+        )
+
+    write_evidence()
+    assert report(junit, tmp_path, agent)["validated"]
+    if corruption == "wrong_agent":
+        manifest["agent_sha"] = "4" * 40
+    elif corruption == "wrong_tree":
+        manifest["product_tree"] = "4" * 40
+    elif corruption == "missing_psp":
+        psp["psp_stopped"] = False
+    else:
+        pg["postgres_removed"] = False
+    write_evidence()
+    result = report(junit, tmp_path, agent)
+    assert not result["validated"]
+    assert result["issues"] == [
+        "manifest_unverified" if corruption.startswith("wrong") else "stack_cleanup_unverified"
+    ]
+
+@pytest.mark.parametrize(
+    "defect", [None, "skipped", "missing_shutdown", "missing_manifest", "missing_psp", "wrong_tree"]
+)
+def test_protocol_report_rejects_unverified_evidence(tmp_path: Path, defect: str | None):
+    """A green JUnit alone cannot validate the protocol gate or its cleanup."""
+    junit = tmp_path / "junit.xml"
+    suite = ET.SubElement(ET.Element("testsuites"), "testsuite")
+    for i, name in enumerate(PROTOCOL_CASES.values()):
+        node = ET.SubElement(suite, "testcase", name=name)
+        if defect == "skipped" and i == 0:
+            ET.SubElement(node, "skipped")
+    ET.ElementTree(suite).write(junit)
+    agent = "1" * 40
+    manifest = {
+        "scenario": "P3-V01-manifest",
+        "agent_sha": agent,
+        "agent_base": INTEGRATED_AGENT_BASE,
+        "historical_agent_base": AGENT_BASE,
+        "product_tree": "4" * 40 if defect == "wrong_tree" else INTEGRATED_PRODUCT_TREE,
+        "base_product_tree": INTEGRATED_PRODUCT_TREE,
+        "required_cases": list(CASES),
+        "llm": False,
+        "payments": False,
+        "pins": {
+            "MERCHANT_REPO": {"sha": MERCHANT, "lock_sha256": "2" * 64},
+            "PAYMENT_REPO": {"sha": PSP, "lock_sha256": "3" * 64},
+        },
+    }
+    shutdown = {"scenario": "shutdown", "proxy_closed": True, "postgres_removed": True}
+    psp_shutdown = {"scenario": "P3-V01-psp-shutdown", "psp_stopped": True}
+    cases = [
+        {"scenario": "P3-PV-case", "case_id": case, "status": "passed", "cleanup_verified": True}
         for case in PROTOCOL_CASES
     ]
-    if defect != "missing_shutdown":
-        rows.append(dict(scenario="shutdown", proxy_closed=True, postgres_removed=True))
+    rows = [*cases]
     if defect != "missing_manifest":
-        rows.append(dict(scenario="P3-V01-manifest"))
+        rows.append(manifest)
+    if defect != "missing_shutdown":
+        rows.append(shutdown)
+    if defect != "missing_psp":
+        rows.append(psp_shutdown)
     (tmp_path / "evidence.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf8"
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
     )
-    assert report(junit, tmp_path, protocol_gate=True)["validated"] is (defect is None)
+    result = report(junit, tmp_path, agent, protocol_gate=True)
+    assert result["validated"] is (defect is None)
+    assert result["schema"] == "p3-point5-report/1"
+    if defect is not None:
+        assert result["issues"] or result["counts"]["skipped"]

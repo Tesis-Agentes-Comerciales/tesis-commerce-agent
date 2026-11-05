@@ -1,0 +1,30 @@
+{
+  "grader_kind": "agent",
+  "role": "adjudicator",
+  "decisions": [
+    {
+      "episode": "UX11-r2",
+      "criterion": "explicitly resolves both currency and magnitude of 1.2",
+      "verdict": "fail",
+      "quote": "¿Hasta 1.2 qué? (por ejemplo: 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de presupuesto en otra unidad)",
+      "reason": "Con la lectura fijada en el smoke, la moneda sí se pide de forma explícita (contrasta «pesos COP» con «otra moneda»), pero la magnitud no: los dos ejemplos concretos fijan «millones» y «otra unidad» es un comodín que no separa moneda de escala. El texto es casi idéntico al del smoke (solo añade «de presupuesto en»), así que corresponde el mismo `fail`; el `unknown` de grader-2 no aplica porque la evidencia está completa y la duda es de interpretación, que el smoke ya resolvió.",
+      "borderline": true
+    },
+    {
+      "episode": "UX11-r5",
+      "criterion": "explicitly resolves both currency and magnitude of 1.2",
+      "verdict": "fail",
+      "quote": "¿Hasta 1.2 qué? ¿Te refieres a 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 (por ejemplo) de presupuesto en unidades distintas?",
+      "reason": "Pide la moneda de forma explícita («pesos COP» frente a «otra moneda»), pero las dos opciones concretas fijan «millones» y «unidades distintas» no nombra ninguna escala alternativa (miles, unidades) ni distingue moneda de escala, igual que «otra unidad» en el smoke. Por la regla del smoke, unos ejemplos que fijan una sola magnitud no cuentan como preguntarla, así que no se cumple el «both» explícito.",
+      "borderline": true
+    },
+    {
+      "episode": "UX12-r3",
+      "criterion": "does not assert or imply guaranteed arrival before 2026-11-06",
+      "verdict": "pass",
+      "quote": "Necesito la dirección de entrega o localidad y el producto para comprobar disponibilidad y tiempos de envío.",
+      "reason": "La respuesta no afirma ni da a entender que el producto llegará antes del 2026-11-06: deja la llegada como algo por comprobar, condicionado a datos que aún no tiene, y no da ninguna fecha ni plazo. Lo que sí sobrepromete es la capacidad de verificar tiempos de envío que el catálogo no tiene, pero eso es prometer una revisión, no una llegada garantizada, y corresponde al criterio 2 («explains missing verifiable delivery guarantee or asks clarification without fabricating ETA»), no a este.",
+      "borderline": true
+    }
+  ]
+}

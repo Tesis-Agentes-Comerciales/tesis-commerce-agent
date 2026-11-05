@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn } from "storybook/test"
+import { expect, fn, within } from "storybook/test"
 
 import { formatDateTime, formatMoneyParts } from "@/components/agent/agent-format"
 import { DelegationConsentCard } from "@/components/delegation/delegation-consent-card"
@@ -54,6 +54,7 @@ export const Proposed: Story = {
     await expect(canvas.getByText(`«${scope.preference_text}»`)).toBeVisible()
     await expect(canvas.getByText(scope.destination_label)).toBeVisible()
     await expect(canvas.getByText(scope.instrument_label)).toBeVisible()
+    await expect(canvas.getByText("1 unidad")).toBeVisible()
     await expect(canvas.getByText("Un solo uso")).toBeVisible()
     const expires = plain(`Vence el ${formatDateTime(scope.expires_at)}`)
     await expect(canvas.getByText(expires)).toBeVisible()
@@ -63,6 +64,10 @@ export const Proposed: Story = {
     await expect(
       canvas.getByText("Puedes revocarla antes de que el agente comprometa el pago"),
     ).toBeVisible()
+    // Sin orden ni revisión prometida, la tarjeta no habla de ninguno de los dos (D15).
+    await expect(canvas.queryByText(IN_ORDER)).toBeNull()
+    await expect(canvas.queryByText(REVIEWED)).toBeNull()
+    await expect(canvas.queryByText(NOT_REVIEWED)).toBeNull()
     // Ni el digest ni los ids: son para el servidor, no para el comprador.
     await expect(canvas.queryByText(DELEGATION_PROPOSAL.scope_digest)).toBeNull()
     await expect(canvas.queryByText(DELEGATION_PROPOSAL.proposal_id)).toBeNull()
@@ -73,6 +78,92 @@ export const Proposed: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Autorizar" }))
     await expect(args.onAuthorize).toHaveBeenCalledWith(CONSENT)
     await expect(args.onCancel).not.toHaveBeenCalled()
+  },
+}
+
+// Comprar en orden y la revisión de la indicación (p0-conditional-intent.md §3.10, D15).
+
+const IN_ORDER = "Compra la primera opción disponible dentro del total, en este orden:"
+const REVIEWED =
+  "Antes de comprar, el agente revisa tu indicación. Si no confirma que la opción elegida la respeta, no compra y te avisa."
+const NOT_REVIEWED =
+  "Tu indicación queda guardada, pero no cambia la elección ni se revisa antes de comprar."
+const [BOSE, SONY] = scope.variants
+const SONY_FIRST = [SONY.variant_id, BOSE.variant_id]
+
+const withScope = (change: object) =>
+  parseDelegationProposal({ ...DELEGATION_PROPOSAL, scope: { ...scope, ...change } })
+
+/** Los títulos del orden consentido, como se leen. */
+function orderOf(canvas: Parameters<NonNullable<Story["play"]>>[0]["canvas"]) {
+  const list = canvas.getByRole("list", { name: IN_ORDER })
+  return within(list).getAllByRole("listitem").map((item) => item.textContent)
+}
+
+/**
+ * Con orden y sin indicación: la tarjeta dice el orden que se consiente, no el alfabético del
+ * alcance, y no habla de revisión.
+ */
+export const InOrder: Story = {
+  args: { proposal: withScope({ priority: SONY_FIRST, preference_text: null }) },
+  play: async ({ args, canvas, userEvent }) => {
+    await expect(canvas.getByText(IN_ORDER)).toBeVisible()
+    await expect(orderOf(canvas)).toEqual([SONY.title, BOSE.title])
+    await expect(canvas.queryByText(REVIEWED)).toBeNull()
+    await expect(canvas.queryByText(NOT_REVIEWED)).toBeNull()
+    await userEvent.click(canvas.getByRole("button", { name: "Autorizar" }))
+    await expect(args.onAuthorize).toHaveBeenCalledWith(CONSENT)
+  },
+}
+
+/**
+ * D15-tarjeta-rev: con orden, indicación y `preference_review`, la tarjeta promete la revisión: el
+ * backend la calculó porque el revisor está configurado.
+ */
+export const InOrderWithReview: Story = {
+  args: { proposal: withScope({ priority: SONY_FIRST, preference_review: true }) },
+  play: async ({ canvas }) => {
+    await expect(orderOf(canvas)).toEqual([SONY.title, BOSE.title])
+    await expect(canvas.getByText(`«${scope.preference_text}»`)).toBeVisible()
+    await expect(canvas.getByText(REVIEWED)).toBeVisible()
+    await expect(canvas.queryByText(NOT_REVIEWED)).toBeNull()
+  },
+}
+
+/**
+ * D15-tarjeta-sin-rev: con orden e indicación, pero sin `preference_review`, la tarjeta no promete
+ * lo que no va a pasar: la indicación no cambia la elección ni se revisa.
+ */
+export const InOrderWithoutReview: Story = {
+  args: { proposal: withScope({ priority: SONY_FIRST }) },
+  play: async ({ canvas }) => {
+    await expect(orderOf(canvas)).toEqual([SONY.title, BOSE.title])
+    await expect(canvas.getByText(NOT_REVIEWED)).toBeVisible()
+    await expect(canvas.queryByText(REVIEWED)).toBeNull()
+  },
+}
+
+/** Sin orden y con revisión: el selector usa la indicación y el revisor la revisa antes de comprar. */
+export const ReviewWithoutOrder: Story = {
+  args: { proposal: withScope({ preference_review: true }) },
+  play: async ({ canvas }) => {
+    await expect(canvas.queryByText(IN_ORDER)).toBeNull()
+    for (const { title } of scope.variants) await expect(canvas.getByText(title)).toBeVisible()
+    await expect(canvas.getByText(REVIEWED)).toBeVisible()
+    await expect(canvas.queryByText(NOT_REVIEWED)).toBeNull()
+  },
+}
+
+/** A 320 px el orden, la indicación y la frase de revisión caben sin desbordar. */
+export const InOrderPhone320: Story = {
+  args: { proposal: withScope({ priority: SONY_FIRST, preference_review: true }) },
+  render: (args) => (
+    <div className={PHONE_DIALOG_COLUMN} data-testid="phone-column">
+      <DelegationConsentCard {...args} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    await expectFitsPhoneColumn(canvasElement)
   },
 }
 
@@ -97,6 +188,24 @@ export const SingleVariantWithoutPreference: Story = {
     await expect(canvas.getByRole("listitem")).toHaveTextContent(scope.variants[1].title)
     await expect(canvas.queryByText(scope.variants[0].title)).toBeNull()
     await expect(canvas.queryByText("Tu indicación")).toBeNull()
+  },
+}
+
+/**
+ * UX10 (D3): el comprador pidió dos unidades en su indicación. La tarjeta la cita tal cual y dice lo
+ * que autoriza: 1 unidad, un solo uso.
+ */
+export const TwoUnitsRequested: Story = {
+  args: {
+    proposal: parseDelegationProposal({
+      ...DELEGATION_PROPOSAL,
+      scope: { ...scope, preference_text: "Quiero dos unidades, una para mi hermana." },
+    }),
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("«Quiero dos unidades, una para mi hermana.»")).toBeVisible()
+    await expect(canvas.getByText("1 unidad")).toBeVisible()
+    await expect(canvas.getByText("Un solo uso")).toBeVisible()
   },
 }
 
@@ -137,6 +246,32 @@ export const WithoutAuthorize: Story = {
     authorize.focus()
     await userEvent.keyboard("{Enter}")
     await expect(canvas.getByRole("alert")).toHaveTextContent("Crea una nueva")
+    await userEvent.click(canvas.getByRole("button", { name: "Cancelar" }))
+    await expect(args.onCancel).toHaveBeenCalledOnce()
+  },
+}
+
+const SUPERSEDED = DELEGATION_REPLAYS.proposalSuperseded
+
+/**
+ * Respuesta real: otra pestaña o conversación del mismo comprador preparó otra propuesta, y solo la
+ * última se puede autorizar (409 `delegation_proposal_superseded`, D2). Como la vencida, no se
+ * reintenta: «Autorizar» queda deshabilitado y «Cancelar» vuelve al formulario.
+ */
+export const ProposalSuperseded: Story = {
+  args: {
+    proposal: parseDelegationProposal(replayed(SUPERSEDED, "POST /delegations/proposals").body),
+    onAuthorize: undefined,
+    error: (replayed(SUPERSEDED, "POST /delegations").body as { message?: string }).message,
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    await expect(canvas.getByRole("alert")).toHaveTextContent(
+      "Esta propuesta fue reemplazada por una más reciente. Revisa la última.",
+    )
+    const authorize = canvas.getByRole("button", { name: "Autorizar" })
+    await expect(authorize).toHaveAttribute("aria-disabled", "true")
+    authorize.focus()
+    await userEvent.keyboard("{Enter}")
     await userEvent.click(canvas.getByRole("button", { name: "Cancelar" }))
     await expect(args.onCancel).toHaveBeenCalledOnce()
   },

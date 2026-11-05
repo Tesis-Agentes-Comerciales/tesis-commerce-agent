@@ -1,0 +1,46 @@
+{
+  "schema": "exp06-infrastructure-protocol/1",
+  "agent_base": "eb18775e5b620436d949a82803f5415ec7455bf3",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "matrix_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "ux03_oracle_sha256": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+  "scope": "real authenticated HP router, SDK and model ledger; existing ModelServer returns two 503; zero real provider calls; no semantic P0 attribution",
+  "cases": {
+    "EXP06:infrastructure": {
+      "scenario": "EXP06-INFRA",
+      "mode": "HP",
+      "test": "test_real_router_ledger_without_paid_model",
+      "expected": "authenticated real router, two mocked HTTP attempts, one failed ledger row, no commercial effects, verified cleanup; semantic cases not_executed",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "after_cleanup",
+        "agent_effect_counts",
+        "model_requests",
+        "budget",
+        "semantic_scenarios",
+        "auth_after_signup",
+        "auth_after_requests",
+        "frozen_catalog_sha256"
+      ]
+    }
+  },
+  "effect_limits": {
+    "completed_orders": 0,
+    "payment_requests": 0,
+    "checkouts": 0,
+    "model_calls": "two mock HTTP attempts; zero real provider calls",
+    "auth_writes": "synthetic signup/session/JWKS allowed and observed"
+  },
+  "limitations": [
+    "UX01/UX11/UX12 remain not_executed semantically",
+    "HTTP 502 intent_model_error is technical, not commercial false",
+    "HP authenticated route only; HNP conversation not evaluated",
+    "auth database writes expected, no commercial effects",
+    "no scripted clarification responses or model credentials"
+  ],
+  "test_module": "tests/integration/test_exp06_hp_infrastructure.py::"
+}

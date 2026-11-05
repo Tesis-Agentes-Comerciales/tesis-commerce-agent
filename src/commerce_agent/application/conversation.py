@@ -1,11 +1,12 @@
 import hashlib
 import json
+import logging
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from threading import Lock
-from typing import Any, Literal, NotRequired, Protocol, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, Protocol, Self, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -13,16 +14,44 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 from langgraph.types import Command, interrupt
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from commerce_agent.acp.feed import ProductFeed
-from commerce_agent.acp.models import CheckoutSessionWithOrder
+from commerce_agent.acp.models import CheckoutSession, CheckoutSessionWithOrder
+from commerce_agent.acp.offer_snapshot import DeliveryContext, MerchantOffer
+from commerce_agent.application.conditional import (
+    EXCLUSIONS_ONLY,
+    BranchEvaluation,
+    ConditionalClarification,
+    ConditionalDecision,
+    GovernanceMode,
+    PurchaseMode,
+    ResolvedConditional,
+    checkout_check_record,
+    conditional_view,
+    effective_intent,
+    evaluate_branches,
+    excluded_variant_ids,
+    record_decision,
+    resolve_branches,
+    verify_checkout,
+    without_variants,
+)
 from commerce_agent.application.governed_recovery import (
     GovernedRecovery,
     RecoveryContext,
     RecoveryEvidenceUnavailable,
     outside_shortlist,
 )
+from commerce_agent.application.offer_freshness import LAB_DESTINATION, OfferReader
 from commerce_agent.application.product_cards import ProductCard, product_card
 from commerce_agent.application.purchase import (
     CheckoutDetails,
@@ -34,7 +63,8 @@ from commerce_agent.application.purchase import (
 )
 from commerce_agent.approval import ApprovalTerms
 from commerce_agent.completion import CompletionError, CompletionService
-from commerce_agent.domain import PurchaseIntent, RankedCandidate, rank_candidates
+from commerce_agent.domain import HardConstraints, PurchaseIntent, RankedCandidate, rank_candidates
+from commerce_agent.domain.conditional import BranchMatch, ConditionalIntent
 from commerce_agent.llm import (
     CommerceDecision,
     ConversationMessage,
@@ -43,8 +73,10 @@ from commerce_agent.llm import (
     UnknownVariantSelection,
 )
 from commerce_agent.llm.model_requests import model_request_scope
+from commerce_agent.llm.prices import format_minor_amount
 from commerce_agent.llm.reasoning import reasoning_listener
 from commerce_agent.persistence import SqliteAgentStore
+from commerce_agent.persistence.conditional_sqlite import ConditionalEntry
 
 StepName = Literal[
     "interpret_request",
@@ -53,6 +85,8 @@ StepName = Literal[
     "prepare_checkout",
     "request_approval",
 ]
+
+_logger = logging.getLogger(__name__)
 
 MAX_SEARCH_PRODUCTS = 6
 MAX_MODEL_CANDIDATES = 10
@@ -68,10 +102,13 @@ NO_DELEGATION_OFFERS_MESSAGE = (
 
 
 def delegation_offers_message(count: int) -> str:
+    """D3 (docs/design/p0-ux08-ux10.md §3.3): it names the one unit every scope allows
+    (`quantity_max` is `One`), so whoever asked for two reads what the delegation buys."""
     options = "1 opción" if count == 1 else f"{count} opciones"
     return (
-        f"Encontré {options} del catálogo para lo que pediste. Abajo puedes delegar la compra: "
-        "revisa las opciones y el total máximo y autorízala; después el agente compra solo."
+        f"Encontré {options} del catálogo para lo que pediste. Abajo puedes delegar la compra de "
+        "1 unidad: revisa las opciones y el total máximo y autorízala; después el agente la compra "
+        "solo."
     )
 
 
@@ -128,6 +165,40 @@ class DelegationDraftView(BaseModel):
     budget_minor: int | None = Field(default=None, gt=0)
     currency: Literal["COP"] = "COP"
     preference_text: str = Field(min_length=1)
+    # The order the turn read among its offers (p0-conditional-intent.md §3.9), at most one per
+    # evaluator branch; the form proposes it and the buyer consents to it on the card. Absent
+    # when the turn read none; never null.
+    priority: Annotated[tuple[str, ...], Field(min_length=1, max_length=3)] | None = None
+
+    @field_validator("priority")
+    @classmethod
+    def _priority_is_absent_not_null(cls, value: tuple[str, ...] | None) -> tuple[str, ...]:
+        # Runs only on a given value, never on the default: a null is a second form of absent.
+        if value is None:
+            raise ValueError("An absent priority is omitted, not null")
+        return value
+
+    @model_validator(mode="after")
+    def _priority_is_among_the_offers(self) -> Self:
+        offered = {offer.variant_id for offer in self.offers}
+        if self.priority is not None and (
+            len(set(self.priority)) != len(self.priority) or not set(self.priority) <= offered
+        ):
+            raise ValueError("A priority orders distinct variants of the offers")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _without_absent_priority(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("priority") is None:
+            data.pop("priority", None)
+        return data
+
+
+class CheckoutReader(Protocol):
+    """Reads a checkout back: the one `start` rejected still owes its `checkout_check` row."""
+
+    def get_checkout(self, checkout_id: str) -> CheckoutSession: ...
 
 
 class TurnObserver(Protocol):
@@ -171,6 +242,9 @@ class GraphState(TypedDict):
     completion_result: dict[str, Any]
     delegate: NotRequired[bool]
     delegation_draft: NotRequired[dict[str, Any] | None]
+    # The branches resolved against the feed and the decision their offers gave, from
+    # `select_product` to `prepare_checkout` (p0-conditional-intent.md §3.4); None otherwise.
+    conditional: NotRequired[dict[str, Any] | None]
 
 
 class GraphInput(TypedDict):
@@ -224,8 +298,16 @@ class ConversationService:
         feed_provider: Callable[[], ProductFeed] | None = None,
         router_factory: Callable[[ProductFeed], ConversationRouter] | None = None,
         recovery: GovernedRecovery | None = None,
+        offer_reader: OfferReader | None = None,
+        governance_mode: GovernanceMode = "off",
+        checkout_reader: CheckoutReader | None = None,
     ) -> None:
         self._feed = feed
+        # A conditional turn reads its branches' offers in every mode (p0-conditional-intent.md
+        # D1); without a reader every read fails, so nothing is verified and nothing is bought.
+        self._offer_reader: OfferReader = offer_reader or _NoOfferReader()
+        self._governance_mode: GovernanceMode = governance_mode
+        self._checkout_reader = checkout_reader
         self._store = store
         self._purchases = purchases
         self._completion = completion
@@ -554,6 +636,8 @@ class ConversationService:
             ["prepare_checkout", "finalize"],
         )
         if self._recovery is None:
+            # A conditional checkout canceled here already answered: `request_approval` passes
+            # it through, so the B0 graph keeps this edge (and the batch-2 anchor on it).
             builder.add_edge("prepare_checkout", "request_approval")
         else:
             # Only the governed flow ends a turn here, after canceling an over-budget checkout.
@@ -607,6 +691,7 @@ class ConversationService:
             "response": None,
             "delegate": runtime.context.delegate,
             "delegation_draft": None,
+            "conditional": None,
         }
 
     def _interpret_request(
@@ -647,14 +732,28 @@ class ConversationService:
                 "preferences": intent.preferences.model_dump(mode="json"),
             },
         )
-        feed = runtime.context.feed or self._feed
+        catalog = runtime.context.feed or self._feed
+        conditional = self._conditional(state)
+        # «Nunca B» leaves the turn's feed (§3.6): the shortlist, the recovery and D1 never see B.
+        excluded = excluded_variant_ids(conditional, catalog) if conditional is not None else ()
+        feed = without_variants(catalog, excluded)
         selection = rank_candidates(feed, intent)
+        rejections = dict(selection.rejection_counts)
+        if excluded:
+            rejections["excluded"] = len(excluded)
+        # Without branches nothing is evaluated (UX07), nor in a delegation turn (§3.9).
+        if (
+            conditional is not None
+            and conditional.excluded
+            and (state.get("delegate") or not conditional.branches)
+        ):
+            self._record_exclusions(state, conditional, intent.hard, excluded)
         _finished(
             observer,
             "search_catalog",
             lambda: {
                 "matches": len(selection.ranked),
-                "rejections": dict(selection.rejection_counts),
+                "rejections": rejections,
                 "products": self._cards(
                     (item.candidate.variant_id for item in selection.ranked[:MAX_SEARCH_PRODUCTS]),
                     feed,
@@ -676,7 +775,7 @@ class ConversationService:
         Without offers the reply is fixed: the model recovery and the governed explanation write
         under a purchase run, and a delegate turn has none.
         """
-        feed = runtime.context.feed or self._feed
+        feed = self._turn_feed(state, runtime)
         variant_ids = [item["candidate"]["variant_id"] for item in state["ranked_candidates"]]
         offers = tuple(
             card
@@ -687,10 +786,14 @@ class ConversationService:
         )
         hard = self._intent(state).hard
         budget = hard.max_total_amount_minor or hard.max_unit_amount_minor or None
+        priority = self._draft_priority(state, runtime, offers)
+        # Absent, never null, when the branches propose no order among the offers.
+        ordered: dict[str, Any] = {"priority": priority} if priority else {}
         draft = DelegationDraftView(
             offers=offers,
             budget_minor=budget,
             preference_text=self._messages(state)[-1].content,
+            **ordered,
         )
         message = delegation_offers_message(len(offers)) if offers else NO_DELEGATION_OFFERS_MESSAGE
         return {
@@ -713,7 +816,7 @@ class ConversationService:
             self._messages(state),
             self._intent(state),
             state["rejection_counts"],
-            (runtime.context.feed or self._feed).available_candidates[:10],
+            self._turn_feed(state, runtime).available_candidates[:10],
         )
         return {
             "response": ConversationTurnResponse(
@@ -722,6 +825,9 @@ class ConversationService:
         }
 
     def _select_product(self, state: GraphState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
+        conditional = self._conditional(state)
+        if conditional is not None and conditional.branches:
+            return self._select_branch(state, runtime, conditional)
         router = runtime.context.router or self._router
         if router is None:
             raise IntentInterpretationError("No conversation model is configured")
@@ -769,19 +875,70 @@ class ConversationService:
         if selected is None:
             raise IntentInterpretationError("Candidate selection is incomplete")
         if not self._allow_checkout:
-            card = self._card(selected, runtime.context.feed)
-            name = card["title"] if card is not None else selected
-            return {
-                "selected_variant_id": None,
-                "response": ConversationTurnResponse(
-                    action="clarify",
-                    assistant_message=(
-                        f"Encontré {name}. Studio solo permite explorar el catálogo; "
-                        "usa la interfaz del agente para preparar y aprobar una compra."
-                    ),
-                ).model_dump(mode="json"),
-            }
+            return self._studio_only(selected, runtime.context.feed)
         return {"selected_variant_id": selected, "selection_message": decision.assistant_message}
+
+    def _studio_only(self, selected: str, feed: ProductFeed | None) -> dict[str, Any]:
+        card = self._card(selected, feed)
+        name = card["title"] if card is not None else selected
+        return {
+            "selected_variant_id": None,
+            **_asked(
+                f"Encontré {name}. Studio solo permite explorar el catálogo; "
+                "usa la interfaz del agente para preparar y aprobar una compra."
+            ),
+        }
+
+    def _select_branch(
+        self, state: GraphState, runtime: Runtime[GraphContext], conditional: ConditionalIntent
+    ) -> dict[str, Any]:
+        """§3.2-§3.3: the backend decides the branch from the merchant's offers, in the buyer's
+        order; the selection model is never asked. Every decision is recorded (§3.7)."""
+        observer = _observer.get()
+        shortlist = [item["candidate"]["variant_id"] for item in state["ranked_candidates"]]
+        _started(observer, "select_product", lambda: {"candidate_variant_ids": shortlist})
+        hard = self._intent(state).hard
+        # The whole feed: an exclusion must still see the variant a branch names (§3.2, step 4).
+        resolution = resolve_branches(conditional, runtime.context.feed or self._feed, hard=hard)
+        if isinstance(resolution, ConditionalClarification):
+            text = _clarification_text(resolution, conditional)
+            self._record(state, conditional, hard, resolution, None, text)
+            _finished(
+                observer,
+                "select_product",
+                lambda: {"decision": "clarify", "product": None, "rationale": text},
+            )
+            return {"selected_variant_id": None, **_asked(text)}
+        decision = evaluate_branches(resolution, self._offer_reader, LAB_DESTINATION)
+        titles = [branch.title for branch in resolution.branches]
+        text = _decision_text(decision, titles)
+        self._record(state, conditional, hard, resolution, decision, text)
+        chosen = decision.chosen
+        result: dict[str, Any] = {
+            "decision": "clarify" if chosen is None else "select",
+            "product": None
+            if chosen is None
+            else self._card(chosen.variant_id, self._turn_feed(state, runtime)),
+            "rationale": text,
+        }
+        if decision.outcome != "clarify":
+            # `offer_changed` only exists after the checkout, which this step never sees: a
+            # changed checkout fails `prepare_checkout` with that code instead (§3.4).
+            result["conditional"] = conditional_view(resolution, decision).model_dump(mode="json")
+        _finished(observer, "select_product", lambda: result)
+        if chosen is None:
+            answer = _asked(text) if decision.outcome == "clarify" else _explained(text)
+            return {"selected_variant_id": None, **answer}
+        if not self._allow_checkout:
+            return self._studio_only(chosen.variant_id, runtime.context.feed)
+        return {
+            "selected_variant_id": chosen.variant_id,
+            "selection_message": text,
+            "conditional": {
+                "resolution": resolution.model_dump(mode="json"),
+                "decision": decision.model_dump(mode="json"),
+            },
+        }
 
     def _prepare_checkout(
         self, state: GraphState, runtime: Runtime[GraphContext]
@@ -796,6 +953,12 @@ class ConversationService:
         # The run goes in the args: a governance stop fails the step without a result, and the
         # chat still needs the run to read its trace.
         _started(observer, "prepare_checkout", lambda: {"variant_id": selected, "run_id": run_id})
+        conditional = self._conditional(state)
+        catalog = runtime.context.feed or self._feed
+        if conditional is not None and selected in excluded_variant_ids(conditional, catalog):
+            # Defense in depth (§3.6): the shortlist already left it out.
+            raise invalid_candidate()
+        chosen = _ChosenBranch.of(state.get("conditional"))
         self._discover()
         decision = CommerceDecision.model_validate_json(json.dumps(state["decision"]))
         details = runtime.context.details
@@ -805,14 +968,24 @@ class ConversationService:
             purchase = self._purchases.start(
                 run_id=run_id,
                 request=decision.purchase_request or self._messages(state)[-1].content,
-                intent=self._intent(state),
+                # The branch's effective intent: `intent.hard`, its identity and its limit (§3.4).
+                intent=self._intent(state) if chosen is None else chosen.intent,
                 selected_variant_id=selected,
                 details=details,
                 graph_thread_id=runtime.context.thread_id,
                 owner_id=runtime.context.owner_id,
-                feed=runtime.context.feed,
+                feed=runtime.context.feed
+                if conditional is None
+                else self._turn_feed(state, runtime),
             )
         except PurchaseServiceError as error:
+            if chosen is not None and error.code in {"budget_exceeded", "checkout_mismatch"}:
+                # `start` rejected the checkout before `verify_checkout` saw it: its row first.
+                self._trace_rejected_checkout(run_id, chosen, error)
+            if chosen is not None and error.code == "budget_exceeded":
+                # `start` canceled it: the offer fit the limit and the checkout did not, so the
+                # offer changed in between. In every mode, never a 409 (§3.4).
+                return _checkout_stopped(observer, chosen.over_limit_text())
             if self._recovery is None or error.code != "budget_exceeded":
                 raise
             stored = self._store.purchase(run_id)
@@ -827,6 +1000,11 @@ class ConversationService:
             if observer is not None:
                 observer.step_failed("prepare_checkout", {"code": error.code, "message": message})
             return _explained(message)
+        if chosen is not None:
+            changed = self._checkout_changed(run_id, chosen, purchase)
+            if changed is not None:
+                self._purchases.cancel(run_id=run_id)
+                return _checkout_stopped(observer, changed)
         _finished(
             observer,
             "prepare_checkout",
@@ -844,6 +1022,10 @@ class ConversationService:
     def _request_approval(
         self, state: GraphState, runtime: Runtime[GraphContext]
     ) -> dict[str, Any]:
+        if state["response"] is not None:
+            # `prepare_checkout` canceled a conditional checkout and explained it (§3.4): there
+            # is nothing to approve, and no step to show.
+            return {}
         if not self._allow_checkout or self._purchases is None:
             raise PurchaseServiceError("Checkout is unavailable", code="invalid_stage")
         purchase = PurchasePreparation.model_validate_json(json.dumps(state["purchase"]))
@@ -936,10 +1118,143 @@ class ConversationService:
     ) -> RecoveryContext:
         return RecoveryContext(
             run_id=turn_run_id(state["turn_id"]),
-            feed=runtime.context.feed or self._feed,
+            feed=self._turn_feed(state, runtime),
             intent=self._intent(state),
             rejection_counts=state["rejection_counts"],
         )
+
+    @staticmethod
+    def _conditional(state: GraphState) -> ConditionalIntent | None:
+        raw = state["decision"].get("conditional")
+        return None if raw is None else ConditionalIntent.model_validate_json(json.dumps(raw))
+
+    def _turn_feed(self, state: GraphState, runtime: Runtime[GraphContext]) -> ProductFeed:
+        """The turn's feed without what the buyer excluded (§3.6); the feed itself otherwise."""
+        feed = runtime.context.feed or self._feed
+        conditional = self._conditional(state)
+        if conditional is None or not conditional.excluded:
+            return feed
+        return without_variants(feed, excluded_variant_ids(conditional, feed))
+
+    def _record(
+        self,
+        state: GraphState,
+        conditional: ConditionalIntent,
+        hard: HardConstraints,
+        resolution: ResolvedConditional | ConditionalClarification,
+        decision: ConditionalDecision | None,
+        explanation: str,
+        *,
+        purchase_mode: PurchaseMode = "HP",
+    ) -> None:
+        """The turn's `decision` row, under the run its purchase has or would have (§3.7)."""
+        record_decision(
+            self._store,
+            turn_run_id(state["turn_id"]),
+            purchase_mode=purchase_mode,
+            governance_mode=self._governance_mode,
+            intent=conditional,
+            hard=hard,
+            resolution=resolution,
+            decision=decision,
+            explanation=explanation,
+        )
+
+    def _record_exclusions(
+        self,
+        state: GraphState,
+        conditional: ConditionalIntent,
+        hard: HardConstraints,
+        excluded: tuple[str, ...],
+    ) -> None:
+        """`exclusions_only`: no branch evaluated, the excluded variants listed (§3.3, §3.9).
+        It explains nothing by itself (the normal selection's reply follows), so its
+        explanation is empty. A delegation turn drafts an HNP grant: its row is UX07-HNP's."""
+        unevaluated = ConditionalIntent(
+            excluded=conditional.excluded,
+            max_total_amount_minor=conditional.max_total_amount_minor,
+            currency=conditional.currency,
+        )
+        self._record(
+            state,
+            conditional,
+            hard,
+            ResolvedConditional(
+                intent=unevaluated, hard=hard, branches=(), excluded_variant_ids=excluded
+            ),
+            EXCLUSIONS_ONLY,
+            "",
+            purchase_mode="HNP" if state.get("delegate") else "HP",
+        )
+
+    def _draft_priority(
+        self,
+        state: GraphState,
+        runtime: Runtime[GraphContext],
+        offers: tuple[ProductCard, ...],
+    ) -> tuple[str, ...] | None:
+        """The branches' order among the draft's offers, when every branch resolves (§3.9).
+        Only the order passes to the draft: its limits do not, the buyer writes the total."""
+        conditional = self._conditional(state)
+        if conditional is None or not conditional.branches:
+            return None
+        resolution = resolve_branches(
+            conditional, runtime.context.feed or self._feed, hard=self._intent(state).hard
+        )
+        if isinstance(resolution, ConditionalClarification):
+            return None
+        offered = {offer.variant_id for offer in offers}
+        order = tuple(
+            branch.variant_id for branch in resolution.branches if branch.variant_id in offered
+        )
+        return order or None
+
+    def _checkout_changed(
+        self, run_id: str, chosen: "_ChosenBranch", purchase: PurchasePreparation
+    ) -> str | None:
+        """§3.4: the prepared checkout against the offer that chose its branch, recorded either
+        way; the reason to cancel it, or None when it matches."""
+        # `start` already refused another variant or currency (`checkout_mismatch`), so
+        # `verify_checkout` finds the chosen line and only the total can differ.
+        check = verify_checkout(self._store, run_id, chosen.decision, purchase.checkout)
+        if check.matches:
+            return None
+        if check.checkout_total_minor == check.offer_total_minor:
+            # Same amount, another currency: the copy cannot speak of a new total.
+            return MISMATCHED_CHECKOUT.format(title=chosen.title)
+        return OFFER_CHANGED.format(
+            title=chosen.title,
+            offer=_money(check.offer_total_minor),
+            checkout=_money(check.checkout_total_minor),
+        )
+
+    def _trace_rejected_checkout(
+        self, run_id: str, chosen: "_ChosenBranch", error: PurchaseServiceError
+    ) -> None:
+        """The `checkout_check` of a checkout `start` rejected (§3.4, §3.7): over the limit, or
+        of another variant or currency. It is read back from the merchant; when it cannot be,
+        the purchase keeps the failure and the turn its explanation."""
+        stored = self._store.purchase(run_id) or {}
+        checkout_id = error.checkout_id or stored.get("checkout_id")
+        if self._checkout_reader is None or not isinstance(checkout_id, str):
+            return
+        try:
+            checkout = self._checkout_reader.get_checkout(checkout_id)
+        except Exception:
+            _logger.warning("Rejected checkout %s could not be read back", checkout_id)
+            return
+        lines = [line.get("item", {}).get("id") for line in checkout.line_items]
+        if lines == [chosen.evaluation.variant_id]:
+            entry = checkout_check_record(
+                chosen.decision,
+                checkout_id=checkout.id,
+                checkout_total_minor=checkout.total_minor,
+                checkout_currency=checkout.currency,
+            )
+        else:
+            # `verify_checkout` refuses another variant without a row: the row names it.
+            entry = _foreign_checkout(chosen, checkout, lines)
+        self._store.append_conditional(run_id, entry)
 
     def _stage(self, run_id: str, owner_id: str) -> str:
         view = self.purchase_view(run_id, owner_id)
@@ -959,12 +1274,238 @@ class ConversationService:
 def _after_search(state: GraphState) -> str:
     if state.get("delegate"):
         return "offer_delegation"
+    if (state["decision"].get("conditional") or {}).get("branches"):
+        # The branches decide with the merchant's offers, whatever the shortlist holds: a
+        # recovery would name alternatives the buyer did not authorize (§3.3).
+        return "select_product"
     return "select_product" if state["ranked_candidates"] else "recover_no_candidate"
 
 
 def _explained(message: str) -> dict[str, Any]:
     response = ConversationTurnResponse(action="respond", assistant_message=message)
     return {"response": response.model_dump(mode="json")}
+
+
+def _asked(message: str) -> dict[str, Any]:
+    response = ConversationTurnResponse(action="clarify", assistant_message=message)
+    return {"response": response.model_dump(mode="json")}
+
+
+class _NoOfferReader:
+    """Without a reader (Studio) no read succeeds, so no branch is verified (§3.3, step 3)."""
+
+    def get_offer(self, offer_id: str, delivery_context: DeliveryContext) -> MerchantOffer:
+        raise RuntimeError("No offer reader is configured")
+
+
+@dataclass(frozen=True)
+class _ChosenBranch:
+    """The branch `select_product` chose, as the graph state carries it to the checkout."""
+
+    resolved: ResolvedConditional
+    decision: ConditionalDecision
+
+    @classmethod
+    def of(cls, stored: dict[str, Any] | None) -> "_ChosenBranch | None":
+        if not stored:
+            return None
+        return cls(
+            ResolvedConditional.model_validate_json(json.dumps(stored["resolution"])),
+            ConditionalDecision.model_validate_json(json.dumps(stored["decision"])),
+        )
+
+    @property
+    def evaluation(self) -> BranchEvaluation:
+        chosen = self.decision.chosen
+        if chosen is None or chosen.offer is None:
+            raise ValueError("A chosen branch carries its offer")
+        return chosen
+
+    @property
+    def intent(self) -> PurchaseIntent:
+        return effective_intent(self.resolved, self.evaluation.index)
+
+    @property
+    def title(self) -> str:
+        return self.resolved.branches[self.evaluation.index].title
+
+    def over_limit_text(self) -> str:
+        evaluation = self.evaluation
+        assert evaluation.offer is not None
+        if evaluation.limit_minor is None:
+            return MISMATCHED_CHECKOUT.format(title=self.title)
+        return OVER_LIMIT_CHECKOUT.format(
+            title=self.title,
+            offer=_money(evaluation.offer.total_minor),
+            limit=_money(evaluation.limit_minor),
+        )
+
+
+def _foreign_checkout(
+    chosen: _ChosenBranch, checkout: CheckoutSession, lines: list[Any]
+) -> ConditionalEntry:
+    """The `checkout_check` of a checkout that is not the chosen variant: an `offer_changed`
+    that also names the variants the merchant put in it."""
+    entry = checkout_check_record(
+        chosen.decision,
+        checkout_id=checkout.id,
+        checkout_total_minor=checkout.total_minor,
+        checkout_currency=checkout.currency,
+    )
+    return ConditionalEntry(
+        kind="checkout_check",
+        outcome="offer_changed",
+        body={**entry.body, "outcome": "offer_changed", "checkout_variant_ids": lines},
+        branch_index=entry.branch_index,
+        variant_id=entry.variant_id,
+    )
+
+
+def _checkout_stopped(observer: TurnObserver | None, message: str) -> dict[str, Any]:
+    """A conditional checkout canceled because it is not its offer: the step fails with
+    `offer_changed` and the turn explains it; no other branch is tried (§3.4)."""
+    if observer is not None:
+        observer.step_failed("prepare_checkout", {"code": "offer_changed", "message": message})
+    return _explained(message)
+
+
+# What the buyer reads of a conditional decision (p0-conditional-intent.md §3.8): deterministic,
+# in Spanish, amounts by `format_minor_amount`. Titles are the feed's, never model text.
+
+NOT_YET_PREPARED = "Todavía no preparé ningún checkout."
+OFFER_CHANGED = (
+    "El total de {title} cambió entre la verificación ({offer}) y el checkout ({checkout}); "
+    "cancelé ese checkout y no probé otra opción. No se hizo ningún cobro."
+)
+OVER_LIMIT_CHECKOUT = (
+    "El total de {title} cambió entre la verificación ({offer}) y el checkout, y superó tu "
+    "límite de {limit}; cancelé ese checkout y no probé otra opción. No se hizo ningún cobro."
+)
+MISMATCHED_CHECKOUT = (
+    "El checkout que preparó el comercio para {title} no coincide con la oferta que verifiqué; "
+    "cancelé ese checkout y no probé otra opción. No se hizo ningún cobro."
+)
+
+
+def _money(amount: int) -> str:
+    return format_minor_amount(amount, "COP")
+
+
+def _listed(items: Sequence[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} y {items[-1]}"
+
+
+def _reason(branch: BranchEvaluation, titles: Sequence[str]) -> str:
+    """Why a branch was false, from the merchant's facts (§3.8)."""
+    offer = branch.offer
+    if branch.status == "out_of_stock":
+        return "está agotado"
+    if branch.status == "inactive":
+        return "no está a la venta"
+    if branch.status == "intent_mismatch":
+        return "no cumple otra condición de tu pedido"
+    if branch.status == "not_triggered":
+        earlier = titles[: branch.index]
+        verb = "se agotaba" if len(earlier) == 1 else "se agotaban"
+        return f"solo autorizaste {titles[branch.index]} si {_listed(earlier)} {verb}"
+    if branch.status != "over_limit" or offer is None:
+        raise ValueError(f"A {branch.status} branch is not false")
+    unit = branch.unit_limit_minor
+    if unit is not None and offer.items_total_minor > unit:
+        return (
+            f"su precio sin envío es {_money(offer.items_total_minor)} y tu límite por unidad es "
+            f"{_money(unit)}"
+        )
+    if branch.limit_minor is None:
+        raise ValueError("A branch over its total has a limit")
+    return (
+        f"su total con envío es {_money(offer.total_minor)} y tu límite para esa opción es "
+        f"{_money(branch.limit_minor)}"
+    )
+
+
+def _skipped(branches: Sequence[BranchEvaluation], titles: Sequence[str]) -> str:
+    return " ".join(
+        f"{titles[branch.index]} no cumplía tu condición: {_reason(branch, titles)}."
+        for branch in branches
+    )
+
+
+def _decision_text(decision: ConditionalDecision, titles: Sequence[str]) -> str:
+    branches = decision.branches
+    chosen = decision.chosen
+    if chosen is not None:
+        if chosen.offer is None:
+            raise ValueError("A chosen branch carries its offer")
+        title, total = titles[chosen.index], _money(chosen.offer.total_minor)
+        limit = chosen.limit_minor
+        within = "" if limit is None else f", dentro de tu límite de {_money(limit)}"
+        if chosen.index == 0:
+            return (
+                f"Elegí {title}: es tu primera opción y el comercio confirma un total de {total} "
+                f"con envío{within}."
+            )
+        skipped = _skipped(branches[: chosen.index], titles)
+        return f"{skipped} Elegí {title}: total de {total} con envío{within}."
+    if decision.outcome == "none":
+        reasons = " ".join(f"{titles[b.index]}: {_reason(b, titles)}." for b in branches)
+        return (
+            f"No compré nada: ninguna de tus opciones cumple tus condiciones. {reasons} No "
+            "preparé ningún checkout ni compré otra alternativa."
+        )
+    if decision.outcome == "undetermined":
+        unknown = next(branch for branch in branches if branch.status == "unknown")
+        title = titles[unknown.index]
+        parts = [_skipped(branches[: unknown.index], titles)] if unknown.index else []
+        parts.append(f"No pude verificar {title} con el comercio.")
+        if unknown.index + 1 < len(titles):
+            place = "primero" if unknown.index == 0 else "antes"
+            parts.append(
+                f"Como {title} va {place}, no pasé a {titles[unknown.index + 1]} sin saber si "
+                f"{title} cumplía."
+            )
+        parts.append("No preparé ningún checkout. Intenta de nuevo en un momento.")
+        return " ".join(parts)
+    # `clarify`: a branch against `intent.hard` came before the eligible one (§3.3, step 2).
+    mismatch = next(branch for branch in branches if branch.status == "intent_mismatch")
+    eligible = next(branch for branch in branches if branch.status == "eligible")
+    return (
+        f"{titles[mismatch.index]} no cumple otra condición de tu pedido, así que no pasé a "
+        f"{titles[eligible.index]}. ¿Quieres revisar tu pedido? {NOT_YET_PREPARED}"
+    )
+
+
+def _described(match: BranchMatch, index: int) -> str:
+    """A branch that resolved to no variant, by the words that name it."""
+    words = [*match.required_terms, *(option.value for option in match.required_options)]
+    return f"«{' '.join(words)}»" if words else f"tu opción {index + 1}"
+
+
+def _clarification_text(
+    clarification: ConditionalClarification, conditional: ConditionalIntent
+) -> str:
+    index = clarification.branch_index or 0
+    named = _described(conditional.branches[index].match, index) if conditional.branches else ""
+    if clarification.cause == "branch_not_found":
+        question = f"No encontré {named} en el catálogo."
+    elif clarification.cause == "branch_ambiguous":
+        question = (
+            f"Varias opciones coinciden con {named}: {_listed(clarification.titles)}; "
+            "¿cuál quieres?"
+        )
+    elif clarification.cause == "branch_excluded":
+        question = (
+            f"{clarification.titles[0]} está entre tus opciones, pero también pediste no "
+            "comprarlo; ¿cuál de las dos indicaciones vale?"
+        )
+    elif clarification.cause == "duplicate_branch":
+        question = f"Dos de tus opciones son {clarification.titles[0]}; ¿cuál es la otra?"
+    else:
+        question = (
+            "Solo puedo comparar totales en pesos colombianos (COP); ¿me confirmas tus límites "
+            "en COP?"
+        )
+    return f"{question} {NOT_YET_PREPARED}"
 
 
 def _started(

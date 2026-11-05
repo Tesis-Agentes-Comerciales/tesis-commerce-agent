@@ -1,31 +1,21 @@
 # P3 — Protocolo técnico UX03/UX05 HP
 
-Fecha: 3 de noviembre de 2026 (Bogotá). Estado: **diseño propuesto para aceptación**.
-Puerta experimental: **BLOCKED / equivalencia e aislamiento aún no validados**.
-No se implementan ramas UX03, adaptadores, cotización, cambios de respuesta ni escenarios.
-No hay nuevas observaciones Merchant, experimentos, compras ni llamadas a modelos.
+Diseño original del 3 de noviembre de 2026 (Bogotá). Estado: **protocolo documental**.
+Puerta experimental de UX03/UX05: **BLOCKED**.
+Este incremento documenta el diseño y sus criterios de validación.
 
 Entregables asociados: [dependencias](p3-ux03-dependencies.md) y
 [pruebas de validación propuestas](p3-ux03-validation.md).
 
 ## 1. Checkpoint y alcance
 
-Base exacta Agent: `ad86bdd6eea23e30a9cda509607f8e8ec933c6a2`, árbol limpio al iniciar.
-Rama de esta unidad: `codex/p3-ux03-protocol`, creada desde esa base.
-Remotos comprobados: `org` y `upstream` apuntan a
-`Tesis-Agentes-Comerciales/tesis-commerce-agent`; `origin` al fork
-`Maldinho18/tesis-commerce-agent`. Publicar en `org`, sin force push.
-La rama nueva tampoco existía en `org` al comprobarla.
-
-[#157](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/157)
-sigue abierto, draft, head `ad86bdd`, base `eval/scenarios-p0` (P1).
-La cadena se conserva: P1 → P2 → P3; base de este PR = `codex/p2-merchant-provenance`.
-No se fusiona, reescribe ni modifica P1/P2. No se operó el checkout original del Agent;
-las operaciones Git del worktree utilizan necesariamente su almacén compartido de metadatos.
-
-El usuario comunica visto bueno conceptual de Yair a las 33 situaciones. Eso actualiza
-el contexto de esta fase, sin reinterpretar como erróneos los documentos históricos que
-registraban aprobación pendiente. La aceptación técnica de este protocolo sigue pendiente.
+El diseño partió del checkpoint Agent `ad86bdd6eea23e30a9cda509607f8e8ec933c6a2`.
+P1 [#156](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/156)
+y P2 [#157](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/157)
+ya están en `main`. La actualización documental de P2 se publicó en
+[#184](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/184).
+El orden de revisión restante es #158 → #160 → #176. El estado observado por
+escenario y modo se consulta en [matrix-observed.json](../../evaluation/scenarios/p0/matrix-observed.json).
 
 Documentos obligatorios leídos en la base:
 
@@ -41,15 +31,19 @@ Documentos obligatorios leídos en la base:
 - [Oráculo P1](../../evaluation/scenarios/p0/ux03-oracle.json):
   `synthetic_math_only`; sus importes USD no son datos observados del Merchant.
 
-El código coincide con esas limitaciones: `PurchaseIntent` representa un bloque hard y
+En el checkpoint, `PurchaseIntent` representa un bloque hard y
 preferencias, sin ramas ordenadas con límites propios; `rank_candidates` filtra el precio
 unitario observado, mientras `PurchaseService` verifica después el total del checkout.
-No se identifica la coincidencia de una selección actual con una implementación general de UX03.
+El [diseño de intención condicional](p0-conditional-intent.md#311-compatibilidad-con-el-protocolo-p3-de-maldo)
+documenta la compatibilidad prevista con P3. [#190](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/190)
+incorporó el contrato tipado, el evaluador y el registro de decisiones. Su conexión al
+recorrido experimental HP y la validación de las celdas siguen pendientes.
 
 CI del checkpoint comprobado en GitHub:
 [41702583061](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41702583061),
 head `ad86bdd`, cuatro jobs success. Es CI offline, separado del nightly P2.
-El CI de la revisión documental se consulta después de abrir el PR; no valida este protocolo en vivo.
+El CI de esta revisión y el perfil live `p0-catalog-bridge` comprueban la integración
+documental y la regresión P2. La validación experimental de P3 tiene evidencia separada.
 
 ## 2. Contratos auditados y procedencia
 
@@ -137,10 +131,10 @@ de ampliar a compras. Solicitar «compra A si…» no sustituye el clic de aprob
 | Calibrar clones independientes y verificar limpieza/equivalencia | Reutiliza ACP actual y permite congelar el oráculo sin contaminar el historial evaluado. **Recomendada solo si pasa la puerta de validación**. |
 | API nueva de quote | Cambiaría producto/contrato; no justificada mientras la opción anterior sea comprobable. |
 
-Conclusión por lectura: técnicamente plausible para evaluar decisiones en un estado
-controlado y congelado, todavía no demostrada. No valida comercio dinámico ni le da al
-Agent una capacidad de comparación inexistente. Si la propuesta actual no representa UX03,
-registrar `capability_missing` o el fallo observado sin reemplazarla con el resultado del oráculo.
+Conclusión de la auditoría del checkpoint: la calibración es técnicamente plausible en
+un estado controlado y congelado. Su evidencia se revisa en el incremento de validación.
+Si el recorrido Agent probado carece de capacidad para proponer una rama UX03, registrar
+`capability_missing` o el fallo observado y conservar separada la respuesta del oráculo.
 
 ### Equivalencia que debe demostrarse
 
@@ -207,7 +201,7 @@ aunque el comercio use reloj de escenario: vigencia de ambos relojes se comprueb
     finally; publicación de resultado solo después de limpieza comprobada. Limpieza fallida
     no borra un fallo previo: registrar ambos y poner el lote en cuarentena.
 
-Contrato de evidencia propuesto (aún sin esquema implementado): por fase/run, SHAs completos,
+Contrato de evidencia del diseño: por fase/run, SHAs completos,
 hashes de fuentes/locks/fixture/feed/configuración sanitizada, ambos relojes, actor/run aliases,
 Offer before/after completo y revisión, HTTP método/ruta/status/ordinal, checkout snapshots y
 revisiones, total/moneda/cantidad/desglose, estado independiente de efectos y limpieza.
@@ -254,7 +248,7 @@ No convertir un 401/429/timeout/JSON inválido en «agotado» o «fuera de presu
 
 ## 6. Resultados, efectos permitidos y límites
 
-Propuesta mínima a aceptar: calibración A/B un checkout por run; V dos checkouts cancelados;
+Límite acordado: calibración A/B un checkout por run; V dos checkouts cancelados;
 E máximo un checkout elegido, sin exploración previa. A/B/C elegibles pueden dejar ese checkout
 pendiente de aprobación hasta teardown; D y UNKNOWN esperan cero creación. Un intento indebido
 se registra y limpia, sin ocultarlo aunque termine en cero órdenes. Si el producto necesita
@@ -272,7 +266,15 @@ aprobación/calibración se reutiliza para otro checkout. Una extensión de comp
 aceptación explícita, presupuesto de efectos y pruebas de frescura/identidad. No HNP, LLM
 pagado, nueva infraestructura ni nueva API se autorizan por aprobar este diseño.
 
-## 7. Decisiones humanas antes de implementar
+## 7. Decisiones humanas y validación
+
+Yair aceptó las decisiones 1–4 y autorizó el incremento de validación del punto 5.
+La evidencia de contrato Offer → Checkout está en
+[#160](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/160)
+y la validación del protocolo en
+[#176](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/176).
+Ambos tienen revisión e integración separadas. Las cinco celdas UX03 y la evaluación
+UX05 siguen pendientes del comportamiento condicional del Agent y de su ejecución experimental.
 
 1. Aceptar calibración por clones con igualdad exacta de Offer y reloj fijo, alcance de
    laboratorio sintético y bloqueo ante cualquier equivalencia no demostrada.
@@ -282,10 +284,10 @@ pagado, nueva infraestructura ni nueva API se autorizan por aprobar este diseño
    antes de implementación; la calibración no resuelve esa capacidad del Agent.
 4. Aceptar HP/enforce/ACP, controles de identidad, qué evidencia confirma aislamiento y
    limpieza y quién revisa el sello. Compras y evaluación LLM requieren autorización posterior.
-5. Autorizar después un incremento de validación del protocolo, limitado al arnés y las pruebas
-   propuestas; solo tras su evidencia decidir adaptación UX03. Este documento no es esa aceptación.
+5. Validar el protocolo en un incremento limitado al arnés y las pruebas propuestas.
+   Usar esa evidencia para decidir la preparación de la evaluación UX03.
 
 Riesgos abiertos: persistencia adicional no medida por P2, efectos globales PSP/caché,
 equivalencia temporal, alcance de mutaciones por episodio, exposición parcial de alternativas
-en shortlist, falta de comparación total A/B en Agent y punto de inyección UNKNOWN.
+en shortlist, conexión del evaluador A/B al flujo HP y punto de inyección UNKNOWN.
 Las pruebas propuestas deben cerrar estos riesgos o conservar el bloqueo; CI verde no los cierra.

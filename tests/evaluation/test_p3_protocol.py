@@ -224,3 +224,17 @@ def test_pv09_seal_and_scorer_leave_an_adverse_proposal_incorrect():
     assert choose_ux03(cells[1]["a"], cells[1]["b"]) == "B"
     unknown = next(c for c in cells if c["id"] == "UX03-UNKNOWN-A")
     assert choose_ux03(unknown["a"], unknown["b"]) == "undetermined"
+
+
+def test_pv09_clarify_is_scored_as_adverse_product_decision():
+    """Unexpected clarify is not an invalid experimental setup or a changed oracle."""
+    gate = gate_through_cleanup()
+    initial_e = {"run_id": "E", "effects": 0}
+    gate.compare(clone_snapshot(), initial_e, initial_e)
+    cells = json.loads(oracle_bytes())["cells"]
+    inputs = {cell["id"]: {"input": cell["id"]} for cell in cells}
+    gate.seal(inputs)
+    gate.observe("UX03-A", "clarify", inputs)
+    assert gate.score("UX03-A") is False
+    with pytest.raises(ProtocolBlocked, match="Invalid proposal label"):
+        gate.observe("UX03-B", "not-a-decision", inputs)

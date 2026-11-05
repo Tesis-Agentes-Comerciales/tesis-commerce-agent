@@ -236,6 +236,43 @@ con `record_hnp_completion` en la misma transacción. Un recibo de error válido
 puede volver a obtener los recibos, la tarea sigue `running` y la próxima corrida repite las dos
 peticiones idempotentes.
 
+**Orden consentido (`priority`, `p0-conditional-intent.md` §3.9).** Si el consentimiento trae
+`priority`, el paso 2 no usa la lista corta ni el selector: cada variante del orden es una rama del
+evaluador condicional (`application/conditional.py`) con solo su `variant_id` y el total del grant
+como límite. `resolve_branches` la ata al feed del paso y `evaluate_branches` lee, en ese orden,
+la oferta del comercio (`POST /lab/offers/get` con el `ACPClient` del runtime, que
+`build_hnp_executor` recibe como `offers`). La primera variante activa, con stock, que el feed da
+como disponible y cuyo `total_minor` con envío es ≤ el total del grant (la igualdad cabe) es la
+elección; las siguientes no se leen. El modelo no participa: el selector no se consulta. La
+decisión va a `conditional_decisions` con el `run_id` de la tarea antes de cualquier efecto, y los
+finales son los de siempre:
+
+- ninguna variante del orden a la venta dentro del total (agotada, inactiva o sobre el total):
+  `no_candidate_in_scope`, sin efectos;
+- una oferta que no se pudo leer (cualquier error del cliente ACP, también `offer_expired` y
+  `OFFER_NOT_FOUND`), o que el feed da como no disponible: `selection_unavailable`, sin
+  `failure_kind` y **sin leer la siguiente**;
+- **una variante del orden que ya no está en el feed** (por ejemplo, la primera): la resolución
+  pide aclaración y la tarea termina `selection_unavailable` antes de leer ninguna oferta. No sigue
+  con el resto del orden, porque comprar la segunda sin saber nada de la primera saltaría la
+  prioridad que consintió el comprador;
+- una variante que contradice la intención del grant (otra moneda en el feed) antes de la elegida:
+  `selection_unavailable`, aunque una posterior sea elegible (D14); después de la elegida no
+  importa.
+
+Con la elección, `start` recibe el intent efectivo de la rama, que en HNP es el del grant, y
+después `verify_checkout` exige que el checkout preparado sea de esa variante y lleve el mismo
+`total_minor` que su oferta (D4, igualdad estricta) y lo anota como fila `checkout_check`. Si no
+coincide, o si la guarda de presupuesto cancela el checkout (la oferta cambió entre la lectura y la
+creación), la tarea termina `offer_changed` sin probar otra variante: en B2-HNP escala y cancela su
+checkout (§8.2); en B0-HNP falla y el checkout queda abierto hasta que vence, como con la frescura
+de hoy. Sin `priority` el ejecutor es el de siempre.
+
+**Revisión prometida (D15).** El revisor (`hnp-intent-review.md`) corre sobre la elección del orden
+solo si el consentimiento trae `preference_review`; sin él no revisa, aunque después se configure
+el revisor. Con o sin `priority`, un consentimiento con `preference_review` y sin revisor en la
+corrida termina `choice_not_confirmed` antes de cualquier efecto y sin evento `choice_reviewed`.
+
 **Arranque (HNP-09a).** Con `AGENT_HNP_ENABLED`, `build_runtime` arma el executor en un solo lugar,
 `delegation/bootstrap.build_hnp_executor`, que desde 09b le enchufa el `HnpDispatcher` con el mismo
 ledger, el `DelegatedPaymentClient` y el `ACPClient` del runtime. En `enforce`, la
@@ -313,6 +350,16 @@ Lo que el comprador consiente es `ConsentScope`:
 }
 ```
 
+Dos campos opcionales (`p0-conditional-intent.md` §3.9 y D15) **se omiten** cuando no aplican, así
+que un consentimiento guardado sin ellos conserva sus bytes y su `scope_digest`; un `null` o un
+`false` explícitos no son canónicos:
+
+- `priority` (y `display.priority`, igual): el orden en que el comprador quiere que se prueben las
+  variantes, una permutación completa de `scope.variant_ids`, de 1 a 3;
+- `display.preference_review: true`: la tarjeta promete que el agente revisa `preference_text`
+  antes de comprar. `propose` lo pone solo con `preference_text`, en `enforce` y con
+  `AGENT_HNP_REVIEWER=llm` (`build_delegation_service`).
+
 `scope_digest = "sha256:" + hex(SHA256(b"commerce-delegation-scope/v1\0" + bytes))`, con `bytes` en
 `commerce-canonical-json/1` (policy-v1 §5).
 
@@ -331,7 +378,8 @@ bytes que recibe y HNP-V1 los reutiliza para recalcular el digest.
   consiente. La vigencia efectiva pierde a lo sumo el TTL de la propuesta.
 - **Decisión de spec, indicación del comprador:** `preference_text` (opcional, 1 a 280 caracteres) es
   texto del propio comprador, no del modelo. Se muestra tal cual en la tarjeta, entra en el digest y
-  solo lo lee el selector LLM. Nunca entra en `DelegationScope` ni en el PDP. Lo necesita HN10.
+  solo lo leen el selector LLM y, si la tarjeta lo prometió (`preference_review`), el revisor.
+  Nunca entra en `DelegationScope` ni en el PDP. Lo necesita HN10.
 
 ### 4.3 Tablas SQLite
 
@@ -351,6 +399,7 @@ logs. Es la misma protección que los mandatos HP (`ap2-profile.md`).
 | `checkout_details_json` | TEXT NOT NULL, **protegida**; `CheckoutDetails` (buyer y fulfillment) |
 | `presented_at`, `expires_at` | TEXT NOT NULL |
 | `grant_id` | TEXT NULL UNIQUE; se llena al consentir |
+| `superseded_by` | TEXT NULL; la propuesta más reciente del mismo dueño que la reemplazó mientras estaba abierta (D2 de `p0-ux08-ux10.md`). Nula si `grant_id` no lo es. Una base anterior la recibe al iniciar, con sus filas abiertas |
 
 **`delegation_grants`**
 
@@ -700,7 +749,7 @@ genérico de FastAPI. Las rutas HP no cambian.
 | Método y ruta | Cuerpo | Éxito | Errores |
 | --- | --- | --- | --- |
 | `POST /delegations/proposals` | `DelegationProposalRequest` | 201 `DelegationProposal` | 401; 422 `delegation_request_invalid`, `delegation_variant_unavailable`, `delegation_validity_exceeded`, `delegation_destination_unsupported` |
-| `POST /delegations` | `{proposal_id, scope_digest}` | 201 `DelegationView`; 200 con el mismo grant si la propuesta ya se consintió con ese digest | 401; 404 `delegation_proposal_not_found`; 409 `delegation_scope_mismatch`, `delegation_proposal_expired`; 503 `delegation_signer_unavailable` |
+| `POST /delegations` | `{proposal_id, scope_digest}` | 201 `DelegationView`; 200 con el mismo grant si la propuesta ya se consintió con ese digest | 401; 404 `delegation_proposal_not_found`; 409 `delegation_scope_mismatch`, `delegation_proposal_superseded`, `delegation_proposal_expired`; 503 `delegation_signer_unavailable` |
 | `GET /me/delegations` | — | 200 `DelegationList` (más recientes primero) | 401 |
 | `GET /delegations/{grant_id}` | — | 200 `DelegationView` | 401; 404 `delegation_not_found` |
 | `POST /delegations/{grant_id}/revoke` | — | 200 `RevokeReceipt`; repetir devuelve el mismo recibo; un grant ya `revoked` por otra causa (`operator`, `escalated`, `failed`) devuelve 200 con su estado actual (ver abajo) | 401; 404 `delegation_not_found`; 409 `delegation_not_revocable` (grant `consumed` o `expired`) |
@@ -708,16 +757,26 @@ genérico de FastAPI. Las rutas HP no cambian.
 
 Un grant o una propuesta de otro dueño responden 404, igual que una inexistente.
 
+Una propuesta nueva reemplaza las propuestas abiertas del mismo dueño (D2 de `p0-ux08-ux10.md`):
+las que no se consintieron ni se reemplazaron y no vencieron, ni por su TTL ni por la vigencia del
+grant. El dueño es todo el contexto, porque la solicitud no nombra conversación, pestaña ni turno:
+una propuesta de cualquiera de ellas deja solo la última para consentir. Es a propósito y falla
+cerrado. Al consentir, el orden es digest, propuesta ya consentida (200 con el mismo grant, aunque
+después haya otra más reciente), reemplazada (409 `delegation_proposal_superseded`, sin grant) y
+vencida.
+
 Revocar un grant que ya está `revoked(operator|escalated|failed)` no escribe nada: responde 200 con
 `RevokeReceipt{state: "revoked", revoked_reason: <la causa guardada>, revoked_at: closed_at, effect:
 "no_effect", message: revoke.already_closed}`. Con `revoked(owner)` devuelve el recibo original.
 
 `DelegationProposalRequest`: `variant_ids` (1 a 5, únicos), `total_max_minor` (entero > 0),
 `currency` (`"COP"`), `valid_for_seconds` (60 ≤ v ≤ `AGENT_HNP_MAX_VALIDITY_SECONDS`), `details`
-(`CheckoutDetails` de HP) y `preference_text` (opcional). Variante fuera del feed actual del comercio
-configurado o en otra moneda: `delegation_variant_unavailable`. Una dirección que el comercio no
-acepta: `delegation_destination_unsupported`. Un total menor que todos los precios no
-se rechaza: D1 lo escalará con POL-11.
+(`CheckoutDetails` de HP), `preference_text` (opcional) y `priority` (opcional: el orden de
+`variant_ids`, de 1 a 3, que se guarda tal cual en el consentimiento y la tarjeta; omitido, nunca
+`null`). El backend agrega `display.preference_review` (§4.2), nunca el cliente. Variante
+fuera del feed actual del comercio configurado o en otra moneda: `delegation_variant_unavailable`.
+Una dirección que el comercio no acepta: `delegation_destination_unsupported`. Un total menor que
+todos los precios no se rechaza: D1 lo escalará con POL-11.
 
 **Cómo lo arma HNP-08** (`delegation_api.py`, `delegation/service.py`, `delegation/views.py`):
 
@@ -785,7 +844,7 @@ código, y un `RevokeReceipt` de otra causa que `owner` solo con `no_effect` (§
 
 | Tipo | Campos |
 | --- | --- |
-| `ScopeView` | `merchant_name`, `variants: [{variant_id, title}]`, `total_max: Money`, `expires_at`, `destination_label` («Ciudad, Departamento»), `instrument_label`, `uses: 1`, `preference_text: str \| null` |
+| `ScopeView` | `merchant_name`, `variants: [{variant_id, title}]`, `total_max: Money`, `expires_at`, `destination_label` («Ciudad, Departamento»), `instrument_label`, `uses: 1`, `preference_text: str \| null`; y, solo cuando aplican, `priority: [variant_id]` y `preference_review: true` (§4.2) |
 | `DelegationProposal` | `proposal_id`, `scope: ScopeView`, `scope_digest`, `presented_at`, `expires_at` (de la propuesta) |
 | `TaskView` | `task_id`, `state`, `outcome_code \| null`, `run_id \| null`, `order_id \| null`, `message \| null`, `updated_at` |
 | `EscalationView` | `reason` (código de escalamiento), `title`, `message`, `prefill_request` |
@@ -937,10 +996,10 @@ Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP d
 | Estado | `outcome_code` | Causa | Reserva | Grant | Aviso |
 | --- | --- | --- | --- | --- | --- |
 | `escalated` | `budget_not_satisfiable` | D1 POL-11 | — | `revoked(escalated)` | Escalamiento |
-| `escalated` | `no_candidate_in_scope` | Lista corta vacía | — | `revoked(escalated)` | Escalamiento |
-| `escalated` | `choice_not_confirmed` | El revisor de intención no confirmó la elección (o no respondió), antes de D1 (`hnp-intent-review.md`) | — | `revoked(escalated)` | Escalamiento |
-| `escalated` | `selection_unavailable` | El selector falló o no respondió (excepción, timeout, salida inválida o `None`): no hubo elección, antes del revisor, de D1 y de cualquier POST | — | `revoked(escalated)` | Escalamiento |
-| `escalated` | `offer_changed` | Frescura `changed` al cerrar; se cancela el checkout propio | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `no_candidate_in_scope` | Lista corta vacía; con `priority`, ninguna variante del orden a la venta dentro del total según su oferta (§3.3) | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `choice_not_confirmed` | El revisor de intención no confirmó la elección (o no respondió), antes de D1 (`hnp-intent-review.md`); o la tarjeta prometió la revisión (`preference_review`) y la corrida no tiene revisor (D15) | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `selection_unavailable` | El selector falló o no respondió (excepción, timeout, salida inválida o `None`): no hubo elección, antes del revisor, de D1 y de cualquier POST. Con `priority` (§3.3): una oferta que no se pudo verificar, una variante del orden que no está en el feed o una que contradice la intención antes de la elegida; nunca se pasa a la siguiente | — | `revoked(escalated)` | Escalamiento |
+| `escalated` | `offer_changed` | Frescura `changed` al cerrar; con `priority`, también un checkout cuyo total no es el de la oferta elegida (o que la guarda de presupuesto canceló); se cancela el checkout propio | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `terms_out_of_scope` | D2 niega solo con POL-05 y/o POL-08 | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `authorization_profile_unresolved` | `GOV_AUTHORIZATION_PROFILE_UNRESOLVED`: perfil, `open_proof` o `closed_proof` en `unresolved` | — | `revoked(escalated)` | Escalamiento |
 | `escalated` | `verifier_unresolved_constraint`, `verifier_mandates_not_supported` | Recibo de error del PSP con ese código | `released(psp_error_receipt)` | `revoked(escalated)` | Escalamiento |
@@ -953,7 +1012,7 @@ Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP d
 | `failed` | `governance_unavailable` | `GOV_ENGINE_UNAVAILABLE`, `GOV_OUTPUT_INVALID`, `GOV_ARTIFACT_MISMATCH`, `GOV_EVIDENCE_UNAVAILABLE`, `GOV_FACTS_UNAVAILABLE`, `GOV_INPUT_INVALID`, `GOV_FRESHNESS_UNRESOLVED` | Ídem | `revoked(failed)` | Fallo |
 | `failed` | `state_conflict` | Perdió un CAS sin otra causa (§4.5, «Lease y fencing») | Ídem | `revoked(failed)` | Fallo |
 | `failed` | `verifier_invalid_mandate`, `verifier_invalid_credential` | Recibo de error del PSP; alerta al operador | `released(psp_error_receipt)` | `revoked(failed)` | Fallo |
-| `failed` | `checkout_failed` | El comercio rechaza crear o actualizar el checkout | — | `revoked(failed)` | Fallo |
+| `failed` | `checkout_failed` | El comercio rechaza crear o actualizar el checkout; si rechazó crearlo con un código tipado y no quedó ningún checkout, `task_finished` lo nombra en `merchant_refusal` (CT13) | — | `revoked(failed)` | Fallo |
 | `failed` | `budget_guard` | La guarda común cancela el checkout (total autoritativo sobre el máximo) | — | `revoked(failed)` | Fallo |
 | `failed` | `close_expired_before_dispatch` | §4.5 | `released(no_outbox)` | `revoked(failed)` | Fallo |
 | `uncertain` | `dispatch_timeout`, `partial_verifier_failure`, `receipt_mismatch` | Después del outbox | `uncertain` | `active` | Incierto |
@@ -1003,6 +1062,22 @@ escalamiento: **«Necesito tu decisión»** (clave `escalation.title`; el prelle
 seguido del sufijo (`escalation_message`): `suffix_rejected_by_psp` para los dos `verifier_*`, y
 `suffix_before_presentation` para los demás.
 
+**Textos neutros (`p0-conditional-intent.md` §3.9).** `escalation.no_candidate_in_scope` y
+`escalation.selection_unavailable` no nombran la causa. El primero cubre la lista corta vacía y un
+orden consentido sin variante a la venta dentro del total; el segundo, un selector que falló, una
+oferta que no se pudo verificar y una variante del orden que no se pudo probar (fuera del feed o
+contra la intención), donde no falló ningún servicio.
+
+**Rechazo del comercio al crear el checkout (CT13).** Una tarea `failed(checkout_failed)` usa
+`task.refused.<código>` en lugar de `task.failed` solo si su `task_finished` trae
+`merchant_refusal`. El executor lo pone cuando, y solo cuando, el comercio rechazó la creación con
+un código tipado (los de `runtime_dispatch.DEFINITIVE_CREATION_REFUSALS`, por estado HTTP y código
+exactos) y la compra quedó `failed` sin `checkout_id`: en B2-HNP, D1-HNP solo devuelve ese código
+después de registrar `definitive_failure`; en B0-HNP, la respuesta es la del único POST de `start`.
+Un update rechazado (aunque traiga `out_of_stock`), un cierre fallido, una excepción genérica o un
+código desconocido no nombran causa. La causa usa las palabras de `FAILURE_COPY` de la traza, y el
+`outcome_code` sigue siendo `checkout_failed`.
+
 **Montos (K16, reemplaza a K13).** `<total>` usa la notación de `formatMoney` de la UI, para que la
 tarjeta no mezcle dos: «$ 1.924.000,00 COP», con espacio duro (U+00A0) después de «$», miles con
 punto y siempre dos decimales. La escribe `format_cop` (`delegation/views.py`); la tabla
@@ -1013,9 +1088,9 @@ sigue en el chat HP y en el texto del modelo.
 | Clave | Texto |
 | --- | --- |
 | `escalation.budget_not_satisfiable` | El precio de catálogo de la opción disponible ya supera el total máximo que autorizaste. |
-| `escalation.no_candidate_in_scope` | Ninguna de las opciones que autorizaste está disponible ahora. |
+| `escalation.no_candidate_in_scope` | Ninguna de las opciones que autorizaste se puede comprar ahora dentro de tu autorización. |
 | `escalation.choice_not_confirmed` | No pude confirmar que la opción elegida sea la que pediste. |
-| `escalation.selection_unavailable` | No pude elegir entre las opciones que autorizaste porque el servicio que hace la elección falló o no respondió. |
+| `escalation.selection_unavailable` | No pude elegir con seguridad entre las opciones que autorizaste. |
 | `escalation.offer_changed` | La oferta del comercio cambió antes de que cerrara la compra. |
 | `escalation.terms_out_of_scope` | El total del comercio, con envío, o algún término quedó fuera de lo que autorizaste. |
 | `escalation.authorization_profile_unresolved` | No pude comprobar que la compra encaje en tu autorización. |
@@ -1032,6 +1107,9 @@ sigue en el chat HP y en el texto del modelo.
 | `task.grant_expired` | Tu delegación venció antes de que el agente comprara. No se hizo ningún cobro. |
 | `task.revoked_by_owner` | Revocaste la delegación antes de la compra. No se hizo ningún cobro. |
 | `task.failed` | Detuve la compra delegada por precaución porque no pude verificar todo lo necesario. No se hizo ningún cobro y cerré la delegación. |
+| `task.refused.out_of_stock` | El producto se agotó antes de completar la compra. No se hizo ningún cobro y cerré la delegación. |
+| `task.refused.offer_expired` | La oferta del comercio venció. No se hizo ningún cobro y cerré la delegación. |
+| `task.refused.invalid_item` | El producto ya no está disponible en el comercio. No se hizo ningún cobro y cerré la delegación. |
 | `task.uncertain` | No sé todavía si la compra delegada se completó: el comercio o el proveedor de pagos no confirmó el resultado. No voy a intentarlo con otra autorización; la estoy conciliando. |
 | `task.purchased` | Compré <título> por <total> con tu delegación. Orden <número>. |
 | `task.running` | Estoy haciendo la compra que delegaste. |
@@ -1084,7 +1162,7 @@ Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autoriza
 | `consented` | `user` | `proposal_id`, `scope_digest`, `presented_at`, `consented_at`, `grant_version`, `authority_epoch`, `task_id` |
 | `mandates_issued` | `service` | Por mandato abierto: `token_digest`, `link_hash`, `issuer_kid`; `cnf_kid`, `exp`, `payment_reference` |
 | `task_claimed` | `service` | `run_id`, `claim_count`, `lease_expires_at`, `trigger: "service_token"` |
-| `choice_reviewed` | `service` | `decision`, `reason`, `prompt_id`, `model` (solo con `AGENT_HNP_REVIEWER=llm`, `hnp-intent-review.md`) |
+| `choice_reviewed` | `service` | `decision`, `reason`, `prompt_id`, `model` (solo con `AGENT_HNP_REVIEWER=llm`, `hnp-intent-review.md`); `failure_kind` si el modelo no pudo revisar (`p0-model-failures.md` §3.5) |
 | `reservation_reserved` | `service` | `reservation_id`, `operation_id`, `amount_minor`, `expected_epoch`, `state_version`, `d2_evidence_id` |
 | `mandates_closed` | `service` | Por cerrado: `token_digest`, `link_hash` (`sd_hash` del último salto), `checkout_hash`, `agent_key_kid` |
 | `dispatch_committed` | `service` | `outbox_id`, `d3_evidence_id`, `authority_epoch`, `control_epoch` |
@@ -1095,7 +1173,7 @@ Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autoriza
 | `revoked` | `user`, `operator` o `service` | `revoked_reason`, `epoch_before`, `epoch_after`, `effect` |
 | `expired` | `service` | `expires_at`, `observed_at` |
 | `kill_switch_blocked` | `service` | `control_epoch`, `stage: claim \| uow1 \| uow2` |
-| `task_finished` | `service` | `state`, `outcome_code`, `run_id` |
+| `task_finished` | `service` | `state`, `outcome_code`, `run_id`; `failure_kind` si el modelo hizo fallar al selector (`selection_unavailable`, `p0-model-failures.md` §3.5); `merchant_refusal` (`out_of_stock`, `offer_expired` o `invalid_item`) si la tarea terminó `checkout_failed` porque el comercio rechazó crear el checkout con ese código y no quedó ninguno (CT13) |
 
 Todos llevan `actor_kind`, `actor_ref`, `on_behalf_of`, `task_id` y `run_id` en la fila. Las
 decisiones D1/D2/D3 viven en `governance_evidence` y la frescura `close` en `hp_evidence`. La

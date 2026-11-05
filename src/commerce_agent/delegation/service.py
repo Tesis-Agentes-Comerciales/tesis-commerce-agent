@@ -10,10 +10,18 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from commerce_agent.acp.destination import merchant_fulfillment
 from commerce_agent.acp.feed import ProductFeed
@@ -34,6 +42,7 @@ from commerce_agent.governance.hnp_models import (
     ConsentScope,
     PositiveMinor,
     PreferenceText,
+    Priority,
     parse_consent_scope,
     scope_digest,
 )
@@ -55,6 +64,7 @@ from .models import (
     Execution,
     KillSwitchState,
     LedgerCounts,
+    MerchantRefusal,
     ProposalDraft,
     ProposalRecord,
     SignedMandate,
@@ -67,6 +77,7 @@ INSTRUMENT_LABEL = "Tarjeta de prueba del sandbox"
 _CONSENT_ERRORS = {
     "not_found": "delegation_proposal_not_found",
     "scope_mismatch": "delegation_scope_mismatch",
+    "proposal_superseded": "delegation_proposal_superseded",
     "proposal_expired": "delegation_proposal_expired",
 }
 
@@ -93,6 +104,8 @@ class DelegationProposalRequest(_Body):
     valid_for_seconds: Annotated[int, Field(ge=60)]
     details: CheckoutDetails
     preference_text: PreferenceText | None = None
+    # The buyer's order of `variant_ids` (p0-conditional-intent.md §3.9), kept as sent.
+    priority: Priority | None = None
 
     @field_validator("variant_ids")
     @classmethod
@@ -100,6 +113,27 @@ class DelegationProposalRequest(_Body):
         if len(set(ids)) != len(ids):
             raise ValueError("The variants of a scope are distinct")
         return tuple(sorted(ids))
+
+    @field_validator("priority")
+    @classmethod
+    def _priority_is_absent_not_null(cls, value: tuple[str, ...] | None) -> tuple[str, ...]:
+        # Runs only on a given value, never on the default: a null is a second form of absent.
+        if value is None:
+            raise ValueError("An absent priority is omitted, not null")
+        return value
+
+    @model_validator(mode="after")
+    def _priority_orders_the_variants(self) -> Self:
+        if self.priority is not None and tuple(sorted(self.priority)) != self.variant_ids:
+            raise ValueError("A priority orders every requested variant exactly once")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _without_absent_priority(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("priority") is None:
+            data.pop("priority", None)
+        return data
 
 
 class DelegationConsentRequest(_Body):
@@ -145,7 +179,10 @@ class DelegationService:
         proposal_ttl_seconds: int,
         clock: Callable[[], datetime] = _utc_now,
         new_id: Callable[[str], str] = _new_id,
+        preference_review: bool = False,
     ) -> None:
+        """`preference_review`: the executor of this startup reviews the buyer's text (enforce
+        with AGENT_HNP_REVIEWER=llm, `build_delegation_service`); D15 promises it on the card."""
         self._ledger = ledger
         self._trust = trust
         self._feed = feed
@@ -154,10 +191,14 @@ class DelegationService:
         self._ttl = timedelta(seconds=proposal_ttl_seconds)
         self._clock = clock
         self._new_id = new_id
+        self._preference_review = preference_review
 
     # Proposal and consent (§3.2)
 
     def propose(self, owner_id: str, request: DelegationProposalRequest) -> DelegationProposal:
+        """The new proposal replaces the owner's open ones (D2, docs/design/p0-ux08-ux10.md §3.3).
+        The owner is the whole context: the request names no conversation, tab or turn, so a
+        proposal from any of them leaves only the newest one to consent, and that fails closed."""
         if request.valid_for_seconds > self._max_validity:
             raise DelegationError("delegation_validity_exceeded")
         # POL-08 compares this binding with D2's over the merchant's echo: bind (and later send)
@@ -177,7 +218,24 @@ class DelegationService:
         presented_at = utc_text(now)
         expires_at = utc_text(now + timedelta(seconds=request.valid_for_seconds))
         keys = self._trust.keys
-        consent = {
+        display: dict[str, Any] = {
+            "merchant_name": feed.seller_name or MERCHANT_NAME,
+            "variants": [
+                {"variant_id": variant, "title": offered[variant].variant_title}
+                for variant in request.variant_ids
+            ],
+            "total_max": {"minor": request.total_max_minor, "currency": "COP"},
+            "expires_at": expires_at,
+            "destination_label": f"{fulfillment.address.city}, {fulfillment.address.state}",
+            "instrument_label": INSTRUMENT_LABEL,
+            "uses": 1,
+            "preference_text": request.preference_text,
+        }
+        # D15: the card promises a review only when this startup will run one on this text. Both
+        # keys are omitted when absent, so a consent without them keeps its old bytes.
+        if self._preference_review and request.preference_text is not None:
+            display["preference_review"] = True
+        consent: dict[str, Any] = {
             "schema_version": "commerce-delegation/1.0",
             "proposal_id": proposal_id,
             "owner_ref": self._owner_ref(owner_id),
@@ -195,23 +253,15 @@ class DelegationService:
                 "instrument_ref": "tesis_sandbox",
                 "uses_max": 1,
             },
-            "display": {
-                "merchant_name": feed.seller_name or MERCHANT_NAME,
-                "variants": [
-                    {"variant_id": variant, "title": offered[variant].variant_title}
-                    for variant in request.variant_ids
-                ],
-                "total_max": {"minor": request.total_max_minor, "currency": "COP"},
-                "expires_at": expires_at,
-                "destination_label": f"{fulfillment.address.city}, {fulfillment.address.state}",
-                "instrument_label": INSTRUMENT_LABEL,
-                "uses": 1,
-                "preference_text": request.preference_text,
-            },
+            "display": display,
             "presented_at": presented_at,
             "expires_at": expires_at,
             "preference_text": request.preference_text,
         }
+        if request.priority is not None:
+            # The buyer's order, kept as sent and shown as consented: the executor tries the
+            # variants in it (p0-conditional-intent.md §3.9).
+            consent["priority"] = display["priority"] = list(request.priority)
         # The ledger stores these bytes as received: they are validated here, before storing.
         payload = canonical_bytes(consent)
         scope = parse_consent_scope(payload)
@@ -238,7 +288,9 @@ class DelegationService:
     def consent(
         self, owner_id: str, request: DelegationConsentRequest
     ) -> tuple[DelegationView, bool]:
-        """The view and whether this call created the grant (201) or found it (200)."""
+        """The view and whether this call created the grant (201) or found it (200). A consented
+        proposal answers its grant before any replacement check: repeating a consent stays
+        idempotent after a newer proposal."""
         proposal = self._ledger.proposal(owner_id, request.proposal_id)
         if proposal is None:
             raise DelegationError("delegation_proposal_not_found")
@@ -246,6 +298,8 @@ class DelegationService:
             raise DelegationError("delegation_scope_mismatch")
         if proposal.grant_id is not None:
             return self._view(proposal.grant_id), False
+        if proposal.superseded_by is not None:
+            raise DelegationError("delegation_proposal_superseded")
         scope = parse_consent_scope(proposal.scope_json.encode())
         now = self._clock()
         # The grant's expiry was fixed at proposal time: it can lapse before the proposal does.
@@ -316,18 +370,27 @@ class DelegationService:
         execution = self._ledger.execution(task_id)
         if execution is None:
             raise DelegationError("hnp_task_not_found")
-        return task_view(execution, self._run_purchase(execution), utc_text(self._clock()))
+        purchase, now = self._run_purchase(execution), utc_text(self._clock())
+        return task_view(execution, purchase, now, self._refusal(execution))
 
     def _view(self, grant_id: str) -> DelegationView:
         task = self._ledger.task_for_grant(grant_id)
         execution = self._ledger.execution(task.task_id) if task is not None else None
         if execution is None:
             raise LookupError("A grant without its task")
-        return delegation_view(execution, self._run_purchase(execution), utc_text(self._clock()))
+        purchase, now = self._run_purchase(execution), utc_text(self._clock())
+        return delegation_view(execution, purchase, now, self._refusal(execution))
 
     def _run_purchase(self, execution: Execution) -> Purchase | None:
         run_id = execution.task.run_id
         return self._purchase(run_id) if run_id is not None else None
+
+    def _refusal(self, execution: Execution) -> MerchantRefusal | None:
+        """CT13: only a `checkout_failed` task can name the merchant's refusal of the creation."""
+        task = execution.task
+        if (task.state, task.outcome_code) != ("failed", "checkout_failed"):
+            return None
+        return self._ledger.merchant_refusal(task.grant_id)
 
     # Revocation (§8.4)
 

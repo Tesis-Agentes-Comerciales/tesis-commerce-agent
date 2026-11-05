@@ -261,6 +261,9 @@ def build_runtime(
         feed_provider=published_feed.get if published_feed is not None else None,
         router_factory=router_factory,
         recovery=build_governed_recovery(configuration),
+        offer_reader=client,
+        governance_mode=configuration.agent_governance_mode,
+        checkout_reader=client,
     )
     delegations = hnp_executor = owned_hnp_chooser = owned_hnp_reviewer = None
     if hnp_trust is not None:
@@ -296,6 +299,7 @@ def build_runtime(
             clock=authority_clock,
             payments=payments,
             merchant=client,
+            offers=client,
             reviewer=owned_hnp_reviewer,
         )
     return AgentRuntime(

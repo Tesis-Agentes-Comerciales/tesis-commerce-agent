@@ -16,6 +16,7 @@ import {
   CardHeader,
   ErrorNotice,
   PreferenceQuote,
+  PriorityList,
   ScopeRow,
   ScopeRows,
   VariantList,
@@ -27,6 +28,15 @@ import {
 } from "@/lib/delegation-contract"
 
 export type { DelegationConsent }
+
+/**
+ * Qué pasa con la indicación (D15). La revisión solo se promete si el backend la calculó; con orden
+ * y sin ella, la indicación no decide nada. Sin orden, el selector puede usarla: la tarjeta calla.
+ */
+function preferenceNote({ priority, preference_review }: DelegationProposal["scope"]) {
+  if (preference_review) return CONSENT_COPY.reviewed
+  return priority ? CONSENT_COPY.notReviewed : null
+}
 
 export type DelegationConsentCardProps = {
   /** Respuesta de `POST /delegations/proposals`; todo lo que la tarjeta muestra sale de aquí. */
@@ -93,8 +103,14 @@ export function DelegationConsentCard({
           </p>
         </div>
 
-        <VariantList variants={scope.variants} />
-        {scope.preference_text && <PreferenceQuote text={scope.preference_text} />}
+        {scope.priority ? (
+          <PriorityList variants={scope.variants} priority={scope.priority} />
+        ) : (
+          <VariantList variants={scope.variants} />
+        )}
+        {scope.preference_text && (
+          <PreferenceQuote text={scope.preference_text} note={preferenceNote(scope)} />
+        )}
 
         <ScopeRows>
           <ScopeRow label={SCOPE_LABEL.destination}>{scope.destination_label}</ScopeRow>
@@ -103,6 +119,7 @@ export function DelegationConsentCard({
 
         <div className="space-y-2">
           <p className="flex flex-wrap gap-2">
+            <span className={chip({ tone: "neutral", size: "sm" })}>{CONSENT_COPY.oneUnit}</span>
             <span className={chip({ tone: "neutral", size: "sm" })}>{CONSENT_COPY.singleUse}</span>
             <span className={chip({ tone: "outline", size: "sm" })}>
               <time dateTime={scope.expires_at}>{expiresOn(expires)}</time>

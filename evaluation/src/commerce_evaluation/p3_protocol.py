@@ -235,7 +235,9 @@ class ProtocolGate:
             "Sealed inputs changed",
         )
         require(case in self._expected and case not in self._observed, "Unknown or duplicate case")
-        require(proposal in {"A", "B", "none", "undetermined"}, "Invalid proposal label")
+        # An unexpected product clarification is an observed decision, not invalid evidence.
+        # The frozen oracle does not prescribe "clarify": scoring must record a failure.
+        require(proposal in {"A", "B", "none", "undetermined", "clarify"}, "Invalid proposal label")
         self._observed[case] = proposal
 
     def score(self, case: str) -> bool:

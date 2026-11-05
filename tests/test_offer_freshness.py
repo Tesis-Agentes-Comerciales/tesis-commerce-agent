@@ -318,6 +318,56 @@ def test_unreadable_offer_fails_closed_after_one_attempt(
     )
 
 
+def foreign_offer(merchant: LabMerchant) -> None:
+    """P3-V01: the merchant answers with another, well-formed offer at the same terms."""
+    merchant.offer = {**merchant.offer, "id": "BBGooglePixel8-256GB"}
+
+
+@pytest.mark.parametrize("stage", ["present", "approve"])
+def test_an_offer_of_another_id_is_never_fresh_presented_or_approved(
+    tmp_path: Path, stage: str
+) -> None:
+    lab = Harness(tmp_path, "enforce")
+    if stage == "present":
+        foreign_offer(lab.merchant)
+        with pytest.raises(ApprovalError) as captured:
+            lab.service.approval_terms(RUN_ID)
+    else:
+        terms = lab.service.approval_terms(RUN_ID)
+        foreign_offer(lab.merchant)
+        with pytest.raises(ApprovalError) as captured:
+            lab.approve(terms.fingerprint)
+
+    # The 503 and the buyer copy of any other unread offer; the cause stays in the evidence.
+    assert rejection(captured.value) == ("offer_freshness_unavailable", 503)
+    lab.assert_not_approved()
+    last = lab.checks()[-1]
+    assert (last["stage"], last["outcome"], last["reason"], last["decision"]) == (
+        stage,
+        "unavailable",
+        "offer_mismatch",
+        "block",
+    )
+    # Nothing of the other offer is recorded as observed or compared.
+    assert (last["observed_revision"], last["compared"]) == (None, {})
+
+
+def test_shadow_records_an_offer_of_another_id_as_unavailable_not_fresh(tmp_path: Path) -> None:
+    lab = Harness(tmp_path, "shadow")
+    terms = lab.service.approval_terms(RUN_ID)
+    foreign_offer(lab.merchant)
+
+    # Shadow only records (b2-governed-pilot): the approval goes on, as in B0.
+    lab.approve(terms.fingerprint)
+
+    last = lab.checks()[-1]
+    assert (last["outcome"], last["reason"], last["decision"]) == (
+        "unavailable",
+        "offer_mismatch",
+        "allow",
+    )
+
+
 def test_revision_alone_does_not_block_and_same_terms_are_approved(tmp_path: Path) -> None:
     lab = Harness(tmp_path, "enforce")
     terms = lab.service.approval_terms(RUN_ID)

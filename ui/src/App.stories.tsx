@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, waitFor, within } from "storybook/test"
 
 import App from "@/App"
+import { parseConditionalView } from "@/lib/agent-contract"
 import type { PendingPurchase as PendingPurchaseBody, PendingTermsStatus } from "@/lib/commerce-api"
 import type { AgentApiRequest } from "@/storybook/agent-api-mock"
 import {
@@ -104,6 +105,68 @@ export const PurchaseFlow: Story = {
     await context.canvas.findByRole("button", { name: /Compra completada/ }, STREAM_TIMEOUT)
     await expect(activityStatus(context)).toBeEmptyDOMElement()
     await expect(within(card).getByRole("link", { name: /Ver orden/ })).toBeVisible()
+  },
+}
+
+/**
+ * Un turno condicional («Bose si el total con envío es hasta 1.800.000; si no, Sony hasta
+ * 2.000.000», p0-conditional-intent.md §3.10). Hasta que el PR 3 exporte los SSE condicionales del
+ * backend, es `purchase.sse` con la vista de las ramas en `select_product`, validada por el mismo
+ * contrato: Bose supera su límite con el envío y se elige Sony, con el total del checkout real.
+ */
+const CONDITIONAL_VIEW = parseConditionalView({
+  outcome: "branch",
+  chosen_index: 1,
+  currency: "COP",
+  branches: [
+    {
+      index: 0,
+      variant_id: "BOS-QCU-BLK",
+      title: "Bose QuietComfort Ultra negro",
+      status: "over_limit",
+      total_minor: 182_400_000,
+      limit_minor: 180_000_000,
+      items_total_minor: 179_900_000,
+      unit_limit_minor: null,
+    },
+    {
+      index: 1,
+      variant_id: "SON-XM6-BLK",
+      title: "Sony WH-1000XM6 negro",
+      status: "eligible",
+      total_minor: 192_400_000,
+      limit_minor: 200_000_000,
+      items_total_minor: 189_900_000,
+      unit_limit_minor: null,
+    },
+  ],
+  checkout_total_minor: null,
+})
+const SELECT = '{"decision": "select", '
+
+export const ConditionalPurchase: Story = {
+  parameters: {
+    agentApi: {
+      "POST /assistant": {
+        sse: ASSISTANT_SSE.purchase.replace(
+          SELECT,
+          `${SELECT}"conditional": ${JSON.stringify(CONDITIONAL_VIEW)}, `,
+        ),
+        frameDelayMs: 10,
+      },
+    },
+  },
+  play: async (context) => {
+    await approvalCard(context)
+    const branches = await context.canvas.findByTestId("conditional-branches", {}, STREAM_TIMEOUT)
+    const rows = within(within(branches).getByRole("list")).getAllByRole("listitem")
+    await expect(rows.map((row) => row.dataset.status)).toEqual(["over_limit", "eligible"])
+    await expect(rows[0]).toHaveTextContent("Supera tu límite")
+    await expect(rows[1]).toHaveTextContent("Elegida")
+    // El producto elegido sigue debajo de las opciones, como en cualquier compra.
+    const card = context.canvasElement.querySelector<HTMLElement>("[data-testid^='product-card-']")
+    await expect(card).toHaveTextContent("Sony WH-1000XM6")
+    await expect(branches.compareDocumentPosition(card!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   },
 }
 

@@ -278,3 +278,185 @@ Error saneado: el comercio no responde durante `prepare_checkout`; el paso queda
   }
 ]
 ```
+
+## `conditional-first.sse`
+
+Intención condicional, elegida la primera opción: `select_product` lee solo la oferta de A, no consulta al modelo y trae `conditional` con A `eligible` y B `not_evaluated`; se prepara un solo checkout, de A, en `awaiting_confirmation`.
+
+- Estado enviado: `{messages: [], purchase: null}`.
+- Comandos:
+
+```json
+[
+  {
+    "type": "add-message",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Compra los Sony WH-1000XM6 negros si el total con envío es de hasta $2.000.000; si no, los Bose QuietComfort Ultra negros si es de hasta $1.900.000."
+        }
+      ]
+    },
+    "parentId": null,
+    "sourceId": null
+  }
+]
+```
+
+## `conditional-second.sse`
+
+Intención condicional, elegida la segunda opción: A queda `over_limit` por su total con envío, B `eligible`, y el único checkout es de B.
+
+- Estado enviado: `{messages: [], purchase: null}`.
+- Comandos:
+
+```json
+[
+  {
+    "type": "add-message",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Compra los Sony WH-1000XM6 negros si el total con envío es de hasta $1.900.000; si no, los Bose QuietComfort Ultra negros si es de hasta $1.850.000."
+        }
+      ]
+    },
+    "parentId": null,
+    "sourceId": null
+  }
+]
+```
+
+## `conditional-none.sse`
+
+Ninguna opción cumple: A y B quedan `over_limit`, la acción es `respond`, el texto nombra las dos causas y no menciona a C, y no se crea ningún checkout.
+
+- Estado enviado: `{messages: [], purchase: null}`.
+- Comandos:
+
+```json
+[
+  {
+    "type": "add-message",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Compra los Sony WH-1000XM6 negros si el total con envío es de hasta $1.900.000; si no, los Bose QuietComfort Ultra negros si es de hasta $1.800.000."
+        }
+      ]
+    },
+    "parentId": null,
+    "sourceId": null
+  }
+]
+```
+
+## `conditional-undetermined.sse`
+
+La lectura de la oferta de A falla: A queda `unknown` y B `not_evaluated`, no se pasa a B y no se crea ningún checkout.
+
+- Estado enviado: `{messages: [], purchase: null}`.
+- Comandos:
+
+```json
+[
+  {
+    "type": "add-message",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Compra los Sony WH-1000XM6 negros si el total con envío es de hasta $1.950.000; si no, los Bose QuietComfort Ultra negros si es de hasta $1.900.000."
+        }
+      ]
+    },
+    "parentId": null,
+    "sourceId": null
+  }
+]
+```
+
+## `conditional-offer-changed.sse`
+
+El checkout de A trae otro total que su oferta: `select_product` eligió A, `prepare_checkout` queda con `isError` y el código `offer_changed`, el checkout se cancela y no se prueba B.
+
+- Estado enviado: `{messages: [], purchase: null}`.
+- Comandos:
+
+```json
+[
+  {
+    "type": "add-message",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Compra los Sony WH-1000XM6 negros si el total con envío es de hasta $1.980.000; si no, los Bose QuietComfort Ultra negros si es de hasta $1.900.000."
+        }
+      ]
+    },
+    "parentId": null,
+    "sourceId": null
+  }
+]
+```
+
+## `conditional-clarify.sse`
+
+La primera opción coincide con dos variantes (negro y plata): `select_product` decide `clarify` sin `conditional`, la acción es `clarify` y no se lee ninguna oferta.
+
+- Estado enviado: `{messages: [], purchase: null}`.
+- Comandos:
+
+```json
+[
+  {
+    "type": "add-message",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Compra unos Sony WH-1000XM6 si el total con envío es de hasta $2.000.000; si no, los Bose QuietComfort Ultra negros si es de hasta $1.900.000."
+        }
+      ]
+    },
+    "parentId": null,
+    "sourceId": null
+  }
+]
+```
+
+## `conditional-exclusions.sse`
+
+«Nunca compres los Bose»: sin ramas no se lee ninguna oferta para decidir; `search_catalog` informa `rejections.excluded = 1`, los Bose no están en la lista corta y la selección normal prepara el checkout de los Sony.
+
+- Estado enviado: `{messages: [], purchase: null}`.
+- Comandos:
+
+```json
+[
+  {
+    "type": "add-message",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Quiero audífonos negros por menos de 2 millones. Prefiero los Sony, pero nunca compres los Bose QuietComfort Ultra."
+        }
+      ]
+    },
+    "parentId": null,
+    "sourceId": null
+  }
+]
+```

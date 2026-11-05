@@ -35,6 +35,7 @@ const DRAFT: DelegationDraft = {
   city: DEMO_PROFILE.city,
   state: DEMO_PROFILE.state,
   preference: "",
+  ordered: false,
 }
 
 const run = (actions: DelegationsAction[], from: DelegationsState = INITIAL_DELEGATIONS) =>

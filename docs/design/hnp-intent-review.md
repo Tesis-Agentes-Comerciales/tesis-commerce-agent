@@ -62,7 +62,21 @@ Una excepción del revisor, un timeout o un resultado que no es un `IntentReview
 En `HnpExecutionService._execute`, después del selector y del `_hold` del lease, y antes de `start`
 (D1, el checkout y cualquier POST):
 
-1. Solo si hay revisor y el id elegido está en la lista corta.
+1. Cuándo corre (D8 y D15 de `p0-conditional-intent.md`):
+   - **sin `priority`**, como hasta ahora: si hay revisor y el id elegido está en la lista corta;
+   - **con `priority`**, manda lo consentido: solo si el consentimiento trae
+     `display.preference_review: true`, sobre la elección del evaluador determinista y con la
+     lista corta de siempre (`rank_candidates` ∩ `variant_ids`). Sin esa promesa no revisa,
+     aunque el revisor esté configurado; con `none` o `undetermined` no hay elección ni revisión;
+   - **revisión prometida sin revisor**, con o sin `priority`: donde la revisión correría (sin
+     `priority`, con el id en la lista corta), si el consentimiento trae `preference_review` y la
+     corrida no tiene revisor (apagado, o un ejecutor B0-HNP), la tarea termina
+     `choice_not_confirmed` antes de crear la compra, de D1 y de cualquier POST, sin evento
+     `choice_reviewed`: el terminal es el registro. Escala en B2-HNP y falla en B0-HNP.
+
+   `propose` pone `preference_review` solo con `preference_text`, en `enforce` y con
+   `AGENT_HNP_REVIEWER=llm` (`build_delegation_service`), así que la tarjeta solo promete la
+   revisión que el arranque va a correr.
 2. Crea la fila de la compra HNP en `received` (la misma que crearía `start`, que es idempotente),
    para que la traza exista también cuando el revisor detiene la corrida.
 3. Llama al revisor dentro de `model_request_scope(run_id=...)`.
@@ -83,7 +97,8 @@ corte dentro de `start` (§4.5): nunca compra.
 ## 7. Evidencia
 
 Cada revisión, confirme o no, es un evento `choice_reviewed` de `delegation_events` (actor `service`)
-con `{decision, reason, prompt_id, model}`. La llamada al modelo se mide como `model.hnp_review` en
+con `{decision, reason, prompt_id, model}`; si el modelo no pudo revisar, también `failure_kind`
+(`docs/design/p0-model-failures.md` §3.5). La llamada al modelo se mide como `model.hnp_review` en
 `stage_timings` (con tokens) y queda en `model_requests` bajo el `run_id` de la tarea, con su entrada
 y su salida estructurada.
 

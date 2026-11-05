@@ -9,8 +9,9 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import httpx
 from cryptography.hazmat.primitives import serialization
@@ -19,11 +20,15 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from commerce_agent.acp import load_product_feed
 from commerce_agent.acp.feed import ProductCandidate
+from commerce_agent.acp.offer_snapshot import merchant_time
 from commerce_agent.api import create_app
 from commerce_agent.buyer_auth import BuyerAuthenticator, BuyerPrincipal
 from commerce_agent.config import Settings
-from commerce_agent.domain import PurchaseIntent, RankedCandidate
+from commerce_agent.domain import HardConstraints, PurchaseIntent, RankedCandidate
+from commerce_agent.domain.conditional import BranchMatch, ConditionalIntent, PurchaseBranch
+from commerce_agent.domain.intent import SoftPreferences
 from commerce_agent.llm import (
     CandidateDecision,
     CatalogRecovery,
@@ -66,6 +71,135 @@ SELECTION_REASONING = (
     "Dos audífonos negros cumplen el presupuesto. ",
     "Sony WH-1000XM6 ofrece cancelación de ruido y sigue dentro del límite.",
 )
+
+# The conditional intent (docs/design/p0-conditional-intent.md) over the same synthetic feed, as
+# in its §2.2: A = Sony WH-1000XM6 negro, B = Bose QC Ultra negro (cheaper) and C = Sennheiser
+# negro, the cheapest, which no branch names. Each lab offer adds the same shipping (§2.4).
+CONDITIONAL_A, CONDITIONAL_B, CONDITIONAL_C = "SON-XM6-BLK", "BOS-QCU-BLK", "SEN-MOM4-BLK"
+SHIPPING_MINOR = 25_000_00
+LAB_EXPIRES_AT = "2099-09-20T13:00:00Z"
+LAB_DELIVERY_DAYS = 2
+CHECKOUT_CREATED_AT = "2026-09-20T11:00:00Z"
+CONDITIONAL_ROUTED = "Reviso tus opciones con el comercio, en el orden que diste."
+# One request per conditional fixture; amounts are whole pesos so the copy reads naturally. The
+# merchant totals are 1.924.000 (A), 1.824.000 (B) and 1.274.000 (C) with shipping.
+CONDITIONAL_FIRST_REQUEST = (
+    "Compra los Sony WH-1000XM6 negros si el total con envío es de hasta $2.000.000; si no, los "
+    "Bose QuietComfort Ultra negros si es de hasta $1.900.000."
+)
+CONDITIONAL_SECOND_REQUEST = (
+    "Compra los Sony WH-1000XM6 negros si el total con envío es de hasta $1.900.000; si no, los "
+    "Bose QuietComfort Ultra negros si es de hasta $1.850.000."
+)
+CONDITIONAL_NONE_REQUEST = (
+    "Compra los Sony WH-1000XM6 negros si el total con envío es de hasta $1.900.000; si no, los "
+    "Bose QuietComfort Ultra negros si es de hasta $1.800.000."
+)
+CONDITIONAL_UNDETERMINED_REQUEST = (
+    "Compra los Sony WH-1000XM6 negros si el total con envío es de hasta $1.950.000; si no, los "
+    "Bose QuietComfort Ultra negros si es de hasta $1.900.000."
+)
+CONDITIONAL_OFFER_CHANGED_REQUEST = (
+    "Compra los Sony WH-1000XM6 negros si el total con envío es de hasta $1.980.000; si no, los "
+    "Bose QuietComfort Ultra negros si es de hasta $1.900.000."
+)
+CONDITIONAL_CLARIFY_REQUEST = (
+    "Compra unos Sony WH-1000XM6 si el total con envío es de hasta $2.000.000; si no, los Bose "
+    "QuietComfort Ultra negros si es de hasta $1.900.000."
+)
+CONDITIONAL_EXCLUSIONS_REQUEST = (
+    "Quiero audífonos negros por menos de 2 millones. Prefiero los Sony, pero nunca compres los "
+    "Bose QuietComfort Ultra."
+)
+# The checkout total the merchant prepares for A in `conditional-offer-changed`: its offer said
+# 1.924.000, still within the limit of 1.980.000.
+CHANGED_CHECKOUT_TOTAL = 1_934_000_00
+
+
+def by_variant(variant_id: str) -> BranchMatch:
+    """A branch as the evidence scripts it (spec §4.1): the variant the pair rules resolved."""
+    return BranchMatch(variant_id=variant_id)
+
+
+def ordered_branches(
+    first: int | None, second: int | None, *, first_match: BranchMatch | None = None
+) -> ConditionalIntent:
+    """«A si el total es ≤ X; si no, B si el total es ≤ Y», with A and B of this feed."""
+    return ConditionalIntent(
+        branches=(
+            PurchaseBranch(
+                match=first_match or by_variant(CONDITIONAL_A), max_total_amount_minor=first
+            ),
+            PurchaseBranch(match=by_variant(CONDITIONAL_B), max_total_amount_minor=second),
+        ),
+        currency="COP",
+    )
+
+
+def conditional_decision(
+    conditional: ConditionalIntent,
+    *,
+    request: str,
+    hard: HardConstraints | None = None,
+    preferences: SoftPreferences | None = None,
+) -> CommerceDecision:
+    """The router's purchase decision for a conditional turn: `intent` drives the search the
+    buyer sees, `conditional` the branches the backend evaluates."""
+    return CommerceDecision(
+        action="purchase",
+        assistant_message=CONDITIONAL_ROUTED,
+        purchase_request=request,
+        intent=PurchaseIntent(
+            hard=hard or HardConstraints(currency="COP", categories=("headphones",)),
+            preferences=preferences or SoftPreferences(),
+        ),
+        conditional=conditional,
+    )
+
+
+def _whole(pesos: int) -> int:
+    return pesos * 100
+
+
+CONDITIONAL_DECISIONS: dict[str, CommerceDecision] = {
+    CONDITIONAL_FIRST_REQUEST: conditional_decision(
+        ordered_branches(_whole(2_000_000), _whole(1_900_000)), request=CONDITIONAL_FIRST_REQUEST
+    ),
+    CONDITIONAL_SECOND_REQUEST: conditional_decision(
+        ordered_branches(_whole(1_900_000), _whole(1_850_000)), request=CONDITIONAL_SECOND_REQUEST
+    ),
+    CONDITIONAL_NONE_REQUEST: conditional_decision(
+        ordered_branches(_whole(1_900_000), _whole(1_800_000)), request=CONDITIONAL_NONE_REQUEST
+    ),
+    CONDITIONAL_UNDETERMINED_REQUEST: conditional_decision(
+        ordered_branches(_whole(1_950_000), _whole(1_900_000)),
+        request=CONDITIONAL_UNDETERMINED_REQUEST,
+    ),
+    CONDITIONAL_OFFER_CHANGED_REQUEST: conditional_decision(
+        ordered_branches(_whole(1_980_000), _whole(1_900_000)),
+        request=CONDITIONAL_OFFER_CHANGED_REQUEST,
+    ),
+    # «Unos Sony WH-1000XM6» names the black and the silver ones: the branch is ambiguous.
+    CONDITIONAL_CLARIFY_REQUEST: conditional_decision(
+        ordered_branches(
+            _whole(2_000_000),
+            _whole(1_900_000),
+            first_match=BranchMatch(required_terms=("sony wh-1000xm6",)),
+        ),
+        request=CONDITIONAL_CLARIFY_REQUEST,
+    ),
+    # UX07: «prefiero» stays a preference; «nunca» is an exclusion, and no branch is evaluated.
+    CONDITIONAL_EXCLUSIONS_REQUEST: conditional_decision(
+        ConditionalIntent(excluded=(BranchMatch(required_terms=("bose quietcomfort ultra",)),)),
+        request=CONDITIONAL_EXCLUSIONS_REQUEST,
+        hard=HardConstraints(
+            currency="COP",
+            categories=("headphones",),
+            max_unit_amount_minor=2_000_000_00,
+        ),
+        preferences=SoftPreferences(terms=("sony",)),
+    ),
+}
 
 
 def checkout_details() -> dict[str, Any]:
@@ -118,6 +252,8 @@ class ScriptedRouter:
                 assistant_message="Buscaré audífonos en ese presupuesto.",
                 intent=purchase_intent(50_000_00, black=False),
             )
+        if text in CONDITIONAL_DECISIONS:
+            return CONDITIONAL_DECISIONS[text]
         for delta in ROUTE_REASONING:
             emit_reasoning(delta)
         return CommerceDecision(
@@ -156,7 +292,30 @@ class ScriptedRouter:
         return CatalogRecovery(action="clarify", assistant_message=NO_CANDIDATE_REPLY)
 
 
-def _checkout(status: str, *, with_details: bool, checkout_id: str = CHECKOUT_ID) -> dict[str, Any]:
+SHIPPING_MINOR = 25_000_00
+
+
+def feed_items() -> dict[str, dict[str, Any]]:
+    """Each variant of the synthetic feed as the ACP item a checkout line names."""
+    items: dict[str, dict[str, Any]] = {}
+    for line in (ASSISTANT_FEED / "products.jsonl").read_text(encoding="utf-8").splitlines():
+        for variant in json.loads(line)["variants"]:
+            items[variant["id"]] = {
+                "id": variant["id"],
+                "name": variant["title"],
+                "unit_amount": variant["price"]["amount"],
+            }
+    return items
+
+
+def _checkout(
+    status: str,
+    *,
+    with_details: bool,
+    checkout_id: str = CHECKOUT_ID,
+    variant_id: str = "SON-XM6-BLK",
+) -> dict[str, Any]:
+    item = feed_items()[variant_id]
     payload: dict[str, Any] = {
         "id": checkout_id,
         "protocol": {"version": "2026-04-17"},
@@ -166,16 +325,20 @@ def _checkout(status: str, *, with_details: bool, checkout_id: str = CHECKOUT_ID
         "line_items": [
             {
                 "id": "li_1",
-                "item": {
-                    "id": "SON-XM6-BLK",
-                    "name": "Sony WH-1000XM6 negro",
-                    "unit_amount": 1_899_000_00,
-                },
+                "item": item,
                 "quantity": 1,
-                "totals": [{"type": "total", "display_text": "Artículo", "amount": 1_899_000_00}],
+                "totals": [
+                    {"type": "total", "display_text": "Artículo", "amount": item["unit_amount"]}
+                ],
             }
         ],
-        "totals": [{"type": "total", "display_text": "Total", "amount": 1_924_000_00}],
+        "totals": [
+            {
+                "type": "total",
+                "display_text": "Total",
+                "amount": item["unit_amount"] + SHIPPING_MINOR,
+            }
+        ],
         "fulfillment_options": [
             {
                 "type": "shipping",
@@ -183,7 +346,7 @@ def _checkout(status: str, *, with_details: bool, checkout_id: str = CHECKOUT_ID
                 "title": "Envío simulado a Bogotá",
                 "earliest_delivery_time": "2099-09-22T13:00:00Z",
                 "latest_delivery_time": "2099-09-22T13:00:00Z",
-                "totals": [{"type": "total", "display_text": "Envío", "amount": 25_000_00}],
+                "totals": [{"type": "total", "display_text": "Envío", "amount": SHIPPING_MINOR}],
             }
         ],
         "selected_fulfillment_options": [],
@@ -203,12 +366,106 @@ def _checkout(status: str, *, with_details: bool, checkout_id: str = CHECKOUT_ID
     return payload
 
 
+FEED_CANDIDATES = {
+    candidate.variant_id: candidate for candidate in load_product_feed(ASSISTANT_FEED).candidates
+}
+
+
+def lab_offer(
+    variant_id: str,
+    *,
+    stock: int = 3,
+    status: Literal["active", "inactive"] = "active",
+    price: int | None = None,
+    shipping: int = SHIPPING_MINOR,
+    revision: int = 1,
+) -> dict[str, Any]:
+    """The Merchant Offer of `POST /lab/offers/get` for a variant of the synthetic feed: its feed
+    price unless `price` says otherwise, plus shipping; the total includes it (spec §2.4)."""
+    candidate = FEED_CANDIDATES[variant_id]
+    items = candidate.observed_unit_amount_minor if price is None else price
+    return {
+        "id": variant_id,
+        "product_id": candidate.product_id,
+        "product_status": status,
+        "merchant_id": "merchant_lab",
+        "revision": revision,
+        "category": "headphones",
+        "name": candidate.variant_title,
+        "brand": candidate.product_title.split()[0],
+        "condition": "new",
+        "availability": "in_stock" if stock > 0 else "out_of_stock",
+        "available_quantity": stock,
+        "pricing": {
+            "currency": "cop",
+            "items_total_minor": items,
+            "shipping_total_minor": shipping,
+            "total_minor": items + shipping,
+            "tax_included": True,
+        },
+        "delivery_context": {"country": "CO", "city": "Bogota", "postal_code": "110111"},
+        "delivery_days": LAB_DELIVERY_DAYS,
+        "observed_at": "2026-09-20T11:00:00Z",
+        "expires_at": LAB_EXPIRES_AT,
+    }
+
+
+def lab_offers(*variant_ids: str, **changes: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """The offers of A, B and C (or of `variant_ids`), with `changes` by variant."""
+    chosen = variant_ids or (CONDITIONAL_A, CONDITIONAL_B, CONDITIONAL_C)
+    return {
+        variant_id: lab_offer(variant_id, **changes.get(variant_id, {})) for variant_id in chosen
+    }
+
+
+def _lab_checkout(
+    offer: dict[str, Any], status: str, *, with_details: bool, checkout_id: str, total: int | None
+) -> dict[str, Any]:
+    """The checkout the lab merchant prepares from an offer: its subtotal, shipping and total,
+    delivery and expiry, which the freshness guard compares (offer_freshness.py). `total`
+    replaces the offer's, as when the offer changed between the read and the creation."""
+    payload = _checkout(status, with_details=with_details, checkout_id=checkout_id)
+    items = offer["pricing"]["items_total_minor"]
+    total = offer["pricing"]["total_minor"] if total is None else total
+    shipping = total - items
+    payload["line_items"] = [
+        {
+            "id": "li_1",
+            "item": {"id": offer["id"], "name": offer["name"], "unit_amount": items},
+            "quantity": 1,
+            "totals": [{"type": "total", "display_text": "Artículo", "amount": items}],
+        }
+    ]
+    payload["totals"] = [
+        {"type": "subtotal", "display_text": "Productos", "amount": items},
+        {"type": "fulfillment", "display_text": "Envío", "amount": shipping},
+        {"type": "total", "display_text": "Total", "amount": total},
+    ]
+    delivery = merchant_time(CHECKOUT_CREATED_AT) + timedelta(days=offer["delivery_days"])
+    for option in payload["fulfillment_options"]:
+        option["earliest_delivery_time"] = option["latest_delivery_time"] = (
+            delivery.isoformat().replace("+00:00", "Z")
+        )
+        option["totals"] = [{"type": "total", "display_text": "Envío", "amount": shipping}]
+    payload["created_at"] = CHECKOUT_CREATED_AT
+    payload["expires_at"] = offer["expires_at"]
+    return payload
+
+
+OfferFault = Literal["drop", "unavailable"]
+
+
 @dataclass
 class Merchant:
     """In-memory ACP merchant served through httpx.MockTransport.
 
     Each creation opens a new session (`cs_storybook_1`, `cs_storybook_2`…), so a purchase asked
     for again after canceling gets its own checkout, as with the real merchant.
+
+    With `offers` it is the lab merchant of the conditional intent: it serves `POST
+    /lab/offers/get` and prepares the checkout of the variant asked for, from its offer. Without
+    them, the session's line is the variant the creation asked for (p0-ux08-ux10.md §5.3), named
+    and priced as in the synthetic feed.
     """
 
     fail_checkout: bool = False
@@ -217,6 +474,19 @@ class Merchant:
     created: int = 0
     # None leaves it out of the order, as a merchant that only sends the order ID.
     order_number: str | None = ORDER_NUMBER
+    variant_id: str = "SON-XM6-BLK"
+    offers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # `drop`: the merchant records the read and the answer never arrives (the proxy's `drop`);
+    # `unavailable`: a 503.
+    offer_faults: dict[str, OfferFault] = field(default_factory=dict)
+    # The checkout total by variant when it differs from its offer.
+    checkout_totals: dict[str, int] = field(default_factory=dict)
+    # The variant the merchant puts in the checkout when it is not the one asked for.
+    checkout_variants: dict[str, str] = field(default_factory=dict)
+    # Every `offer_id` read, in order, and every variant a checkout was created for.
+    offer_reads: list[str] = field(default_factory=list)
+    created_variants: list[str] = field(default_factory=list)
+    faults_hit: list[str] = field(default_factory=list)
 
     @property
     def checkout_id(self) -> str:
@@ -224,6 +494,41 @@ class Merchant:
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
+
+    def reads_before_creation(self) -> list[str]:
+        """The decision's reads (spec §4.4): those before the first creation POST; freshness
+        reads after it do not count."""
+        reads: list[str] = []
+        offers = iter(self.offer_reads)
+        for call in self.requests:
+            if call == "POST /checkout_sessions":
+                break
+            if call == "POST /lab/offers/get":
+                reads.append(next(offers))
+        return reads
+
+    def effects(self) -> list[str]:
+        """Every POST except an offer read: creations, updates, cancels and completions."""
+        return [
+            call
+            for call in self.requests
+            if call.startswith("POST ") and call != "POST /lab/offers/get"
+        ]
+
+    def _offer(self, request: httpx.Request) -> httpx.Response:
+        offer_id = json.loads(request.content)["offer_id"]
+        self.offer_reads.append(offer_id)
+        fault = self.offer_faults.get(offer_id)
+        if fault is not None:
+            self.faults_hit.append(offer_id)
+        if fault == "drop":
+            raise httpx.ReadError("synthetic dropped answer", request=request)
+        if fault == "unavailable":
+            return httpx.Response(503, json={"detail": {"code": "unavailable"}})
+        offer = self.offers.get(offer_id)
+        if offer is None:
+            return httpx.Response(200, json={"ok": False, "error": {"code": "OFFER_NOT_FOUND"}})
+        return httpx.Response(200, json={"ok": True, "data": offer})
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -248,15 +553,20 @@ class Merchant:
             )
         if self.fail_checkout:
             raise httpx.ConnectError("synthetic merchant outage", request=request)
+        if request.method == "POST" and path == "/lab/offers/get" and self.offers:
+            return self._offer(request)
         if request.method == "POST" and path == "/checkout_sessions":
             self.created += 1
-            self.status = "ready_for_payment"
-            created = _checkout(
-                "not_ready_for_payment", with_details=False, checkout_id=self.checkout_id
-            )
+            # The lab session waits for the buyer's details, as D1's creation check expects.
+            self.status = "not_ready_for_payment" if self.offers else "ready_for_payment"
+            self.variant_id = json.loads(request.content)["line_items"][0]["id"]
+            self.created_variants.append(self.variant_id)
+            created = self._session("not_ready_for_payment", with_details=False)
             return httpx.Response(201, json=created)
         checkout_path = f"/checkout_sessions/{self.checkout_id}"
         if path == checkout_path and request.method in {"GET", "POST"}:
+            if self.offers and request.method == "POST":
+                self.status = "ready_for_payment"
             return httpx.Response(200, json=self._current())
         if path == f"{checkout_path}/cancel":
             self.status = "canceled"
@@ -278,8 +588,27 @@ class Merchant:
             return httpx.Response(200, json=completed)
         raise AssertionError(f"Unexpected request: {request.method} {path}")
 
+    def _session(self, status: str, *, with_details: bool) -> dict[str, Any]:
+        if not self.offers:
+            return _checkout(
+                status,
+                with_details=with_details,
+                checkout_id=self.checkout_id,
+                variant_id=self.variant_id,
+            )
+        asked = self.created_variants[-1]
+        variant_id = self.checkout_variants.get(asked, asked)
+        return _lab_checkout(
+            self.offers[variant_id],
+            status,
+            with_details=with_details,
+            checkout_id=self.checkout_id,
+            total=self.checkout_totals.get(variant_id),
+        )
+
     def _current(self) -> dict[str, Any]:
-        return deepcopy(_checkout(self.status, with_details=True, checkout_id=self.checkout_id))
+        details = not self.offers or self.status != "not_ready_for_payment"
+        return deepcopy(self._session(self.status, with_details=details))
 
 
 def counter_ids() -> Callable[[str], str]:
@@ -642,6 +971,67 @@ def render_fixtures(workdir: Path) -> list[Fixture]:
             "con `isError` y el mensaje con estado `incomplete`/`error`.",
             [add_message(PURCHASE_REQUEST)],
         )
+
+    # Intención condicional (docs/design/p0-conditional-intent.md §3.3-§3.8), en B0: el comercio
+    # de laboratorio sirve la oferta de A (1.924.000 con envío), B (1.824.000) y C (1.274.000).
+    conditional: list[tuple[str, str, str, Merchant]] = [
+        (
+            "conditional-first",
+            "Intención condicional, elegida la primera opción: `select_product` lee solo la "
+            "oferta de A, no consulta al modelo y trae `conditional` con A `eligible` y B "
+            "`not_evaluated`; se prepara un solo checkout, de A, en `awaiting_confirmation`.",
+            CONDITIONAL_FIRST_REQUEST,
+            Merchant(offers=lab_offers()),
+        ),
+        (
+            "conditional-second",
+            "Intención condicional, elegida la segunda opción: A queda `over_limit` por su total "
+            "con envío, B `eligible`, y el único checkout es de B.",
+            CONDITIONAL_SECOND_REQUEST,
+            Merchant(offers=lab_offers()),
+        ),
+        (
+            "conditional-none",
+            "Ninguna opción cumple: A y B quedan `over_limit`, la acción es `respond`, el texto "
+            "nombra las dos causas y no menciona a C, y no se crea ningún checkout.",
+            CONDITIONAL_NONE_REQUEST,
+            Merchant(offers=lab_offers()),
+        ),
+        (
+            "conditional-undetermined",
+            "La lectura de la oferta de A falla: A queda `unknown` y B `not_evaluated`, no se pasa "
+            "a B y no se crea ningún checkout.",
+            CONDITIONAL_UNDETERMINED_REQUEST,
+            Merchant(offers=lab_offers(), offer_faults={CONDITIONAL_A: "drop"}),
+        ),
+        (
+            "conditional-offer-changed",
+            "El checkout de A trae otro total que su oferta: `select_product` eligió A, "
+            "`prepare_checkout` queda con `isError` y el código `offer_changed`, el checkout se "
+            "cancela y no se prueba B.",
+            CONDITIONAL_OFFER_CHANGED_REQUEST,
+            Merchant(offers=lab_offers(), checkout_totals={CONDITIONAL_A: CHANGED_CHECKOUT_TOTAL}),
+        ),
+        (
+            "conditional-clarify",
+            "La primera opción coincide con dos variantes (negro y plata): `select_product` "
+            "decide `clarify` sin `conditional`, la acción es `clarify` y no se lee ninguna "
+            "oferta.",
+            CONDITIONAL_CLARIFY_REQUEST,
+            Merchant(offers=lab_offers()),
+        ),
+        (
+            "conditional-exclusions",
+            "«Nunca compres los Bose»: sin ramas no se lee ninguna oferta para decidir; "
+            "`search_catalog` informa `rejections.excluded = 1`, los Bose no están en la lista "
+            "corta y la selección normal prepara el checkout de los Sony.",
+            CONDITIONAL_EXCLUSIONS_REQUEST,
+            Merchant(offers=lab_offers()),
+        ),
+    ]
+    for name, description, request, merchant in conditional:
+        with assistant_client(workdir / f"{name}.db", merchant=merchant) as client:
+            record(client, name, description, [add_message(request)])
     return fixtures
 
 

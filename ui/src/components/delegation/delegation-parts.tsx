@@ -1,9 +1,9 @@
 import { cn } from "cn"
 import { AlertCircleIcon, type LucideIcon } from "lucide-react"
-import type { ReactNode, Ref } from "react"
+import { useId, type ReactNode, type Ref } from "react"
 
 import { formatDateTime } from "@/components/agent/agent-format"
-import { SCOPE_LABEL } from "@/components/delegation/delegation-copy"
+import { CONSENT_COPY, SCOPE_LABEL } from "@/components/delegation/delegation-copy"
 import type { ScopeView } from "@/lib/delegation-contract"
 
 // Piezas compartidas por las tarjetas de delegación, con la misma superficie, filas y avisos que
@@ -78,6 +78,39 @@ export function VariantList({ variants }: { variants: ScopeView["variants"] }) {
   )
 }
 
+/**
+ * El orden consentido (p0-conditional-intent.md §3.10): `priority` ordena todas las variantes del
+ * alcance, así que cada una sale una vez y en ese orden, no en el alfabético de `variants`.
+ */
+export function PriorityList({
+  variants,
+  priority,
+}: {
+  variants: ScopeView["variants"]
+  priority: string[]
+}) {
+  const id = useId()
+  const titleOf = (variantId: string) =>
+    variants.find((variant) => variant.variant_id === variantId)?.title ?? variantId
+  return (
+    <div>
+      <p id={id} className="text-sm leading-5 text-[#6b6b6b]">
+        {CONSENT_COPY.inOrder}
+      </p>
+      <ol
+        aria-labelledby={id}
+        className="mt-1 list-decimal space-y-1 pl-5 text-sm leading-5 font-medium marker:text-[#6b6b6b]"
+      >
+        {priority.map((variantId) => (
+          <li key={variantId} className="wrap-break-word">
+            {titleOf(variantId)}
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
 export function ScopeRows({ children }: { children: ReactNode }) {
   return <dl className="space-y-2.5 border-t border-[#ececec] pt-4 text-sm">{children}</dl>
 }
@@ -98,12 +131,16 @@ export function DateTime({ value }: { value: string }) {
   return <time dateTime={value}>{formatDateTime(value) ?? value}</time>
 }
 
-/** La indicación es texto del propio comprador (§4.2): se muestra tal cual, nunca del modelo. */
-export function PreferenceQuote({ text }: { text: string }) {
+/**
+ * La indicación es texto del propio comprador (§4.2): se muestra tal cual, nunca del modelo. `note`
+ * dice qué se hace con ella, si la tarjeta lo sabe.
+ */
+export function PreferenceQuote({ text, note }: { text: string; note?: string | null }) {
   return (
     <figure className="rounded-[16px] bg-[#f7f7f7] px-3.5 py-3 text-sm leading-5">
       <figcaption className="text-xs font-medium text-[#6b6b6b]">{SCOPE_LABEL.preference}</figcaption>
       <blockquote className="mt-0.5 wrap-break-word">«{text}»</blockquote>
+      {note && <p className="mt-1.5 text-xs leading-5 text-[#525252]">{note}</p>}
     </figure>
   )
 }

@@ -32,6 +32,7 @@ from commerce_agent.application.hnp_selection import (
     HnpSelector,
     ModelHnpSelector,
 )
+from commerce_agent.application.offer_freshness import OfferReader
 from commerce_agent.application.purchase import CheckoutGateway
 from commerce_agent.config import Settings
 from commerce_agent.governance.hnp_ports import HnpPolicyGate
@@ -91,7 +92,11 @@ def build_delegation_service(
     clock: Callable[[], datetime] | None,
 ) -> DelegationService:
     """The ledger tables exist only from here on. `clock` is the authority clock (§3.4): real
-    UTC unless a test injects one, never the sandbox or commercial clock."""
+    UTC unless a test injects one, never the sandbox or commercial clock.
+
+    D15: the executor this startup assembles reviews `preference_text` only in enforce with
+    `AGENT_HNP_REVIEWER=llm`, so only then does a proposal's card promise the review.
+    """
     authority = clock or _utc_now
     ledger = SqliteDelegationLedger(settings.agent_database_path, clock=authority)
     ledger.initialize()
@@ -103,6 +108,8 @@ def build_delegation_service(
         max_validity_seconds=settings.agent_hnp_max_validity_seconds,
         proposal_ttl_seconds=settings.agent_hnp_proposal_ttl_seconds,
         clock=authority,
+        preference_review=settings.agent_governance_mode == "enforce"
+        and settings.agent_hnp_reviewer == "llm",
     )
 
 
@@ -177,6 +184,7 @@ def build_hnp_executor(
     clock: Callable[[], datetime] | None,
     payments: PaymentProvider,
     merchant: MerchantCompletion,
+    offers: OfferReader,
     reviewer: HnpIntentReviewer | None = None,
 ) -> HnpExecutionService:
     """The executor of a task, steps 1 to 12 of hnp-governed.md §3.3: the one place that
@@ -185,7 +193,9 @@ def build_hnp_executor(
     `off` is B0-HNP: `NullHnpPolicyGate`, no freshness and no D1. `enforce` is B2-HNP and never
     starts without D2-HNP/D3-HNP and the `close` freshness guard. Only this service holds the
     Agent Key; `clock` is the authority clock, as for the delegation service. `reviewer` is
-    the intent reviewer of `AGENT_HNP_REVIEWER=llm`, enforce only.
+    the intent reviewer of `AGENT_HNP_REVIEWER=llm`, enforce only. `offers` reads the
+    merchant's offers of a consented `priority` (p0-conditional-intent.md §3.9): the runtime's
+    ACP client, the same one as `merchant`.
     """
     enforce = settings.agent_governance_mode == "enforce"
     if enforce and (gate is None or freshness is None):
@@ -221,6 +231,7 @@ def build_hnp_executor(
             mode=mode, ledger=ledger, store=store, payments=payments, merchant=merchant
         ),
         reviewer=reviewer,
+        offers=offers,
     )
 
 

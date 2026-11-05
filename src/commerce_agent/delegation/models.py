@@ -5,9 +5,12 @@ Protected values (mandate tokens, checkout details) stay out of `repr`, events a
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..governance.canonical import canonical_bytes, sha256_digest
+
+if TYPE_CHECKING:
+    from ..llm.model_failures import ModelFailureKind
 
 EXECUTOR_REF = "service:hnp-executor"
 OPERATOR_REF = "operator"
@@ -70,7 +73,9 @@ OutcomeCode = Literal[
     "partial_verifier_failure",
     "receipt_mismatch",
 ]
-ConsentStatus = Literal["created", "existing", "not_found", "scope_mismatch", "proposal_expired"]
+ConsentStatus = Literal[
+    "created", "existing", "not_found", "scope_mismatch", "proposal_superseded", "proposal_expired"
+]
 ReservationState = Literal["reserved", "committed", "consumed", "released", "uncertain"]
 ReleaseBasis = Literal["no_outbox", "psp_error_receipt"]
 UncertainReason = Literal["dispatch_timeout", "partial_verifier_failure", "receipt_mismatch"]
@@ -87,6 +92,13 @@ Ap2Error = Literal[
     "invalid_credential", "invalid_mandate", "unresolved_constraint", "mandates_not_supported"
 ]
 KillSwitchStage = Literal["claim", "uow1", "uow2"]
+# The merchant's typed refusals of the checkout creation, which it answers before creating
+# anything (`runtime_dispatch.DEFINITIVE_CREATION_REFUSALS`, `enforce.RefusalCode`).
+MerchantRefusal = Literal["out_of_stock", "offer_expired", "invalid_item"]
+# What a terminal did with the checkout its run left open at the merchant (p0-ux08-ux10.md D4):
+# canceled it, tried once and the merchant did not confirm, or left it to D1's reconciliation
+# because D1 recorded the purchase `uncertain`.
+CheckoutCancelResult = Literal["canceled", "cancel_failed", "left_to_d1_reconciliation"]
 DispatchStep = Literal["payment_sent", "payment_accepted", "complete_sent", "completed"]
 RevokeEffect = Literal["no_effect", "released", "in_flight"]
 # applied: this call wrote its step. reused: the step was already durable (a retry).
@@ -118,6 +130,9 @@ class ProposalRecord:
     presented_at: str
     expires_at: str
     grant_id: str | None
+    # D2 (docs/design/p0-ux08-ux10.md §3.3): the owner's newer proposal that replaced this one
+    # while it was open. Never set together with `grant_id`.
+    superseded_by: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,6 +391,23 @@ class TaskFinish:
     state: Literal["escalated", "failed", "canceled"]
     outcome_code: OutcomeCode
     stage: KillSwitchStage | None = None  # where the kill switch was met
+    # Why the model failed a selector that made no choice (p0-model-failures.md §3.5).
+    failure_kind: "ModelFailureKind | None" = None
+    # Why a `checkout_failed` task bought nothing: the merchant refused to create its checkout
+    # with a typed code and nothing was created. Never a guess: absent on any other path.
+    merchant_refusal: MerchantRefusal | None = None
+    # D4: the checkout a revocation, the kill switch or a `checkout_mismatch` left open after the
+    # POST, and what the terminal did with it. Absent on any other terminal.
+    checkout_cancel: "CheckoutCancel | None" = None
+
+
+@dataclass(frozen=True, slots=True)
+class CheckoutCancel:
+    """`checkout_id` is None only when D1 did not keep the identity of a checkout it could not
+    verify (`left_to_d1_reconciliation`)."""
+
+    checkout_id: str | None
+    result: CheckoutCancelResult
 
 
 @dataclass(frozen=True, slots=True)

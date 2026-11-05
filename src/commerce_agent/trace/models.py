@@ -152,9 +152,22 @@ class CanceledStep(StepBase):
     by: Literal["user", "budget", "expiry"]
 
 
+# The merchant's typed refusals of the checkout creation, answered before it created anything
+# (governance/runtime_dispatch.py, delegation/models.py).
+MerchantRefusal = Literal["out_of_stock", "offer_expired", "invalid_item"]
+
+
+def _absent(value: object) -> bool:
+    return value is None
+
+
 class FailedStep(StepBase):
     kind: Literal["failed"]
     code: Text
+    # Only the step of a delegated task that ended `checkout_failed` because the merchant refused
+    # to create its checkout, with nothing created. Omitted otherwise, so other traces keep their
+    # bytes.
+    merchant_refusal: MerchantRefusal | None = Field(default=None, exclude_if=_absent)
 
 
 # Application controls of the governed Human Present flow (docs/design/b2-governed-pilot.md):

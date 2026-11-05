@@ -47,7 +47,8 @@ from commerce_agent.governance.hnp_models import parse_consent_scope, scope_dige
 from commerce_agent.governance.provenance import ProvenanceKeys, merchant_pseudonym, pseudonym
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
-from tests.support.delegation import START, AuthorityClock, Flow, receipt
+from tests.governance.test_shadow_integration import configuration
+from tests.support.delegation import START, AuthorityClock, Flow, proposal_draft, receipt
 
 FEED = Path(__file__).parent / "fixtures" / "feed"
 MERCHANT = "http://127.0.0.1:4120"
@@ -405,6 +406,148 @@ def test_a_proposal_outside_the_contract_is_rejected(
     assert client.get("/me/delegations", headers=buyer()).json() == {"delegations": []}
 
 
+# Priority and the promised review (p0-conditional-intent.md §3.9, D15)
+
+
+def test_a_proposal_keeps_the_buyers_priority_on_the_card_and_in_the_digest(
+    client: TestClient, ledger: SqliteDelegationLedger
+) -> None:
+    response = propose(client, variant_ids=["SON-07", "SON-01"], priority=["SON-07", "SON-01"])
+
+    assert response.status_code == 201, response.text
+    proposal = response.json()
+    assert proposal["scope"]["priority"] == ["SON-07", "SON-01"]
+    stored = ledger.proposal("buyer-a", proposal["proposal_id"])
+    assert stored is not None
+    scope = parse_consent_scope(stored.scope_json.encode())
+    assert scope.scope.variant_ids == ("SON-01", "SON-07")  # the scope keeps them sorted
+    assert scope.priority == scope.display.priority == ("SON-07", "SON-01")
+    assert scope_digest(scope) == stored.scope_digest == proposal["scope_digest"]
+    assert scope.display.model_dump(mode="json") == proposal["scope"]
+    assert consent(client, proposal).status_code == 201
+
+
+def test_a_proposal_without_the_new_fields_keeps_the_stored_shape(
+    client: TestClient, ledger: SqliteDelegationLedger
+) -> None:
+    """Without `priority` or a promised review, the consent has the keys of one stored before
+    them, so its bytes and `scope_digest` are what they always were."""
+    proposal = propose(client).json()
+
+    stored = ledger.proposal("buyer-a", proposal["proposal_id"])
+    assert stored is not None
+    data = json.loads(stored.scope_json)
+    assert set(data) == {
+        "schema_version",
+        "proposal_id",
+        "owner_ref",
+        "scope",
+        "display",
+        "presented_at",
+        "expires_at",
+        "preference_text",
+    }
+    assert set(data["display"]) == {
+        "merchant_name",
+        "variants",
+        "total_max",
+        "expires_at",
+        "destination_label",
+        "instrument_label",
+        "uses",
+        "preference_text",
+    }
+    assert set(proposal["scope"]) == set(data["display"])
+
+
+def unexpected_request(_: httpx.Request) -> httpx.Response:
+    raise AssertionError("The delegation API must not contact the merchant")
+
+
+def governed(tmp_path: Path, clock: AuthorityClock, **overrides: Any) -> FastAPI:
+    """B2-HNP: enforce with the governed HP flow and what HNP startup requires (§6)."""
+    settings = configuration(
+        tmp_path / "agent.db",
+        mode="enforce",
+        agent_hp_flow="governed",
+        agent_auth_mode="jwt",
+        agent_auth_issuer="http://127.0.0.1:5173",
+        agent_ap2_required=True,
+        agent_ap2_private_key_pem=SecretStr(PROVIDER_PEM),
+        agent_hnp_enabled=True,
+        agent_hnp_agent_key_pem=SecretStr(AGENT_PEM),
+        agent_hnp_service_token=SecretStr(SERVICE_TOKEN),
+        agent_hnp_operator_token=SecretStr(OPERATOR_TOKEN),
+        **overrides,
+    )
+    return create_app(
+        settings=settings,
+        transport=httpx.MockTransport(unexpected_request),
+        authority_clock=clock,
+        buyer_authenticator=TwoBuyers(),
+    )
+
+
+# Assembled, never called: the scripted tests of the reviewer are in tests/delegation.
+REVIEWER = {
+    "agent_hnp_reviewer": "llm",
+    "openai_api_key": SecretStr("test-key-never-sent"),
+    "openai_model": "test-model",
+}
+
+
+def card(tmp_path: Path, app: FastAPI, **changes: Any) -> dict[str, Any]:
+    """The proposal's card, after checking the stored consent shows the same."""
+    with TestClient(app) as client:
+        response = propose(client, **changes)
+    assert response.status_code == 201, response.text
+    proposal = response.json()
+    stored = SqliteDelegationLedger(tmp_path / "agent.db").proposal(
+        "buyer-a", proposal["proposal_id"]
+    )
+    assert stored is not None
+    scope = parse_consent_scope(stored.scope_json.encode())
+    assert scope.display.model_dump(mode="json") == proposal["scope"]
+    return proposal["scope"]
+
+
+def test_d15_the_card_promises_the_review_with_the_reviewer_and_a_text(
+    tmp_path: Path, clock: AuthorityClock
+) -> None:
+    """D15-tarjeta-rev: B2-HNP with AGENT_HNP_REVIEWER=llm and a `preference_text`."""
+    scope = card(tmp_path, governed(tmp_path, clock, **REVIEWER))
+
+    assert scope["preference_text"] == "Solo si llega esta semana."
+    assert scope["preference_review"] is True
+
+
+def test_d15_the_promise_goes_with_a_priority_too(tmp_path: Path, clock: AuthorityClock) -> None:
+    app = governed(tmp_path, clock, **REVIEWER)
+    scope = card(tmp_path, app, variant_ids=["SON-07", "SON-01"], priority=["SON-07", "SON-01"])
+
+    assert (scope["priority"], scope["preference_review"]) == (["SON-07", "SON-01"], True)
+
+
+@pytest.mark.parametrize("condition", ["b2-reviewer-off", "b0"])
+def test_d15_without_the_reviewer_the_card_does_not_promise_a_review(
+    tmp_path: Path, clock: AuthorityClock, condition: str
+) -> None:
+    """D15-tarjeta-sin-rev: the text is kept and shown, and no review is promised."""
+    app = governed(tmp_path, clock) if condition == "b2-reviewer-off" else build(tmp_path, clock)
+    scope = card(tmp_path, app)
+
+    assert scope["preference_text"] == "Solo si llega esta semana."
+    assert "preference_review" not in scope
+
+
+def test_d15_without_a_text_there_is_nothing_to_review(
+    tmp_path: Path, clock: AuthorityClock
+) -> None:
+    scope = card(tmp_path, governed(tmp_path, clock, **REVIEWER), preference_text=None)
+
+    assert scope["preference_text"] is None and "preference_review" not in scope
+
+
 def test_a_body_that_is_not_json_is_an_invalid_request(client: TestClient) -> None:
     response = client.post(
         "/delegations/proposals",
@@ -539,6 +682,244 @@ def test_a_signer_failure_writes_nothing(
     body = error(consent(client, proposal), 503, "delegation_signer_unavailable")
     assert "private" not in body["message"]
     assert client.get("/me/delegations", headers=buyer()).json() == {"delegations": []}
+
+
+# A newer proposal replaces the owner's open ones (docs/design/p0-ux08-ux10.md §3.3, D2). Open is
+# what consent would still accept: not consented, not replaced and before both expiries. The
+# context is the owner: the body names no conversation, tab or turn, so only the owner's newest
+# proposal can become a grant.
+
+SUPERSEDED_MESSAGE = "Esta propuesta fue reemplazada por una más reciente. Revisa la última."
+CONSENT_ROWS = ("delegation_grants", "delegation_mandates", "hnp_tasks", "delegation_events")
+
+
+def grant_ids(client: TestClient, who: str = "buyer-a") -> list[str]:
+    listed = client.get("/me/delegations", headers=buyer(who)).json()["delegations"]
+    return [view["grant_id"] for view in listed]
+
+
+def consent_rows(database: Path) -> dict[str, int]:
+    with closing(sqlite3.connect(database)) as connection:
+        return {
+            table: connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            for table in CONSENT_ROWS
+        }
+
+
+def test_consenting_a_proposal_a_newer_one_replaced_writes_no_grant(
+    tmp_path: Path, client: TestClient, ledger: SqliteDelegationLedger
+) -> None:
+    older = propose(client).json()
+    newer = propose(client, variant_ids=["SON-07"], total_max_minor=120_000).json()
+
+    body = error(consent(client, older), 409, "delegation_proposal_superseded")
+
+    assert body["message"] == SUPERSEDED_MESSAGE
+    assert consent_rows(tmp_path / "agent.db") == dict.fromkeys(CONSENT_ROWS, 0)
+    stored = ledger.proposal("buyer-a", older["proposal_id"])
+    assert stored is not None
+    assert (stored.grant_id, stored.superseded_by) == (None, newer["proposal_id"])
+
+
+def test_only_the_newest_proposal_becomes_a_grant_and_consenting_it_again_is_idempotent(
+    client: TestClient,
+) -> None:
+    older = propose(client).json()
+    newer = propose(client, variant_ids=["SON-07"], total_max_minor=120_000).json()
+
+    first, again = consent(client, newer), consent(client, newer)
+    error(consent(client, older), 409, "delegation_proposal_superseded")
+
+    assert (first.status_code, again.status_code) == (201, 200)
+    assert again.json() == first.json()
+    assert first.json()["scope"] == newer["scope"]
+    assert grant_ids(client) == [first.json()["grant_id"]]
+
+
+def test_ux08_hnp_from_a_to_b_before_consent_only_b_can_be_consented(client: TestClient) -> None:
+    a = propose(client, variant_ids=["SON-01"], total_max_minor=150_000).json()
+    b = propose(client, variant_ids=["SON-07"], total_max_minor=120_000).json()
+    assert a["scope_digest"] != b["scope_digest"]
+
+    # The digest is checked first: a mixed pair is a mismatch, even naming the replaced A.
+    for proposal_id, digest in ((b, a), (a, b)):
+        mixed = {"proposal_id": proposal_id["proposal_id"], "scope_digest": digest["scope_digest"]}
+        error(consent(client, mixed), 409, "delegation_scope_mismatch")
+    assert grant_ids(client) == []
+    granted = consent(client, b)
+    stale = consent(client, a)
+
+    assert granted.status_code == 201, granted.text
+    assert granted.json()["scope"] == b["scope"]
+    error(stale, 409, "delegation_proposal_superseded")
+    assert grant_ids(client) == [granted.json()["grant_id"]]
+
+
+def test_a_proposal_replaced_while_its_consent_is_signed_writes_no_grant(
+    tmp_path: Path,
+    client: TestClient,
+    ledger: SqliteDelegationLedger,
+    clock: AuthorityClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    older = propose(client).json()
+    sign = ap2_hnp.OpenMandateIssuer.issue
+
+    def replaced_meanwhile(issuer: ap2_hnp.OpenMandateIssuer, *args: Any, **kwargs: Any) -> Any:
+        # After the service's checks, before the ledger's unit: the unit decides.
+        ledger.create_proposal(proposal_draft("dpr_newer", presented_at=clock.now))
+        return sign(issuer, *args, **kwargs)
+
+    monkeypatch.setattr(ap2_hnp.OpenMandateIssuer, "issue", replaced_meanwhile)
+    error(consent(client, older), 409, "delegation_proposal_superseded")
+
+    assert consent_rows(tmp_path / "agent.db") == dict.fromkeys(CONSENT_ROWS, 0)
+    stored = ledger.proposal("buyer-a", older["proposal_id"])
+    assert stored is not None and stored.superseded_by == "dpr_newer"
+
+
+def test_a_consented_proposal_returns_its_grant_before_any_replacement_check(
+    client: TestClient, ledger: SqliteDelegationLedger
+) -> None:
+    older = propose(client).json()
+    granted = consent(client, older)
+    newer = propose(client, variant_ids=["SON-07"]).json()
+
+    again = consent(client, older)
+
+    assert (granted.status_code, again.status_code) == (201, 200)
+    assert again.json() == granted.json()
+    stored = ledger.proposal("buyer-a", older["proposal_id"])
+    assert stored is not None and stored.superseded_by is None
+    # Each consent is explicit, so two consented proposals are two grants (HNP03/HNP04 revoke).
+    assert consent(client, newer).status_code == 201
+    assert len(grant_ids(client)) == 2
+
+
+def test_a_proposal_from_another_conversation_or_tab_of_the_same_owner_replaces_it(
+    client: TestClient,
+) -> None:
+    """Intentional, it fails closed: nothing in the body says which chat or tab proposed."""
+    error(propose(client, thread_id="thread-1"), 422, "delegation_request_invalid")
+    from_chat = propose(client, preference_text="Desde el chat: prefiero los Sony.").json()
+    from_tab = propose(client, preference_text="Desde otra pestaña: cualquiera sirve.").json()
+
+    error(consent(client, from_chat), 409, "delegation_proposal_superseded")
+    assert consent(client, from_tab).status_code == 201
+
+
+def test_a_proposal_leaves_the_open_proposals_of_another_owner(client: TestClient) -> None:
+    theirs = propose(client, who="buyer-b").json()
+    mine = propose(client).json()
+
+    assert consent(client, theirs, "buyer-b").status_code == 201
+    assert consent(client, mine).status_code == 201
+
+
+@pytest.mark.parametrize(
+    ("valid_for_seconds", "elapsed"),
+    [(3_600, 600), (60, 60)],
+    ids=["proposal-ttl", "grant-already-lapsed"],
+)
+def test_an_expired_proposal_stays_expired_after_a_newer_one(
+    client: TestClient,
+    ledger: SqliteDelegationLedger,
+    clock: AuthorityClock,
+    valid_for_seconds: int,
+    elapsed: int,
+) -> None:
+    expired = propose(client, valid_for_seconds=valid_for_seconds).json()
+    clock.advance(elapsed)
+    assert propose(client).status_code == 201
+
+    error(consent(client, expired), 409, "delegation_proposal_expired")
+    stored = ledger.proposal("buyer-a", expired["proposal_id"])
+    assert stored is not None and stored.superseded_by is None
+
+
+def test_ux10_hnp_asking_for_two_units_still_consents_one_unit_once(
+    client: TestClient, ledger: SqliteDelegationLedger
+) -> None:
+    proposal = propose(client, preference_text="Quiero dos unidades, una para mi hermana.").json()
+
+    first, again = consent(client, proposal), consent(client, proposal)
+
+    assert (first.status_code, again.status_code) == (201, 200)
+    assert again.json()["grant_id"] == first.json()["grant_id"]
+    assert first.json()["scope"]["uses"] == 1
+    grant = ledger.grant("buyer-a", first.json()["grant_id"])
+    assert grant is not None
+    scope = parse_consent_scope(grant.scope_json.encode()).scope
+    assert (scope.quantity_max, scope.uses_max) == (1, 1)
+    assert grant_ids(client) == [first.json()["grant_id"]]
+
+
+@pytest.mark.parametrize("field", ["quantity", "quantity_max", "uses", "uses_max"])
+def test_ux10_hnp_a_proposal_cannot_ask_for_two_units(
+    client: TestClient, tmp_path: Path, field: str
+) -> None:
+    asked: dict[str, Any] = {field: 2}
+    error(propose(client, **asked), 422, "delegation_request_invalid")
+
+    with closing(sqlite3.connect(tmp_path / "agent.db")) as connection:
+        rows = connection.execute("SELECT count(*) FROM delegation_proposals").fetchone()[0]
+    assert rows == 0
+    assert consent_rows(tmp_path / "agent.db") == dict.fromkeys(CONSENT_ROWS, 0)
+
+
+# The proposals table as main 343f099 created it, before D2 added `superseded_by`.
+PRE_D2_PROPOSALS = """CREATE TABLE delegation_proposals (
+    proposal_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    scope_json TEXT NOT NULL CHECK(json_valid(scope_json)),
+    scope_digest TEXT NOT NULL,
+    checkout_details_json TEXT NOT NULL,
+    presented_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    grant_id TEXT UNIQUE)"""
+PRE_D2_COLUMNS = (
+    "proposal_id, owner_id, scope_json, scope_digest, checkout_details_json, presented_at, "
+    "expires_at, grant_id"
+)
+
+
+def proposal_columns(database: Path) -> list[str]:
+    with closing(sqlite3.connect(database)) as connection:
+        return [row[1] for row in connection.execute("PRAGMA table_info(delegation_proposals)")]
+
+
+def test_a_ledger_from_before_d2_gains_superseded_by_once_and_keeps_its_proposals_open(
+    tmp_path: Path, clock: AuthorityClock
+) -> None:
+    database = tmp_path / "agent.db"
+    with TestClient(build(tmp_path, clock)) as client:
+        older = propose(client).json()
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.executescript(
+            f"""ALTER TABLE delegation_proposals RENAME TO current_proposals;
+            {PRE_D2_PROPOSALS};
+            INSERT INTO delegation_proposals SELECT {PRE_D2_COLUMNS} FROM current_proposals;
+            DROP TABLE current_proposals;"""
+        )
+    assert "superseded_by" not in proposal_columns(database)
+
+    for _ in range(2):  # every start migrates: the second finds the column and changes nothing
+        with TestClient(build(tmp_path, clock)):
+            pass
+
+    assert proposal_columns(database).count("superseded_by") == 1
+    stored = SqliteDelegationLedger(database, clock=clock).proposal("buyer-a", older["proposal_id"])
+    assert stored is not None and stored.superseded_by is None
+    with TestClient(build(tmp_path, clock)) as client:
+        newer = propose(client, variant_ids=["SON-07"]).json()
+        error(consent(client, older), 409, "delegation_proposal_superseded")
+        assert consent(client, newer).status_code == 201
+    # A consented proposal is never replaced, in a migrated ledger too.
+    with closing(sqlite3.connect(database)) as connection, pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            "UPDATE delegation_proposals SET superseded_by = ? WHERE proposal_id = ?",
+            (older["proposal_id"], newer["proposal_id"]),
+        )
 
 
 # Ownership (§5.1): another owner's proposal or grant is not found.
@@ -736,10 +1117,9 @@ def test_a_selector_that_made_no_choice_hands_the_decision_back_to_the_buyer(
         "reason": "selection_unavailable",
         "title": "Necesito tu decisión",
         "message": (
-            "No pude elegir entre las opciones que autorizaste porque el servicio que hace la "
-            "elección falló o no respondió. No firmé ni presenté ninguna autorización de pago, no "
-            "se hizo ningún cobro y cerré la delegación. Si todavía quieres comprar, hazlo desde "
-            "el chat y apruébala tú."
+            "No pude elegir con seguridad entre las opciones que autorizaste. No firmé ni "
+            "presenté ninguna autorización de pago, no se hizo ningún cobro y cerré la "
+            "delegación. Si todavía quieres comprar, hazlo desde el chat y apruébala tú."
         ),
         "prefill_request": (
             "Quiero comprar Audifonos Sonora SON-01 por hasta $\N{NO-BREAK SPACE}1.500,00 COP"

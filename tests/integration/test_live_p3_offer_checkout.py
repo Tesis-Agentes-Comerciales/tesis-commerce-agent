@@ -40,7 +40,15 @@ from tests.integration.live_purchase import (
     payment_requirements,
 )
 from tests.integration.live_stack import AGENT, LiveStack, missing_requirements
-from tests.support.p3_contract import AGENT_BASE, CASES, MERCHANT, PSP, condition
+from tests.support.p3_contract import (
+    AGENT_BASE,
+    CASES,
+    INTEGRATED_AGENT_BASE,
+    INTEGRATED_PRODUCT_TREE,
+    MERCHANT,
+    PSP,
+    condition,
+)
 
 READ = "/lab/offers/get"
 CREATE = "/checkout_sessions"
@@ -70,7 +78,14 @@ def p3_lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PurchaseLane]:
             "sha": sha,
             "lock_sha256": hashlib.sha256((root / "uv.lock").read_bytes()).hexdigest(),
         }
-    assert not git(AGENT, "diff", AGENT_BASE, "--", "src/commerce_agent"), "Product must stay fixed"
+    assert not git(AGENT, "status", "--porcelain=v1"), "Clean Agent source required"
+    agent_sha = git(AGENT, "rev-parse", "HEAD")
+    if expected := os.environ.get("GITHUB_SHA"):
+        assert agent_sha == expected, "Exact workflow Agent SHA required"
+    assert git(AGENT, "merge-base", INTEGRATED_AGENT_BASE, "HEAD") == INTEGRATED_AGENT_BASE
+    product_tree = git(AGENT, "rev-parse", "HEAD:src/commerce_agent")
+    base_product_tree = git(AGENT, "rev-parse", INTEGRATED_AGENT_BASE + ":src/commerce_agent")
+    assert product_tree == base_product_tree == INTEGRATED_PRODUCT_TREE
     stack = LiveStack(tmp_path_factory.mktemp("p3-v01"))
     lane = None
     try:
@@ -91,10 +106,11 @@ def p3_lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PurchaseLane]:
         stack.record(
             "P3-V01-manifest",
             pins=pins,
-            agent_base=AGENT_BASE,
-            agent_sha=git(AGENT, "rev-parse", "HEAD"),
-            product_tree=git(AGENT, "rev-parse", "HEAD:src/commerce_agent"),
-            base_product_tree=git(AGENT, "rev-parse", AGENT_BASE + ":src/commerce_agent"),
+            historical_agent_base=AGENT_BASE,
+            agent_base=INTEGRATED_AGENT_BASE,
+            agent_sha=agent_sha,
+            product_tree=product_tree,
+            base_product_tree=base_product_tree,
             required_cases=CASES,
             routes=sorted(lane.proxy.routes),
             llm=False,
@@ -102,9 +118,12 @@ def p3_lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PurchaseLane]:
         )
         yield lane
     finally:
-        if lane is not None:
-            lane.close()
-        stack.close()
+        try:
+            if lane is not None:
+                lane.close()
+                stack.record("P3-V01-psp-shutdown", psp_stopped=lane.payment.process is None)
+        finally:
+            stack.close()
 
 
 def state(lane: PurchaseLane, ep: Episode) -> dict[str, Any]:
@@ -351,6 +370,14 @@ def test_offer_checkout_contract(p3_lane: PurchaseLane, case_id: str):
             lane.stack.record("P3-V01-case", status=status, **facts)
 
 
+def change_read_field(body: bytes, field: str, value: Any, *, verify_schema: bool = True) -> bytes:
+    payload = json.loads(body)
+    payload["data"][field] = value
+    if verify_schema:
+        MerchantOffer.model_validate(payload["data"])
+    return json.dumps(payload).encode()
+
+
 def exercise(
     lane: PurchaseLane,
     c: Episode,
@@ -395,9 +422,10 @@ def exercise(
         lane.proxy.faults[READ] = "malformed"
     if case == "different-offer":
         other = next(o for o in baseline["offers"] if o["id"] != offer_id)
-        lane.proxy.response_transform[READ] = lambda _: json.dumps(
-            {"ok": True, "data": other}
-        ).encode()
+        facts["injected_offer_id"] = other["id"]
+        lane.proxy.response_transform[READ] = lambda body: change_read_field(
+            body, "id", other["id"]
+        )
     actor = v
     if case in {"foreign-run", "foreign-actor"}:
         actor = c
@@ -487,11 +515,41 @@ def exercise(
         assert not after["checkouts"]
         if case == "lost-read-after":
             assert lane.proxy.calls[-1].answered.is_set() and code is not None
+        if case == "invalid-response":
+            assert observed is None and code == "acp_client_error"
         if case == "different-offer":
-            assert observed is not None and observed.id != offer_id
-            facts["product_limitation"] = (
-                "ACPClient accepts a schema-valid different offer; observer rejects binding"
+            assert observed is None and code == "offer_mismatch"
+            assert events[0]["payload"]["result"] == "ok"
+            wrong_context = CONTEXT.model_dump(mode="json") | {"postal_code": "999999"}
+            # The live contract accepts only CO / Bogota / 110111. Let the client
+            # reject this deliberately invalid response rather than aborting at the proxy.
+            lane.proxy.response_transform[READ] = lambda body: change_read_field(
+                body, "delivery_context", wrong_context, verify_schema=False
             )
+            with client(lane, v) as gateway, pytest.raises(ACPClientError) as mismatch:
+                gateway.get_offer(offer_id, CONTEXT)
+            assert mismatch.value.code == "invalid_offer"
+            context_after = state(lane, v)
+            context_events = read_events(context_after)[len(read_events(after)) :]
+            assert len(context_events) == 1
+            payload = context_events[0]["payload"]
+            assert payload["offer_id"] == offer_id and payload["actor_id"] == v.actor_id
+            assert payload["result"] == "ok"
+            assert (
+                payload["request_id"]
+                and payload["request_id"] != events[0]["payload"]["request_id"]
+            )
+            assert context_after["global_effects"] == after["global_effects"]
+            assert context_after["global_checkouts"] == after["global_checkouts"]
+            assert not context_after["checkouts"]
+            for name in after["tables"].keys() - {"run_events"}:
+                assert context_after["tables"][name] == after["tables"][name], name
+            facts["context_mismatch"] = {
+                "code": mismatch.value.code,
+                "commercial": "unknown",
+                "returned_context": wrong_context,
+                "events": context_events,
+            }
         if case in {"foreign-run", "foreign-actor"}:
             foreign_events = read_events(state(lane, c))[len(read_events(foreign_before)) :]
             assert len(foreign_events) == 1
@@ -508,6 +566,7 @@ def exercise(
         assert not state(lane, v)["checkouts"]
         return
     assert observed is not None
+    assert observed.id == offer_id and observed.delivery_context == CONTEXT
     if case.startswith("budget-"):
         assert commercial == ("false" if case == "budget-minus" else "true")
     if case in {"revision-only", "shipping-feed", "price-change"}:

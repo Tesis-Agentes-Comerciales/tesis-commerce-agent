@@ -20,7 +20,7 @@ HNP_FIXTURES = sorted((FIXTURES / "hnp").glob("*.json"))
 
 
 def test_every_hnp_ui_fixture_is_present() -> None:
-    assert len(HNP_FIXTURES) == 10
+    assert len(HNP_FIXTURES) == 12
 
 
 @pytest.mark.parametrize("name", ["enforce-completed", "off-completed"])
@@ -151,6 +151,11 @@ def hnp_fixture(name: str, change: Any) -> str:
             "enforce-review-not-confirmed",
             lambda trace: fixture_step(trace, "choice_reviewed").update(rationale="otra"),
             id="review-rationale",
+        ),
+        pytest.param(
+            "checkout-refused",
+            lambda trace: trace["steps"][-1].update(merchant_refusal="payment_declined"),
+            id="merchant-refusal",
         ),
     ],
 )

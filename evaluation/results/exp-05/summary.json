@@ -1,0 +1,217 @@
+{
+  "schema": "exp05-archival-summary/1",
+  "base": "4ce219623ed0304a3e7378519a37f0b8844694c5",
+  "base_ci": 41908376626,
+  "pr": 168,
+  "runs": [
+    {
+      "run_id": 41913321178,
+      "artifact_id": 13364006268,
+      "zip_sha256": "1e8a9c04436e6a7aabf32a99875adfd3339c620e5e695bce1bd7bccf8f81b77d",
+      "sources": {
+        "agent": {
+          "sha": "7394dab420d241296f0e15e227502e2bc6b0c760",
+          "clean": true,
+          "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+        },
+        "merchant": {
+          "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+          "clean": true,
+          "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+        },
+        "payment": {
+          "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+          "clean": true,
+          "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+        }
+      },
+      "protocol_sha256": "fefd04ffc16d645d8248309ce45a648cfe6a51314ccaf9b0369ad9cb42c42e75",
+      "report_present": true,
+      "validated": false,
+      "hash_entries_verified": 20,
+      "junit": {
+        "passed": 0,
+        "failed": 2,
+        "error": 2,
+        "skipped": 0
+      },
+      "scenarios": {
+        "CT15": "error"
+      },
+      "attributed_scenarios": {
+        "CT15": "error"
+      },
+      "gate_issues": [
+        "recorder_incomplete",
+        "required_controls_missing_duplicate_or_extra"
+      ],
+      "cleanup": {
+        "CT15:HNP:above": true,
+        "CT15:HNP:within": true
+      },
+      "shutdown": [
+        {
+          "scenario": "shutdown",
+          "merchant_pids": [
+            3351
+          ],
+          "proxy_closed": true,
+          "postgres_removed": true
+        }
+      ]
+    },
+    {
+      "run_id": 41913671886,
+      "artifact_id": 13363966699,
+      "zip_sha256": "94b28eb5aa7e16ef1d809d69340c612523cf6a6ed396442daff243d4ea27e1c8",
+      "sources": {
+        "agent": {
+          "sha": "f95610fbc68b1758f2bdfba9e6a4398763fe2fd9",
+          "clean": true,
+          "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+        },
+        "merchant": {
+          "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+          "clean": true,
+          "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+        },
+        "payment": {
+          "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+          "clean": true,
+          "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+        }
+      },
+      "protocol_sha256": "fefd04ffc16d645d8248309ce45a648cfe6a51314ccaf9b0369ad9cb42c42e75",
+      "report_present": true,
+      "validated": true,
+      "hash_entries_verified": 24,
+      "junit": {
+        "passed": 2,
+        "failed": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "scenarios": {
+        "CT15": "passed"
+      },
+      "attributed_scenarios": {
+        "CT15": "passed"
+      },
+      "gate_issues": [],
+      "cleanup": {
+        "CT15:HNP:above": true,
+        "CT15:HNP:within": true
+      },
+      "shutdown": [
+        {
+          "scenario": "shutdown",
+          "merchant_pids": [
+            3274
+          ],
+          "proxy_closed": true,
+          "postgres_removed": true
+        }
+      ]
+    },
+    {
+      "run_id": 41914629295,
+      "artifact_id": 13364940692,
+      "zip_sha256": "19982fa55e12f8a4cec55a6933dd5c6547b2422274f9ce70d1b9c6283fe2b4bc",
+      "sources": {
+        "agent": {
+          "sha": "3cf817145ed8aa73c37e57121d4dd69a02076f97",
+          "clean": true,
+          "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+        },
+        "merchant": {
+          "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+          "clean": true,
+          "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+        },
+        "payment": {
+          "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+          "clean": true,
+          "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+        }
+      },
+      "protocol_sha256": "8cb47f195e936d8b3d1878ca3f8215497b008467de5a1f5170729cf9d5077f96",
+      "report_present": false,
+      "validated": false,
+      "hash_entries_verified": null,
+      "junit": {
+        "passed": 1,
+        "failed": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "scenarios": {},
+      "attributed_scenarios": {},
+      "gate_issues": [
+        "reporter_failed_before_report_and_hash_manifest"
+      ],
+      "cleanup": {
+        "original_observed_record": "retained in ZIP; no completed gate"
+      },
+      "shutdown": "raw stack evidence retained in ZIP"
+    },
+    {
+      "run_id": 41915169656,
+      "artifact_id": 13363199694,
+      "zip_sha256": "d839d70b7202292bb9a1af51c3cf1cc55aec8ef1cbf939e64b06f986d31a5028",
+      "sources": {
+        "agent": {
+          "sha": "f30e7c47f3c5e95584499eedc992c624b479a6a9",
+          "clean": true,
+          "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+        },
+        "merchant": {
+          "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+          "clean": true,
+          "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+        },
+        "payment": {
+          "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+          "clean": true,
+          "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+        }
+      },
+      "protocol_sha256": "8cb47f195e936d8b3d1878ca3f8215497b008467de5a1f5170729cf9d5077f96",
+      "report_present": true,
+      "validated": true,
+      "hash_entries_verified": 15,
+      "junit": {
+        "passed": 1,
+        "failed": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "scenarios": {
+        "AUTH-TRANSPORT": "passed"
+      },
+      "attributed_scenarios": {},
+      "gate_issues": [],
+      "cleanup": {
+        "AUTH:transport": true
+      },
+      "shutdown": [
+        {
+          "scenario": "shutdown",
+          "merchant_pids": [
+            3258
+          ],
+          "proxy_closed": true,
+          "postgres_removed": true
+        }
+      ]
+    }
+  ],
+  "new_p0_measurement": {
+    "CT15 HNP": "passed preparation/budget containment, not completion"
+  },
+  "prepared_semantic_scenarios": {
+    "UX01": "not_executed",
+    "UX11": "not_executed",
+    "UX12": "not_executed"
+  },
+  "CT19": "contract feasible; reversible disappearance fixture and live experiment not implemented"
+}

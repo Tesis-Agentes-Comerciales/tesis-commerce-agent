@@ -1,6 +1,7 @@
 import { parsePurchaseTrace, type PurchaseTrace } from "@/lib/trace-contract"
 
 import checkoutRefused from "./checkout-refused.json"
+import checkoutRefusedOfferExpired from "./checkout-refused-offer-expired.json"
 import d2Denied from "./d2-denied.json"
 import enforceCompleted from "./enforce-completed.json"
 import enforceReviewNotConfirmed from "./enforce-review-not-confirmed.json"
@@ -9,6 +10,7 @@ import killSwitch from "./kill-switch.json"
 import offCompleted from "./off-completed.json"
 import offerChanged from "./offer-changed.json"
 import revokedInFlight from "./revoked-in-flight.json"
+import updateRefused from "./update-refused.json"
 import waitingForPolicy from "./waiting-for-policy.json"
 
 // Compras delegadas (HNP, docs/design/hnp-governed.md §10): el comprador consintió antes de irse y
@@ -39,6 +41,16 @@ export const HNP_TRACES = {
   killSwitch: parsePurchaseTrace(killSwitch),
   /** K15: `start` dejó la compra elegida sin el resultado de D1; la tarea falló y la compra espera. */
   waitingForPolicy: parsePurchaseTrace(waitingForPolicy),
-  /** #93: el comercio rechazó el checkout (`out_of_stock`) y la tarea terminó `checkout_failed`. */
+  /**
+   * #93 y CT13 en B0-HNP: el comercio se negó a crear el checkout (`out_of_stock`). La tarea terminó
+   * `checkout_failed` y nombra la causa (`merchant_refusal`), porque no se creó nada.
+   */
   checkoutRefused: parsePurchaseTrace(checkoutRefused),
+  /** CT13 en B2-HNP: D1 permitió y el comercio se negó a crear el checkout porque la oferta venció. */
+  checkoutRefusedOfferExpired: parsePurchaseTrace(checkoutRefusedOfferExpired),
+  /**
+   * El comercio creó el checkout y rechazó el update con `out_of_stock`: la compra guarda el código,
+   * pero la tarea no nombra causa, porque `checkout_failed` sale también con el checkout creado.
+   */
+  updateRefused: parsePurchaseTrace(updateRefused),
 } satisfies Record<string, PurchaseTrace>
