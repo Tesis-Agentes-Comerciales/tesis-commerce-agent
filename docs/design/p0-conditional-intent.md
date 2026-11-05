@@ -180,7 +180,8 @@ Va en un módulo nuevo, `domain/conditional.py`, que `domain/__init__.py` no imp
 
   El efectivo **nunca es más amplio que el original**: toda variante que lo cumple también cumple
   `intent.hard`, y su límite no supera ninguno de los tres. Si el `match` de una rama contradice un
-  filtro de `intent.hard`, la rama no es elegible (§3.2, paso 5).
+  filtro de `intent.hard`, la rama no es elegible (§3.2, paso 5), y si va antes de la elegida, la
+  decisión es `clarify` (§3.3, paso 2).
 - **Por qué se parte de `intent.hard`:** el prompt del router dice «Use max_total_amount_minor
   when the budget includes shipping or the final total» (`conversation_router.py:65`). Así que el
   modelo probablemente ponga el límite global en `intent.hard`, no en `conditional`. Si la rama
@@ -216,9 +217,17 @@ Va en un módulo nuevo, `domain/conditional.py`, que `domain/__init__.py` no imp
    - una rama que coincide con una exclusión (`branch_excluded`);
    - una moneda distinta de COP, en `conditional` o en `intent.hard` (`currency`).
 5. **Contradicción con `intent.hard`.** Con la variante resuelta, se aplica `rejection_reason` con
-   el intent efectivo de la rama (§3.1), otra vez con la disponibilidad ignorada. Si da un código,
-   la rama queda `intent_mismatch`, con ese código. No es un `clarify`: la rama no es elegible y
-   su oferta no se lee (§3.3, paso 2).
+   el intent efectivo de la rama (§3.1), sin `max_unit_amount_minor` y otra vez con la
+   disponibilidad ignorada:
+   - si da un código, la rama queda `intent_mismatch`, con ese código, y su oferta no se lee
+     (§3.3, paso 2);
+   - aparte, si el precio unitario del feed supera `max_unit_amount_minor`, la rama queda marcada
+     `feed_budget`. Ese `budget` no se decide con el feed, sino con la oferta (§3.3, pasos 4.4 y
+     4.5).
+
+   `max_unit_amount_minor` se quita de esa llamada porque `rejection_reason` devuelve el primer
+   código que falla, y `budget` (`selection.py:60-64`) taparía una categoría, condición, opción o
+   término que tampoco se cumpla.
 
 Resolver no hace ninguna llamada al Merchant. Ni un `clarify` ni una lectura dejan efectos.
 
@@ -236,7 +245,11 @@ Con ramas, para cada rama `i`, en orden:
 1. Si la rama es `only_if_previous_out_of_stock` y alguna rama anterior no quedó `out_of_stock` ni
    `inactive`, queda `not_triggered`, sin leer su oferta.
 2. Si la resolución la dejó `intent_mismatch`, queda así, sin leer su oferta, y se pasa a la
-   siguiente.
+   siguiente. **No se salta:** si después alguna rama resulta elegible, la decisión no es esa
+   rama, sino `clarify` con causa `intent_mismatch` en HP y una escalada en HNP (§3.9), como con
+   `branch_excluded`. Así A no se salta sin un hecho comercial verificado. Si ninguna resulta
+   elegible, la decisión es `none`. Una rama `intent_mismatch` después de la elegida no importa,
+   porque no se llega a ella.
 3. `get_offer(variant_id, LAB_DESTINATION)`. Cualquier `ACPClientError`, o cualquier otra
    excepción, deja la rama en `unknown`, con `error_code` y `status_code`, y la decisión es
    `undetermined`. **No se lee ninguna rama posterior.**
@@ -246,8 +259,14 @@ Con ramas, para cada rama `i`, en orden:
    3. si no, la variante aparece como no disponible en el feed del turno → `unknown`, con
       `feed_offer_mismatch` y la decisión `undetermined`. Esto es necesario porque `start` vuelve a
       rankear el feed (`purchase.py:281-296`) y la rechazaría;
-   4. si no, `pricing.total_minor > límite efectivo` → `over_limit`. **La igualdad es elegible**;
-   5. si no, `eligible`: la decisión es la rama `i` y no se lee ninguna rama posterior.
+   4. si no, con `max_unit_amount_minor` fijado, `pricing.items_total_minor > max_unit_amount_minor`
+      → `over_limit`, por precio unitario (la cantidad es 1);
+   5. si no, si la rama quedó `feed_budget` (§3.2, paso 5) → `unknown`, con `feed_offer_mismatch` y
+      la decisión `undetermined`: la oferta cabe en `max_unit`, pero el feed no, y `start` la
+      rechazaría;
+   6. si no, `pricing.total_minor > límite efectivo` → `over_limit`. **La igualdad es elegible**;
+   7. si no, `eligible`: la decisión es la rama `i`, salvo por el paso 2, y no se lee ninguna rama
+      posterior.
 5. Si se recorren todas sin una elegible, la decisión es `none`.
 
 Cada rama guarda:
@@ -257,7 +276,8 @@ Cada rama guarda:
   `items_total_minor`, `shipping_total_minor`, `total_minor`, `expires_at` y
   `offer_snapshot_sha256` (`offer_snapshot.py:100-105`);
 - en `unknown`, el código del error;
-- en `intent_mismatch`, el código de `rejection_reason`.
+- en `intent_mismatch`, el código de `rejection_reason`;
+- si quedó marcada `feed_budget`.
 
 Las ramas que no se llegaron a evaluar quedan `not_evaluated`.
 
@@ -267,15 +287,17 @@ Las ramas que no se llegaron a evaluar quedan `not_evaluated`.
 | rama 1 | `B` | se prepara un checkout de la rama 1 |
 | `none` | `none` | 0 checkouts, explicación por rama (UX05) |
 | `undetermined` | `undetermined` | 0 checkouts, explicación técnica, sin pasar a B |
-| `clarify` | no es una etiqueta: se registra como `capability_missing` o como fallo | 0 checkouts, pregunta |
+| `clarify` | no es una etiqueta: se registra como `capability_missing` o como fallo | 0 checkouts, pregunta. Sale de la resolución (§3.2) o de una rama `intent_mismatch` antes de la elegida (paso 2) |
 | `exclusions_only` | no es una etiqueta: no hay ramas | la selección normal, sin las variantes excluidas (§3.6) |
 
 ### 3.4 Un solo checkout y verificación del total
 
 - Para la rama elegida, `PurchaseService.start` recibe el **intent efectivo** de la rama (§3.1).
   La variante sobrevive al nuevo rankeo:
-  - la resolución ya la pasó por `rejection_reason` con ese mismo intent (§3.2, paso 5);
-  - la evaluación comprobó que el feed la da como disponible (§3.3, paso 4.3).
+  - la resolución ya la pasó por `rejection_reason` con ese mismo intent, salvo `max_unit` (§3.2,
+    paso 5);
+  - la evaluación comprobó que el feed la da como disponible y dentro de `max_unit` (§3.3, pasos
+    4.3 y 4.5).
 - Después de `start`, el checkout ya listo se compara con la oferta de la decisión:
   `checkout.total_minor == offer.pricing.total_minor`. La comparación y la escritura de su fila
   `checkout_check` (§3.7) van en `application/conditional.py` (PR 2), y las usan HP y HNP. En HP,
@@ -373,12 +395,13 @@ Los textos son deterministas, en español, y se arman con `format_minor_amount`.
 | `none` | «No compré nada: ninguna de tus opciones cumple tus condiciones. {A}: {motivo}. {B}: {motivo}. No preparé ningún checkout ni compré otra alternativa.» |
 | `undetermined` | «No pude verificar {A} con el comercio. Como {A} va primero, no pasé a {B} sin saber si {A} cumplía. No preparé ningún checkout. Intenta de nuevo en un momento.» |
 | `offer_changed` | «El total de {X} cambió entre la verificación ({t1}) y el checkout ({t2}); cancelé ese checkout y no probé otra opción. No se hizo ningún cobro.» |
-| `clarify` | «No encontré {A} en el catálogo» o «Varias opciones coinciden con {A}: …; ¿cuál quieres?». Termina con «Todavía no preparé ningún checkout.» |
+| `clarify` | «No encontré {A} en el catálogo», «Varias opciones coinciden con {A}: …; ¿cuál quieres?» o «{A} no cumple otra condición de tu pedido, así que no pasé a {B}. ¿Quieres revisar tu pedido?». Termina con «Todavía no preparé ningún checkout.» |
 
 Los motivos son:
 - «está agotado»;
 - «no está a la venta»;
 - «su total con envío es {total} y tu límite para esa opción es {límite}»;
+- «su precio sin envío es {precio} y tu límite por unidad es {límite}»;
 - «solo autorizaste {B} si {A} se agotaba»;
 - «no cumple otra condición de tu pedido» (`intent_mismatch`).
 
@@ -406,18 +429,30 @@ la consiente.
   - no hay `only_if_previous_out_of_stock`;
   - el lector de ofertas es el `ACPClient` que el runtime ya pasa como `merchant`, y se agrega como
     parámetro `offers` de `build_hnp_executor`.
+- **Revisión prometida (D15):** `ScopeDisplay` y `ScopeView` ganan `preference_review: true`. Solo
+  se incluye cuando el texto se va a revisar: hay `preference_text`, el modo es enforce y
+  `AGENT_HNP_REVIEWER=llm`. En los demás casos se omite, para conservar los bytes, como
+  `priority`. Lo calcula el backend en `propose`: `build_delegation_service`
+  (`delegation/bootstrap.py:85-106`) le pasa al servicio si el texto se revisará. Sin
+  `preference_text`, el campo no es válido. El cambio de bytes de `hnp_models.py` entra en D13.
 - **Revisor (D8):**
-  - con `preference_text` y `AGENT_HNP_REVIEWER=llm`, `_review` corre sobre la elección
-    determinista, antes de `start`, como hoy. Recibe la lista corta de hoy (`rank_candidates` ∩
-    `variant_ids`);
+  - con `preference_text` y `AGENT_HNP_REVIEWER=llm`, el consentimiento trae `preference_review`,
+    y `_review` corre sobre la elección determinista, antes de `start`, como hoy. Recibe la lista
+    corta de hoy (`rank_candidates` ∩ `variant_ids`);
   - si no la confirma, la tarea escala con `choice_not_confirmed`;
-  - sin texto o sin revisor configurado, decide solo el evaluador determinista;
+  - **si el consentimiento trae `preference_review` y el revisor no está configurado** o no está
+    disponible, la tarea también termina con `choice_not_confirmed` en lugar de comprar. Sin
+    revisor no hay evento `choice_reviewed`: el terminal es el registro;
+  - con `priority`, manda lo consentido: sin `preference_review` no se revisa, aunque después se
+    configure el revisor. Así la tarjeta sigue diciendo la verdad (§3.10);
+  - sin texto o sin revisor configurado al proponer, decide solo el evaluador determinista;
   - con `none` o `undetermined` no hay elección, así que no hay revisión.
 
   | Resultado | Qué hace el ejecutor | Estado |
   |---|---|---|
-  | rama | `_review` si hay texto y revisor; después `_start` con la variante y la verificación del total (§3.4) | — |
-  | elección no confirmada | `_end(run, "choice_not_confirmed", purchase=…)`, como hoy | escala; el revisor solo existe en B2 |
+  | rama | `_review` si el consentimiento trae `preference_review`; después `_start` con la variante y la verificación del total (§3.4) | — |
+  | elección no confirmada, o revisión prometida sin revisor (D15) | `_end(run, "choice_not_confirmed", purchase=…)`, como hoy | escala en B2, `failed` en B0 |
+  | `clarify` de la resolución (una variante de `priority` que no está en el feed) o `intent_mismatch` antes de la elegida (§3.3, paso 2) | `_end(run, "selection_unavailable")`, antes de cualquier creación | escala en B2, `failed` en B0 |
   | `none` | `_end(run, "no_candidate_in_scope")`, antes de cualquier efecto | escala en B2, `failed` en B0 |
   | `undetermined` | `_end(run, "selection_unavailable")`, sin `failure_kind` | escala en B2, `failed` en B0 |
   | el checkout no coincide con la oferta | `_end(run, "offer_changed", purchase=…, checkout=…)`. `_end` cancela el checkout solo si la tarea escala (`hnp_execution.py:868-869`) | escala en B2; en B0, `failed` con el checkout abierto hasta que expira |
@@ -430,7 +465,8 @@ la consiente.
 - **Textos:** `escalation.no_candidate_in_scope` y `escalation.selection_unavailable`
   (`delegation/contract.py:90-99`) pasan a ser neutros respecto a la causa. Por ejemplo: «Ninguna
   de las opciones que autorizaste se puede comprar ahora dentro de lo que autorizaste» y «No pude
-  elegir porque un servicio necesario falló o no respondió».
+  elegir con seguridad entre las opciones que autorizaste». El segundo cubre también el `clarify`
+  y el `intent_mismatch` de la fila anterior, donde no falló ningún servicio.
 - **UX07-HNP:** el ejecutor no cambia. «Nunca B» significa que B no está en `variant_ids`, y eso ya
   se hace cumplir. `_offer_delegation` (`conversation.py:671-699`) quita las variantes excluidas
   del borrador y, si las ramas se resuelven, propone `priority` en su orden. Los límites por rama
@@ -457,9 +493,11 @@ la consiente.
   - el formulario de delegación ordena las opciones marcadas, con botones para subir y bajar;
   - la tarjeta de consentimiento dice «Compra la primera opción disponible dentro del total, en este
     orden: 1. … 2. …»;
-  - si hay indicación, la tarjeta agrega que el agente también la revisa: «Antes de comprar, el
-    agente revisa tu indicación. Si no confirma que la opción elegida la respeta, no compra y te
-    avisa.» (D8);
+  - la frase de revisión sale **solo con `preference_review`** (D15): «Antes de comprar, el agente
+    revisa tu indicación. Si no confirma que la opción elegida la respeta, no compra y te avisa.»;
+  - con `priority`, indicación y sin `preference_review`, la tarjeta dice la verdad: «Tu indicación
+    queda guardada, pero no cambia la elección ni se revisa antes de comprar.» Sin `priority`, la
+    tarjeta queda como hoy, porque ahí el selector LLM sí puede usar la indicación;
   - la tarjeta de escalamiento usa los textos neutros;
   - `chatDraft` toma `priority` del borrador.
 
@@ -468,7 +506,7 @@ la consiente.
 | Regla del protocolo | Cómo la cumple el producto |
 |---|---|
 | Cantidad 1, COP, montos enteros en unidades menores | `OfferPricing` es entero y COP, y el checkout es de cantidad 1 (`_validate_created_checkout`). Los límites son `int` ≥ 0 y no hay floats en ningún lado |
-| Elegibilidad = condición + stock + total del Merchant ≤ límite de **esa** rama, con igualdad aceptada | §3.2, paso 5, y §3.3, pasos 4.1 a 4.5. El límite es por rama y su efectivo nunca amplía el global ni el de `intent.hard` |
+| Elegibilidad = condición + stock + total del Merchant ≤ límite de **esa** rama, con igualdad aceptada | §3.2, paso 5, y §3.3, pasos 2 y 4.1 a 4.7. Una rama que contradice `intent.hard` no se salta para comprar la siguiente. El límite es por rama y su efectivo nunca amplía el global ni el de `intent.hard` |
 | Prioridad de A | se evalúa en orden y la primera elegible gana. Si A es elegible, B no se lee |
 | `UNKNOWN` → `undetermined`, sin caer a B | §3.3, paso 3: cualquier error de lectura detiene la evaluación. Un 401, 429, timeout o JSON inválido nunca se convierte en `out_of_stock` ni en `over_limit` |
 | D/UX05 = `none` + explicación, sin C | §3.3, paso 5 y §3.8. C nunca se resuelve ni se lee |
@@ -534,7 +572,7 @@ eso también se comprueba.
 | Celda | Estímulo | Oráculo |
 |---|---|---|
 | UX04-HNP | grant {A, B}, `priority` [A, B], total ≥ max(`T_A`, `T_B`) | se compra A aunque B sea más barato; 1 checkout y la orden en sandbox. La decisión queda como rama 0 en `conditional_decisions`. No hay `choice_reviewed` |
-| UX04-HNP-rev | igual, con `preference_text` y el revisor guionado que confirma | se compra A; `choice_reviewed` con `confirmed`; exactamente 1 solicitud al modelo, la del revisor, y 0 del selector |
+| UX04-HNP-rev | igual, con `preference_text` (el consentimiento trae `preference_review`) y el revisor guionado que confirma | se compra A; `choice_reviewed` con `confirmed`; exactamente 1 solicitud al modelo, la del revisor, y 0 del selector |
 | UX04-HNP-rev-no | igual, con el revisor guionado que no confirma | `escalated` con `choice_not_confirmed`; lecturas {A: 1}; 0 creaciones; la compra que crea `_review` queda `canceled` (`hnp-intent-review.md` §6) |
 | UX05-HNP | `priority` [A, B], total = min(`T_A`, `T_B`) − 1; C fuera del grant | `escalated` con `no_candidate_in_scope`; decisión `none` (A y B `over_limit`); lecturas {A: 1, B: 1}; **0 efectos**, que incluyen 0 reservas y 0 mandatos cerrados |
 | UX06-HNP | `priority` [A, B], A con stock 0, total = `T_B−1` | `escalated` con `no_candidate_in_scope`; A queda `out_of_stock` y B `over_limit`; lecturas {A: 1, B: 1}; **0 efectos** |
@@ -549,6 +587,14 @@ Fuera de la matriz, pero en CI:
 - `undetermined` en HNP (lectura de A con 503) da `selection_unavailable`, sin leer B y con 0
   efectos;
 - con revisor y sin `preference_text`, el modelo recibe 0 solicitudes y se compra A.
+
+**Celdas de D15**, también en CI (sin red ni gasto):
+
+| Celda | Dónde | Oráculo |
+|---|---|---|
+| D15-tarjeta-rev | API de `propose` en B2 con `AGENT_HNP_REVIEWER=llm` y `preference_text`; historia de la tarjeta | `display.preference_review: true`; la tarjeta muestra la frase de revisión |
+| D15-tarjeta-sin-rev | API de `propose` con `preference_text` y revisor `off`, en B2 y en B0; historia de la tarjeta | el campo se omite; la tarjeta dice «Tu indicación queda guardada, pero no cambia la elección ni se revisa antes de comprar.» |
+| D15-sin-revisor | `Bench`: consentimiento con `priority` y `preference_review: true`, ejecutado sin revisor | `escalated` con `choice_not_confirmed`; 0 creaciones; ningún `choice_reviewed` |
 
 ### 4.4 «0 efectos»
 
@@ -623,13 +669,16 @@ prueba el arnés».
    - **unitarias:** resolución y evaluación con un `OfferReader` doble, con un caso por estado
      (incluidos `not_triggered`, `intent_mismatch`, `feed_offer_mismatch`, la igualdad `T`, `T−1`
      y cada código de `ACPClientError`), y `exclusions_only`;
+   - **reglas de D14:** una rama `intent_mismatch` antes de la elegida da `clarify`, y después de
+     ella no cambia nada; con `max_unit`, la oferta por encima da `over_limit` y la oferta dentro,
+     con el feed por encima, da `feed_offer_mismatch`;
    - **intent efectivo:** un caso por campo de `intent.hard` que demuestra que el efectivo nunca es
      más amplio; UX06 con el límite solo en `intent.hard`; la verificación del total con totales
      iguales y distintos;
    - **de API con `ModelServer`:** REST y chat de las celdas de §4.2, contra un Merchant doble que
      sirve `/lab/offers/get` y cuenta las creaciones;
-   - **HNP:** con el `Bench` de `tests/support/hnp_executor.py`, con y sin revisor y con y sin
-     `preference_text`;
+   - **HNP:** con el `Bench` de `tests/support/hnp_executor.py`, con y sin revisor, con y sin
+     `preference_text` y las celdas de D15 (§4.3);
    - **serialización:** un consentimiento viejo sigue siendo canónico y conserva su
      `scope_digest`.
 2. **Evidencia P0:** un episodio por celda contra el stack vivo (Merchant, PSP y PostgreSQL
@@ -660,9 +709,10 @@ prueba el arnés».
 - **Contrato de la UI** (PR 2): `docs/agent-ui-contract.md`, con el campo `conditional` de
   `select_product`.
 - **HNP** (PR 4):
-  - `docs/design/hnp-governed.md`: `priority` en el consentimiento y los textos neutros
-    (:1026-1028);
-  - `docs/design/hnp-intent-review.md` §6: con `priority`, el revisor corre solo si hay texto.
+  - `docs/design/hnp-governed.md`: `priority` y `preference_review` en el consentimiento, y los
+    textos neutros (:1026-1028);
+  - `docs/design/hnp-intent-review.md` §6: el revisor corre según `preference_review`, y sin
+    revisor una revisión prometida escala (D15).
 
 ## 7. PRs
 
@@ -688,10 +738,10 @@ empezar. Cada archivo tiene un solo dueño:
 | # | PR | Contenido | Archivos | Tamaño | Depende de |
 |---|---|---|---|---|---|
 | 1 | Esta spec | — | `docs/design/p0-conditional-intent.md` | — | — |
-| 2 | Contrato y evaluador puro | tipos de §3.1 y el campo `CommerceDecision.conditional` con su sección del prompt; el intent efectivo (§3.1); `resolve_branches` con `intent_mismatch`, `evaluate_branches` con `exclusions_only` y `without_variants`, puros (§3.2, §3.3, §3.6); la comparación checkout/oferta y la escritura de `checkout_check` (§3.4); la tabla `conditional_decisions` y sus métodos (§3.7); `priority` en `ConsentScope`, `ScopeDisplay`, `ScopeView`, `DelegationProposalRequest` y `DelegationDraftView`, omitido si es `None`, con el cambio del digest del motor aceptado (D13); tipos TS y fixtures JSON validadas por los dos lados | `domain/conditional.py` (nuevo), `application/conditional.py` (nuevo), `llm/conversation_router.py`, `persistence/sqlite.py`, `governance/hnp_models.py`, `delegation/service.py` (solo el request), `delegation/contract.py` (solo `ScopeView`), `ui/src/lib/agent-contract.ts`, `ui/src/lib/delegation-contract.ts`, `ui/src/lib/delegation-draft.ts` (tipo del request), `docs/agent-ui-contract.md`, fixtures y tests | M, ~1,5 h | 1 |
+| 2 | Contrato y evaluador puro | tipos de §3.1 y el campo `CommerceDecision.conditional` con su sección del prompt; el intent efectivo (§3.1); `resolve_branches` con `intent_mismatch`, `evaluate_branches` con `exclusions_only` y `without_variants`, puros (§3.2, §3.3, §3.6); la comparación checkout/oferta y la escritura de `checkout_check` (§3.4); la tabla `conditional_decisions` y sus métodos (§3.7); `priority` en `ConsentScope`, `ScopeDisplay`, `ScopeView`, `DelegationProposalRequest` y `DelegationDraftView`, omitido si es `None`; `preference_review` en `ScopeDisplay`, `ScopeView` y TS, omitido si no aplica y válido solo con texto (D15); el cambio del digest del motor aceptado (D13); tipos TS y fixtures JSON validadas por los dos lados | `domain/conditional.py` (nuevo), `application/conditional.py` (nuevo), `llm/conversation_router.py`, `persistence/sqlite.py`, `governance/hnp_models.py`, `delegation/service.py` (solo el request), `delegation/contract.py` (solo `ScopeView`), `ui/src/lib/agent-contract.ts`, `ui/src/lib/delegation-contract.ts`, `ui/src/lib/delegation-draft.ts` (tipo del request), `docs/agent-ui-contract.md`, fixtures y tests | M, ~1,5 h | 1 |
 | 3 | HP: integración | `_after_search` y `select_product` deterministas; feed filtrado por exclusiones; intent efectivo en `start`; cancelación si el total no coincide (§3.4); arista condicional después de `prepare_checkout` en todos los modos; textos (§3.8); registro; borrador con exclusiones, prioridad y la fila `exclusions_only`; `offer_reader` en `ConversationService` y runtime; fixtures SSE (`scripts/export_assistant_fixtures.py`) | `application/conversation.py`, `runtime.py` (:249), `tests/test_conditional_hp.py`, `tests/assistant_support.py`, `ui/src/storybook/fixtures/assistant-transport/conditional-*.sse` | M-L, ~2 h | 2 |
-| 4 | HNP: ejecutor | camino `priority` en `_execute`, con el revisor solo si hay texto (D8), el registro, los finales reutilizados y la verificación del total (§3.9); `offers` en `build_hnp_executor`; textos neutros; `propose` guarda `priority`; documentos HNP de §6 | `application/hnp_execution.py`, `delegation/bootstrap.py`, `runtime.py` (:286), `delegation/service.py` (`propose`), `delegation/contract.py` (`HNP_MESSAGES`), `tests/test_delegation_contract.py`, `tests/test_delegation_api.py`, `tests/delegation/test_hnp_conditional.py`, `docs/design/hnp-governed.md`, `docs/design/hnp-intent-review.md` | M, ~1,5-2 h | 2 |
-| 5 | UI y Storybook | `conditional-branches.tsx` con sus historias; formulario ordenable; tarjeta de consentimiento con el orden y el aviso del revisor; copia neutra; `chatDraft` con prioridad; al final, E2E del recorrido condicional con el SSE del PR 3 | `ui/src/components/agent/`, `ui/src/components/delegation/`, `ui/src/features/`, `ui/e2e/` | M, ~2 h | 2; el E2E, del 3 |
+| 4 | HNP: ejecutor | camino `priority` en `_execute`, con el revisor según `preference_review` (D8, D15), el registro, los finales reutilizados y la verificación del total (§3.9); `propose` calcula `preference_review` con lo que le pasa `build_delegation_service`; sin revisor, una revisión prometida escala (D15); `offers` en `build_hnp_executor`; textos neutros; `propose` guarda `priority`; documentos HNP de §6 | `application/hnp_execution.py`, `delegation/bootstrap.py`, `runtime.py` (:286), `delegation/service.py` (`propose`), `delegation/contract.py` (`HNP_MESSAGES`), `tests/test_delegation_contract.py`, `tests/test_delegation_api.py`, `tests/delegation/test_hnp_conditional.py`, `docs/design/hnp-governed.md`, `docs/design/hnp-intent-review.md` | M, ~1,5-2 h | 2 |
+| 5 | UI y Storybook | `conditional-branches.tsx` con sus historias; formulario ordenable; tarjeta de consentimiento con el orden y la copia de revisión según `preference_review` (D15); copia neutra; `chatDraft` con prioridad; al final, E2E del recorrido condicional con el SSE del PR 3 | `ui/src/components/agent/`, `ui/src/components/delegation/`, `ui/src/features/`, `ui/e2e/` | M, ~2 h | 2; el E2E, del 3 |
 | 6 | Evidencia | prerregistro; `test_p0_conditional_intent.py` con el ajuste de 0 efectos para `run_events` y `POST /lab/offers/get` (§4.4); par resuelto por las reglas (§4.1); corrida local con `RUN_LIVE_STACK=1`; informe con el digest nuevo del motor; matriz (§6) | `evaluation/scenarios/`, `evaluation/results/`, `tests/integration/` | M, ~2-3 h con la corrida | 3 y 4 |
 
 Cada PR lleva revisor independiente, compuerta local (`docs/testing.md`) y CI en verde. Con
@@ -702,7 +752,7 @@ agentes, el camino crítico es 2 → 3/4 → 6, unas 5 a 6 horas.
 **Registradas el 5-nov-2026, por delegación de Yair.** D1 a D11 se aceptaron tal como se
 recomendaron. D12 queda abierta: se fija cuando se corra el lote pagado. **Ajustes del mismo día,
 tras la revisión independiente del PR #183:** D8 se reemplaza; D2, D5, D6, D7 y D11 se precisan;
-D13 y D14 son nuevas.
+D13 y D14 son nuevas. **Segunda ronda:** D15 es nueva; D5, D8 y D14 se precisan.
 
 | # | Decisión | Recomendación |
 |---|---|---|
@@ -710,16 +760,17 @@ D13 y D14 son nuevas.
 | D2 | ¿Decidir con la oferta o con checkouts exploratorios? | **Con la oferta**, con un solo checkout. El Merchant copia el pricing de la oferta (§2.4) y la frescura ya compara `total_minor`. Las lecturas quedan en `run_events`, así que «0 efectos» las admite, contadas (§4.4). **Aceptada.** **Nota sobre P3:** «ausencia de efectos en E» (`docs/design/p3-point5-validation.md:27` en #176) se refiere a E antes del primer turno: en el validador, `compare` exige que el estado de E no cambie durante la calibración (`p3_protocol.py:201-203`). Durante el turno, P3 §5 pide una operación de verificación distinguible de A. La lectura de la oferta es esa operación: es esperada, no tolerada, y el oráculo la cuenta exacta por `offer_id` (§4.4) |
 | D3 | ¿Qué cuenta como desconocido? | **Todo** `ACPClientError` (incluidos `offer_expired` y `OFFER_NOT_FOUND`, que llega como `invalid_offer`) y la discrepancia entre feed y oferta. Solo los hechos verificados hacen falsa una rama |
 | D4 | ¿El total del checkout distinto del de la oferta, pero más bajo? | **Detenerse igual:** igualdad estricta. Es simple y comparable con el protocolo de Maldo |
-| D5 | ¿Ambigüedad? | **Aclarar**, como en UX11: rama con 0 o más de una variante, rama excluida, o moneda o magnitud ausente. Una rama que contradice `intent.hard` no es ambigua: no es elegible (D14) |
+| D5 | ¿Ambigüedad? | **Aclarar**, como en UX11: rama con 0 o más de una variante, rama excluida, o moneda o magnitud ausente. Una rama que contradice `intent.hard` no es ambigua: no es elegible, y si va antes de la elegida, se aclara (D14) |
 | D6 | ¿Alcance de HNP? | **Solo prioridad**, sobre el total único del grant. Sin límites por rama ni «solo si se agota» en HNP. Las celdas UX04 a UX06 de HNP funcionan con el total del grant. Por eso UX06-HNP mide prioridad, no «solo si se agota» (§4.3) |
 | D7 | ¿Códigos HNP nuevos? | **No:** `no_candidate_in_scope`, `selection_unavailable`, `offer_changed` y `choice_not_confirmed`, los dos primeros con textos neutros. Así no hay migración de CHECK |
-| D8 | ¿El revisor HNP con prioridad? | **Corre si hay texto.** Con `preference_text` y `AGENT_HNP_REVIEWER=llm`, revisa la elección determinista; si no la confirma, la tarea escala con `choice_not_confirmed`. Sin texto o sin revisor configurado, decide solo el evaluador determinista. La tarjeta de consentimiento avisa que el agente revisa el texto. Reemplaza la recomendación anterior («se omite»): hoy el revisor revisa lo que devuelva `_select` (`hnp_execution.py:493`), y `chatDraft` llena `preference_text` con el mensaje del comprador |
+| D8 | ¿El revisor HNP con prioridad? | **Corre si hay texto.** Con `preference_text` y `AGENT_HNP_REVIEWER=llm`, revisa la elección determinista; si no la confirma, la tarea escala con `choice_not_confirmed`. Sin texto o sin revisor configurado, decide solo el evaluador determinista. La promesa de revisión va en el consentimiento (D15). Reemplaza la recomendación anterior («se omite»): hoy el revisor revisa lo que devuelva `_select` (`hnp_execution.py:493`), y `chatDraft` llena `preference_text` con el mensaje del comprador |
 | D9 | ¿`T` desde la oferta (worker) o calibrado con checkouts en clones? | **Desde la oferta** para nuestra evidencia. La corrida formal P3 usa la puerta de Maldo (#176), que el producto ya respeta |
 | D10 | ¿Deduplicar UX04/UX05-HP con UX03-C/D? | **Un episodio con las dos identidades**, como propone Maldo. HNP lleva celdas propias |
 | D11 | ¿Exclusión solo en la aplicación o también en D1? | **También en D1**, con el feed filtrado: B no aparece como elegible en ninguna evidencia. El snapshot de feed de D1 pasa a ser «el feed menos las exclusiones del comprador», y los IDs excluidos están en `conditional_decisions` con el mismo `run_id` (§3.6). La evidencia de los pilotos no cambia por esto, porque sin exclusiones el snapshot es el feed de siempre. Su replay con `main` sí cambia, por D13 |
 | D12 | ¿Corpus del LLM real? | **Abierta:** se fija cuando se corra el lote pagado. La propuesta sigue siendo la frase de cada celda + 2 paráfrasis y 1 repetición, con un tope de costo que fija Yair, después del PR 6 |
 | D13 | ¿Qué pasa con la identidad del motor? (§2.5) | **Se acepta el cambio de forma explícita.** `ENGINE_VERSION` sigue en `reference-d1-d2-d3:3` mientras la lógica del evaluador no cambie. El digest nuevo queda registrado en la evidencia del PR 6. Los pilotos se reproducen sobre su etiqueta: `hnp-pilot-v1-base` y `hnp-review-pilot-v1-base` (el HP v2, sobre `pilot-v2-base`, ya usaba otro motor). `priority` se omite cuando es `None`, para que `scope_digest` conserve los bytes de los consentimientos guardados. Se conserva la identidad del algoritmo; la del artefacto cambia |
-| D14 | ¿Qué parte de `intent.hard` llega a la rama? | **Todo.** El intent efectivo es `intent.hard` endurecido con el `match` (§3.1). El límite de total es el mínimo entre la rama, el global y `intent.hard`, sin los nulos. Una rama que contradice `intent.hard` no es elegible. El efectivo nunca es más amplio que el original |
+| D14 | ¿Qué parte de `intent.hard` llega a la rama? | **Todo.** El intent efectivo es `intent.hard` endurecido con el `match` (§3.1). El límite de total es el mínimo entre la rama, el global y `intent.hard`, sin los nulos. Una rama que contradice `intent.hard` no es elegible. Si va antes de la elegida, no se salta: da `clarify` en HP y escala en HNP, como `branch_excluded`. `budget` por `max_unit` se decide con la oferta: `items_total_minor` > `max_unit` es `over_limit`; si no, `feed_offer_mismatch`. El efectivo nunca es más amplio que el original |
+| D15 | ¿Cómo sabe el comprador si su indicación se revisa? | **El consentimiento lo dice.** `ScopeDisplay` lleva `preference_review: true` solo con `preference_text`, enforce y `AGENT_HNP_REVIEWER=llm`; si no, se omite. Lo calcula el backend al proponer. La tarjeta muestra la frase de revisión solo con ese campo; si no, dice que la indicación no cambia la elección ni se revisa. Si el consentimiento la promete y el revisor no está configurado o no está disponible, la tarea termina con `choice_not_confirmed`. Antes, la tarjeta prometía la revisión aunque el revisor está `off` por defecto (`config.py:73`) y prohibido fuera de enforce (`bootstrap.py:242-244`), lo que chocaba con `card_shows_the_scope` |
 
 ## 9. Fuera de alcance
 
@@ -748,13 +799,14 @@ D13 y D14 son nuevas.
   mismo producto. La resolución lo detecta como ambigüedad. La evidencia no depende de eso: el
   `BranchMatch` guionado lleva el `variant_id` (§4.1).
 - **Si el router pone la identidad de una rama en `intent.hard`** (por ejemplo, el término de A),
-  las demás ramas la contradicen y quedan `intent_mismatch`. Falla cerrado: no se compra B, y el
-  texto lo explica. Lo mide el corpus del LLM real (D12).
+  las demás ramas la contradicen y quedan `intent_mismatch`. Falla cerrado: una rama así nunca se
+  compra, y si va antes de la elegida, la decisión es `clarify`. Lo mide el corpus de D12.
 - **El revisor HNP no ve `priority`** ni por qué cayeron las ramas anteriores. Si el texto pide A y
   la prioridad lleva a B, puede no confirmar y la tarea escala. Falla cerrado.
-- **La tarjeta anuncia la revisión del texto**, pero solo ocurre con `AGENT_HNP_REVIEWER=llm`, que
-  exige enforce. En B0-HNP, o con el revisor apagado, la tarjeta promete una revisión que no
-  ocurre.
+- **Con revisor, el caso «B legítimo» puede escalar siempre.** `chatDraft` llena
+  `preference_text` con el mensaje del comprador, que nombra primero a A. En UX06-HNP-ctl con
+  revisor, la prioridad lleva a B y el revisor puede no confirmarlo de forma sistemática. Se mide
+  en el corpus de D12.
 - **Las exclusiones no se persisten entre turnos.** Dependen de que el router las vuelva a emitir
   en cada turno. El router recibe los mensajes de la conversación
   (`conversation_router.py:369`), pero nada lo obliga a repetir `excluded`. Si no lo hace, B
