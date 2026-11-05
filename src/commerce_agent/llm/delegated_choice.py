@@ -27,6 +27,7 @@ from commerce_agent.llm.conversation_router import (
     _candidate_payload,
     _restricted_to_shortlist,
 )
+from commerce_agent.llm.model_failures import classify_model_failure
 from commerce_agent.llm.model_requests import ModelRequestRecorder, ModelRequestSink
 
 _DELEGATED_INSTRUCTIONS = """You choose one catalog candidate for a purchase the buyer delegated
@@ -125,10 +126,15 @@ class OpenAIDelegatedChooser:
                 )
                 pending.response = response
         except (OpenAIError, ValidationError) as error:
-            raise IntentInterpretationError("The delegated choice request failed") from error
+            raise IntentInterpretationError(
+                "The delegated choice request failed",
+                failure_kind=classify_model_failure(error).kind,
+            ) from error
         parsed = response.output_parsed
         if parsed is None:
-            raise IntentInterpretationError("The delegated choice model returned no decision")
+            raise IntentInterpretationError(
+                "The delegated choice model returned no decision", failure_kind="invalid_output"
+            )
         usage = getattr(response, "usage", None)
         return DelegatedChoice(
             # An id from outside the shortlist still meets K12 (executor guard or D1's POL-01).

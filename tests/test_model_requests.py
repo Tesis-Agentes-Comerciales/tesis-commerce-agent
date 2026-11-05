@@ -10,6 +10,7 @@ import json
 import logging
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -39,6 +40,7 @@ from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 from tests.support.model_server import (
     ModelServer,
     SentRequest,
+    disconnect,
     failure,
     function_call,
     shortlisted_choice,
@@ -84,7 +86,35 @@ COLUMNS = [
     "input_json",
     "output_json",
     "reasoning_summary",
+    "http_status",
+    "provider_error_code",
 ]
+# The table as it was before http_status and provider_error_code (p0-model-failures.md §3.3).
+FIRST_SCHEMA = """CREATE TABLE model_requests (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT,
+    stage TEXT,
+    request_index INTEGER NOT NULL CHECK(request_index >= 1),
+    started_at TEXT NOT NULL,
+    latency_ms REAL NOT NULL CHECK(latency_ms >= 0),
+    outcome TEXT NOT NULL CHECK(outcome IN ('ok', 'error')),
+    error_kind TEXT CHECK((outcome = 'error') = (error_kind IS NOT NULL)),
+    model TEXT NOT NULL,
+    response_model TEXT,
+    reasoning_effort TEXT,
+    text_format TEXT,
+    input_tokens INTEGER CHECK(input_tokens IS NULL OR input_tokens >= 0),
+    cached_input_tokens INTEGER CHECK(cached_input_tokens IS NULL OR cached_input_tokens >= 0),
+    cache_write_tokens INTEGER CHECK(cache_write_tokens IS NULL OR cache_write_tokens >= 0),
+    output_tokens INTEGER CHECK(output_tokens IS NULL OR output_tokens >= 0),
+    reasoning_tokens INTEGER CHECK(reasoning_tokens IS NULL OR reasoning_tokens >= 0),
+    retries INTEGER CHECK(retries IS NULL OR retries >= 0),
+    request_sha256 TEXT,
+    instructions_sha256 TEXT,
+    catalog_vocabulary TEXT,
+    input_json TEXT,
+    output_json TEXT,
+    reasoning_summary TEXT)"""
 
 
 def ledger(path: Path) -> SqliteModelRequests:
@@ -172,36 +202,84 @@ def test_the_table_is_added_once_to_an_existing_database(tmp_path: Path) -> None
     assert rows(path) == []
 
 
+ROW = ModelRequestRow(
+    run_id=None,
+    stage="model.route",
+    request_index=1,
+    started_at="2026-10-21T00:00:00+00:00",
+    latency_ms=1.0,
+    outcome="ok",
+    error_kind=None,
+    model="test-model",
+    response_model=None,
+    reasoning_effort=None,
+    text_format=None,
+    input_tokens=None,
+    cached_input_tokens=None,
+    cache_write_tokens=None,
+    output_tokens=None,
+    reasoning_tokens=None,
+    retries=None,
+    request_sha256=None,
+    instructions_sha256=None,
+    catalog_vocabulary=None,
+    input_json=None,
+    output_json=None,
+)
+
+
+def test_an_older_table_gains_the_failure_columns_and_keeps_its_rows(tmp_path: Path) -> None:
+    path = tmp_path / "agent.db"
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(FIRST_SCHEMA)
+        connection.execute(
+            "INSERT INTO model_requests (run_id, stage, request_index, started_at, latency_ms, "
+            "outcome, error_kind, model, retries) VALUES (?, 'model.route', 1, "
+            "'2026-10-21T00:00:00+00:00', 12.5, 'error', 'RateLimitError', 'test-model', 1)",
+            (RUN_ID,),
+        )
+
+    sink = ledger(path)
+    ledger(path)  # idempotent once migrated
+    sink.record(
+        replace(
+            ROW,
+            outcome="error",
+            error_kind="RateLimitError",
+            http_status=429,
+            provider_error_code="insufficient_quota",
+        )
+    )
+
+    with closing(sqlite3.connect(path)) as connection:
+        columns = [row[1] for row in connection.execute("PRAGMA table_info(model_requests)")]
+    assert columns == COLUMNS
+    kept, recorded = rows(path)
+    # The older row is intact; it never knew its status or code.
+    assert (kept["sequence"], kept["run_id"], kept["error_kind"], kept["retries"]) == (
+        1,
+        RUN_ID,
+        "RateLimitError",
+        1,
+    )
+    assert (kept["latency_ms"], kept["http_status"], kept["provider_error_code"]) == (
+        12.5,
+        None,
+        None,
+    )
+    assert (recorded["sequence"], recorded["http_status"], recorded["provider_error_code"]) == (
+        2,
+        429,
+        "insufficient_quota",
+    )
+
+
 def test_a_row_that_cannot_be_written_is_logged_and_dropped(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     sink = SqliteModelRequests(tmp_path / "agent.db")  # never initialized: no table
-    row = ModelRequestRow(
-        run_id=None,
-        stage="model.route",
-        request_index=1,
-        started_at="2026-10-21T00:00:00+00:00",
-        latency_ms=1.0,
-        outcome="ok",
-        error_kind=None,
-        model="test-model",
-        response_model=None,
-        reasoning_effort=None,
-        text_format=None,
-        input_tokens=None,
-        cached_input_tokens=None,
-        cache_write_tokens=None,
-        output_tokens=None,
-        reasoning_tokens=None,
-        retries=None,
-        request_sha256=None,
-        instructions_sha256=None,
-        catalog_vocabulary=None,
-        input_json=None,
-        output_json=None,
-    )
 
-    sink.record(row)
+    sink.record(ROW)
 
     assert "Model request not recorded: model.route" in caplog.text
 
@@ -256,6 +334,8 @@ def test_each_request_of_a_turn_is_one_row(
     assert chosen["instructions_sha256"] != routed["instructions_sha256"]
     assert all(r["latency_ms"] >= 0 and r["started_at"] for r in recorded)
     assert all(r["reasoning_summary"] is None for r in recorded)
+    # A request that ended well, even after a throttled attempt, has no failure to describe.
+    assert {(r["http_status"], r["provider_error_code"]) for r in recorded} == {(None, None)}
 
     # lookup_catalog, with its query: the first request's output and the second one's input.
     assert json.loads(lookup["output_json"]) == {
@@ -306,14 +386,31 @@ def test_the_request_digest_covers_the_instructions_and_the_input(
 
 
 @pytest.mark.parametrize(
-    ("answers", "error_kind", "retries"),
+    ("answers", "error_kind", "retries", "http_status", "provider_error_code"),
     [
-        ((failure(500), failure(500)), "InternalServerError", 1),
-        ((failure(400),), "BadRequestError", 0),
+        ((failure(500), failure(500)), "InternalServerError", 1, 500, "test"),
+        ((failure(400),), "BadRequestError", 0, 400, "test"),
+        # The SDK's class is the same for both; the code tells them apart (§3.3).
+        (
+            (failure(429, code="rate_limit_exceeded"),) * 2,
+            "RateLimitError",
+            1,
+            429,
+            "rate_limit_exceeded",
+        ),
+        (
+            (failure(429, code="insufficient_quota"),),
+            "RateLimitError",
+            0,
+            429,
+            "insufficient_quota",
+        ),
+        # No response came back.
+        ((disconnect(), disconnect()), "APIConnectionError", 1, None, None),
         # An answer outside the schema fails inside `parse`, after the HTTP exchange.
-        ((structured(lambda body: {"action": "buy"}),), "ValidationError", 0),
+        ((structured(lambda body: {"action": "buy"}),), "ValidationError", 0, None, None),
     ],
-    ids=["retried", "refused", "invalid-output"],
+    ids=["retried", "refused", "rate-limited", "quota", "unreachable", "invalid-output"],
 )
 def test_a_failed_request_is_an_error_row_and_the_same_error(
     monkeypatch: pytest.MonkeyPatch,
@@ -321,6 +418,8 @@ def test_a_failed_request_is_an_error_row_and_the_same_error(
     answers: tuple[Any, ...],
     error_kind: str,
     retries: int,
+    http_status: int | None,
+    provider_error_code: str | None,
 ) -> None:
     path = tmp_path / "agent.db"
     router = timed(build_router(monkeypatch, ModelServer(*answers), ledger(path)), path)
@@ -335,6 +434,7 @@ def test_a_failed_request_is_an_error_row_and_the_same_error(
         error_kind,
         retries,
     )
+    assert (row["http_status"], row["provider_error_code"]) == (http_status, provider_error_code)
     assert (row["input_tokens"], row["output_json"]) == (None, None)
     assert json.loads(row["input_json"]) == [m.model_dump(mode="json") for m in MESSAGES]
 

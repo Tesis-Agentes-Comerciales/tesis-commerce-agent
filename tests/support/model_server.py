@@ -1,9 +1,10 @@
 """A scripted OpenAI Responses API behind `httpx.MockTransport`: the real SDK, no network.
 
 Each answer is a function of the request body, served in order. `install` gives the scripted
-transport to the two HTTP clients the SDK can use: the one it builds by itself (no ledger) and the
-`DefaultHttpxClient` the recorder hands it (llm/model_requests.py). The router and the chooser
-build their client exactly as in production; only the transport changes.
+transport to the two HTTP clients the SDK can use: the `DefaultHttpxClient` the recorder hands it
+(llm/model_requests.py), with or without a ledger, and the one the SDK builds by itself if that
+fails. The model clients build theirs exactly as in production, with the same event hooks; only
+the transport changes.
 """
 
 import json
@@ -100,14 +101,27 @@ def function_call(name: str, arguments: dict[str, Any]) -> Answer:
     return respond
 
 
-def failure(status_code: int) -> Answer:
+def failure(status_code: int, *, code: str | None = None, error_type: str = "test") -> Answer:
+    """An error response with OpenAI's error body; `code` is the provider's error code.
+
+    A spent quota is `failure(429, code="insufficient_quota")`; OpenAI also sends it as the type.
+    """
+
     def respond(body: dict[str, Any]) -> httpx.Response:
+        error: dict[str, Any] = {"message": "scripted failure", "type": error_type}
+        if code is not None:
+            error |= {"param": None, "code": code}
         # retry-after-ms keeps the SDK's single retry fast.
-        return httpx.Response(
-            status_code,
-            headers={"retry-after-ms": "1"},
-            json={"error": {"message": "scripted failure", "type": "test"}},
-        )
+        return httpx.Response(status_code, headers={"retry-after-ms": "1"}, json={"error": error})
+
+    return respond
+
+
+def disconnect() -> Answer:
+    """The connection drops before any response: the SDK sees `httpx.ConnectError`."""
+
+    def respond(body: dict[str, Any]) -> httpx.Response:
+        raise httpx.ConnectError("scripted disconnect")
 
     return respond
 
