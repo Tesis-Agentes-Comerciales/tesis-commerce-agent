@@ -161,3 +161,34 @@ def test_protocol_selection_requires_exact_controls_and_does_not_claim_other_mod
             plan_path=plan_path,
             scenario="INF27",
         )
+
+
+@pytest.mark.parametrize("scenario", ["AUTH-TRANSPORT", "UNREGISTERED-CONTROL"])
+def test_transport_validation_cannot_be_counted_as_p0(bundle, scenario):
+    root, _, _, manifest = bundle
+    plan = read(PLAN)
+    for value in plan["cases"].values():
+        value["scenario"] = scenario
+    protocol = root / "transport-only-unit-protocol.json"
+    protocol.write_text(json.dumps(plan))
+    for key, oracle in plan["cases"].items():
+        directory = root / key.replace(":", "-")
+        frozen = directory / "exp01-frozen.json"
+        frozen.write_text(
+            json.dumps({"oracle": oracle, "protocol_sha256": sha(protocol), "frozen_at_ns": 1})
+        )
+        observed = directory / "exp01-observed.json"
+        row = read(observed)
+        row["input_sha256"] = sha(frozen)
+        observed.write_text(json.dumps(row))
+    manifest.write_text(json.dumps({"status": "verified", "protocol_sha256": sha(protocol)}))
+    result = report(*bundle, plan_path=protocol)
+    assert result["p0_compatible_projection"]["passed"] == 0
+    assert result["attributed_scenarios"] == {}
+    assert result["minimum_plan_counts"] == {"not_executed": 37}
+    if scenario == "AUTH-TRANSPORT":
+        assert result["validated"]
+        assert result["non_scenario_controls"] == {"AUTH-TRANSPORT": "passed"}
+    else:
+        assert not result["validated"]
+        assert "unregistered_scenario_or_control" in result["issues"]

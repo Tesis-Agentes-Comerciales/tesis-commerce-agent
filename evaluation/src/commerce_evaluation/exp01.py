@@ -18,6 +18,7 @@ from .scenarios_p0 import count_plan, planned_cells
 ROOT = Path(__file__).resolve().parents[3]
 PLAN = ROOT / "evaluation/scenarios/exp01-first-batch.json"
 MODULE = "tests/integration/test_exp01_first_batch.py::"
+NON_SCENARIO_CONTROLS = frozenset({"AUTH-TRANSPORT"})
 
 
 def sha(path: Path) -> str:
@@ -236,8 +237,15 @@ def report(
         read(ROOT / "evaluation/scenarios/p0/matrix.json"),
         read(ROOT / "evaluation/scenarios/p0/ux03-oracle.json"),
     )
+    unknown_scenarios = set(scenarios) - set(p0) - NON_SCENARIO_CONTROLS
+    if unknown_scenarios:
+        problems.append("unregistered_scenario_or_control")
     # P0's counter does not admit blocked/error: keep those explicit, never relabel passed.
-    attributable = {key: value for key, value in scenarios.items() if value in {"passed", "failed"}}
+    attributable = {
+        key: value
+        for key, value in scenarios.items()
+        if key in p0 and value in {"passed", "failed"}
+    }
     valid = (
         not problems
         and all(s == "passed" for s in scenarios.values())
@@ -247,6 +255,7 @@ def report(
     attributed = {
         key: "blocked" if value == "passed" and problems else value
         for key, value in scenarios.items()
+        if key in p0
     }
     expanded_statuses = {key: attributed.get(key, "not_executed") for key in p0}
     return {
@@ -257,6 +266,9 @@ def report(
         "controls": controls,
         "scenarios": scenarios,
         "attributed_scenarios": attributed,
+        "non_scenario_controls": {
+            key: value for key, value in scenarios.items() if key in NON_SCENARIO_CONTROLS
+        },
         "junit": junit_counts,
         "recorder": recorder,
         "control_counts": dict(Counter(row["status"] for row in controls.values())),
