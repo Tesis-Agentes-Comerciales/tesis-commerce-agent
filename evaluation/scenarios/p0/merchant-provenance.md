@@ -1,9 +1,11 @@
 # P2 — procedencia P0 y primera conexión Merchant–Agent
 
-Estado: lectura de fuentes y tests de caracterización implementados; **integración no ejecutada**.
+Estado: integración ejecutada en el nightly (ver la sección final y
+[resultados P2](../../results/p2-merchant-provenance/README.md)); fusionado en #157.
+El texto original de este documento decía «integración no ejecutada» porque se escribió antes de esas corridas.
 Base Agent: `99f570dfc8d07b7e02b210b7c0c2d4c2d758db1e`, validada en el
 [run P1-FIX](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41525881797).
-P1 permanece sin merge. Esta rama no implementa condiciones comerciales nuevas.
+P1 se fusionó después en #156. Esta rama no implementa condiciones comerciales nuevas.
 
 ## Ficha de procedencia
 

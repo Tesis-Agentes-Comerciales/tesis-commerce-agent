@@ -5,7 +5,14 @@ oráculos ni resultados anteriores. Main inicial: `c75f4f9c6231c717941f8ad16ec27
 su CI `41759525476` terminó con los cuatro jobs satisfactorios antes de editar P2.
 P2 incorpora ese main mediante merge commit, conservando `ad86bdd` y sus ancestros.
 
-## Decisión y alternativas
+> **Nota del 5-nov-2026 (después de fusionar #157).** De «Decisión y alternativas» hasta
+> «Validación histórica de MAIN-03» se describe el candidato `5900b02`, que el merge `b939a38`
+> revirtió en parte. En el `nightly.yml` vigente, `full` y schedule siguen con la rama por defecto
+> (ref vacío) y, sin credencial, se omiten con un aviso. La compuerta de 95 casos y el artefacto
+> `nightly-full-evidence` no existen. Solo `exp0*` y `p0-catalog-bridge` usan los pines. La
+> política vigente es la de la sección «Integración de #157 con main después de #180».
+
+## Decisión y alternativas (histórico, candidato 5900b02)
 
 El nightly anterior mezclaba repositorios hermanos móviles con una fixture P2 que exige
 SHAs exactos. Un schedule podía omitir live por credencial ausente y aparecer satisfactorio.

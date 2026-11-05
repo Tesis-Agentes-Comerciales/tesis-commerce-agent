@@ -29,7 +29,7 @@ Los tres tests de conexión están en
 [tests/integration/test_live_p0_catalog_bridge.py](../tests/integration/test_live_p0_catalog_bridge.py).
 Se ejecutan en el nightly existente con test_scope=p0-catalog-bridge. Un CI ordinario
 los omite; no acredita importación, exportación, checkout ni UX03.
-P1 permanece sin merge. El primer puente P2 tiene cierre documental enlazado abajo;
+P1 se fusionó en #156 y P2 en #157. El primer puente P2 tiene cierre documental enlazado abajo;
 no acredita UX03 ni la suite live completa.
 
 ## Consolidación experimental — 2 de noviembre de 2026

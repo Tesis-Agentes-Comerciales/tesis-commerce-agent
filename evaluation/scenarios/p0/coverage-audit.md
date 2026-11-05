@@ -1,5 +1,10 @@
 # Auditoría consolidada de evaluación — 2 de noviembre de 2026
 
+> **Instantánea del 2-nov-2026.** El estado vigente de cada escenario está en
+> [`matrix-observed.json`](matrix-observed.json) y en [`observed-evidence.md`](observed-evidence.md).
+> Desde entonces se ejecutaron y registraron INF27, INF28, INF29 e INF33 (#177, #180), y se
+> fusionaron #178 (`get_offer` exige el mismo id y contexto) y #179 (causa del rechazo HNP en CT13).
+
 Base leída: Agent `99252720a9418b52ad8189c280d8c49dc3d31d03`, PR [#157](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/157).
 Cierre P2: [resultados y evidencia conservada](../../results/p2-merchant-provenance/README.md).
 Plan siguiente: [propuesta de experimentos](next-experiments.md).
