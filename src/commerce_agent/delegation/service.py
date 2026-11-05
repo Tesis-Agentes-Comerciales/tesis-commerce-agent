@@ -179,7 +179,10 @@ class DelegationService:
         proposal_ttl_seconds: int,
         clock: Callable[[], datetime] = _utc_now,
         new_id: Callable[[str], str] = _new_id,
+        preference_review: bool = False,
     ) -> None:
+        """`preference_review`: the executor of this startup reviews the buyer's text (enforce
+        with AGENT_HNP_REVIEWER=llm, `build_delegation_service`); D15 promises it on the card."""
         self._ledger = ledger
         self._trust = trust
         self._feed = feed
@@ -188,6 +191,7 @@ class DelegationService:
         self._ttl = timedelta(seconds=proposal_ttl_seconds)
         self._clock = clock
         self._new_id = new_id
+        self._preference_review = preference_review
 
     # Proposal and consent (§3.2)
 
@@ -197,10 +201,6 @@ class DelegationService:
         proposal from any of them leaves only the newest one to consent, and that fails closed."""
         if request.valid_for_seconds > self._max_validity:
             raise DelegationError("delegation_validity_exceeded")
-        if request.priority is not None:
-            # Until the executor tries the variants in this order (spec §7 PR 4), consenting the
-            # scope without it would let the executor pick another variant first: fail closed.
-            raise DelegationError("delegation_request_invalid")
         # POL-08 compares this binding with D2's over the merchant's echo: bind (and later send)
         # the destination as the merchant normalizes it, and refuse one it would never accept.
         fulfillment = merchant_fulfillment(request.details.fulfillment)
@@ -218,7 +218,24 @@ class DelegationService:
         presented_at = utc_text(now)
         expires_at = utc_text(now + timedelta(seconds=request.valid_for_seconds))
         keys = self._trust.keys
-        consent = {
+        display: dict[str, Any] = {
+            "merchant_name": feed.seller_name or MERCHANT_NAME,
+            "variants": [
+                {"variant_id": variant, "title": offered[variant].variant_title}
+                for variant in request.variant_ids
+            ],
+            "total_max": {"minor": request.total_max_minor, "currency": "COP"},
+            "expires_at": expires_at,
+            "destination_label": f"{fulfillment.address.city}, {fulfillment.address.state}",
+            "instrument_label": INSTRUMENT_LABEL,
+            "uses": 1,
+            "preference_text": request.preference_text,
+        }
+        # D15: the card promises a review only when this startup will run one on this text. Both
+        # keys are omitted when absent, so a consent without them keeps its old bytes.
+        if self._preference_review and request.preference_text is not None:
+            display["preference_review"] = True
+        consent: dict[str, Any] = {
             "schema_version": "commerce-delegation/1.0",
             "proposal_id": proposal_id,
             "owner_ref": self._owner_ref(owner_id),
@@ -236,23 +253,15 @@ class DelegationService:
                 "instrument_ref": "tesis_sandbox",
                 "uses_max": 1,
             },
-            "display": {
-                "merchant_name": feed.seller_name or MERCHANT_NAME,
-                "variants": [
-                    {"variant_id": variant, "title": offered[variant].variant_title}
-                    for variant in request.variant_ids
-                ],
-                "total_max": {"minor": request.total_max_minor, "currency": "COP"},
-                "expires_at": expires_at,
-                "destination_label": f"{fulfillment.address.city}, {fulfillment.address.state}",
-                "instrument_label": INSTRUMENT_LABEL,
-                "uses": 1,
-                "preference_text": request.preference_text,
-            },
+            "display": display,
             "presented_at": presented_at,
             "expires_at": expires_at,
             "preference_text": request.preference_text,
         }
+        if request.priority is not None:
+            # The buyer's order, kept as sent and shown as consented: the executor tries the
+            # variants in it (p0-conditional-intent.md §3.9).
+            consent["priority"] = display["priority"] = list(request.priority)
         # The ledger stores these bytes as received: they are validated here, before storing.
         payload = canonical_bytes(consent)
         scope = parse_consent_scope(payload)

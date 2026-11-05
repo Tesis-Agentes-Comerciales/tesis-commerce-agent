@@ -2,8 +2,8 @@
 
 A complete permutation of `scope.variant_ids`, shown on the card as consented and at most three
 long (one evaluator branch each). Absent, it is omitted from every canonical form, so a stored
-consent keeps its bytes and its `scope_digest`. Until the executor honors it (PR 4), a proposal
-that asks for a priority is refused instead of being consented without it.
+consent keeps its bytes and its `scope_digest`. `propose` keeps it as sent and the executor tries
+the variants in its order (tests/delegation/test_hnp_conditional.py).
 """
 
 import copy
@@ -32,7 +32,7 @@ from commerce_agent.governance.hnp_models import (
 from tests.governance.test_hnp_models import GOLDEN_SCOPE_DIGEST
 from tests.support.conditional import A, B, C, phone_feed
 from tests.support.delegation import AuthorityClock
-from tests.test_delegation_api import build, buyer, error, proposal_body
+from tests.test_delegation_api import build, buyer, proposal_body
 
 FIXTURES = Path(__file__).parent / "governance" / "fixtures"
 Json = dict[str, Any]
@@ -178,15 +178,13 @@ def test_the_request_refuses_a_priority_that_is_not_its_variants(
         request(variant_ids=["SON-07", "SON-01"], priority=priority)
 
 
-def test_a_proposal_with_priority_is_refused_until_the_executor_honors_it(
-    tmp_path: Path,
-) -> None:
-    """Consenting it without the order would let the executor buy the cheapest: fail closed."""
+def test_a_proposal_with_priority_is_consented_with_it(tmp_path: Path) -> None:
+    """The executor tries the variants in this order, so the consent keeps it as sent."""
     with TestClient(build(tmp_path, AuthorityClock())) as client:
         body = proposal_body(variant_ids=["SON-07", "SON-01"], priority=["SON-07", "SON-01"])
         answer = client.post("/delegations/proposals", json=body, headers=buyer())
-        error(answer, 422, "delegation_request_invalid")
-        assert client.get("/me/delegations", headers=buyer()).json() == {"delegations": []}
+        assert answer.status_code == 201, answer.text
+        assert answer.json()["scope"]["priority"] == ["SON-07", "SON-01"]
         body = proposal_body(variant_ids=["SON-07", "SON-01"])
         answer = client.post("/delegations/proposals", json=body, headers=buyer())
         assert answer.status_code == 201

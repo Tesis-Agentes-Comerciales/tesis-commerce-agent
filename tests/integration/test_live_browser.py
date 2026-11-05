@@ -57,7 +57,14 @@ def test_b0_purchase_from_the_browser_signs_up_approves_and_keeps_both_receipts(
         receipt = page.get_by_test_id("approval-receipt")
         expect(receipt).to_contain_text("Aprobado por ti")
         expect(receipt).to_contain_text("autorización firmada")
-        activity.get_by_role("button", name=re.compile("Compra completada")).click()
+        # La fila del stream sale cerrada y deshabilitada; la de la traza la reemplaza ya abierta
+        # (`defaultOpen`). Un clic a ciegas la cerraba si la traza llegaba antes: se abre solo si
+        # hace falta y se espera a que quede abierta.
+        expect(activity).to_have_attribute("data-source", "trace", timeout=15_000)
+        summary = activity.get_by_role("button", name=re.compile("Compra completada"))
+        if summary.get_attribute("aria-expanded") != "true":
+            summary.click()
+        expect(summary).to_have_attribute("aria-expanded", "true")
         expect(activity.get_by_text("Política desactivada")).to_be_visible()
         expect(activity.get_by_text("Orden confirmada")).to_be_visible()
         recorded.step("orden", activity.get_by_text("Orden confirmada"))

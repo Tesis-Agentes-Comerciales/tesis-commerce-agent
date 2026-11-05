@@ -296,6 +296,7 @@ def build_runtime(
             clock=authority_clock,
             payments=payments,
             merchant=client,
+            offers=client,
             reviewer=owned_hnp_reviewer,
         )
     return AgentRuntime(

@@ -2,6 +2,7 @@ import { useAuiState, type ToolCallMessagePartProps } from "@assistant-ui/react"
 import { useEffect, useState } from "react"
 
 import {
+  ConditionalBranches,
   InterpretRequestStep,
   PrepareCheckoutStep,
   ProductCard,
@@ -28,7 +29,7 @@ import {
 import { policyBlockOf, stepErrorCode } from "@/features/policy-block"
 import { PurchaseApproval, StaleTermsApproval } from "@/features/purchase-approval"
 import { staleApprovalOf } from "@/features/stale-terms"
-import { productSlot } from "@/features/turn-layout"
+import { productSlot, type ProductSlot } from "@/features/turn-layout"
 import type { AgentMessageStatus, AgentToolName } from "@/lib/agent-contract"
 
 type StepProps = ToolCallMessagePartProps<Record<string, unknown>, unknown>
@@ -157,10 +158,21 @@ export function SelectProductTool(part: StepProps) {
   if (status === "running") return <ProductChoiceMarker candidates={candidateCount(part.args)} />
   if (status === "error") return <ProminentStepError toolName="select_product" part={part} />
   const result = asSelectResult(part.result)
+  const product = chosenProduct(result, productSlot({ select: status, prepare, messageRunning }))
+  // Un turno condicional muestra sus opciones en orden, con o sin producto elegido (`none`,
+  // `undetermined`): la decisión es del backend y el texto final la explica.
+  if (!result?.conditional) return product
+  return (
+    <div className="space-y-3">
+      <ConditionalBranches view={result.conditional} />
+      {product}
+    </div>
+  )
+}
+
+function chosenProduct(result: ReturnType<typeof asSelectResult>, slot: ProductSlot) {
   // Con `clarify` no hay producto: el texto final pide los detalles que faltan.
-  if (result?.decision !== "select" || !result.product) return null
-  const slot = productSlot({ select: status, prepare, messageRunning })
-  if (slot === "none") return null
+  if (result?.decision !== "select" || !result.product || slot === "none") return null
   if (slot === "marker") return <ProductChoiceMarker product={result.product} />
   // Sin `rationale`: el texto final del turno ya dice por qué se eligió, y repetirlo en la tarjeta
   // hacía leer la misma frase dos veces en el mismo mensaje.

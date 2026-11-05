@@ -4,6 +4,10 @@
 export { AgentPlan, type AgentPlanProps } from "@/components/agent/agent-plan"
 export { chip, focusRing, pillButton } from "@/components/agent/agent-styles"
 export {
+  ConditionalBranches,
+  type ConditionalBranchesProps,
+} from "@/components/agent/conditional-branches"
+export {
   derivePlanProgress,
   planStepStates,
   PLAN_STEPS,
