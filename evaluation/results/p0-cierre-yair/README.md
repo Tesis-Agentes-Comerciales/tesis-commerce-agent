@@ -44,6 +44,38 @@ Corte: `main` 09d57b8, 5-nov-2026.
 - **INF27–INF33 son guionados.** SDK real sobre un transporte falso: sin proveedor real ni esperas reales; no prueban las cabeceras reales de la cuota.
 - **Muestras chicas.** EXP-06: 5 episodios por caso, un modelo, solo HP. Fallos del modelo y UX08–UX10: 3 repeticiones por celda, con modelo guionado.
 
+## Decisiones del 5-nov
+
+- **Revisión semántica de EXP-06 por agentes.** Yair la decidió («llénalo tú por los dos») porque la revisión humana doble bloqueaba el avance. Queda como enmienda A, con estado `agent_reviewed` y sin nombres de personas ([#191](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/191)).
+- **El lote LLM 2 corre sin #190.** El prerregistro congeló el prompt anterior, y #190 cambia el prompt y el esquema del router. La corrida usa el producto 4c60aae.
+- **HP condicional, B0.** Se dejó la arista directa `prepare_checkout → request_approval` y no la condicional de la spec, para no romper el ancla prerregistrada del lote 2. El comportamiento es el mismo ([#196](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/196)).
+- **Intención condicional.** Las ramas y exclusiones se comparan por palabra completa, más estricto que la subcadena de la spec. En exclusiones eso excluye menos: «nunca el OnePlus 8» no excluye el 8T. Hay que declararlo en el PR 6. `priority` admite como máximo 3 variantes.
+- **Pila P3 de Maldo.** #158 fusionado; Yair confirmó las decisiones 1–4 de su §7. #160 y #176 no se pueden fusionar todavía:
+  - choques con `main` en `nightly.yml` y `live_merchant_control.py`;
+  - `p3_lane` exige `src/` igual a `a11f78b`, así que fallaría cada noche;
+  - una aserción quedó falsa desde #178.
+
+  El plan está en el [comentario del #160](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/160#issuecomment-6668817581).
+- **Recorte de alcance.** Por tiempo se priorizó lo avanzado. La evidencia formal de UX03–UX07 (PR 6) y la corrida pagada del lote 2 quedan pospuestas.
+
+## Seguimientos
+
+Ninguno bloquea lo fusionado. Vienen de las revisiones independientes de cada PR.
+
+- **Intención condicional:**
+  - Falta el PR 5b: registrar los `conditional-*.sse` en `ui/src/storybook/assistant-transport.ts` y agregar el E2E.
+  - `verify_checkout` no escribe `checkout_check` cuando el checkout es de otra variante. HNP termina con un final registrado y HP escribe la fila a mano.
+  - La fila `decision` de HNP guarda la explicación «en curso» aunque la tarea termine en `choice_not_confirmed` u `offer_changed`.
+  - Con `priority`, el revisor HNP puede recibir una lista corta sin la variante elegida. Falla cerrado, pero no tiene prueba.
+  - HP: si `cancel` falla después de un desajuste, la compra queda en `awaiting_confirmation`. En B0 y shadow, un `checkout_mismatch` deja el checkout sin cancelar; esto ya pasaba antes.
+  - Sobrevive el mutante «invertir `inactive` y `out_of_stock`». Los contratos TS de #190 quedaron con punto y coma, distinto al resto del repo.
+  - UI: «Solo si {anterior} se agotaba» nombra solo la rama anterior. «Mis delegaciones» no muestra el orden. La historia `delegation-status-card.stories.tsx:411` todavía tiene el texto viejo de `selection_unavailable`.
+- **UX08–UX10 (#187):** falta una prueba de la memoria de `_Withdrawal`. En `cancel_own_checkout`, la comparación del id quedó fuera del `try`.
+- **EXP-06 (#188):** falta una prueba en CI de que la clave no se filtra (con `MockTransport`).
+- **EXP-08 (#189):** sobreviven mutantes en `exp01.py:113` y `p0_observed.py`. El README no dice que el estímulo difiere de EXP-01.
+- **Merchant #12, opcional:** `Retry-After` en el 503 y `connect_timeout` en `authenticate_lab_session`.
+- **P3:** `p3_protocol.py` solo acepta `A`, `B`, `none` y `undetermined`. Un `clarify` del producto quedaría `ProtocolBlocked`.
+
 ## Para la tesis
 
 | Escenario | Condición | Resultado | Evidencia |
