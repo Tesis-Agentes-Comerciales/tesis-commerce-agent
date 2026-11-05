@@ -1,0 +1,313 @@
+{
+  "42042970689": {
+    "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42042970689",
+    "artifact_id": 13422417640,
+    "archive": "runs/42042970689.zip",
+    "sha256": "2ced9fec563a9d86ffc30dff6087233c1b5bb55ab45d8415c1d92e4c73912e92",
+    "verified_internal_hashes": 9,
+    "agent_sha": "11723bd2b79137dd7dbd961f33683587651b250e",
+    "pins": {
+      "MERCHANT_REPO": {
+        "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+      },
+      "PAYMENT_REPO": {
+        "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+        "lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+      }
+    },
+    "product_tree": "96e6d9ba669d2d3dc4bd5efaf5f4c2c1dbdf028e",
+    "junit_sha256": "dcfdc7051bf47b9cb5cc7aea83135b001b528a6bf15185ab1669537a72cda294",
+    "report_sha256": "d8d0511e2a0039e9b7f2a7d7f2ba567a5bf855720b610b279294179d10491449",
+    "validated": false,
+    "counts": {
+      "passed": 2,
+      "failed": 1,
+      "error": 0,
+      "skipped": 0,
+      "blocked": 0,
+      "not_executed": 0
+    },
+    "cases": [
+      {
+        "case_id": "PV-05-06-08",
+        "status": "passed",
+        "evidence_status": "passed",
+        "commercial": "unknown",
+        "cleanup_verified": true
+      },
+      {
+        "case_id": "PV-07",
+        "status": "passed",
+        "evidence_status": "passed",
+        "commercial": "true",
+        "cleanup_verified": true
+      },
+      {
+        "case_id": "PV-10",
+        "status": "failed",
+        "evidence_status": "failed",
+        "commercial": "unknown",
+        "cleanup_verified": true
+      }
+    ],
+    "shutdown": [
+      {
+        "scenario": "shutdown",
+        "merchant_pids": [
+          3219
+        ],
+        "proxy_closed": true,
+        "postgres_removed": true
+      }
+    ]
+  },
+  "42043531442": {
+    "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42043531442",
+    "artifact_id": 13422932001,
+    "archive": "runs/42043531442.zip",
+    "sha256": "9892800a61d19b24e9e604dd7eb6c5fa8552024587ef16b71bebffbb1388b952",
+    "verified_internal_hashes": 22,
+    "agent_sha": "d5a209c778345b9ae5f7603bf8296cc14b4fec16",
+    "pins": {
+      "MERCHANT_REPO": {
+        "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+      },
+      "PAYMENT_REPO": {
+        "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+        "lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+      }
+    },
+    "product_tree": "96e6d9ba669d2d3dc4bd5efaf5f4c2c1dbdf028e",
+    "junit_sha256": "e257e9defb8a9ef7d74a1c6b6c797bd4d80c27f3137f0bae5e956f9726010b11",
+    "report_sha256": "ec4772e1abd69a254da0ebe35c4432f23dddcc65c533ff2fca9ff89e9c5a70f9",
+    "validated": true,
+    "counts": {
+      "passed": 3,
+      "failed": 0,
+      "error": 0,
+      "skipped": 0,
+      "blocked": 0,
+      "not_executed": 0
+    },
+    "cases": [
+      {
+        "case_id": "PV-05-06-08",
+        "status": "passed",
+        "evidence_status": "passed",
+        "commercial": "unknown",
+        "cleanup_verified": true
+      },
+      {
+        "case_id": "PV-07",
+        "status": "passed",
+        "evidence_status": "passed",
+        "commercial": "unknown",
+        "cleanup_verified": true
+      },
+      {
+        "case_id": "PV-10",
+        "status": "passed",
+        "evidence_status": "passed",
+        "commercial": "unknown",
+        "cleanup_verified": true
+      }
+    ],
+    "shutdown": [
+      {
+        "scenario": "shutdown",
+        "merchant_pids": [
+          3345
+        ],
+        "proxy_closed": true,
+        "postgres_removed": true
+      }
+    ]
+  },
+  "42044099706": {
+    "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42044099706",
+    "artifact_id": 13424277772,
+    "archive": "runs/42044099706.zip",
+    "sha256": "9c600751463c2ef24154ffacc073354eba5c148222d1f2bae552145213c97543",
+    "verified_internal_hashes": 23,
+    "agent_sha": "0291d8cccd26f63bbb8bfb310875ed171c338107",
+    "pins": {
+      "MERCHANT_REPO": {
+        "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+      },
+      "PAYMENT_REPO": {
+        "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+        "lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+      }
+    },
+    "product_tree": "96e6d9ba669d2d3dc4bd5efaf5f4c2c1dbdf028e",
+    "junit_sha256": "8d8456555ef7e64000dd23a8ed11d11e954ef7a5cdfe2964b95d0a87c8ff8cde",
+    "report_sha256": "473b34f657c6ea9b5769fae6356312f39d063f0dae377c76148d64949a062026",
+    "validated": true,
+    "counts": {
+      "passed": 3,
+      "failed": 0,
+      "error": 0,
+      "skipped": 0,
+      "blocked": 0,
+      "not_executed": 0
+    },
+    "cases": [
+      {
+        "case_id": "PV-05-06-08",
+        "status": "passed",
+        "evidence_status": "passed",
+        "commercial": "unknown",
+        "cleanup_verified": true
+      },
+      {
+        "case_id": "PV-07",
+        "status": "passed",
+        "evidence_status": "passed",
+        "commercial": "unknown",
+        "cleanup_verified": true
+      },
+      {
+        "case_id": "PV-10",
+        "status": "passed",
+        "evidence_status": "passed",
+        "commercial": "unknown",
+        "cleanup_verified": true
+      }
+    ],
+    "shutdown": [
+      {
+        "scenario": "shutdown",
+        "merchant_pids": [
+          3351
+        ],
+        "proxy_closed": true,
+        "postgres_removed": true
+      }
+    ]
+  },
+  "42044485210": {
+    "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42044485210",
+    "artifact_id": 13421744874,
+    "archive": "runs/42044485210.zip",
+    "sha256": "d8ef8f4ff357e58b4f8fb613b1031120ebb704b561d84c36bffff2e3f74c68d9",
+    "verified_internal_hashes": 23,
+    "agent_sha": "f68f333ef55ec360d0027fb19423039e8700903e",
+    "pins": {
+      "MERCHANT_REPO": {
+        "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+      },
+      "PAYMENT_REPO": {
+        "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+        "lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+      }
+    },
+    "product_tree": "96e6d9ba669d2d3dc4bd5efaf5f4c2c1dbdf028e",
+    "junit_sha256": "8ae2d041ad047cd3d22332cf58d8b20fdd94414234b74cbb3319a50da32367da",
+    "report_sha256": "62d398c8951c845f784c7b60262aec60ca13b822eaa5554133d4d32acd2f2592",
+    "validated": true,
+    "counts": {
+      "passed": 3,
+      "failed": 0,
+      "error": 0,
+      "skipped": 0,
+      "blocked": 0,
+      "not_executed": 0
+    },
+    "cases": [
+      {
+        "case_id": "PV-05-06-08",
+        "status": "passed",
+        "evidence_status": "passed",
+        "commercial": "unknown",
+        "cleanup_verified": true
+      },
+      {
+        "case_id": "PV-07",
+        "status": "passed",
+        "evidence_status": "passed",
+        "commercial": "unknown",
+        "cleanup_verified": true
+      },
+      {
+        "case_id": "PV-10",
+        "status": "passed",
+        "evidence_status": "passed",
+        "commercial": "unknown",
+        "cleanup_verified": true
+      }
+    ],
+    "shutdown": [
+      {
+        "scenario": "shutdown",
+        "merchant_pids": [
+          3255
+        ],
+        "proxy_closed": true,
+        "postgres_removed": true
+      }
+    ],
+    "observations": {
+      "calibration": {
+        "totals": {
+          "A": 389000000,
+          "B": 177500000
+        },
+        "witnesses": {
+          "A": "292dc4d4413d0605b72a19e8586d13473f6229347d56227976b1345ebd5dd48e",
+          "B": "823c748ff552f87930431a6a359b05ed47a440eb0d18c52a3ab632bfdd2ee39f"
+        },
+        "ledger": "a6b053c0210a5c84217737e7ee9dafcb7985048dda0edd86c289e7b5bb301eea"
+      },
+      "variants": 310,
+      "totals": {
+        "A": [
+          389000000,
+          389000000
+        ],
+        "B": [
+          177500000,
+          177500000
+        ]
+      },
+      "foreign_checkout_http": [
+        404,
+        404,
+        404
+      ],
+      "managed_control": {
+        "run_id": "faf6c15c-177a-4711-b3e0-fb05944b382f",
+        "offer_id": "BBGooglePixel8Pro-128GB",
+        "stock": [
+          2,
+          0,
+          2
+        ],
+        "revisions": [
+          1,
+          2,
+          3
+        ]
+      },
+      "drift_blocked": [
+        "shipping",
+        "revision",
+        "stock",
+        "clock"
+      ],
+      "e_unchanged": true,
+      "update_replay_same_checkout": true,
+      "update_conflict_http": 422,
+      "complete_http": [
+        409,
+        404,
+        401
+      ],
+      "fresh_store_denied_previous_run": true,
+      "psp_unchanged": true
+    }
+  }
+}
