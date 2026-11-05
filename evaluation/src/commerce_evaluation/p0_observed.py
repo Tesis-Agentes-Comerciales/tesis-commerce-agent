@@ -57,6 +57,10 @@ LOCAL_CELL_KEYS = {
     "cases",
     "prior_attempts",
 }
+# A protocol may also freeze CI cells: pytest node ids run once without network, whose JUnit sits
+# in the same ledger (p0-ux08-ux10.md §5.1). Its run then names that JUnit, and its cells may list
+# them in `ci_cases`.
+LOCAL_RUN_CI_KEYS = {"ci_junit", "ci_junit_sha256", "ci_junit_counts"}
 
 
 def require(condition: object, reason: str) -> None:
@@ -398,12 +402,37 @@ def junit_outcome(node: ElementTree.Element) -> str:
     return "passed"
 
 
+def junit_test(node: ElementTree.Element) -> str:
+    """The pytest node id of a JUnit test case of a module-level test function."""
+    return node.get("classname", "").replace(".", "/") + ".py::" + node.get("name", "")
+
+
+def ci_outcomes(
+    data: bytes, cells: dict[str, Any], row: dict[str, Any], key: str
+) -> dict[str, str]:
+    outcomes: dict[str, str] = {}
+    for node in ElementTree.fromstring(data).iter("testcase"):
+        test = junit_test(node)
+        require(test not in outcomes, f"Local CI JUnit mismatch: {key}/{test}")
+        outcomes[test] = junit_outcome(node)
+    listed = [test for cell in cells.values() for test in cell["tests"]]
+    require(
+        len(listed) == len(set(listed))
+        and set(outcomes) == set(listed)
+        and junit_counts(data) == row["ci_junit_counts"]
+        and row["ci_junit_counts"]["skipped"] == 0,
+        f"Local CI JUnit mismatch: {key}",
+    )
+    return outcomes
+
+
 def validate_local_run(
     root: Path, key: str, row: dict[str, Any]
-) -> tuple[dict[str, Any], dict[str, Any], set[str]]:
+) -> tuple[dict[str, Any], dict[str, Any], set[str], dict[str, str]]:
     root = root.resolve()
     require(
-        set(row) == LOCAL_RUN_KEYS and row["kind"] in LOCAL_RUN_KINDS, f"Invalid local run: {key}"
+        set(row) - LOCAL_RUN_CI_KEYS == LOCAL_RUN_KEYS and row["kind"] in LOCAL_RUN_KINDS,
+        f"Invalid local run: {key}",
     )
     protocol_path = repo_path(root, row["protocol"], "evaluation/scenarios")
     require(
@@ -411,6 +440,11 @@ def validate_local_run(
         f"Local protocol hash: {key}",
     )
     protocol = load(protocol_path)
+    ci_cells = protocol.get("ci_cells", {})
+    require(
+        set(row) == LOCAL_RUN_KEYS | (LOCAL_RUN_CI_KEYS if ci_cells else set()),
+        f"Invalid local run: {key}",
+    )
     ledger = repo_path(root, row["checksum_index"], "evaluation/results")
     require(ledger.name == "SHA256SUMS", f"Invalid checksum index: {key}")
     entries = checksums(ledger.read_bytes())
@@ -425,6 +459,12 @@ def validate_local_run(
         and entries.get(row["junit"]) == row["junit_sha256"],
         f"Local evidence hash: {key}",
     )
+    ci: dict[str, str] = {}
+    if ci_cells:
+        require(
+            entries.get(row["ci_junit"]) == row["ci_junit_sha256"], f"Local evidence hash: {key}"
+        )
+        ci = ci_outcomes((ledger.parent / row["ci_junit"]).read_bytes(), ci_cells, row, key)
     summary = json.loads(
         (ledger.parent / row["summary"]).read_bytes(), object_pairs_hook=unique_object
     )
@@ -476,25 +516,30 @@ def validate_local_run(
         },
         f"Local JUnit/summary mismatch: {key}",
     )
-    return protocol, summary, {f"{row['checksum_index']}:{name}" for name in entries}
+    return protocol, summary, {f"{row['checksum_index']}:{name}" for name in entries}, ci
 
 
 def matrix_case(case_id: str, case: dict[str, Any]) -> bool:
-    # Spec §4 names a matrix cell `<scenario>-<mode>` or a lettered variant (INF33-HNP-a); the
-    # `-control` cases and CTRL-* back the measurement but are not matrix cells.
-    pattern = rf"{case['matrix_id']}-{case['mode']}(-[a-z])?"
-    return case["matrix_id"] is not None and re.fullmatch(pattern, case_id) is not None
+    # A spec names a matrix cell `<scenario>-<mode>` or a variant of it, lettered (INF33-HNP-a) or
+    # named (UX09-HP-race, UX09-HNP-sel-kill); the `-control` cases and CTRL-* back the
+    # measurement but are not matrix cells.
+    pattern = rf"{case['matrix_id']}-{case['mode']}(-[a-z]+)*"
+    return (
+        case["matrix_id"] is not None
+        and re.fullmatch(pattern, case_id) is not None
+        and not case_id.endswith("-control")
+    )
 
 
 def validate_local_cell(
     key: tuple[str, str],
     cell: dict[str, Any],
     local_runs: dict[str, Any],
-    verified_local: dict[str, tuple[dict[str, Any], dict[str, Any], set[str]]],
+    verified_local: dict[str, tuple[dict[str, Any], dict[str, Any], set[str], dict[str, str]]],
 ) -> None:
     scenario, mode = key
     require(
-        set(cell) == LOCAL_CELL_KEYS
+        set(cell) - {"ci_cases"} == LOCAL_CELL_KEYS
         and cell["status"] == "passed"
         and cell["coverage"] == STATUS_COVERAGE["passed"]
         and cell["scope"].strip()
@@ -506,8 +551,8 @@ def validate_local_cell(
         run in verified_local and local_runs[run]["kind"] == "measurement",
         f"No attributable local evidence: {scenario}/{mode}",
     )
-    protocol, summary, _ = verified_local[run]
-    cases = protocol["cases"]
+    protocol, summary, _, ci = verified_local[run]
+    cases, ci_cells = protocol["cases"], protocol.get("ci_cells", {})
     attributed = sorted(
         case_id
         for case_id, case in cases.items()
@@ -518,10 +563,31 @@ def validate_local_cell(
         for case_id, case in cases.items()
         if case["mode"] == mode and not matrix_case(case_id, case)
     )
+    ci_attributed = sorted(
+        cell_id
+        for cell_id, ci_cell in ci_cells.items()
+        if (ci_cell["matrix_id"], ci_cell["mode"]) == key and matrix_case(cell_id, ci_cell)
+    )
+    ci_controls = sorted(
+        cell_id
+        for cell_id, ci_cell in ci_cells.items()
+        if ci_cell["mode"] == mode and not matrix_case(cell_id, ci_cell)
+    )
+    # Each kind of evidence brings its own positive control: live cells the mode's live controls,
+    # CI cells the mode's CI controls.
     require(
-        attributed and controls and cell["cases"] == attributed,
+        (attributed or ci_attributed)
+        and (controls or not attributed)
+        and (ci_controls or not ci_attributed)
+        and cell["cases"] == attributed
+        and cell.get("ci_cases", []) == ci_attributed,
         f"No attributable local evidence: {scenario}/{mode}",
     )
+    for cell_id in ci_attributed + ci_controls:
+        require(
+            all(ci[test] == "passed" for test in ci_cells[cell_id]["tests"]),
+            f"Not passed in CI: {cell_id} for {scenario}/{mode}",
+        )
     # Every cell of the pair and every positive control of its mode passed every repetition.
     full = f"{protocol['repetitions']}/{protocol['repetitions']}"
     for case_id in attributed + controls:
@@ -595,8 +661,11 @@ def validate(root: Path, observed: dict[str, Any] | None = None) -> dict[str, An
                     )
                     and not any(
                         (case["matrix_id"], case["mode"]) == key
-                        for protocol, _, _ in verified_local.values()
-                        for case in protocol["cases"].values()
+                        for protocol, *_ in verified_local.values()
+                        for case in [
+                            *protocol["cases"].values(),
+                            *protocol.get("ci_cells", {}).values(),
+                        ]
                     ),
                     "not_applicable cannot hide a registered execution",
                 )
