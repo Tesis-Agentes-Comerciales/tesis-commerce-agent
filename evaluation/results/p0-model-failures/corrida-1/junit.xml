@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="36" time="78.314" timestamp="2026-11-05T09:36:46.191098-05:00" hostname="Yairs-MacBook-Pro.local"><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_model_failure[INF27-HP-r1]" time="9.449" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_model_failure[INF27-HP-r2]" time="0.599" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_model_failure[INF27-HP-r3]" time="0.645" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_model_failure[INF28-HP-r1]" time="0.623" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_model_failure[INF28-HP-r2]" time="0.634" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_model_failure[INF28-HP-r3]" time="0.570" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_model_failure[INF29-HP-r1]" time="1.709"><failure message="AssertionError: ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']&#10;assert not ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']">b0 = &lt;tests.integration.live_purchase.PurchaseLane object at 0x10fe02b40&gt;
+tmp_path = PosixPath('/private/tmp/claude-501/-Users-yair-Documents-uniandes-tesis/4ad9321c-6396-4a86-b3b6-b24a713aed0a/scratchpad/run1/basetemp/test_p0_hp_model_failure_INF290')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111c95520&gt;
+p0_cases = [{'cell': 'INF27-HP', 'checks': {'chat.failed_step': True, 'chat.model_http_attempts': True, 'chat.model_requests': Tr...equest failed', 'model_failure': 'quota_exhausted'}, 'merchant_calls': [], 'model_http_attempts': 1, ...}}}, ...}, ...]
+cell = 'INF29-HP', repetition = 1
+
+    @pytest.mark.parametrize(("cell", "repetition"), plan("INF27-HP", "INF28-HP", "INF29-HP"))
+    def test_p0_hp_model_failure(b0, tmp_path, monkeypatch, p0_cases, cell, repetition):
+        """INF27-HP, INF28-HP, INF29-HP: REST, then the chat, in one B2-HP Agent; no effect."""
+        case = CASES[cell]
+        oracle = case["oracle"]
+        model = ScriptedModel(case["script"])
+        model.install(monkeypatch)
+        episode = b0.episode(f"p0-{cell.lower()}")
+        inputs = {"run_id": episode.run_id, "actor_id": episode.actor_id, "lane": "b0"}
+        with p0_case(p0_cases, b0, tmp_path, cell, repetition, inputs) as record:
+            facts = record["observations"]
+            agent = HpAgent(b0, episode, tmp_path / "agent", monkeypatch)
+            try:
+                agent.start()
+                before, ledger_before = outside(b0, episode), ledger(agent.database)
+                surfaces = {
+                    surface: agent.turn(surface, model, f"p0-{cell}-r{repetition}-{surface}")
+                    for surface in case["surfaces"]
+                }
+                after, ledger_after = outside(b0, episode), ledger(agent.database)
+                record["stimulus_verified"] = model.since(0)["answers"][:1] == case["script"][:1]
+                checks: dict[str, bool] = {}
+                for surface, seen in surfaces.items():
+                    checks |= hp_surface_checks(oracle, surface, seen)
+                rest, chat = surfaces["rest"], surfaces["chat"]["view"]
+                checks["rest.status_and_body"] = [rest["status"], rest["body"]] == [
+                    oracle["rest"]["status"],
+                    oracle["rest"]["body"],
+                ]
+                for key in ("status", "steps", "failed_step", "purchase"):
+                    checks[f"chat.{key}"] = chat[key] == oracle["chat"][key]
+                checks["governed_recovery_rows"] = (
+                    ledger_after["governed_recovery"] == oracle["governed_recovery_rows"]
+                )
+                checks["no_purchase"] = ledger_after["purchases"] == ledger_before["purchases"] == 0
+                merchant_calls = [call for seen in surfaces.values() for call in seen["merchant_calls"]]
+                effect_checks, effect_facts = zero_effects(
+                    before, after, ledger_before, ledger_after, merchant_calls, None
+                )
+                checks |= effect_checks
+                facts.update(
+                    surfaces=surfaces,
+                    merchant_before=before,
+                    merchant_after=after,
+                    ledger_before=ledger_before,
+                    ledger_after=ledger_after,
+                    summary={
+                        "surfaces": {name: hp_summary(seen) for name, seen in surfaces.items()},
+                        "effects": effect_facts,
+                        "governed_recovery_rows": ledger_after["governed_recovery"],
+                        "purchases": ledger_after["purchases"],
+                    },
+                )
+            finally:
+                agent.close()
+                record["cleanup_verified"] = agent.stopped()
+&gt;           verdict(record, checks)
+
+tests/integration/test_p0_model_failures.py:514: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+record = {'case_id': 'INF29-HP', 'cleanup_verified': True, 'exception_type': 'AssertionError', 'finished_at_ns': 1793889420520135000, ...}
+checks = {'chat.failed_step': False, 'chat.model_http_attempts': False, 'chat.model_requests': False, 'chat.purchase': True, ...}
+
+    def verdict(record: dict[str, Any], checks: dict[str, bool]) -&gt; None:
+        """Every oracle goes to the evidence first; then the case fails with the ones that failed."""
+        record["observations"]["checks"] = checks
+        failed = [name for name, passed in checks.items() if not passed]
+&gt;       assert not failed, failed
+E       AssertionError: ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']
+E       assert not ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']
+
+tests/integration/test_p0_model_failures.py:213: AssertionError</failure></testcase><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_model_failure[INF29-HP-r2]" time="1.575"><failure message="AssertionError: ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']&#10;assert not ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']">b0 = &lt;tests.integration.live_purchase.PurchaseLane object at 0x10fe02b40&gt;
+tmp_path = PosixPath('/private/tmp/claude-501/-Users-yair-Documents-uniandes-tesis/4ad9321c-6396-4a86-b3b6-b24a713aed0a/scratchpad/run1/basetemp/test_p0_hp_model_failure_INF291')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111e395b0&gt;
+p0_cases = [{'cell': 'INF27-HP', 'checks': {'chat.failed_step': True, 'chat.model_http_attempts': True, 'chat.model_requests': Tr...equest failed', 'model_failure': 'quota_exhausted'}, 'merchant_calls': [], 'model_http_attempts': 1, ...}}}, ...}, ...]
+cell = 'INF29-HP', repetition = 2
+
+    @pytest.mark.parametrize(("cell", "repetition"), plan("INF27-HP", "INF28-HP", "INF29-HP"))
+    def test_p0_hp_model_failure(b0, tmp_path, monkeypatch, p0_cases, cell, repetition):
+        """INF27-HP, INF28-HP, INF29-HP: REST, then the chat, in one B2-HP Agent; no effect."""
+        case = CASES[cell]
+        oracle = case["oracle"]
+        model = ScriptedModel(case["script"])
+        model.install(monkeypatch)
+        episode = b0.episode(f"p0-{cell.lower()}")
+        inputs = {"run_id": episode.run_id, "actor_id": episode.actor_id, "lane": "b0"}
+        with p0_case(p0_cases, b0, tmp_path, cell, repetition, inputs) as record:
+            facts = record["observations"]
+            agent = HpAgent(b0, episode, tmp_path / "agent", monkeypatch)
+            try:
+                agent.start()
+                before, ledger_before = outside(b0, episode), ledger(agent.database)
+                surfaces = {
+                    surface: agent.turn(surface, model, f"p0-{cell}-r{repetition}-{surface}")
+                    for surface in case["surfaces"]
+                }
+                after, ledger_after = outside(b0, episode), ledger(agent.database)
+                record["stimulus_verified"] = model.since(0)["answers"][:1] == case["script"][:1]
+                checks: dict[str, bool] = {}
+                for surface, seen in surfaces.items():
+                    checks |= hp_surface_checks(oracle, surface, seen)
+                rest, chat = surfaces["rest"], surfaces["chat"]["view"]
+                checks["rest.status_and_body"] = [rest["status"], rest["body"]] == [
+                    oracle["rest"]["status"],
+                    oracle["rest"]["body"],
+                ]
+                for key in ("status", "steps", "failed_step", "purchase"):
+                    checks[f"chat.{key}"] = chat[key] == oracle["chat"][key]
+                checks["governed_recovery_rows"] = (
+                    ledger_after["governed_recovery"] == oracle["governed_recovery_rows"]
+                )
+                checks["no_purchase"] = ledger_after["purchases"] == ledger_before["purchases"] == 0
+                merchant_calls = [call for seen in surfaces.values() for call in seen["merchant_calls"]]
+                effect_checks, effect_facts = zero_effects(
+                    before, after, ledger_before, ledger_after, merchant_calls, None
+                )
+                checks |= effect_checks
+                facts.update(
+                    surfaces=surfaces,
+                    merchant_before=before,
+                    merchant_after=after,
+                    ledger_before=ledger_before,
+                    ledger_after=ledger_after,
+                    summary={
+                        "surfaces": {name: hp_summary(seen) for name, seen in surfaces.items()},
+                        "effects": effect_facts,
+                        "governed_recovery_rows": ledger_after["governed_recovery"],
+                        "purchases": ledger_after["purchases"],
+                    },
+                )
+            finally:
+                agent.close()
+                record["cleanup_verified"] = agent.stopped()
+&gt;           verdict(record, checks)
+
+tests/integration/test_p0_model_failures.py:514: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+record = {'case_id': 'INF29-HP', 'cleanup_verified': True, 'exception_type': 'AssertionError', 'finished_at_ns': 1793889422214014000, ...}
+checks = {'chat.failed_step': False, 'chat.model_http_attempts': False, 'chat.model_requests': False, 'chat.purchase': True, ...}
+
+    def verdict(record: dict[str, Any], checks: dict[str, bool]) -&gt; None:
+        """Every oracle goes to the evidence first; then the case fails with the ones that failed."""
+        record["observations"]["checks"] = checks
+        failed = [name for name, passed in checks.items() if not passed]
+&gt;       assert not failed, failed
+E       AssertionError: ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']
+E       assert not ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']
+
+tests/integration/test_p0_model_failures.py:213: AssertionError</failure></testcase><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_model_failure[INF29-HP-r3]" time="1.724"><failure message="AssertionError: ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']&#10;assert not ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']">b0 = &lt;tests.integration.live_purchase.PurchaseLane object at 0x10fe02b40&gt;
+tmp_path = PosixPath('/private/tmp/claude-501/-Users-yair-Documents-uniandes-tesis/4ad9321c-6396-4a86-b3b6-b24a713aed0a/scratchpad/run1/basetemp/test_p0_hp_model_failure_INF292')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111e38860&gt;
+p0_cases = [{'cell': 'INF27-HP', 'checks': {'chat.failed_step': True, 'chat.model_http_attempts': True, 'chat.model_requests': Tr...equest failed', 'model_failure': 'quota_exhausted'}, 'merchant_calls': [], 'model_http_attempts': 1, ...}}}, ...}, ...]
+cell = 'INF29-HP', repetition = 3
+
+    @pytest.mark.parametrize(("cell", "repetition"), plan("INF27-HP", "INF28-HP", "INF29-HP"))
+    def test_p0_hp_model_failure(b0, tmp_path, monkeypatch, p0_cases, cell, repetition):
+        """INF27-HP, INF28-HP, INF29-HP: REST, then the chat, in one B2-HP Agent; no effect."""
+        case = CASES[cell]
+        oracle = case["oracle"]
+        model = ScriptedModel(case["script"])
+        model.install(monkeypatch)
+        episode = b0.episode(f"p0-{cell.lower()}")
+        inputs = {"run_id": episode.run_id, "actor_id": episode.actor_id, "lane": "b0"}
+        with p0_case(p0_cases, b0, tmp_path, cell, repetition, inputs) as record:
+            facts = record["observations"]
+            agent = HpAgent(b0, episode, tmp_path / "agent", monkeypatch)
+            try:
+                agent.start()
+                before, ledger_before = outside(b0, episode), ledger(agent.database)
+                surfaces = {
+                    surface: agent.turn(surface, model, f"p0-{cell}-r{repetition}-{surface}")
+                    for surface in case["surfaces"]
+                }
+                after, ledger_after = outside(b0, episode), ledger(agent.database)
+                record["stimulus_verified"] = model.since(0)["answers"][:1] == case["script"][:1]
+                checks: dict[str, bool] = {}
+                for surface, seen in surfaces.items():
+                    checks |= hp_surface_checks(oracle, surface, seen)
+                rest, chat = surfaces["rest"], surfaces["chat"]["view"]
+                checks["rest.status_and_body"] = [rest["status"], rest["body"]] == [
+                    oracle["rest"]["status"],
+                    oracle["rest"]["body"],
+                ]
+                for key in ("status", "steps", "failed_step", "purchase"):
+                    checks[f"chat.{key}"] = chat[key] == oracle["chat"][key]
+                checks["governed_recovery_rows"] = (
+                    ledger_after["governed_recovery"] == oracle["governed_recovery_rows"]
+                )
+                checks["no_purchase"] = ledger_after["purchases"] == ledger_before["purchases"] == 0
+                merchant_calls = [call for seen in surfaces.values() for call in seen["merchant_calls"]]
+                effect_checks, effect_facts = zero_effects(
+                    before, after, ledger_before, ledger_after, merchant_calls, None
+                )
+                checks |= effect_checks
+                facts.update(
+                    surfaces=surfaces,
+                    merchant_before=before,
+                    merchant_after=after,
+                    ledger_before=ledger_before,
+                    ledger_after=ledger_after,
+                    summary={
+                        "surfaces": {name: hp_summary(seen) for name, seen in surfaces.items()},
+                        "effects": effect_facts,
+                        "governed_recovery_rows": ledger_after["governed_recovery"],
+                        "purchases": ledger_after["purchases"],
+                    },
+                )
+            finally:
+                agent.close()
+                record["cleanup_verified"] = agent.stopped()
+&gt;           verdict(record, checks)
+
+tests/integration/test_p0_model_failures.py:514: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+record = {'case_id': 'INF29-HP', 'cleanup_verified': True, 'exception_type': 'AssertionError', 'finished_at_ns': 1793889423959311000, ...}
+checks = {'chat.failed_step': False, 'chat.model_http_attempts': False, 'chat.model_requests': False, 'chat.purchase': True, ...}
+
+    def verdict(record: dict[str, Any], checks: dict[str, bool]) -&gt; None:
+        """Every oracle goes to the evidence first; then the case fails with the ones that failed."""
+        record["observations"]["checks"] = checks
+        failed = [name for name, passed in checks.items() if not passed]
+&gt;       assert not failed, failed
+E       AssertionError: ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']
+E       assert not ['chat.model_http_attempts', 'chat.model_requests', 'chat.steps', 'chat.failed_step']
+
+tests/integration/test_p0_model_failures.py:213: AssertionError</failure></testcase><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_control[INF27-HP-control-r1]" time="3.019" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_control[INF27-HP-control-r2]" time="3.126" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_control[INF27-HP-control-r3]" time="3.200" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_control[CTRL-HP-r1]" time="3.395" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_control[CTRL-HP-r2]" time="3.525" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hp_control[CTRL-HP-r3]" time="3.688" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF27-HNP-r1]" time="2.076" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF27-HNP-r2]" time="1.333" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF27-HNP-r3]" time="1.362" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF28-HNP-r1]" time="1.364" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF28-HNP-r2]" time="1.445" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF28-HNP-r3]" time="1.461" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF29-HNP-r1]" time="1.979" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF29-HNP-r2]" time="1.643" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF29-HNP-r3]" time="1.632" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF33-HNP-a-r1]" time="1.940" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF33-HNP-a-r2]" time="1.773" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF33-HNP-a-r3]" time="1.955" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF33-HNP-b-r1]" time="1.540" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF33-HNP-b-r2]" time="1.544" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_model_failure[INF33-HNP-b-r3]" time="1.638" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_control[CTRL-HNP-r1]" time="2.223" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_control[CTRL-HNP-r2]" time="2.064" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_control[CTRL-HNP-r3]" time="1.963" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_control[CTRL-HNP-REVIEW-r1]" time="1.959" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_control[CTRL-HNP-REVIEW-r2]" time="1.986" /><testcase classname="tests.integration.test_p0_model_failures" name="test_p0_hnp_control[CTRL-HNP-REVIEW-r3]" time="5.669" /></testsuite></testsuites>
