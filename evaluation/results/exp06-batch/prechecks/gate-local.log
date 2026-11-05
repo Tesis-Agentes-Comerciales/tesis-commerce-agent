@@ -1,0 +1,16 @@
+## head 42386610887b2f7e89fdd4607fe0f0b9de2d4471
+## format
+507 files already formatted
+rc=0
+## check
+All checks passed!
+rc=0
+## pyright
+0 errors, 0 warnings, 0 informations
+rc=0
+## pytest
+SKIPPED [15] tests/integration/test_p0_model_failures.py:617: requires RUN_LIVE_STACK=1 (docs/testing.md)
+SKIPPED [6] tests/integration/test_p0_model_failures.py:658: requires RUN_LIVE_STACK=1 (docs/testing.md)
+SKIPPED [6] tests/integration/test_p0_model_failures.py:743: requires RUN_LIVE_STACK=1 (docs/testing.md)
+3742 passed, 156 skipped, 1 warning, 101 subtests passed in 139.96s (0:02:19)
+rc=0

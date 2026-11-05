@@ -25,7 +25,8 @@ class InvalidAuth:
 def test_real_auth_adapter_without_model(b0, tmp_path):
     # POSIX service helpers are reused lazily, keeping offline collection portable.
     from commerce_evaluation.governance_pilot import AuthClient
-    from tests.integration.live_browser import AgentServer, ExplicitSettings, NodeServer
+    from tests.integration.live_browser import ExplicitSettings, NodeServer
+    from tests.support.agent_server import AgentServer
 
     episode = b0.episode("exp05-auth")
     port = free_port()

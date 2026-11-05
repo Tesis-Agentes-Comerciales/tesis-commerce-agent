@@ -2,12 +2,14 @@ import asyncio
 import json
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
-from assistant_stream import create_run
+from assistant_stream import RunController, create_run
 from assistant_support import (
     CLARIFY_REPLY,
     CLARIFY_REQUEST,
@@ -30,16 +32,20 @@ from assistant_support import (
     assistant_body,
     assistant_client,
     build_app,
+    counter_ids,
     fixture_files,
     parse_sse,
     post_assistant,
+    purchase_intent,
     purchase_updated,
     rebuild_state,
+    settings,
 )
 from pydantic import SecretStr
 
 from commerce_agent.acp import load_product_feed
 from commerce_agent.acp.feed import ProductFeed
+from commerce_agent.api import create_app
 from commerce_agent.application.product_cards import (
     MAX_DESCRIPTION_LENGTH,
     plain_text,
@@ -50,6 +56,7 @@ from commerce_agent.assistant_transport import (
     GUARD_TEXT,
     AssistantMessageRecorder,
     AssistantRequest,
+    AssistantTransport,
     TurnCancelled,
     error_message,
 )
@@ -60,6 +67,8 @@ from commerce_agent.llm import (
 )
 from commerce_agent.llm import conversation_router as router_module
 from commerce_agent.llm.reasoning import reasoning_listener
+from tests.support.agent_server import AgentServer
+from tests.support.model_server import ModelServer, held, structured
 
 STEPS = (
     "interpret_request",
@@ -1140,6 +1149,129 @@ def test_client_disconnect_cancels_the_turn_before_checkout(tmp_path: Path) -> N
         purchases = connection.execute("SELECT COUNT(*) FROM purchases").fetchone()
     assert row == (None,)
     assert purchases == (0,)
+
+
+# UX09-HP (docs/design/p0-ux08-ux10.md §3.2): «Detener respuesta» while the model answers.
+
+
+@pytest.mark.parametrize("cancelled", [True, False], ids=["stopped", "running"])
+def test_the_worker_reads_the_stream_cancellation_without_new_operations(
+    tmp_path: Path, cancelled: bool
+) -> None:
+    """The stream marks the run cancelled when the client goes. A worker waiting on the model has
+    no operation in flight, so no event-loop step would tell it: it reads the mark itself."""
+    transport = build_app(tmp_path / "agent.db").state.assistant_transport
+    controller: Any = SimpleNamespace(is_cancelled=cancelled)
+    seen: list[bool] = []
+
+    asyncio.run(transport._pump(controller, lambda emit, stopped: seen.append(stopped())))
+
+    assert seen == [cancelled]
+
+
+MODEL_KEY = "sk-test-ux09-0123456789abcdef"
+ROUTED_A = CommerceDecision(
+    action="purchase",
+    assistant_message="Buscaré audífonos negros dentro de tu presupuesto.",
+    purchase_request=PURCHASE_REQUEST,
+    intent=purchase_intent(2_000_000_00, black=True),
+)
+
+
+def choose(variant_id: str) -> Any:
+    """`choose_a` (§4.1): the variant, which the request's schema must admit."""
+
+    def answer(body: dict[str, Any]) -> dict[str, Any]:
+        schema = body["text"]["format"]["schema"]["properties"]["selected_variant_id"]
+        assert variant_id in (schema.get("enum") or schema["anyOf"][0]["enum"])
+        return {
+            "action": "purchase",
+            "assistant_message": f"Elijo {variant_id}.",
+            "selected_variant_id": variant_id,
+        }
+
+    return structured(answer)
+
+
+def model_app(database: Path, merchant: Merchant) -> Any:
+    """The runtime's own OpenAI router over the scripted transport, as in production."""
+    configured = settings(database).model_copy(
+        update={"openai_api_key": SecretStr(MODEL_KEY), "openai_model": "test-model"}
+    )
+    return create_app(
+        settings=configured,
+        transport=merchant.transport(),
+        payment_transport=httpx.MockTransport(
+            lambda request: httpx.Response(201, json={"id": "vt_" + "a" * 64})
+        ),
+        id_factory=counter_ids(),
+    )
+
+
+@pytest.mark.parametrize("stop", [True, False], ids=["stopped", "control"])
+@pytest.mark.parametrize("delay_ms", [0, 5, 20])
+def test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, delay_ms: int, stop: bool
+) -> None:
+    """UX09-HP-race: uvicorn on 127.0.0.1 and a client that closes its connection while
+    `choose_a` is held. The answer is released 0, 5 or 20 ms after the server marked the run
+    cancelled, so the outcome depends on neither the TCP close nor the scheduler. The control
+    reads the stream to its end: the same script prepares the checkout."""
+    marked, finished = threading.Event(), threading.Event()
+    mark, work = RunController._mark_cancelled, AssistantTransport._turn_worker
+
+    def marking(controller: RunController) -> None:
+        mark(controller)
+        marked.set()
+
+    def tracked(self: AssistantTransport, *args: Any, **kwargs: Any) -> None:
+        try:
+            work(self, *args, **kwargs)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(RunController, "_mark_cancelled", marking)
+    monkeypatch.setattr(AssistantTransport, "_turn_worker", tracked)
+    choice = held(choose("SON-XM6-BLK"))
+    model = ModelServer(structured(ROUTED_A), choice)
+    model.install(monkeypatch)
+    merchant = Merchant()
+    agent = AgentServer(model_app(tmp_path / "agent.db", merchant))
+    agent.start()
+    body = assistant_body([add_message(PURCHASE_REQUEST)], turn_id="turn-race")
+    try:
+        with (
+            httpx.Client(trust_env=False, timeout=10) as client,
+            client.stream("POST", agent.origin + "/assistant", json=body) as response,
+        ):
+            lines = response.iter_lines()
+            next(lines)
+            assert choice.entered.wait(10)
+            if not stop:
+                choice.release()
+                for _ in lines:
+                    pass
+        if stop:
+            # The connection is closed («Detener respuesta»): wait for the server's mark.
+            assert marked.wait(10)
+            time.sleep(delay_ms / 1000)
+            choice.release()
+        assert finished.wait(10)
+    finally:
+        agent.stop()
+
+    assert len(model.requests) == 2
+    with sqlite3.connect(tmp_path / "agent.db") as connection:
+        (turn,) = connection.execute(
+            "SELECT response IS NULL FROM conversation_turns WHERE turn_id = 'turn-race'"
+        ).fetchone()
+        stages = connection.execute("SELECT stage FROM purchases").fetchall()
+    if stop:
+        assert merchant.requests.count("POST /checkout_sessions") == 0
+        assert (turn, stages) == (1, [])
+    else:
+        assert merchant.requests.count("POST /checkout_sessions") == 1
+        assert (turn, stages) == (0, [("awaiting_confirmation",)])
 
 
 def test_committed_fixtures_match_the_backend_output(tmp_path: Path) -> None:
