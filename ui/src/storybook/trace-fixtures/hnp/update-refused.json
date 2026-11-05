@@ -1,0 +1,64 @@
+{
+  "run_id": "run_8a2c4e6f0b1d4f73c5e7a9b1d3f5a7c9",
+  "status": "failed",
+  "policy_mode": "off",
+  "request": "Compra delegada",
+  "merchant": "http://127.0.0.1:4120",
+  "merchant_name": "Synthetic Commerce Merchant",
+  "total": null,
+  "started_at": "2026-10-21T14:58:10.204Z",
+  "updated_at": "2026-10-21T15:00:01.613Z",
+  "steps": [
+    {
+      "id": "delegation_consented",
+      "at": "2026-10-21T14:58:10.204Z",
+      "duration_ms": null,
+      "actor": "user",
+      "state": "done",
+      "kind": "delegation_consented",
+      "grant_id": "dg_7c1e5a9b3d0f4e2a",
+      "total_max": {
+        "minor": 200000000,
+        "currency": "COP"
+      },
+      "expires_at": "2026-10-22T23:00:00.000Z"
+    },
+    {
+      "id": "task_activated",
+      "at": "2026-10-21T15:00:00.118Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "done",
+      "kind": "task_activated",
+      "trigger": "service"
+    },
+    {
+      "id": "checkout_created",
+      "at": "2026-10-21T15:00:01.407Z",
+      "duration_ms": null,
+      "actor": "merchant",
+      "state": "done",
+      "kind": "checkout_created",
+      "checkout_id": "cs_e41d7b2a90c6"
+    },
+    {
+      "id": "failed",
+      "at": "2026-10-21T15:00:01.612Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "error",
+      "kind": "failed",
+      "code": "out_of_stock"
+    },
+    {
+      "id": "failed:task",
+      "at": "2026-10-21T15:00:01.613Z",
+      "duration_ms": null,
+      "actor": "agent",
+      "state": "error",
+      "kind": "failed",
+      "code": "checkout_failed"
+    }
+  ],
+  "purchase_mode": "HNP"
+}

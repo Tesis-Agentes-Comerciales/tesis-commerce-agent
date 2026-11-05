@@ -73,7 +73,11 @@ export type TraceStep = {
   | { kind: "order_event"; event_type: string }
   /** `expiry`: la delegación venció antes de comprar. */
   | { kind: "canceled"; by: "user" | "budget" | "expiry" }
-  | { kind: "failed"; code: string }
+  /**
+   * `merchant_refusal`: solo en el fallo de una tarea delegada `checkout_failed` cuyo checkout el
+   * comercio se negó a crear con un código tipado, sin que quedara ninguno. Si no, no viene.
+   */
+  | { kind: "failed"; code: string; merchant_refusal?: MerchantRefusal }
   | ({ kind: "freshness_check" } & FreshnessCheck)
   | ({ kind: "governed_recovery" } & GovernedRecovery)
   // Compra delegada (HNP): el consentimiento reemplaza al pedido y nadie aprueba ni firma al final.
@@ -94,6 +98,9 @@ export type TraceStep = {
   /** La decisión volvió a la persona: no se firmó ni se cobró nada. */
   | { kind: "escalated"; reason: EscalationReason }
 )
+
+/** Por qué el comercio se negó a crear el checkout: respondió antes de crear nada. */
+export type MerchantRefusal = "out_of_stock" | "offer_expired" | "invalid_item"
 
 /** Códigos de escalamiento del ledger de delegación (hnp-governed.md §8.1). */
 export type EscalationReason =
@@ -345,7 +352,10 @@ const STEP_FIELDS: { [K in StepKind]: StepFields<K> } = {
   order_confirmed: { order_id: text, receipts: listOf(receiptKind) },
   order_event: { event_type: text },
   canceled: { by: oneOf("user", "budget", "expiry") },
-  failed: { code: text },
+  failed: {
+    code: text,
+    merchant_refusal: optional(oneOf<MerchantRefusal>("out_of_stock", "offer_expired", "invalid_item")),
+  },
   freshness_check: {
     stage: oneOf<FreshnessCheck["stage"]>("present", "approve", "close"),
     mode: oneOf<FreshnessCheck["mode"]>("shadow", "enforce"),
