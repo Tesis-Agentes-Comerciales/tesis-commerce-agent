@@ -137,6 +137,9 @@ La compra delegada dentro del chat (`docs/design/hnp-chat-delegate.md`). Con `mo
   `max_total_amount_minor` de la intención o, si falta, `max_unit_amount_minor`; `null` sin
   presupuesto. `preference_text`: el último mensaje del comprador. Si la acción no es `purchase`,
   `delegation_draft` es `null`.
+- `priority` (opcional, `docs/design/p0-conditional-intent.md` §3.9): el orden que el turno leyó
+  entre `offers`, de 1 a 3 variantes distintas. Se omite si no hay orden; nunca es `null`. El
+  formulario lo propone y el comprador lo consiente en la tarjeta.
 - Nada de esto es autoritativo: la UI lo usa para prellenar el formulario y `POST
   /delegations/proposals` revalida variantes, total y destino. La idempotencia es la de siempre por
   comprador (`turn_id`); la huella del turno incluye el modo.
@@ -151,7 +154,7 @@ validada del feed de solo lectura y no puede preparar checkout ni ejecutar pagos
 | --- | --- | --- | --- |
 | `interpret_request` | Cada `add-message` | `{}` | `{"action": "respond" \| "clarify" \| "purchase", "constraints": HardConstraints \| null, "preferences": SoftPreferences \| null}` |
 | `search_catalog` | `action == "purchase"` | `{"constraints", "preferences"}` | `{"matches": int, "rejections": {motivo: int}, "products": [ProductCard] (máx. 6)}` |
-| `select_product` | Hay candidatos | `{"candidate_variant_ids": [str]}` | `{"decision": "select" \| "clarify", "product": ProductCard \| null, "rationale": str}` |
+| `select_product` | Hay candidatos | `{"candidate_variant_ids": [str]}` | `{"decision": "select" \| "clarify", "product": ProductCard \| null, "rationale": str, "conditional"?: ConditionalView}` |
 | `prepare_checkout` | Producto elegido | `{"variant_id": str, "run_id": str}` | `{"run_id", "checkout_id", "checkout_status", "price_changed": bool, "total_minor": int, "currency": str}` |
 | `request_approval` | Checkout listo | `{"run_id": str}` | `{"run_id", "stage", "terms": ApprovalTerms}` (igual a `GET /purchases/{run_id}/approval`) |
 | `purchase_update` | Comando `purchase-updated` | `{"run_id": str}` | `{"run_id", "stage", "order_id": str \| null}` |
@@ -162,6 +165,45 @@ es la recuperación conversacional actual.
 
 El razonamiento aparece como partes `reasoning` solo si `OPENAI_REASONING_SUMMARY=true` y el modelo
 lo soporta; son resúmenes de la Responses API, nunca razonamiento crudo.
+
+### ConditionalView
+
+Solo en un turno con intención condicional cuyas ramas se evaluaron con la oferta del comercio
+(`docs/design/p0-conditional-intent.md` §3.3 y §3.10); en los demás, `select_product` no trae la
+clave. El modelo nunca elige la rama: la decide el backend. Montos en centavos COP.
+
+```json
+{
+  "outcome": "branch",
+  "chosen_index": 1,
+  "currency": "COP",
+  "branches": [
+    {"index": 0, "variant_id": "SON-X5II-256-BLK", "title": "Sony Xperia 5 II 256 GB negro",
+     "status": "over_limit", "total_minor": 292400000, "limit_minor": 292399999,
+     "items_total_minor": 289900000, "unit_limit_minor": null},
+    {"index": 1, "variant_id": "ONP-8T-256-GRN", "title": "OnePlus 8T 256 GB verde",
+     "status": "eligible", "total_minor": 202400000, "limit_minor": 202400000,
+     "items_total_minor": 199900000, "unit_limit_minor": null}
+  ],
+  "checkout_total_minor": null
+}
+```
+
+- `outcome`: `branch`, `none`, `undetermined` u `offer_changed` (el checkout preparado no tiene el
+  total de la oferta: se canceló y no se probó otra rama). `clarify` y `exclusions_only` no traen
+  vista: la aclaración es una pregunta y la exclusión se ve en `rejections.excluded` de
+  `search_catalog`.
+- `chosen_index`: solo con `branch` u `offer_changed`, y siempre una rama `eligible`.
+- `status` de cada rama: `eligible`, `over_limit`, `out_of_stock`, `inactive`, `intent_mismatch`
+  (contradice otra condición del pedido; su oferta no se lee), `unknown` (la lectura falló o el feed
+  y la oferta no coinciden), `not_triggered` («solo si se agota» no se cumplió) o `not_evaluated`.
+- `total_minor` e `items_total_minor` (con y sin envío) salen de la misma oferta, o son `null` si no
+  se leyó. `limit_minor` es el límite de total efectivo de la rama; `unit_limit_minor`, el límite por
+  unidad del pedido. Un `over_limit` con `total_minor` ≤ `limit_minor` es por precio unitario.
+- `checkout_total_minor`: solo con `offer_changed`.
+- La UI valida con `parseConditionalView` (`ui/src/lib/agent-contract.ts`) y el backend con
+  `ConditionalView` (`application/conditional.py`), sobre las mismas fixtures
+  (`ui/src/storybook/fixtures/conditional-views.json`).
 
 ### ProductCard
 
