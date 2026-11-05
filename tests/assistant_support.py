@@ -156,7 +156,30 @@ class ScriptedRouter:
         return CatalogRecovery(action="clarify", assistant_message=NO_CANDIDATE_REPLY)
 
 
-def _checkout(status: str, *, with_details: bool, checkout_id: str = CHECKOUT_ID) -> dict[str, Any]:
+SHIPPING_MINOR = 25_000_00
+
+
+def feed_items() -> dict[str, dict[str, Any]]:
+    """Each variant of the synthetic feed as the ACP item a checkout line names."""
+    items: dict[str, dict[str, Any]] = {}
+    for line in (ASSISTANT_FEED / "products.jsonl").read_text(encoding="utf-8").splitlines():
+        for variant in json.loads(line)["variants"]:
+            items[variant["id"]] = {
+                "id": variant["id"],
+                "name": variant["title"],
+                "unit_amount": variant["price"]["amount"],
+            }
+    return items
+
+
+def _checkout(
+    status: str,
+    *,
+    with_details: bool,
+    checkout_id: str = CHECKOUT_ID,
+    variant_id: str = "SON-XM6-BLK",
+) -> dict[str, Any]:
+    item = feed_items()[variant_id]
     payload: dict[str, Any] = {
         "id": checkout_id,
         "protocol": {"version": "2026-04-17"},
@@ -166,16 +189,20 @@ def _checkout(status: str, *, with_details: bool, checkout_id: str = CHECKOUT_ID
         "line_items": [
             {
                 "id": "li_1",
-                "item": {
-                    "id": "SON-XM6-BLK",
-                    "name": "Sony WH-1000XM6 negro",
-                    "unit_amount": 1_899_000_00,
-                },
+                "item": item,
                 "quantity": 1,
-                "totals": [{"type": "total", "display_text": "Artículo", "amount": 1_899_000_00}],
+                "totals": [
+                    {"type": "total", "display_text": "Artículo", "amount": item["unit_amount"]}
+                ],
             }
         ],
-        "totals": [{"type": "total", "display_text": "Total", "amount": 1_924_000_00}],
+        "totals": [
+            {
+                "type": "total",
+                "display_text": "Total",
+                "amount": item["unit_amount"] + SHIPPING_MINOR,
+            }
+        ],
         "fulfillment_options": [
             {
                 "type": "shipping",
@@ -183,7 +210,7 @@ def _checkout(status: str, *, with_details: bool, checkout_id: str = CHECKOUT_ID
                 "title": "Envío simulado a Bogotá",
                 "earliest_delivery_time": "2099-09-22T13:00:00Z",
                 "latest_delivery_time": "2099-09-22T13:00:00Z",
-                "totals": [{"type": "total", "display_text": "Envío", "amount": 25_000_00}],
+                "totals": [{"type": "total", "display_text": "Envío", "amount": SHIPPING_MINOR}],
             }
         ],
         "selected_fulfillment_options": [],
@@ -208,7 +235,9 @@ class Merchant:
     """In-memory ACP merchant served through httpx.MockTransport.
 
     Each creation opens a new session (`cs_storybook_1`, `cs_storybook_2`…), so a purchase asked
-    for again after canceling gets its own checkout, as with the real merchant.
+    for again after canceling gets its own checkout, as with the real merchant. The session's
+    line is the variant the creation asked for (p0-ux08-ux10.md §5.3), named and priced as in
+    the synthetic feed.
     """
 
     fail_checkout: bool = False
@@ -217,6 +246,7 @@ class Merchant:
     created: int = 0
     # None leaves it out of the order, as a merchant that only sends the order ID.
     order_number: str | None = ORDER_NUMBER
+    variant_id: str = "SON-XM6-BLK"
 
     @property
     def checkout_id(self) -> str:
@@ -251,8 +281,12 @@ class Merchant:
         if request.method == "POST" and path == "/checkout_sessions":
             self.created += 1
             self.status = "ready_for_payment"
+            self.variant_id = json.loads(request.content)["line_items"][0]["id"]
             created = _checkout(
-                "not_ready_for_payment", with_details=False, checkout_id=self.checkout_id
+                "not_ready_for_payment",
+                with_details=False,
+                checkout_id=self.checkout_id,
+                variant_id=self.variant_id,
             )
             return httpx.Response(201, json=created)
         checkout_path = f"/checkout_sessions/{self.checkout_id}"
@@ -279,7 +313,14 @@ class Merchant:
         raise AssertionError(f"Unexpected request: {request.method} {path}")
 
     def _current(self) -> dict[str, Any]:
-        return deepcopy(_checkout(self.status, with_details=True, checkout_id=self.checkout_id))
+        return deepcopy(
+            _checkout(
+                self.status,
+                with_details=True,
+                checkout_id=self.checkout_id,
+                variant_id=self.variant_id,
+            )
+        )
 
 
 def counter_ids() -> Callable[[str], str]:

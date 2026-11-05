@@ -711,6 +711,19 @@ def test_ux10_hnp_asking_for_two_units_still_consents_one_unit_once(
     assert grant_ids(client) == [first.json()["grant_id"]]
 
 
+@pytest.mark.parametrize("field", ["quantity", "quantity_max", "uses", "uses_max"])
+def test_ux10_hnp_a_proposal_cannot_ask_for_two_units(
+    client: TestClient, tmp_path: Path, field: str
+) -> None:
+    asked: dict[str, Any] = {field: 2}
+    error(propose(client, **asked), 422, "delegation_request_invalid")
+
+    with closing(sqlite3.connect(tmp_path / "agent.db")) as connection:
+        rows = connection.execute("SELECT count(*) FROM delegation_proposals").fetchone()[0]
+    assert rows == 0
+    assert consent_rows(tmp_path / "agent.db") == dict.fromkeys(CONSENT_ROWS, 0)
+
+
 # The proposals table as main 343f099 created it, before D2 added `superseded_by`.
 PRE_D2_PROPOSALS = """CREATE TABLE delegation_proposals (
     proposal_id TEXT PRIMARY KEY,
