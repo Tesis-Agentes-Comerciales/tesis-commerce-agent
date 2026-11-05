@@ -1,0 +1,2583 @@
+{
+ "schema": "p0-ux08-ux10-summary/1",
+ "protocol": {
+  "path": "evaluation/scenarios/p0-ux08-ux10.json",
+  "sha256": "1d8d78729bccdec921ad38a84e7088044bfa9823ead77f963e04f01aa7c371ed"
+ },
+ "spec": {
+  "path": "docs/design/p0-ux08-ux10.md",
+  "sha256": "1ebc84bdbe0611e4080cc1998f6132730bf24747e3dd80628d124f66239e04a0",
+  "matches_protocol": true
+ },
+ "execution_order": {
+  "observed": [
+   "UX09-HP-a",
+   "UX09-HP-b",
+   "UX09-HP-race",
+   "UX09-HNP-sel",
+   "UX09-HNP-sel-kill",
+   "UX09-HNP-rev",
+   "UX08-HP",
+   "UX09-HNP-post",
+   "UX09-HP-control",
+   "UX08-HP-control",
+   "UX08-HNP-control",
+   "UX09-HNP-control",
+   "UX09-HNP-rev-control",
+   "UX10-HNP-control",
+   "UX10-HNP-b"
+  ],
+  "matches_protocol": true
+ },
+ "checkouts": {
+  "agent": {
+   "head": "f59df0fdb176cf7ad6360b0b0916d061105cbe38",
+   "dirty": false
+  },
+  "merchant": {
+   "head": "abf30df3b6a611284dedcc26c00accac6a853329",
+   "dirty": false
+  },
+  "payment": {
+   "head": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+   "dirty": false
+  }
+ },
+ "checkouts_match_protocol": {
+  "merchant": true,
+  "payment": true
+ },
+ "model": {
+  "double": "tests/support/model_server.py: httpx.MockTransport given to the SDK's HTTP clients in the test process; ScriptedModel (tests/integration/live_model.py) serves the case's script from this module's answers",
+  "model": "p0-scripted-model",
+  "real_provider_calls": 0,
+  "cost_usd": "0"
+ },
+ "totals": {
+  "cases": 45,
+  "passed": 45,
+  "failed": 0,
+  "error": 0
+ },
+ "not_applicable": {
+  "UX09-HP-REST": "REST is synchronous, the runners use it and it has no way to be interrupted: a second request waits for the lock and gets the pending-purchase guard (spec §2.2, §4.4). Declared, not executed, not counted.",
+  "UX10-HP": "the matrix puts UX10 only in HNP (spec §4.4).",
+  "UX10-HNP-c (live)": "the live Merchant has no fault that answers quantity 2 (spec §4.4); UX10-HNP-c runs in CI only.",
+  "UX10-HNP-a and UX08-HNP (live)": "no model and nothing the stack adds (spec §5.2); CI only."
+ },
+ "cells": {
+  "UX09-HP-a": {
+   "matrix_id": "UX09",
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "stop.entered_marked_and_finished": "3/3",
+    "model_http_attempts_stopped_turn": "3/3",
+    "stopped_turn_saved": "3/3",
+    "checkout_posts": "3/3",
+    "purchases": "3/3",
+    "next_turn_text": "3/3",
+    "next_turn_model_http_attempts": "3/3",
+    "pending_purchase_after": "3/3",
+    "zero_effects.merchant_no_checkout_post": "3/3",
+    "zero_effects.merchant_no_checkout": "3/3",
+    "zero_effects.merchant_snapshot_equal": "3/3",
+    "zero_effects.psp_no_token": "3/3",
+    "zero_effects.psp_snapshot_equal": "3/3",
+    "zero_effects.ledger_no_new_rows": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "stop": {
+     "entered": true,
+     "marked": true,
+     "worker_finished": true
+    },
+    "model_http_attempts_stopped_turn": 1,
+    "answers": [
+     "held_route_a"
+    ],
+    "turn_saved": [
+     false
+    ],
+    "next_turn_text": [
+     "Entendido. Dime qué quieres buscar."
+    ],
+    "next_turn_model_http_attempts": 1,
+    "pending_purchase_after": null,
+    "model_requests": [
+     {
+      "stage": "model.route",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     },
+     {
+      "stage": "model.route",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "effects": {
+     "merchant_posts": [],
+     "merchant_checkouts": [
+      [],
+      []
+     ],
+     "merchant_snapshot_equal": true,
+     "psp_tokens_delta": 0,
+     "psp_snapshot_equal": true,
+     "ledger_delta": {
+      "approvals": 0,
+      "completion_results": 0,
+      "grant_reservations": 0,
+      "dispatch_outbox": 0,
+      "orders": 0,
+      "hp_evidence": 0,
+      "governance_evidence": 0,
+      "ap2_evidence": 0,
+      "closed_mandates": 0
+     }
+    },
+    "merchant_calls": []
+   }
+  },
+  "UX09-HP-b": {
+   "matrix_id": "UX09",
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "stop.entered_marked_and_finished": "3/3",
+    "model_http_attempts_stopped_turn": "3/3",
+    "stopped_turn_saved": "3/3",
+    "checkout_posts": "3/3",
+    "purchases": "3/3",
+    "next_turn_text": "3/3",
+    "next_turn_model_http_attempts": "3/3",
+    "pending_purchase_after": "3/3",
+    "zero_effects.merchant_no_checkout_post": "3/3",
+    "zero_effects.merchant_no_checkout": "3/3",
+    "zero_effects.merchant_snapshot_equal": "3/3",
+    "zero_effects.psp_no_token": "3/3",
+    "zero_effects.psp_snapshot_equal": "3/3",
+    "zero_effects.ledger_no_new_rows": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "stop": {
+     "entered": true,
+     "marked": true,
+     "worker_finished": true
+    },
+    "model_http_attempts_stopped_turn": 2,
+    "answers": [
+     "route_a",
+     "held_choose_a"
+    ],
+    "turn_saved": [
+     false
+    ],
+    "next_turn_text": [
+     "Entendido. Dime qué quieres buscar."
+    ],
+    "next_turn_model_http_attempts": 1,
+    "pending_purchase_after": null,
+    "model_requests": [
+     {
+      "stage": "model.route",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     },
+     {
+      "stage": "model.choose_candidate",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     },
+     {
+      "stage": "model.route",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "effects": {
+     "merchant_posts": [],
+     "merchant_checkouts": [
+      [],
+      []
+     ],
+     "merchant_snapshot_equal": true,
+     "psp_tokens_delta": 0,
+     "psp_snapshot_equal": true,
+     "ledger_delta": {
+      "approvals": 0,
+      "completion_results": 0,
+      "grant_reservations": 0,
+      "dispatch_outbox": 0,
+      "orders": 0,
+      "hp_evidence": 0,
+      "governance_evidence": 0,
+      "ap2_evidence": 0,
+      "closed_mandates": 0
+     }
+    },
+    "merchant_calls": []
+   }
+  },
+  "UX09-HP-race": {
+   "matrix_id": "UX09",
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "stop.entered_marked_and_finished": "3/3",
+    "model_http_attempts_stopped_turn": "3/3",
+    "stopped_turn_saved": "3/3",
+    "checkout_posts": "3/3",
+    "purchases": "3/3",
+    "zero_effects.merchant_no_checkout_post": "3/3",
+    "zero_effects.merchant_no_checkout": "3/3",
+    "zero_effects.merchant_snapshot_equal": "3/3",
+    "zero_effects.psp_no_token": "3/3",
+    "zero_effects.psp_snapshot_equal": "3/3",
+    "zero_effects.ledger_no_new_rows": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "stop": {
+     "entered": true,
+     "marked": true,
+     "worker_finished": true
+    },
+    "model_http_attempts_stopped_turn": 2,
+    "answers": [
+     "route_a",
+     "held_choose_a"
+    ],
+    "turn_saved": [
+     false
+    ],
+    "model_requests": [
+     {
+      "stage": "model.route",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     },
+     {
+      "stage": "model.choose_candidate",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "effects": {
+     "merchant_posts": [],
+     "merchant_checkouts": [
+      [],
+      []
+     ],
+     "merchant_snapshot_equal": true,
+     "psp_tokens_delta": 0,
+     "psp_snapshot_equal": true,
+     "ledger_delta": {
+      "approvals": 0,
+      "completion_results": 0,
+      "grant_reservations": 0,
+      "dispatch_outbox": 0,
+      "orders": 0,
+      "hp_evidence": 0,
+      "governance_evidence": 0,
+      "ap2_evidence": 0,
+      "closed_mandates": 0
+     }
+    },
+    "merchant_calls": []
+   }
+  },
+  "UX09-HNP-sel": {
+   "matrix_id": "UX09",
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "trigger_accepted": "3/3",
+    "stop_accepted": "3/3",
+    "model_http_attempts": "3/3",
+    "task": "3/3",
+    "events_after_claim": "3/3",
+    "purchases": "3/3",
+    "task_finished_checkout_cancel": "3/3",
+    "merchant_posts_after_stop": "3/3",
+    "psp_requests_after_stop": "3/3",
+    "zero_effects.merchant_no_checkout_post": "3/3",
+    "zero_effects.merchant_no_checkout": "3/3",
+    "zero_effects.merchant_snapshot_equal": "3/3",
+    "zero_effects.psp_no_token": "3/3",
+    "zero_effects.psp_snapshot_equal": "3/3",
+    "zero_effects.ledger_no_new_rows": "3/3",
+    "zero_effects.psp_no_post": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": 1,
+    "answers": [
+     "held_choice_ok"
+    ],
+    "trigger_status": 202,
+    "task": {
+     "state": "canceled",
+     "outcome_code": "revoked_by_owner"
+    },
+    "events_after_claim": [
+     "task_claimed",
+     "revoked",
+     "task_finished"
+    ],
+    "purchases": [],
+    "grant": {
+     "state": "revoked",
+     "revoked_reason": "owner"
+    },
+    "model_requests": [
+     {
+      "stage": "model.hnp_select",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "merchant_calls": [],
+    "psp_calls": [],
+    "merchant_posts_after_stop": [],
+    "psp_requests_after_stop": [],
+    "effects_delta": {
+     "orders": 0,
+     "checkout_sessions": 0,
+     "tokens": 0
+    },
+    "task_finished_checkout_cancel": [
+     null
+    ],
+    "merchant_checkouts": [],
+    "stop": {
+     "entered": true,
+     "receipt": {
+      "status": 200,
+      "effect": "no_effect"
+     }
+    },
+    "choice_reviewed": [],
+    "effects": {
+     "merchant_posts": [],
+     "merchant_checkouts": [
+      [],
+      []
+     ],
+     "merchant_snapshot_equal": true,
+     "psp_tokens_delta": 0,
+     "psp_snapshot_equal": true,
+     "ledger_delta": {
+      "approvals": 0,
+      "completion_results": 0,
+      "grant_reservations": 0,
+      "dispatch_outbox": 0,
+      "orders": 0,
+      "hp_evidence": 0,
+      "governance_evidence": 0,
+      "ap2_evidence": 0,
+      "closed_mandates": 0
+     },
+     "psp_posts": 0
+    }
+   }
+  },
+  "UX09-HNP-sel-kill": {
+   "matrix_id": "UX09",
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "trigger_accepted": "3/3",
+    "stop_accepted": "3/3",
+    "model_http_attempts": "3/3",
+    "task": "3/3",
+    "events_after_claim": "3/3",
+    "purchases": "3/3",
+    "task_finished_checkout_cancel": "3/3",
+    "merchant_posts_after_stop": "3/3",
+    "psp_requests_after_stop": "3/3",
+    "zero_effects.merchant_no_checkout_post": "3/3",
+    "zero_effects.merchant_no_checkout": "3/3",
+    "zero_effects.merchant_snapshot_equal": "3/3",
+    "zero_effects.psp_no_token": "3/3",
+    "zero_effects.psp_snapshot_equal": "3/3",
+    "zero_effects.ledger_no_new_rows": "3/3",
+    "zero_effects.psp_no_post": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": 1,
+    "answers": [
+     "held_choice_ok"
+    ],
+    "trigger_status": 202,
+    "task": {
+     "state": "canceled",
+     "outcome_code": "kill_switch"
+    },
+    "events_after_claim": [
+     "task_claimed",
+     "kill_switch_blocked",
+     "revoked",
+     "task_finished"
+    ],
+    "purchases": [],
+    "grant": {
+     "state": "revoked",
+     "revoked_reason": "operator"
+    },
+    "model_requests": [
+     {
+      "stage": "model.hnp_select",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "merchant_calls": [],
+    "psp_calls": [],
+    "merchant_posts_after_stop": [],
+    "psp_requests_after_stop": [],
+    "effects_delta": {
+     "orders": 0,
+     "checkout_sessions": 0,
+     "tokens": 0
+    },
+    "task_finished_checkout_cancel": [
+     null
+    ],
+    "merchant_checkouts": [],
+    "stop": {
+     "entered": true,
+     "receipt": {
+      "status": 200,
+      "effect": null
+     }
+    },
+    "choice_reviewed": [],
+    "effects": {
+     "merchant_posts": [],
+     "merchant_checkouts": [
+      [],
+      []
+     ],
+     "merchant_snapshot_equal": true,
+     "psp_tokens_delta": 0,
+     "psp_snapshot_equal": true,
+     "ledger_delta": {
+      "approvals": 0,
+      "completion_results": 0,
+      "grant_reservations": 0,
+      "dispatch_outbox": 0,
+      "orders": 0,
+      "hp_evidence": 0,
+      "governance_evidence": 0,
+      "ap2_evidence": 0,
+      "closed_mandates": 0
+     },
+     "psp_posts": 0
+    }
+   }
+  },
+  "UX09-HNP-rev": {
+   "matrix_id": "UX09",
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "trigger_accepted": "3/3",
+    "stop_accepted": "3/3",
+    "model_http_attempts": "3/3",
+    "task": "3/3",
+    "events_after_claim": "3/3",
+    "purchases": "3/3",
+    "task_finished_checkout_cancel": "3/3",
+    "merchant_posts_after_stop": "3/3",
+    "psp_requests_after_stop": "3/3",
+    "zero_effects.merchant_no_checkout_post": "3/3",
+    "zero_effects.merchant_no_checkout": "3/3",
+    "zero_effects.merchant_snapshot_equal": "3/3",
+    "zero_effects.psp_no_token": "3/3",
+    "zero_effects.psp_snapshot_equal": "3/3",
+    "zero_effects.ledger_no_new_rows": "3/3",
+    "zero_effects.psp_no_post": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": 2,
+    "answers": [
+     "choice_ok",
+     "held_review_confirmed"
+    ],
+    "trigger_status": 202,
+    "task": {
+     "state": "canceled",
+     "outcome_code": "revoked_by_owner"
+    },
+    "events_after_claim": [
+     "task_claimed",
+     "revoked",
+     "task_finished"
+    ],
+    "purchases": [
+     {
+      "stage": "canceled",
+      "checkout_id": null
+     }
+    ],
+    "grant": {
+     "state": "revoked",
+     "revoked_reason": "owner"
+    },
+    "model_requests": [
+     {
+      "stage": "model.hnp_select",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     },
+     {
+      "stage": "model.hnp_review",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "merchant_calls": [],
+    "psp_calls": [],
+    "merchant_posts_after_stop": [],
+    "psp_requests_after_stop": [],
+    "effects_delta": {
+     "orders": 0,
+     "checkout_sessions": 0,
+     "tokens": 0
+    },
+    "task_finished_checkout_cancel": [
+     null
+    ],
+    "merchant_checkouts": [],
+    "stop": {
+     "entered": true,
+     "receipt": {
+      "status": 200,
+      "effect": "no_effect"
+     }
+    },
+    "choice_reviewed": [
+     "confirmed"
+    ],
+    "effects": {
+     "merchant_posts": [],
+     "merchant_checkouts": [
+      [],
+      []
+     ],
+     "merchant_snapshot_equal": true,
+     "psp_tokens_delta": 0,
+     "psp_snapshot_equal": true,
+     "ledger_delta": {
+      "approvals": 0,
+      "completion_results": 0,
+      "grant_reservations": 0,
+      "dispatch_outbox": 0,
+      "orders": 0,
+      "hp_evidence": 0,
+      "governance_evidence": 0,
+      "ap2_evidence": 0,
+      "closed_mandates": 0
+     },
+     "psp_posts": 0
+    }
+   }
+  },
+  "UX08-HP": {
+   "matrix_id": "UX08",
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "turn_1.model_http_attempts": "3/3",
+    "turn_1.checkout_posts": "3/3",
+    "turn_1.stage": "3/3",
+    "turn_1.line_variant": "3/3",
+    "turn_2.chat_text": "3/3",
+    "turn_2.rest": "3/3",
+    "turn_2.model_http_attempts": "3/3",
+    "turn_2.checkout_posts": "3/3",
+    "turn_2.pending_purchase": "3/3",
+    "cancel_a.status_and_stage": "3/3",
+    "cancel_a.merchant_cancels": "3/3",
+    "cancel_a.merchant_checkout_status": "3/3",
+    "turn_3.model_http_attempts": "3/3",
+    "turn_3.checkout_posts": "3/3",
+    "turn_3.stage": "3/3",
+    "turn_3.line_variant": "3/3",
+    "turn_3.new_run_and_checkout": "3/3",
+    "turn_3.fingerprint_differs": "3/3",
+    "turn_3.checkout_jwt": "3/3",
+    "refused.approve_b_with_fa": "3/3",
+    "refused.approve_a_with_fa": "3/3",
+    "refused.complete_b_unapproved": "3/3",
+    "b_after": "3/3",
+    "merchant_checkouts": "3/3",
+    "no_complete": "3/3",
+    "no_payment_effects": "3/3",
+    "agent_ledger": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": [
+     2,
+     0,
+     2
+    ],
+    "answers": [
+     "route_a",
+     "choose_a",
+     "route_b",
+     "choose_b"
+    ],
+    "lines": {
+     "a": [
+      "Q100286751-256GB"
+     ],
+     "b": [
+      "Q100348826-256GB"
+     ]
+    },
+    "turn_2": {
+     "chat": [
+      "Ya hay una compra pendiente. Revísala o cancélala antes de iniciar otra."
+     ],
+     "rest": [
+      200,
+      "clarify"
+     ]
+    },
+    "cancel_a": [
+     200,
+     "canceled"
+    ],
+    "refused": [
+     [
+      409,
+      "checkout_terms_changed"
+     ],
+     [
+      409,
+      "invalid_stage"
+     ],
+     [
+      409,
+      "invalid_stage"
+     ]
+    ],
+    "stage_b": "awaiting_confirmation",
+    "merchant_checkouts": [
+     {
+      "status": "canceled",
+      "offer_id": "Q100286751-256GB",
+      "quantity": 1
+     },
+     {
+      "status": "ready_for_payment",
+      "offer_id": "Q100348826-256GB",
+      "quantity": 1
+     }
+    ],
+    "merchant_calls": [
+     [
+      "GET",
+      "/.well-known/acp.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*/cancel",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/acp.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "ledger": {
+     "approvals": 0,
+     "completion_results": 0,
+     "grant_reservations": 0,
+     "dispatch_outbox": 0,
+     "orders": 0,
+     "hp_evidence": 3,
+     "governance_evidence": 2,
+     "ap2_evidence": 0,
+     "closed_mandates": 0,
+     "purchases": 2,
+     "governed_recovery": 0
+    },
+    "d2_rows": 0
+   }
+  },
+  "UX09-HNP-post": {
+   "matrix_id": "UX09",
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "trigger_accepted": "3/3",
+    "stop_accepted": "3/3",
+    "model_http_attempts": "3/3",
+    "task": "3/3",
+    "purchase_stage": "3/3",
+    "checkout_posts": "3/3",
+    "merchant_cancels": "3/3",
+    "merchant_checkouts": "3/3",
+    "task_finished_checkout_cancel": "3/3",
+    "grant_reservations": "3/3",
+    "closed_mandates": "3/3",
+    "dispatch_outbox": "3/3",
+    "no_complete": "3/3",
+    "orders_created": "3/3",
+    "psp_tokens_created": "3/3",
+    "psp_posts": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": 1,
+    "answers": [
+     "choice_ok"
+    ],
+    "trigger_status": 202,
+    "task": {
+     "state": "canceled",
+     "outcome_code": "revoked_by_owner"
+    },
+    "events_after_claim": [
+     "task_claimed",
+     "revoked",
+     "task_finished"
+    ],
+    "purchases": [
+     {
+      "stage": "canceled",
+      "checkout_id": "set"
+     }
+    ],
+    "grant": {
+     "state": "revoked",
+     "revoked_reason": "owner"
+    },
+    "model_requests": [
+     {
+      "stage": "model.hnp_select",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "merchant_calls": [
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*/cancel",
+      200
+     ]
+    ],
+    "psp_calls": [],
+    "merchant_posts_after_stop": [
+     "/checkout_sessions/*",
+     "/lab/offers/get",
+     "/checkout_sessions/*/cancel"
+    ],
+    "psp_requests_after_stop": [],
+    "effects_delta": {
+     "orders": 0,
+     "checkout_sessions": 1,
+     "tokens": 0
+    },
+    "task_finished_checkout_cancel": [
+     {
+      "checkout_id": "set",
+      "result": "canceled"
+     }
+    ],
+    "merchant_checkouts": [
+     {
+      "status": "canceled",
+      "offer_id": "Q100286751-256GB",
+      "quantity": 1
+     }
+    ],
+    "stop": {
+     "receipt": {
+      "status": 200,
+      "effect": "no_effect"
+     }
+    },
+    "choice_reviewed": [],
+    "ledger_delta": {
+     "approvals": 0,
+     "completion_results": 0,
+     "grant_reservations": 0,
+     "dispatch_outbox": 0,
+     "orders": 0,
+     "hp_evidence": 1,
+     "governance_evidence": 2,
+     "ap2_evidence": 0,
+     "closed_mandates": 0
+    }
+   }
+  },
+  "UX09-HP-control": {
+   "matrix_id": null,
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "model_http_attempts": "3/3",
+    "turn_saved": "3/3",
+    "stage": "3/3",
+    "checkout_posts": "3/3",
+    "no_payment": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": 2,
+    "stage": "awaiting_confirmation",
+    "merchant_calls": [
+     [
+      "GET",
+      "/.well-known/acp.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "merchant_checkouts": [
+     {
+      "status": "ready_for_payment",
+      "offer_id": "Q100286751-256GB",
+      "quantity": 1
+     }
+    ]
+   }
+  },
+  "UX08-HP-control": {
+   "matrix_id": null,
+   "mode": "HP",
+   "condition": "B2-HP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "ux08_hp.turn_1.model_http_attempts": "3/3",
+    "ux08_hp.turn_1.checkout_posts": "3/3",
+    "ux08_hp.turn_1.stage": "3/3",
+    "ux08_hp.turn_1.line_variant": "3/3",
+    "ux08_hp.turn_2.chat_text": "3/3",
+    "ux08_hp.turn_2.rest": "3/3",
+    "ux08_hp.turn_2.model_http_attempts": "3/3",
+    "ux08_hp.turn_2.checkout_posts": "3/3",
+    "ux08_hp.turn_2.pending_purchase": "3/3",
+    "ux08_hp.cancel_a.status_and_stage": "3/3",
+    "ux08_hp.cancel_a.merchant_cancels": "3/3",
+    "ux08_hp.cancel_a.merchant_checkout_status": "3/3",
+    "ux08_hp.turn_3.model_http_attempts": "3/3",
+    "ux08_hp.turn_3.checkout_posts": "3/3",
+    "ux08_hp.turn_3.stage": "3/3",
+    "ux08_hp.turn_3.line_variant": "3/3",
+    "ux08_hp.turn_3.new_run_and_checkout": "3/3",
+    "ux08_hp.turn_3.fingerprint_differs": "3/3",
+    "ux08_hp.turn_3.checkout_jwt": "3/3",
+    "ux08_hp.refused.approve_b_with_fa": "3/3",
+    "ux08_hp.refused.approve_a_with_fa": "3/3",
+    "ux08_hp.refused.complete_b_unapproved": "3/3",
+    "ux08_hp.b_after": "3/3",
+    "ux08_hp.merchant_checkouts": "3/3",
+    "ux08_hp.no_complete": "3/3",
+    "ux08_hp.no_payment_effects": "3/3",
+    "ux08_hp.agent_ledger": "3/3",
+    "fingerprint_reread": "3/3",
+    "approve_b": "3/3",
+    "complete_b": "3/3",
+    "order_checkout": "3/3",
+    "order_lines": "3/3",
+    "a_after": "3/3",
+    "merchant_checkouts": "3/3",
+    "complete_calls": "3/3",
+    "orders_created": "3/3",
+    "psp_tokens_created": "3/3",
+    "approvals": "3/3"
+   },
+   "observed_identical_across_repetitions": false,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": [
+     2,
+     0,
+     2
+    ],
+    "answers": [
+     "route_a",
+     "choose_a",
+     "route_b",
+     "choose_b"
+    ],
+    "lines": {
+     "a": [
+      "Q100286751-256GB"
+     ],
+     "b": [
+      "Q100348826-256GB"
+     ]
+    },
+    "turn_2": {
+     "chat": [
+      "Ya hay una compra pendiente. Revísala o cancélala antes de iniciar otra."
+     ],
+     "rest": [
+      200,
+      "clarify"
+     ]
+    },
+    "cancel_a": [
+     200,
+     "canceled"
+    ],
+    "refused": [
+     [
+      409,
+      "checkout_terms_changed"
+     ],
+     [
+      409,
+      "invalid_stage"
+     ],
+     [
+      409,
+      "invalid_stage"
+     ]
+    ],
+    "stage_b": "awaiting_confirmation",
+    "merchant_checkouts": [
+     {
+      "status": "canceled",
+      "offer_id": "Q100286751-256GB",
+      "quantity": 1
+     },
+     {
+      "status": "ready_for_payment",
+      "offer_id": "Q100348826-256GB",
+      "quantity": 1
+     }
+    ],
+    "merchant_calls": [
+     [
+      "GET",
+      "/.well-known/acp.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*/cancel",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/acp.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "ledger": {
+     "approvals": 0,
+     "completion_results": 0,
+     "grant_reservations": 0,
+     "dispatch_outbox": 0,
+     "orders": 0,
+     "hp_evidence": 3,
+     "governance_evidence": 2,
+     "ap2_evidence": 0,
+     "closed_mandates": 0,
+     "purchases": 2,
+     "governed_recovery": 0
+    },
+    "d2_rows": 0,
+    "approve_b": 200,
+    "complete_b": 200,
+    "a_after": [
+     "canceled",
+     null
+    ],
+    "merchant_checkouts_after": [
+     {
+      "status": "canceled",
+      "offer_id": "Q100286751-256GB",
+      "quantity": 1
+     },
+     {
+      "status": "completed",
+      "offer_id": "Q100348826-256GB",
+      "quantity": 1
+     }
+    ],
+    "merchant_calls_after": [
+     [
+      "GET",
+      "/.well-known/acp.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*/cancel",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/acp.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*/ap2/complete",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ]
+   }
+  },
+  "UX08-HNP-control": {
+   "matrix_id": null,
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "proposal_digests_differ": "3/3",
+    "consent_b": "3/3",
+    "grant_scope": "3/3",
+    "trigger_accepted": "3/3",
+    "model_http_attempts": "3/3",
+    "task": "3/3",
+    "merchant_checkouts": "3/3",
+    "orders_created": "3/3",
+    "psp_tokens_created": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": 1,
+    "answers": [
+     "choice_ok"
+    ],
+    "trigger_status": 202,
+    "task": {
+     "state": "purchased",
+     "outcome_code": null
+    },
+    "events_after_claim": [
+     "task_claimed",
+     "reservation_reserved",
+     "mandates_closed",
+     "dispatch_committed",
+     "receipt_recorded",
+     "receipt_recorded",
+     "consumed",
+     "task_finished"
+    ],
+    "purchases": [
+     {
+      "stage": "completed",
+      "checkout_id": "set"
+     }
+    ],
+    "grant": {
+     "state": "consumed",
+     "revoked_reason": null
+    },
+    "model_requests": [
+     {
+      "stage": "model.hnp_select",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "merchant_calls": [
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*/ap2/complete",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "psp_calls": [
+     [
+      "POST",
+      "/agentic_commerce/delegate_payment",
+      201
+     ],
+     [
+      "POST",
+      "/agentic_commerce/payment_receipt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "merchant_posts_after_stop": [],
+    "psp_requests_after_stop": [],
+    "effects_delta": {
+     "orders": 1,
+     "checkout_sessions": 1,
+     "tokens": 1
+    },
+    "task_finished_checkout_cancel": [
+     null
+    ],
+    "merchant_checkouts": [
+     {
+      "status": "completed",
+      "offer_id": "Q100348826-256GB",
+      "quantity": 1
+     }
+    ],
+    "stop": {},
+    "choice_reviewed": []
+   }
+  },
+  "UX09-HNP-control": {
+   "matrix_id": null,
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "trigger_accepted": "3/3",
+    "model_http_attempts": "3/3",
+    "task": "3/3",
+    "merchant_checkouts": "3/3",
+    "orders_created": "3/3",
+    "psp_tokens_created": "3/3",
+    "model_requests": "3/3",
+    "checkout_posts": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": 1,
+    "answers": [
+     "choice_ok"
+    ],
+    "trigger_status": 202,
+    "task": {
+     "state": "purchased",
+     "outcome_code": null
+    },
+    "events_after_claim": [
+     "task_claimed",
+     "reservation_reserved",
+     "mandates_closed",
+     "dispatch_committed",
+     "receipt_recorded",
+     "receipt_recorded",
+     "consumed",
+     "task_finished"
+    ],
+    "purchases": [
+     {
+      "stage": "completed",
+      "checkout_id": "set"
+     }
+    ],
+    "grant": {
+     "state": "consumed",
+     "revoked_reason": null
+    },
+    "model_requests": [
+     {
+      "stage": "model.hnp_select",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "merchant_calls": [
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*/ap2/complete",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "psp_calls": [
+     [
+      "POST",
+      "/agentic_commerce/delegate_payment",
+      201
+     ],
+     [
+      "POST",
+      "/agentic_commerce/payment_receipt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "merchant_posts_after_stop": [],
+    "psp_requests_after_stop": [],
+    "effects_delta": {
+     "orders": 1,
+     "checkout_sessions": 1,
+     "tokens": 1
+    },
+    "task_finished_checkout_cancel": [
+     null
+    ],
+    "merchant_checkouts": [
+     {
+      "status": "completed",
+      "offer_id": "Q100286751-256GB",
+      "quantity": 1
+     }
+    ],
+    "stop": {},
+    "choice_reviewed": []
+   }
+  },
+  "UX09-HNP-rev-control": {
+   "matrix_id": null,
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "trigger_accepted": "3/3",
+    "model_http_attempts": "3/3",
+    "task": "3/3",
+    "merchant_checkouts": "3/3",
+    "orders_created": "3/3",
+    "psp_tokens_created": "3/3",
+    "model_requests": "3/3",
+    "checkout_posts": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": 2,
+    "answers": [
+     "choice_ok",
+     "review_confirmed"
+    ],
+    "trigger_status": 202,
+    "task": {
+     "state": "purchased",
+     "outcome_code": null
+    },
+    "events_after_claim": [
+     "task_claimed",
+     "reservation_reserved",
+     "mandates_closed",
+     "dispatch_committed",
+     "receipt_recorded",
+     "receipt_recorded",
+     "consumed",
+     "task_finished"
+    ],
+    "purchases": [
+     {
+      "stage": "completed",
+      "checkout_id": "set"
+     }
+    ],
+    "grant": {
+     "state": "consumed",
+     "revoked_reason": null
+    },
+    "model_requests": [
+     {
+      "stage": "model.hnp_select",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     },
+     {
+      "stage": "model.hnp_review",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "merchant_calls": [
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*/ap2/complete",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "psp_calls": [
+     [
+      "POST",
+      "/agentic_commerce/delegate_payment",
+      201
+     ],
+     [
+      "POST",
+      "/agentic_commerce/payment_receipt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "merchant_posts_after_stop": [],
+    "psp_requests_after_stop": [],
+    "effects_delta": {
+     "orders": 1,
+     "checkout_sessions": 1,
+     "tokens": 1
+    },
+    "task_finished_checkout_cancel": [
+     null
+    ],
+    "merchant_checkouts": [
+     {
+      "status": "completed",
+      "offer_id": "Q100286751-256GB",
+      "quantity": 1
+     }
+    ],
+    "stop": {},
+    "choice_reviewed": [
+     "confirmed"
+    ]
+   }
+  },
+  "UX10-HNP-control": {
+   "matrix_id": null,
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "trigger_accepted": "3/3",
+    "model_http_attempts": "3/3",
+    "task": "3/3",
+    "merchant_checkouts": "3/3",
+    "orders_created": "3/3",
+    "psp_tokens_created": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": 1,
+    "answers": [
+     "choice_ok"
+    ],
+    "trigger_status": 202,
+    "task": {
+     "state": "purchased",
+     "outcome_code": null
+    },
+    "events_after_claim": [
+     "task_claimed",
+     "reservation_reserved",
+     "mandates_closed",
+     "dispatch_committed",
+     "receipt_recorded",
+     "receipt_recorded",
+     "consumed",
+     "task_finished"
+    ],
+    "purchases": [
+     {
+      "stage": "completed",
+      "checkout_id": "set"
+     }
+    ],
+    "grant": {
+     "state": "consumed",
+     "revoked_reason": null
+    },
+    "model_requests": [
+     {
+      "stage": "model.hnp_select",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "merchant_calls": [
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*/ap2/complete",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "psp_calls": [
+     [
+      "POST",
+      "/agentic_commerce/delegate_payment",
+      201
+     ],
+     [
+      "POST",
+      "/agentic_commerce/payment_receipt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "merchant_posts_after_stop": [],
+    "psp_requests_after_stop": [],
+    "effects_delta": {
+     "orders": 1,
+     "checkout_sessions": 1,
+     "tokens": 1
+    },
+    "task_finished_checkout_cancel": [
+     null
+    ],
+    "merchant_checkouts": [
+     {
+      "status": "completed",
+      "offer_id": "Q100286751-256GB",
+      "quantity": 1
+     }
+    ],
+    "stop": {},
+    "choice_reviewed": []
+   }
+  },
+  "UX10-HNP-b": {
+   "matrix_id": "UX10",
+   "mode": "HNP",
+   "condition": "B2-HNP",
+   "repetitions_passed": "3/3",
+   "oracles": {
+    "consents": "3/3",
+    "same_grant": "3/3",
+    "scope_uses": "3/3",
+    "trigger_accepted": "3/3",
+    "model_http_attempts": "3/3",
+    "task": "3/3",
+    "merchant_checkouts": "3/3",
+    "orders_created": "3/3",
+    "psp_tokens_created": "3/3",
+    "grant_state": "3/3"
+   },
+   "observed_identical_across_repetitions": true,
+   "runs": [
+    {
+     "repetition": 1,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 2,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    },
+    {
+     "repetition": 3,
+     "status": "passed",
+     "failed_oracles": [],
+     "exception_type": null
+    }
+   ],
+   "observed_first_repetition": {
+    "model_http_attempts": 1,
+    "answers": [
+     "choice_ok"
+    ],
+    "trigger_status": 202,
+    "task": {
+     "state": "purchased",
+     "outcome_code": null
+    },
+    "events_after_claim": [
+     "task_claimed",
+     "reservation_reserved",
+     "mandates_closed",
+     "dispatch_committed",
+     "receipt_recorded",
+     "receipt_recorded",
+     "consumed",
+     "task_finished"
+    ],
+    "purchases": [
+     {
+      "stage": "completed",
+      "checkout_id": "set"
+     }
+    ],
+    "grant": {
+     "state": "consumed",
+     "revoked_reason": null
+    },
+    "model_requests": [
+     {
+      "stage": "model.hnp_select",
+      "outcome": "ok",
+      "error_kind": null,
+      "http_status": null,
+      "provider_error_code": null,
+      "retries": 0
+     }
+    ],
+    "merchant_calls": [
+     [
+      "POST",
+      "/checkout_sessions",
+      201
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*",
+      200
+     ],
+     [
+      "POST",
+      "/lab/offers/get",
+      200
+     ],
+     [
+      "GET",
+      "/checkout_sessions/*/ap2/checkout-jwt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ],
+     [
+      "POST",
+      "/checkout_sessions/*/ap2/complete",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "psp_calls": [
+     [
+      "POST",
+      "/agentic_commerce/delegate_payment",
+      201
+     ],
+     [
+      "POST",
+      "/agentic_commerce/payment_receipt",
+      200
+     ],
+     [
+      "GET",
+      "/.well-known/ap2/jwks.json",
+      200
+     ]
+    ],
+    "merchant_posts_after_stop": [],
+    "psp_requests_after_stop": [],
+    "effects_delta": {
+     "orders": 1,
+     "checkout_sessions": 1,
+     "tokens": 1
+    },
+    "task_finished_checkout_cancel": [
+     null
+    ],
+    "merchant_checkouts": [
+     {
+      "status": "completed",
+      "offer_id": "Q100286751-256GB",
+      "quantity": 1
+     }
+    ],
+    "stop": {},
+    "choice_reviewed": [],
+    "consents": [
+     201,
+     200
+    ]
+   }
+  }
+ }
+}

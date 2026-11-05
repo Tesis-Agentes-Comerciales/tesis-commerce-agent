@@ -282,6 +282,99 @@
           ]
         }
       }
+    },
+    "UX08": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "De A a B antes de aprobar (B2-HP en vivo; B0 y B2-HP en CI): con A pendiente el modelo no corre y chat y REST piden decidir A; tras cancelar A, B es una compra nueva con su checkout y su huella; aprobar B con la huella de A da 409 `checkout_terms_changed`, y aprobar A o completar B sin aprobar dan 409 `invalid_stage`; sin pago ni orden. El control aprueba B con su huella y compra solo B.",
+          "limitation": "«Actualizar propuesta» son dos pasos, cancelar A y pedir B (desviación D1 de la spec). Modelo guionado, sin proveedor real; el proxy b0 permite cancelar solo en estos casos.",
+          "local_run": "p0-ux08-ux10",
+          "cases": [
+            "UX08-HP"
+          ],
+          "ci_cases": [
+            "UX08-HP"
+          ],
+          "prior_attempts": []
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "API de delegación (CI): de A a B antes de consentir, solo B se puede consentir (D2) y el grant tiene el alcance de B. En vivo, el control UX08-HNP-control consiente B y compra solo B.",
+          "limitation": "Sin celda en vivo atribuida: la celda no tiene modelo ni nada que añada el stack (spec §5.2). La tarjeta de D2 se prueba en Storybook, fuera del JUnit.",
+          "local_run": "p0-ux08-ux10",
+          "cases": [],
+          "ci_cases": [
+            "UX08-HNP"
+          ],
+          "prior_attempts": []
+        }
+      }
+    },
+    "UX09": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Detener el chat por desconexión real mientras el modelo interpreta (a) o elige (b), y soltar la respuesta apenas el servidor marca la corrida (race): 0 POST de checkout, 0 compras, turno sin guardar, el turno siguiente responde normal y cero efectos (B2-HP en vivo; B0 y B2-HP en CI). En CI, la desconexión durante el router cancela el turno antes del checkout.",
+          "limitation": "UX09-HP-REST no aplica: REST es síncrono y no se puede interrumpir. Solo UX09-HP-race y la unitaria `[stopped]` discriminan el arreglo de §3.2: sin él, `[stopped]` cae 5/5, `[5-stopped]` cae 5/5, `[0-stopped]` cae 3/5 (revisor de PR-A) o 4/5 (PR-C) y `[20-stopped]` pasa 5/5, así que la celda de 20 ms no discrimina; en vivo, race cae 3/3 y a y b pasan. La ventana entre el cierre TCP y `is_cancelled` no se mide. Modelo guionado.",
+          "local_run": "p0-ux08-ux10",
+          "cases": [
+            "UX09-HP-a",
+            "UX09-HP-b",
+            "UX09-HP-race"
+          ],
+          "ci_cases": [
+            "UX09-HP-a",
+            "UX09-HP-b",
+            "UX09-HP-disconnect",
+            "UX09-HP-race"
+          ],
+          "prior_attempts": []
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Revocar o encender el kill switch mientras el selector responde (sel, sel-kill) y revocar mientras el revisor responde (rev): la tarea termina `canceled` sin POST al Merchant ni al PSP después del stop. Revocar justo después del POST del checkout (post): 1 cancel en el Merchant (D4), sin reserva, mandato, despacho, orden ni token. B2-HNP en vivo; `Bench` y D1-HNP real en CI.",
+          "limitation": "En rev, la compra que abrió el revisor termina `canceled` sin checkout. En post, después de la revocación el Agent aún envió la actualización de entrega y leyó la oferta antes de que D2 la negara. D4 no cubre `grant_expired`, `policy_denied`, `governance_unavailable`, `mandate_proof_invalid`, `checkout_failed` al cerrar, la reclamación tras una caída ni un estado `uncertain` de D1. `ModelHnpAgent` en el proceso de pruebas.",
+          "local_run": "p0-ux08-ux10",
+          "cases": [
+            "UX09-HNP-post",
+            "UX09-HNP-rev",
+            "UX09-HNP-sel",
+            "UX09-HNP-sel-kill"
+          ],
+          "ci_cases": [
+            "UX09-HNP-post",
+            "UX09-HNP-rev",
+            "UX09-HNP-sel",
+            "UX09-HNP-sel-kill"
+          ],
+          "prior_attempts": []
+        }
+      }
+    },
+    "UX10": {
+      "modes": {
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Dos unidades nunca pasan del grant: la propuesta rechaza 2 en `quantity`, `quantity_max`, `uses` y `uses_max` (a, CI); pedir dos en el texto consiente una vez una sola unidad y compra 1 unidad con el grant `consumed` (b, en vivo y CI); un checkout de 2 unidades termina `checkout_failed` sin reserva, firma, commit ni orden, cancelado en B0-HNP (c, CI).",
+          "limitation": "UX10-HNP-c solo en CI: el Merchant vivo no tiene una falla que devuelva cantidad 2. En B2-HNP el checkout de 2 unidades queda abierto hasta la reconciliación de D1. `left_to_d1_reconciliation` aparece en todo `checkout_failed` con la compra `uncertain`, no solo tras un mismatch (por ejemplo, un timeout de la actualización en B2-HNP): no cancela nada, pero cambia el cuerpo de `task_finished` en esas corridas B2-HNP nuevas. La tarjeta de D3 se prueba en Storybook.",
+          "local_run": "p0-ux08-ux10",
+          "cases": [
+            "UX10-HNP-b"
+          ],
+          "ci_cases": [
+            "UX10-HNP-a",
+            "UX10-HNP-b",
+            "UX10-HNP-c"
+          ],
+          "prior_attempts": []
+        }
+      }
     }
   },
   "runs": {
@@ -802,6 +895,37 @@
         "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
       },
       "note": "Corrida local registrada: 12 celdas × 3 repeticiones contra el stack vivo, con el SDK real sobre un transporte guionado; sin LLM ni proveedor real."
+    },
+    "p0-ux08-ux10": {
+      "experiment": "P0-UX08-UX10",
+      "kind": "measurement",
+      "protocol": "evaluation/scenarios/p0-ux08-ux10.json",
+      "protocol_sha256": "1d8d78729bccdec921ad38a84e7088044bfa9823ead77f963e04f01aa7c371ed",
+      "checksum_index": "evaluation/results/p0-ux08-ux10/SHA256SUMS",
+      "summary": "summary.json",
+      "summary_sha256": "535a26929469abb6eaf6d9db9505c48bc43e16b07489df1cf262a10a9aac8e46",
+      "junit": "junit.xml",
+      "junit_sha256": "75a0b235a83d39ba60c3c0785104fc0533e9a7dfa2572a42d99961f1b497a05f",
+      "junit_counts": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 45
+      },
+      "ci_junit": "ci-junit.xml",
+      "ci_junit_sha256": "a680fb0cf7cc8fd62131bbf5bf31d2fbf741612fa326b00ed0ec652f924cb90f",
+      "ci_junit_counts": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 46
+      },
+      "sources": {
+        "agent": "f59df0fdb176cf7ad6360b0b0916d061105cbe38",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "note": "Corrida local registrada: 15 celdas × 3 repeticiones contra el stack vivo y 17 celdas de CI (46 pruebas) en el mismo commit, con el SDK real sobre un transporte guionado; sin LLM ni proveedor real."
     }
   }
 }

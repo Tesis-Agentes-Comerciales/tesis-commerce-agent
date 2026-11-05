@@ -79,3 +79,10 @@ El lote semántico HP de EXP-06 (UX01, UX11 y UX12 × 5 repeticiones; mismo prer
 - Su `README.md` da el costo, los SHAs, los límites y los seguimientos.
 
 La revisión semántica oficial de EXP-06 (smoke y lote; enmienda A, por agentes, `agent_reviewed`) está en [`exp06-review/`](exp06-review/README.md): la [enmienda](exp06-review/amendment-A-agent-review.md), la [regla de agregación](exp06-review/aggregation-rule.md), los seis JSON de calificación y adjudicación, `summary.json` (`uv run python -m commerce_evaluation.exp06_review`) y `SHA256SUMS`.
+
+## Cambio de producto, desistimiento y cantidad (P0)
+
+La evidencia P0 de UX08, UX09 y UX10 (protocolo `evaluation/scenarios/p0-ux08-ux10.json`) está en `p0-ux08-ux10/`.
+- Contiene la corrida registrada en vivo (45 casos) y el JUnit de sus 17 celdas de CI (46 pruebas), del mismo commit, con `SHA256SUMS`.
+- `desarrollo/` conserva las corridas previas a congelar el prerregistro y la medición sin el arreglo de §3.2. No son evidencia registrada.
+- Su `README.md` da, por celda, estímulo, oráculo, observación y veredicto, más los SHAs y los límites declarados.
