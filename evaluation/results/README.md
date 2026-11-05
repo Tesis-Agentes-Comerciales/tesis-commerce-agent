@@ -86,3 +86,5 @@ La evidencia P0 de UX08, UX09 y UX10 (protocolo `evaluation/scenarios/p0-ux08-ux
 - Contiene la corrida registrada en vivo (45 casos) y el JUnit de sus 17 celdas de CI (46 pruebas), del mismo commit, con `SHA256SUMS`.
 - `desarrollo/` conserva las corridas previas a congelar el prerregistro y la medición sin el arreglo de §3.2. No son evidencia registrada.
 - Su `README.md` da, por celda, estímulo, oráculo, observación y veredicto, más los SHAs y los límites declarados.
+
+El cierre de los escenarios P0 de Yair (UX01–UX12, CT21, INF27–INF29 e INF33: estado, evidencia, pendientes y límites) está en [`p0-cierre-yair/`](p0-cierre-yair/README.md).
