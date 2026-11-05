@@ -42,8 +42,8 @@ def agent_state(path, run_id):
 
 
 @pytest.mark.parametrize("control", ["removed", "stock_zero"])
-def test_ct19_hp(hp_lane, tmp_path, monkeypatch, control):
-    lane = hp_lane
+def test_ct19_hp(b0, tmp_path, monkeypatch, control):
+    lane = b0
     episode, candidates, selected, original, settings = setup(lane, tmp_path, monkeypatch)
     command = dict(run_id=episode.run_id, actor_id=episode.actor_id, offer_id=selected.variant_id)
     catalog = lane.rpc("ct19_capture", **command)
