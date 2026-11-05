@@ -122,5 +122,7 @@ def test_identity_retirement_fixture(b0, tmp_path):
             assert [row[1]["result"] for row in events] == ["ok", "OFFER_NOT_FOUND", "ok"]
             assert all(row[1]["actor_id"] == episode.actor_id for row in events)
             assert not any(c.path == CREATE_PATH for c in b0.proxy.calls)
-            assert not b0.psp_proxy.calls
+            # HP talks directly to the real PSP (only HNP has a PSP FaultProxy).
+            # Its complete SQLite snapshot above includes every token/payment table.
+            assert b0.payment_tokens() == 0
             record["cleanup_verified"] = True
