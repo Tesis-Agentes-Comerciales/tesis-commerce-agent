@@ -20,6 +20,7 @@ on:
           - exp05-authenticated-transport
           - exp06-hp-infrastructure
           - exp06-runner-infrastructure
+          - exp06-actions-validation
       experimental_scenario:
         description: Experimental profile only; validate one scenario before expanding
         required: false
@@ -45,7 +46,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  exp06-actions-validation:
+    if: github.event_name == 'workflow_dispatch' && inputs.test_scope == 'exp06-actions-validation'
+    uses: ./.github/workflows/exp06-smoke.yml
+    with:
+      agent_sha: ${{ github.sha }}
+    secrets:
+      MERCHANT_REPO_TOKEN: ${{ secrets.MERCHANT_REPO_TOKEN }}
+
   sibling-access:
+    if: inputs.test_scope != 'exp06-actions-validation'
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
@@ -71,7 +81,7 @@ jobs:
 
   live-stack:
     needs: sibling-access
-    if: ${{ !cancelled() && (startsWith(inputs.test_scope, 'exp0') || needs.sibling-access.outputs.available == 'true') }}
+    if: ${{ !cancelled() && inputs.test_scope != 'exp06-actions-validation' && (startsWith(inputs.test_scope, 'exp0') || needs.sibling-access.outputs.available == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

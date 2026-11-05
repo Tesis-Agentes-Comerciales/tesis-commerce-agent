@@ -316,3 +316,40 @@ def test_operator_stop_prevents_next_attempt_without_charge(tmp_path):
             "https://api.openai.com/v1/responses", json={"model": budget.model, "store": False}
         )
     assert not sent and budget.attempts == 0 and budget.reserved_or_spent == 0
+
+
+@pytest.mark.parametrize("tier", ["priority", "fast", "flex", "auto", None])
+def test_nonstandard_tiers_are_rejected_before_SDK_send(tmp_path, monkeypatch, tier):
+    model = ModelServer(failure(503))
+    model.install(monkeypatch)
+    budget = AttemptBudget(None, infrastructure_only=True)
+    with execution.protected_models(budget, execution.Journal(tmp_path / "a.jsonl")):
+        client = ModelRequestRecorder(
+            sink(tmp_path), model=budget.model, reasoning_effort=None
+        ).http_client()
+        sdk = openai.OpenAI(api_key="synthetic", http_client=client, max_retries=1)
+        with pytest.raises(SpendingBlocked, match="nonstandard"):
+            sdk.responses.create(model=budget.model, input="unit", store=False, service_tier=tier)
+    assert not model.requests and budget.attempts == 0
+
+
+def test_raw_paid_transport_cannot_skip_standard_tier(receipt, tmp_path):
+    budget = execution.authorize(receipt[0], tmp_path / "out")
+    sent = []
+
+    def send(request):
+        sent.append(request)
+        return httpx.Response(503)
+
+    with (
+        httpx.Client(
+            transport=execution.ReservedTransport(
+                httpx.MockTransport(send), budget, execution.Journal(tmp_path / "a.jsonl")
+            )
+        ) as client,
+        pytest.raises(SpendingBlocked),
+    ):
+        client.post(
+            "https://api.openai.com/v1/responses", json={"model": budget.model, "store": False}
+        )
+    assert not sent and budget.attempts == 0

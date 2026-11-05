@@ -17,6 +17,7 @@ from xml.etree import ElementTree as ET
 
 import httpx
 import openai
+from openai.resources.responses.responses import Responses
 
 from commerce_agent.llm.model_requests import ModelRequestRecorder
 from commerce_evaluation.exp06 import (
@@ -49,6 +50,7 @@ def plan() -> dict[str, Any]:
     return {
         "model": protocol()["model"],
         "mode": "HP",
+        "service_tier": "default",
         "cases": list(CASES),
         "repetitions": 1,
         "protocol_sha256": protocol_hash(),
@@ -84,11 +86,18 @@ def approved_budget(budget: AttemptBudget) -> None:
 
 def authorize(receipt: Path | None, output: Path) -> AttemptBudget:
     # Before environment credentials, services, imports of POSIX helpers or any request.
-    if os.environ.get("GITHUB_ACTIONS") == "true" or receipt is None:
+    if receipt is None:
         raise SpendingBlocked("manual_explicit_authorization_required_outside_CI")
     if protocol_hash() != ORIGINAL_HASH:
         raise SpendingBlocked("historical_protocol_changed")
     data = json.loads(receipt.read_text(encoding="utf-8"))
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        from commerce_evaluation.exp06_actions import matches_dispatch
+
+        if not matches_dispatch(data):
+            raise SpendingBlocked(
+                "manual_explicit_authorization_required_outside_CI_or_approved_dispatch"
+            )
     if (
         data.get("authorized") is not True
         or data.get("stage") != "smoke"
@@ -148,11 +157,12 @@ class Journal:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
+        self.case_id: str | None = None
 
     def append(self, event: dict[str, Any]) -> None:
         # No headers, credentials or raw exception messages. Failure closes the send path.
         with self.path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(event, ensure_ascii=True) + "\n")
+            stream.write(json.dumps({"case_id": self.case_id, **event}, ensure_ascii=True) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
 
@@ -170,6 +180,9 @@ class ReservedTransport(httpx.BaseTransport):
             self.stopped = True
             raise SpendingBlocked("latched_or_operator_stop")
         try:
+            body = json.loads(request.content)
+            if not self.budget.infrastructure_only and body.get("service_tier") != "default":
+                raise SpendingBlocked("standard_service_tier_required_before_send")
             self.budget.before(request)
             number = self.budget.attempts
             self.journal.append(
@@ -177,6 +190,7 @@ class ReservedTransport(httpx.BaseTransport):
                     "phase": "reserved_before_send",
                     "attempt": number,
                     "at_ns": time.time_ns(),
+                    "service_tier": body.get("service_tier"),
                     **self.budget.events[-1],
                 }
             )
@@ -187,12 +201,19 @@ class ReservedTransport(httpx.BaseTransport):
         try:
             response = self.inner.handle_request(request)
             response.request = request
+            response_tier = None
+            if response.status_code == 200:
+                response.read()
+                response_tier = response.json().get("service_tier")
+                if not self.budget.infrastructure_only and response_tier != "default":
+                    raise SpendingBlocked("response_service_tier_unknown_or_nonstandard")
             self.budget.after(response)
             self.journal.append(
                 {
                     "phase": "returned",
                     "attempt": number,
                     "http_status": response.status_code,
+                    "response_service_tier": response_tier,
                     "latency_ms": (time.perf_counter() - started) * 1000,
                     "reserved_or_spent_usd": str(self.budget.reserved_or_spent),
                     "settled": self.budget.events[-1].get("attempt_settled", False),
@@ -227,6 +248,17 @@ def protected_models(budget: AttemptBudget, journal: Journal):
     factory, initialize = ModelRequestRecorder.http_client, openai.OpenAI.__init__
     send, async_send = httpx.Client.send, httpx.AsyncClient.send
     guarded: set[httpx.Client] = set()
+    parse_response, create_response = Responses.parse, Responses.create
+
+    def standard_parse(self, *args, **kwargs):
+        if kwargs.get("service_tier", "default") != "default":
+            raise SpendingBlocked("nonstandard_service_tier_forbidden")
+        return parse_response(self, *args, **(kwargs | {"service_tier": "default"}))
+
+    def standard_create(self, *args, **kwargs):
+        if kwargs.get("service_tier", "default") != "default":
+            raise SpendingBlocked("nonstandard_service_tier_forbidden")
+        return create_response(self, *args, **(kwargs | {"service_tier": "default"}))
 
     def client_for(recorder):
         if recorder._model != budget.model or recorder._sink is None:
@@ -274,6 +306,8 @@ def protected_models(budget: AttemptBudget, journal: Journal):
     with ExitStack() as changes:
         changes.enter_context(patch.object(ModelRequestRecorder, "http_client", client_for))
         changes.enter_context(patch.object(openai.OpenAI, "__init__", sdk_initialize))
+        changes.enter_context(patch.object(Responses, "parse", standard_parse))
+        changes.enter_context(patch.object(Responses, "create", standard_create))
         changes.enter_context(patch.object(openai.AsyncOpenAI, "__init__", unavailable))
         changes.enter_context(patch.object(openai.AzureOpenAI, "__init__", unavailable))
         changes.enter_context(patch.object(openai.AsyncAzureOpenAI, "__init__", unavailable))
@@ -462,6 +496,7 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
                 row: dict[str, Any] = {"status": "error", "commercial_truth": "unknown"}
                 summary["cases"][case_id] = row
                 before, psp = observe(lane, episode), sqlite_snapshot(lane.root / "payments.sqlite")
+                journal.case_id = case_id
                 budget.begin_episode()
                 try:
                     with pytest.MonkeyPatch.context() as environment:

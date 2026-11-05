@@ -29,7 +29,8 @@ los worktrees de este clon (registro privado en el directorio Git común). No es
 ## Secuencia
 
 El comando por defecto sólo muestra el plan. `--execute` exige recibo humano;
-está prohibido en GitHub Actions. No hay opción batch/HNP/CT19. Antes de crear
+se rechaza en CI general/nightly. La excepción solicitada posteriormente por el
+usuario es el workflow manual protegido exp06-smoke.yml, con alcance explícito. No hay opción batch/HNP/CT19. Antes de crear
 servicios comprueba repositorios limpios y SHAs hermanos exactos. Reutiliza
 LiveStack/PurchaseLane, AuthClient/JWT/JWKS, create_app y el router de producto.
 Congela los tres episodios, catálogos completos, contexto y rúbricas antes de
@@ -69,7 +70,7 @@ facturación permanecen no verificados.
 ## Operación manual después de autorización (no ejecutada aquí)
 
 El arnés de servicios usa pass_fds y grupos de procesos POSIX: la ejecución manual
-requiere Linux preparado (fuera de CI). Windows se rechaza antes de reclamar el recibo.
+requiere Linux; se reutiliza ubuntu-24.04 de GitHub Actions, sin preparar Ubuntu local. Windows se rechaza antes de reclamar el recibo.
 Inspección local: Ubuntu WSL instalado, sin uv/Node ni integración Docker disponible.
 No se instaló infraestructura ni se cambiaron ajustes de Docker; falta elegir/preparar
 el host. Las validaciones Actions usan su Ubuntu 24.04 ya preparado.
@@ -103,14 +104,15 @@ El recibo privado se prepara DESPUÉS de la autorización humana, con este esque
 }
 ```
 
-El SDK omite service_tier; la API utiliza auto y puede heredar una tarifa distinta
-del proyecto. Por eso también se exige confirmación de tarifa estándar ANTES del
-consumo: no se cambia el payload ni se presupone la configuración de la cuenta.
-La consulta administrativa de service tiers no se ha realizado: no hay proyecto
-explícito ni acceso administrativo verificado. Referencia oficial:
-https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/projects/subresources/service_tier_settings/methods/retrieve
-El tope financiero calculado presupone las tarifas estándar confirmadas; no limita
-otros procesos, otros clones ni el gasto global de la cuenta.
+El producto omite service_tier y la API podría heredar una tarifa del proyecto.
+El adaptador de evaluación fija ahora service_tier=default mediante el SDK y lo
+exige en el transporte antes de enviar. Se registra ese parámetro y el tier de
+respuesta; una respuesta no estándar o desconocida enclava el corte sin liberar
+reserva. Es una condición técnica nueva declarada, sin cambiar producto, mensajes,
+modelo, límites de salida, protocolo histórico o rúbricas. Permite usar la tarifa
+estándar documentada sin modificar ajustes de la cuenta. El recibo confirma las
+tarifas, no presupone una configuración administrativa desconocida. El tope no
+controla otros procesos ni el gasto global de la cuenta.
 
 Estos valores false son deliberados: el ejemplo no habilita consumo. El recibo
 vincula el commit validado y exige confirmación humana del proyecto de facturación,
@@ -131,3 +133,45 @@ timeouts/usage ausente, replay, clientes alternativos, retries y fallo de ledger
 Control live sin proveedor: mismo orquestador, tres turnos con ModelServer de errores,
 servicios reales fijados, PostgreSQL desechable, JUnit y limpieza. No acredita
 comprensión semántica. Ningún workflow recibe claves de modelo o habilita pagos.
+
+## Ejecución manual en GitHub Actions (preferencia confirmada por el usuario)
+
+No se instala nada en Ubuntu local. El pedido explícito del usuario permite
+preparar consumo API en un workflow manual protegido, como excepción acotada a la
+regla general de AGENTS.md sobre CI. La prohibición sigue vigente para ci.yml,
+pruebas, PR/push y nightly programado. Todavía no hay autorización de consumo.
+
+`.github/workflows/exp06-smoke.yml` tiene workflow_dispatch y una entrada reusable
+EXCLUSIVAMENTE de validación: workflow_call no admite mode ni secretos de modelo.
+El único llamador añadido al nightly exige workflow_dispatch con scope
+exp06-actions-validation y pasa sólo el token de lectura de hermanos. Nunca puede
+lanzar smoke pagado; el resto del nightly conserva sus condiciones y pines.
+
+GitHub requiere el archivo en la rama predeterminada para mostrar Run workflow.
+Por eso se valida antes de fusionar con ese puente, reutilizando el mismo YAML de
+setup/validación en Actions. Después de revisión e integración humana se podrá
+lanzar directamente desde Actions > EXP-06 protected manual smoke > Run workflow.
+No se realiza merge en esta unidad.
+
+Modo por defecto validate, presupuesto 0, confirmaciones false y autorización
+vacía: sólo ModelServer. El modo smoke requiere el SHA completo revisado igual al
+ref seleccionado, snapshot exacto, máximo USD positivo <=9, confirmaciones de
+proyecto/tarifas y texto AUTHORIZE_EXP06_SMOKE. Se valida contra el evento original,
+repositorio y archivo workflow exactos, run ID y run_attempt=1. Un rerun nunca puede
+reutilizar la autorización en otro runner. Una continuación exige nuevo dispatch
+y revisión del gasto anterior. No hay batch ni HNP.
+
+Secretos en Settings > Secrets and variables > Actions:
+- EXP06_OPENAI_API_KEY (obligatorio para smoke; actualmente no está configurado).
+- EXP06_OPENAI_PROJECT_ID y EXP06_OPENAI_ORG_ID si corresponden al proyecto elegido.
+- MERCHANT_REPO_TOKEN existente: lectura de los hermanos fijados.
+
+No se copian claves locales a GitHub. Los secretos del proveedor se inyectan sólo
+en el paso de ejecución, después de verificar el alcance; no pasan a validación,
+prompts, receipt, logs ni bases archivadas. Artefactos incluyen sólo evidencia
+pública, sin receipt ni bases privadas. El gate técnico conserva failed/error/blocked
+y not_executed y nunca declara PASS semántico. Ante cancelación con evidencia
+incompleta se conserva incertidumbre, no se relanza y se concilia con el proyecto.
+El coste observado por tokens (caché al precio completo) es una cota: la factura
+requiere revisar la ventana/modelo/proyecto, evitando otro tráfico o declarando
+que no es atribuible. No se afirma haber conciliado una factura inexistente.

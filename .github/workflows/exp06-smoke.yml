@@ -1,0 +1,229 @@
+name: EXP-06 protected manual smoke
+
+# workflow_call is validation-only: no mode input and no paid credentials inherited.
+# No push, PR, schedule, workflow_run or repository_dispatch trigger.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validation never calls a provider; smoke requires explicit authorization
+        type: choice
+        options: [validate, smoke]
+        default: validate
+      agent_sha:
+        description: Full reviewed Agent SHA; mandatory for smoke and must match selected ref
+        type: string
+        default: ""
+      model:
+        description: Exact preregistered snapshot; no substitution
+        type: choice
+        options: [gpt-5-mini-2025-08-07]
+        default: gpt-5-mini-2025-08-07
+      max_usd:
+        description: Explicit smoke maximum USD (positive and at most 9); zero blocks consumption
+        type: string
+        default: "0"
+      authorization:
+        description: Smoke only â€” type AUTHORIZE_EXP06_SMOKE after explicit approval
+        type: string
+        default: ""
+      billing_project_confirmed:
+        description: Confirm the key/project to which this smoke will be billed
+        type: boolean
+        default: false
+      standard_pricing_confirmed:
+        description: Confirm documented standard rates; executor forces service_tier default
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      agent_sha:
+        type: string
+        required: true
+    secrets:
+      MERCHANT_REPO_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: exp06-manual-smoke
+  cancel-in-progress: false
+
+jobs:
+  protected-run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      MODE: ${{ inputs.mode || 'validate' }}
+    steps:
+      - name: Checkout exact Agent
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.agent_sha || github.sha }}
+          path: agent
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require a manual entry and exact selected SHA
+        env:
+          EXPECTED_SHA: ${{ inputs.agent_sha || github.sha }}
+        run: |
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$(git -C agent rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$EXPECTED_SHA" = "$GITHUB_SHA"
+          case "$MODE" in validate|smoke) ;; *) exit 1 ;; esac
+
+      - name: Checkout pinned Merchant
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: Tesis-Agentes-Comerciales/tesis-commerce-merchant
+          ref: abf30df3b6a611284dedcc26c00accac6a853329
+          token: ${{ secrets.MERCHANT_REPO_TOKEN }}
+          path: merchant
+          persist-credentials: false
+
+      - name: Checkout pinned PSP
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox
+          ref: e6ab67b5963434a9a3caae2012b70232a3cca65d
+          token: ${{ secrets.MERCHANT_REPO_TOKEN }}
+          path: payment
+          persist-credentials: false
+
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          version: "0.12.15"
+          enable-cache: true
+
+      - name: Install locked Python dependencies
+        run: |
+          (cd agent && uv python install && uv sync --frozen --all-groups)
+          (cd merchant && uv python install && uv sync --frozen --all-groups)
+          (cd payment && uv python install && uv sync --frozen --all-groups)
+
+      - name: Install pinned Node generation
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: agent/auth/package-lock.json
+
+      - name: Install existing auth service
+        working-directory: agent/auth
+        run: npm ci
+
+      - name: Validate exact sources without model credentials
+        working-directory: agent
+        env:
+          MERCHANT_REPO: ${{ github.workspace }}/merchant
+          PAYMENT_REPO: ${{ github.workspace }}/payment
+        run: |
+          uv run python -m commerce_evaluation.exp01 --preflight \
+            --protocol evaluation/scenarios/exp06-runner-infrastructure.json \
+            --output "$RUNNER_TEMP/exp01-manifest.json"
+
+      - name: Validate orchestration using ModelServer only
+        if: env.MODE == 'validate'
+        working-directory: agent
+        env:
+          RUN_LIVE_STACK: "1"
+          MERCHANT_REPO: ${{ github.workspace }}/merchant
+          PAYMENT_REPO: ${{ github.workspace }}/payment
+        run: |
+          uv run pytest tests/evaluation/test_exp06_actions.py tests/evaluation/test_exp06_execution.py \
+            tests/evaluation/test_exp06.py tests/evaluation/test_exp01_evidence.py -q \
+            --junitxml="$RUNNER_TEMP/actions-guards.xml"
+          uv run pytest tests/integration/test_exp06_runner_infrastructure.py -vv --durations=20 \
+            --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
+            -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
+
+      - name: Require complete validation evidence
+        if: ${{ !cancelled() && env.MODE == 'validate' }}
+        working-directory: agent
+        run: |
+          uv run python -m commerce_evaluation.exp01 \
+            --protocol evaluation/scenarios/exp06-runner-infrastructure.json --scenario EXP06-INFRA \
+            --evidence "$RUNNER_TEMP/exp01-stack" --junit "$RUNNER_TEMP/exp01-junit.xml" \
+            --outcomes "$RUNNER_TEMP/exp01-outcomes.json" --manifest "$RUNNER_TEMP/exp01-manifest.json" \
+            --output "$RUNNER_TEMP/exp01-report.json"
+
+      - name: Verify explicit dispatch scope before reading provider secret
+        if: env.MODE == 'smoke'
+        working-directory: agent
+        env:
+          EXP06_MANUAL_SMOKE: "1"
+        run: |
+          uv run python -m commerce_evaluation.exp06_actions \
+            --create-authorization "$RUNNER_TEMP/exp06-authorization.json"
+
+      - name: Execute only the explicitly authorized HP smoke
+        if: env.MODE == 'smoke' && success()
+        working-directory: agent
+        env:
+          EXP06_MANUAL_SMOKE: "1"
+          OPENAI_API_KEY: ${{ secrets.EXP06_OPENAI_API_KEY }}
+          OPENAI_PROJECT_ID: ${{ secrets.EXP06_OPENAI_PROJECT_ID }}
+          OPENAI_ORG_ID: ${{ secrets.EXP06_OPENAI_ORG_ID }}
+          MERCHANT_REPO: ${{ github.workspace }}/merchant
+          PAYMENT_REPO: ${{ github.workspace }}/payment
+        run: |
+          uv run python -m commerce_evaluation.exp06_execution --execute \
+            --authorization "$RUNNER_TEMP/exp06-authorization.json" \
+            --output "$RUNNER_TEMP/exp06-smoke"
+
+      - name: Record technical gate without grading semantics
+        if: always() && env.MODE == 'smoke'
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "exp06-smoke/evidence"
+          root.mkdir(parents=True, exist_ok=True)
+          path = root / "summary.json"
+          report = json.loads(path.read_text()) if path.exists() else None
+          statuses = {case: "not_executed" for case in ("UX01", "UX11", "UX12")}
+          if report:
+              statuses = {case: row["status"] for case, row in report["cases"].items()}
+          elif (root / "attempts.jsonl").exists():
+              # Incomplete evidence is uncertainty, never a commercial negative or success.
+              statuses = dict.fromkeys(statuses, "error")
+          complete = bool(report and report["cleanup_verified"]
+                          and report["accounting"]["reservation_reconciled"]
+                          and all(value == "pending_review" for value in statuses.values()))
+          (root / "actions-gate.json").write_text(json.dumps({
+              "technical_complete": complete, "semantic_validated": False,
+              "statuses": statuses, "run_id": os.environ["GITHUB_RUN_ID"],
+              "agent_sha": os.environ["GITHUB_SHA"],
+              "incomplete_report": report is None,
+              "billing_dashboard_reconciled": False,
+          }, indent=2) + "\n")
+          (root / "SHA256SUMS-actions").write_text("".join(
+              hashlib.sha256(p.read_bytes()).hexdigest() + "  " + p.name + "\n"
+              for p in sorted(root.iterdir()) if p.is_file() and p.name != "SHA256SUMS-actions"))
+          raise SystemExit(0 if complete else 1)
+          PY
+
+      - name: Preserve public evidence even after failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: exp06-actions-${{ inputs.mode || 'validate' }}-evidence
+          path: |
+            ${{ runner.temp }}/actions-guards.xml
+            ${{ runner.temp }}/exp01-stack/**/*.json
+            ${{ runner.temp }}/exp01-stack/**/*.jsonl
+            ${{ runner.temp }}/exp01-stack/**/*.log
+            ${{ runner.temp }}/exp01-stack/**/semantic-status.xml
+            ${{ runner.temp }}/exp01-stack/**/SHA256SUMS
+            ${{ runner.temp }}/exp01-manifest.json
+            ${{ runner.temp }}/exp01-junit.xml
+            ${{ runner.temp }}/exp01-outcomes.json
+            ${{ runner.temp }}/exp01-report.json
+            ${{ runner.temp }}/exp01-SHA256SUMS
+            ${{ runner.temp }}/exp06-smoke/evidence/*
+          if-no-files-found: error
+          retention-days: 30

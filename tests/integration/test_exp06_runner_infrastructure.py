@@ -38,6 +38,8 @@ def test_protected_manual_orchestrator_without_provider(tmp_path, monkeypatch):
             for name in summary["cases"]
         }
         assert len(model.requests) == summary["attempts"] == 6
+        assert all(body["service_tier"] == "default" for body in model.bodies())
+        assert {row["case_id"] for row in facts["attempt_journal"]} == {"UX01", "UX11", "UX12"}
         assert summary["accounting"]["unknown_attempts"] == 6
         assert summary["accounting"]["reservation_reconciled"]
         assert summary["reserved_or_spent_usd"] == "2.670"
