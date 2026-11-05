@@ -14,6 +14,13 @@ export const CONSENT_COPY = {
   revocable: "Puedes revocarla antes de que el agente comprometa el pago",
   authorize: "Autorizar",
   cancel: "Cancelar",
+  // Comprar en orden y la revisión de la indicación (p0-conditional-intent.md §3.10, D15). La
+  // revisión solo se promete si el backend la calculó (`preference_review`).
+  inOrder: "Compra la primera opción disponible dentro del total, en este orden:",
+  reviewed:
+    "Antes de comprar, el agente revisa tu indicación. Si no confirma que la opción elegida la respeta, no compra y te avisa.",
+  notReviewed:
+    "Tu indicación queda guardada, pero no cambia la elección ni se revisa antes de comprar.",
 } as const
 
 /** «Vence el <fecha y hora>». */
@@ -54,6 +61,14 @@ export const FORM_COPY = {
   preference: "Tu indicación (opcional)",
   submit: "Preparar la autorización",
   cancel: "Cancelar",
+  // Comprar en orden (p0-conditional-intent.md §3.9 y §3.10).
+  ordered: "Comprar en orden de preferencia",
+  orderedHint: "El agente compra la primera disponible dentro del total. Hasta 3 opciones.",
+  order: "Orden de compra",
+  moveUp: (title: string) => `Subir ${title}`,
+  moveDown: (title: string) => `Bajar ${title}`,
+  position: (title: string, place: number, total: number) =>
+    `${title}: opción ${place} de ${total}`,
 } as const
 
 /** Vigencias que ofrece el formulario; el servidor admite hasta `AGENT_HNP_MAX_VALIDITY_SECONDS`. */

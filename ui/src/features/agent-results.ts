@@ -9,6 +9,7 @@ import type {
   SearchCatalogResult,
   SelectProductResult,
 } from "@/lib/agent-contract"
+import { MAX_PRIORITY_VARIANTS } from "@/lib/delegation-draft"
 
 // Validación de los `result` de cada paso. El backend los genera, pero el contrato los trata como no
 // confiables: un campo con otra forma descarta el dato en vez de romper el render.
@@ -215,6 +216,18 @@ export function asPurchaseUpdateResult(value: unknown): PurchaseUpdateResult | n
 }
 
 /**
+ * El orden del turno entre las opciones que quedaron: de 1 a 3 variantes distintas, o nada. Una
+ * variante que no quedó entre las opciones se quita; las demás conservan su orden.
+ */
+function priorityAmong(value: unknown, offers: ProductCard[]) {
+  if (!Array.isArray(value) || !value.every(isString)) return null
+  if (value.length > MAX_PRIORITY_VARIANTS || new Set(value).size !== value.length) return null
+  const ids = new Set(offers.map((offer) => offer.variant_id))
+  const priority = value.filter((id) => ids.has(id))
+  return priority.length > 0 ? priority : null
+}
+
+/**
  * `delegation_draft` del estado del chat, que llega del backend y se trata como no confiable: solo
  * quedan las opciones con forma de `ProductCard`, disponibles y en pesos, como en `seenOffers`.
  */
@@ -226,11 +239,13 @@ export function asDelegationDraft(value: unknown): DelegationDraftView | null {
     .filter((offer) => offer.available && offer.currency.toUpperCase() === "COP")
     .slice(0, 6)
   const budget = value.budget_minor
+  const priority = priorityAmong(value.priority, offers)
   return {
     offers,
     budget_minor:
       typeof budget === "number" && Number.isSafeInteger(budget) && budget > 0 ? budget : null,
     currency: "COP",
     preference_text: value.preference_text,
+    ...(priority && { priority }),
   }
 }
