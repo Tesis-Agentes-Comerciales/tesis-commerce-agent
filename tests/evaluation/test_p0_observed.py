@@ -33,6 +33,21 @@ MODEL_FAILURE_CELLS = {
     ("INF29", "HNP"): ["INF29-HNP"],
     ("INF33", "HNP"): ["INF33-HNP-a", "INF33-HNP-b"],
 }
+UX_RUN = "p0-ux08-ux10"
+# (live cases, CI cells) of each pair, from evaluation/scenarios/p0-ux08-ux10.json.
+UX_CELLS = {
+    ("UX08", "HP"): (["UX08-HP"], ["UX08-HP"]),
+    ("UX08", "HNP"): ([], ["UX08-HNP"]),
+    ("UX09", "HP"): (
+        ["UX09-HP-a", "UX09-HP-b", "UX09-HP-race"],
+        ["UX09-HP-a", "UX09-HP-b", "UX09-HP-disconnect", "UX09-HP-race"],
+    ),
+    ("UX09", "HNP"): (
+        ["UX09-HNP-post", "UX09-HNP-rev", "UX09-HNP-sel", "UX09-HNP-sel-kill"],
+        ["UX09-HNP-post", "UX09-HNP-rev", "UX09-HNP-sel", "UX09-HNP-sel-kill"],
+    ),
+    ("UX10", "HNP"): (["UX10-HNP-b"], ["UX10-HNP-a", "UX10-HNP-b", "UX10-HNP-c"]),
+}
 
 
 def test_historical_register_preserves_denominators_and_gaps():
@@ -44,20 +59,20 @@ def test_historical_register_preserves_denominators_and_gaps():
         "preregistered_cells": 37,
     }
     assert result["runs"] == 23 and result["internal_hashes"] == 446
-    assert result["local_runs"] == 2 and result["local_hashes"] == 6
+    assert result["local_runs"] == 3 and result["local_hashes"] == 28
     assert result["scenario_modes"] == {
-        "passed": 14,
+        "passed": 19,
         "partial": 3,
         "failed": 0,
         "blocked": 1,
         "harness_error": 0,
-        "not_executed": 37,
+        "not_executed": 32,
         "not_applicable": 1,
     }
-    assert len(result["scenarios_without_execution"]) == 19
+    assert len(result["scenarios_without_execution"]) == 16
     pending = set(result["not_executed"])
     assert {"CT19/HNP", "INF30/HNP", "UX01/HP", "UX11/HP", "UX12/HP"} <= pending
-    assert {"CT19/HP", "INF33/HP", "INF33/HNP"}.isdisjoint(pending)
+    assert {"CT19/HP", "INF33/HP", "INF33/HNP", "UX08/HNP", "UX10/HNP"}.isdisjoint(pending)
 
 
 def test_measurable_denominator_changes_with_an_approved_exclusion():
@@ -66,7 +81,7 @@ def test_measurable_denominator_changes_with_an_approved_exclusion():
     result = validate(ROOT, data)
     assert result["denominators"]["measurable_scenario_modes"] == 56
     assert result["scenario_modes"]["not_applicable"] == 0
-    assert result["scenario_modes"]["not_executed"] == 39
+    assert result["scenario_modes"]["not_executed"] == 34
 
 
 def test_model_failure_cells_are_attributed_to_the_registered_local_run():
@@ -79,6 +94,18 @@ def test_model_failure_cells_are_attributed_to_the_registered_local_run():
         assert f"{scenario}/{mode}" not in pending
     assert data["observations"]["INF33"]["modes"]["HP"]["status"] == "not_applicable"
     assert data["local_runs"]["p0-model-failures-corrida-1"]["kind"] == "harness_error"
+
+
+def test_ux08_to_ux10_cells_name_their_live_cases_and_ci_cells():
+    data = load(ROOT / P0 / "matrix-observed.json")
+    pending = set(validate(ROOT, data)["not_executed"])
+    for (scenario, mode), (cases, ci_cases) in UX_CELLS.items():
+        cell = data["observations"][scenario]["modes"][mode]
+        assert (cell["status"], cell["local_run"]) == ("passed", UX_RUN)
+        assert (cell["cases"], cell["ci_cases"], cell["prior_attempts"]) == (cases, ci_cases, [])
+        assert f"{scenario}/{mode}" not in pending
+    run = data["local_runs"][UX_RUN]
+    assert run["junit_counts"]["passed"] == 45 and run["ci_junit_counts"]["passed"] == 46
 
 
 @pytest.mark.parametrize(
@@ -140,12 +167,13 @@ def test_local_cells_only_attribute_the_measured_cells_of_their_pair(mutation, m
 
 
 def local_copy(root: Path) -> dict[str, Any]:
-    """Copy the evidence of the local runs under `root` and return their register rows."""
+    """Copy the evidence of the model-failure runs under `root` and return their register rows."""
     for ref in ("evaluation/scenarios/p0-model-failures.json", "docs/design/p0-model-failures.md"):
         (root / ref).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / ref, root / ref)
     shutil.copytree(ROOT / LOCAL_RESULTS, root / LOCAL_RESULTS)
-    return load(ROOT / P0 / "matrix-observed.json")["local_runs"]
+    rows = load(ROOT / P0 / "matrix-observed.json")["local_runs"]
+    return {name: row for name, row in rows.items() if row["experiment"] == "P0-MODEL-FAILURES"}
 
 
 def reseal(root: Path, row: dict[str, Any], name: str, data: bytes) -> None:
