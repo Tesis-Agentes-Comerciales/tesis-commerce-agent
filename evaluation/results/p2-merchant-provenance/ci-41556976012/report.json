@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "agent_sha": "e40c60e71675fbab2ae2ed352587c0f57ef601f1",
+    "pr_head_sha": "99252720a9418b52ad8189c280d8c49dc3d31d03",
+    "actions_sha": "e40c60e71675fbab2ae2ed352587c0f57ef601f1",
+    "checked_out_sha": "e40c60e71675fbab2ae2ed352587c0f57ef601f1",
+    "audit_base": "4555bff91be5893a622a925d607f95d01f26a102",
+    "agent_worktree_dirty": false,
+    "merchant_sha": null,
+    "psp_sha": null,
+    "siblings_reason": "Not checked out or executed by this offline CI job",
+    "input_sha256": {
+      "evaluation/scenarios/p0/matrix.json": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+      "evaluation/scenarios/p0/ux03-oracle.json": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+      "uv.lock": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+    }
+  },
+  "python_tests": {
+    "status": "completed",
+    "exit_code": 0,
+    "counts": {
+      "passed": 3444,
+      "failed": 0,
+      "skipped": 95,
+      "xfail": 0,
+      "xpass": 0,
+      "not_executed": 0
+    },
+    "collected": 3539,
+    "deselected": 0,
+    "collection_errors": 0,
+    "junit_subtests": {
+      "passed": 100,
+      "failed": 0,
+      "skipped": 0
+    },
+    "scope": "Python product and harness tests; not scenario execution",
+    "artifacts_valid": true,
+    "junit": {
+      "declared_tests": 3639,
+      "testcase_elements": 3539,
+      "unique_items": 3539,
+      "subtest_reports": {
+        "passed": 100,
+        "failed": 0,
+        "skipped": 0
+      }
+    }
+  },
+  "scenario_executions": {
+    "counts": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "xfail": 0,
+      "xpass": 0,
+      "not_executed": 37
+    },
+    "cells": {
+      "UX01": "not_executed",
+      "UX02": "not_executed",
+      "UX03-A": "not_executed",
+      "UX03-B": "not_executed",
+      "UX03-C": "not_executed",
+      "UX03-D": "not_executed",
+      "UX03-UNKNOWN-A": "not_executed",
+      "UX04": "not_executed",
+      "UX05": "not_executed",
+      "UX06": "not_executed",
+      "UX07": "not_executed",
+      "UX08": "not_executed",
+      "UX09": "not_executed",
+      "UX10": "not_executed",
+      "UX11": "not_executed",
+      "UX12": "not_executed",
+      "CT13": "not_executed",
+      "CT14": "not_executed",
+      "CT15": "not_executed",
+      "CT16": "not_executed",
+      "CT17": "not_executed",
+      "CT18": "not_executed",
+      "CT19": "not_executed",
+      "CT20": "not_executed",
+      "CT21": "not_executed",
+      "MA22": "not_executed",
+      "MA23": "not_executed",
+      "MA24": "not_executed",
+      "MA25": "not_executed",
+      "MA26": "not_executed",
+      "INF27": "not_executed",
+      "INF28": "not_executed",
+      "INF29": "not_executed",
+      "INF30": "not_executed",
+      "INF31": "not_executed",
+      "INF32": "not_executed",
+      "INF33": "not_executed"
+    },
+    "reason": "P1 has no scenario execution adapter; pytest tests the harness only"
+  },
+  "integration": {
+    "status": "not_executed",
+    "reason": "Requires nightly live-stack evidence"
+  },
+  "llm_real": {
+    "status": "not_executed"
+  }
+}

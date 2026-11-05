@@ -1,0 +1,116 @@
+{
+  "run": {
+    "id": 41553912401,
+    "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41553912401",
+    "head_sha": "656ad3a00ef2cbb15871c79df1f8615afe6dc194",
+    "event": "workflow_dispatch",
+    "status": "completed",
+    "conclusion": "failure",
+    "created_at": "2026-11-03T00:35:11Z",
+    "updated_at": "2026-11-03T00:37:00Z"
+  },
+  "artifact": {
+    "id": 13192689101,
+    "name": "live-stack-evidence",
+    "size_in_bytes": 99503,
+    "url": "https://api.github.com/repos/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/artifacts/13192689101",
+    "archive_download_url": "https://api.github.com/repos/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/artifacts/13192689101/zip",
+    "expired": false,
+    "created_at": "2026-11-03T00:36:55Z",
+    "expires_at": "2026-11-17T00:36:54Z",
+    "updated_at": "2026-11-03T00:36:55Z",
+    "digest": "sha256:3b726e048ff0d77c98ab7902a5ad5f17991731d2be587f2f1079e8350c64497b",
+    "workflow_run": {
+      "id": 41553912401,
+      "repository_id": 1380811754,
+      "head_repository_id": 1380811754,
+      "head_branch": "codex/p2-merchant-provenance",
+      "head_sha": "656ad3a00ef2cbb15871c79df1f8615afe6dc194"
+    }
+  },
+  "selection": "Canonical p2-p00, JUnit and mutation feed only; current aliases omitted and never double-counted",
+  "sanitization": "Allowlisted UTF-8 feed/evidence/JUnit/service logs; secret-pattern scan passed. No databases, environment files or original ZIP in Git. No content replacement required.",
+  "files": [
+    {
+      "path": "live-stack/p2-p00/acp/feed-acp-mutation-c2451d52/products.jsonl",
+      "bytes": 253592,
+      "source_sha256": "40a514edaaaf3ed3729fe1cb2d52467a79450b306862f3354e0905d32b65d5e2",
+      "retained_sha256": "40a514edaaaf3ed3729fe1cb2d52467a79450b306862f3354e0905d32b65d5e2",
+      "transformation": "none; byte-identical allowlisted text"
+    },
+    {
+      "path": "live-stack/p2-p00/acp/feed-acp-provenance-5a63c196/products.jsonl",
+      "bytes": 253592,
+      "source_sha256": "40a514edaaaf3ed3729fe1cb2d52467a79450b306862f3354e0905d32b65d5e2",
+      "retained_sha256": "40a514edaaaf3ed3729fe1cb2d52467a79450b306862f3354e0905d32b65d5e2",
+      "transformation": "none; byte-identical allowlisted text"
+    },
+    {
+      "path": "live-stack/p2-p00/acp/feed-acp-agent-98cbf0c4/products.jsonl",
+      "bytes": 253592,
+      "source_sha256": "40a514edaaaf3ed3729fe1cb2d52467a79450b306862f3354e0905d32b65d5e2",
+      "retained_sha256": "40a514edaaaf3ed3729fe1cb2d52467a79450b306862f3354e0905d32b65d5e2",
+      "transformation": "none; byte-identical allowlisted text"
+    },
+    {
+      "path": "live-stack/p2-p00/acp/merchant-control.log",
+      "bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retained_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none; byte-identical allowlisted text"
+    },
+    {
+      "path": "live-stack/p2-p00/acp/merchant.log",
+      "bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retained_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none; byte-identical allowlisted text"
+    },
+    {
+      "path": "live-stack/p2-p00/acp/payment.log",
+      "bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retained_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none; byte-identical allowlisted text"
+    },
+    {
+      "path": "live-stack/p2-p00/evidence.jsonl",
+      "bytes": 5798,
+      "source_sha256": "a25381218bd6faef2daf281a48969762d37304a4cf7993be652cdb5994557732",
+      "retained_sha256": "a25381218bd6faef2daf281a48969762d37304a4cf7993be652cdb5994557732",
+      "transformation": "none; byte-identical allowlisted text"
+    },
+    {
+      "path": "live-stack/p2-p00/merchant-control.log",
+      "bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retained_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none; byte-identical allowlisted text"
+    },
+    {
+      "path": "live-stack/p2-p00/merchant.log",
+      "bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retained_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none; byte-identical allowlisted text"
+    },
+    {
+      "path": "live-junit.xml",
+      "bytes": 10429,
+      "source_sha256": "4aee2c58e5b3caa0ae8572230624cc6c6e0aa09c5f79ffcd93879a71bf0c975f",
+      "retained_sha256": "4aee2c58e5b3caa0ae8572230624cc6c6e0aa09c5f79ffcd93879a71bf0c975f",
+      "transformation": "none; byte-identical allowlisted text"
+    }
+  ],
+  "excluded_aliases": [
+    "live-stack/p2-p0current/acp/feed-acp-agent-98cbf0c4/products.jsonl",
+    "live-stack/p2-p0current/acp/feed-acp-mutation-c2451d52/products.jsonl",
+    "live-stack/p2-p0current/acp/feed-acp-provenance-5a63c196/products.jsonl",
+    "live-stack/p2-p0current/acp/merchant-control.log",
+    "live-stack/p2-p0current/acp/merchant.log",
+    "live-stack/p2-p0current/acp/payment.log",
+    "live-stack/p2-p0current/evidence.jsonl",
+    "live-stack/p2-p0current/merchant-control.log",
+    "live-stack/p2-p0current/merchant.log"
+  ]
+}

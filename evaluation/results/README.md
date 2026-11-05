@@ -53,6 +53,13 @@ El piloto del revisor de intención HNP (manifiesto `HNP-REVIEW-PILOT-v1`) está
 - `hnp-review-pilot-v1-report.md` resume la corrida frente a los criterios pre-registrados.
 - Los archivos se copiaron byte por byte. En estos resúmenes, el campo `results` conserva la ruta absoluta y el nombre que les dio el runner. No se reescribió.
 
+## Cierre documental P2
+
+[p2-merchant-provenance/README.md](p2-merchant-provenance/README.md) conserva dos nightlies
+independientes (incluido el fallido) y el CI offline del fix, con MANIFEST.json y SHA256SUMS.
+Esta selección permite publicar únicamente texto sanitizado: JUnit, evidencia JSONL, feeds y logs
+de servicio sin credenciales; no es el artefacto privado completo de los pilotos descrito arriba.
+No incluye bases, .env, tokens ni ZIP originales. Los alias current duplicados no se cuentan.
 La evidencia P0 de fallos del modelo (INF27, INF28, INF29 e INF33; protocolo `evaluation/scenarios/p0-model-failures.json`) está en `p0-model-failures/`.
 - Contiene la corrida registrada y la corrida 1, conservada con su fallo de arnés, con `SHA256SUMS`.
 - Su `README.md` explica el fallo de arnés y su corrección, los SHAs y los límites.
