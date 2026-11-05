@@ -142,6 +142,32 @@ export const WithoutAuthorize: Story = {
   },
 }
 
+const SUPERSEDED = DELEGATION_REPLAYS.proposalSuperseded
+
+/**
+ * Respuesta real: otra pestaña o conversación del mismo comprador preparó otra propuesta, y solo la
+ * última se puede autorizar (409 `delegation_proposal_superseded`, D2). Como la vencida, no se
+ * reintenta: «Autorizar» queda deshabilitado y «Cancelar» vuelve al formulario.
+ */
+export const ProposalSuperseded: Story = {
+  args: {
+    proposal: parseDelegationProposal(replayed(SUPERSEDED, "POST /delegations/proposals").body),
+    onAuthorize: undefined,
+    error: (replayed(SUPERSEDED, "POST /delegations").body as { message?: string }).message,
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    await expect(canvas.getByRole("alert")).toHaveTextContent(
+      "Esta propuesta fue reemplazada por una más reciente. Revisa la última.",
+    )
+    const authorize = canvas.getByRole("button", { name: "Autorizar" })
+    await expect(authorize).toHaveAttribute("aria-disabled", "true")
+    authorize.focus()
+    await userEvent.keyboard("{Enter}")
+    await userEvent.click(canvas.getByRole("button", { name: "Cancelar" }))
+    await expect(args.onCancel).toHaveBeenCalledOnce()
+  },
+}
+
 /** Dos propuestas en la misma página: son `article`, así que axe no ve regiones repetidas. */
 export const TwoProposals: Story = {
   render: (args) => (
