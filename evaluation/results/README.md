@@ -57,3 +57,8 @@ La evidencia P0 de fallos del modelo (INF27, INF28, INF29 e INF33; protocolo `ev
 - Contiene la corrida registrada y la corrida 1, conservada con su fallo de arnés, con `SHA256SUMS`.
 - Su `README.md` explica el fallo de arnés y su corrección, los SHAs y los límites.
 - Los archivos se copiaron byte por byte.
+
+El smoke semántico HP de EXP-06 (UX01, UX11 y UX12; prerregistro `evaluation/scenarios/exp06-hp.json`) está en `exp06-smoke/`.
+- Es una sola corrida local con `gpt-5-mini-2025-08-07`. Los tres casos quedan `pending_review` hasta la revisión humana doble.
+- `evidence/` es la salida pública del ejecutor, copiada byte por byte con su `SHA256SUMS`; `prechecks/` guarda las comprobaciones sin gasto.
+- Su `README.md` da el costo, los SHAs, los límites y los seguimientos.
