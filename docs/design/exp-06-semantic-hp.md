@@ -5,6 +5,9 @@ Estado: infraestructura por validar; UX01/UX11/UX12 **no ejecutados** con modelo
 Actualización 2026-11-05: el smoke autorizado corrió una vez, en local (macOS), con
 `gpt-5-mini-2025-08-07` y este prerregistro sin cambios. Los tres casos quedan `pending_review`
 hasta la revisión humana doble. Evidencia y costo: `evaluation/results/exp06-smoke/`.
+El mismo día corrió el lote (5 repeticiones, 15 episodios) con `--stage batch`, también sin
+cambiar el prerregistro. Los 15 quedan `pending_review`. Evidencia y costo:
+`evaluation/results/exp06-batch/`.
 Base: `eb18775e5b620436d949a82803f5415ec7455bf3`, CI posterior al merge
 [41940776855](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41940776855),
 cuatro jobs satisfactorios. No se modifican producto, pines hermanos ni evidencia anterior.

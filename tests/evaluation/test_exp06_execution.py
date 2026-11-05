@@ -139,6 +139,82 @@ def test_CI_cannot_execute_even_with_receipt(receipt, tmp_path, monkeypatch):
         execution.authorize(receipt[0], tmp_path / "run")
 
 
+def test_batch_order_is_repetition_outer_and_smoke_keeps_its_names():
+    assert execution.schedule("smoke") == [("UX01", "UX01"), ("UX11", "UX11"), ("UX12", "UX12")]
+    batch = execution.schedule("batch")
+    assert len(batch) == 15
+    assert batch[:4] == [
+        ("UX01-r1", "UX01"),
+        ("UX11-r1", "UX11"),
+        ("UX12-r1", "UX12"),
+        ("UX01-r2", "UX01"),
+    ]
+    assert batch[-1] == ("UX12-r5", "UX12")
+
+
+def test_stage_limits_are_the_preregistered_ones():
+    smoke, batch = execution.plan("smoke"), execution.plan("batch")
+    assert execution.plan() == smoke
+    assert (smoke["repetitions"], smoke["http_attempts_max"]) == (1, 18)
+    assert (smoke["theoretical_upper_usd"], smoke["reserved_upper_usd"]) == ("6.408", "8.010")
+    assert smoke["proposed_cap_usd"] == "9.00"
+    assert (batch["repetitions"], batch["http_attempts_max"]) == (5, 90)
+    assert (batch["theoretical_upper_usd"], batch["reserved_upper_usd"]) == ("32.040", "40.050")
+    assert batch["proposed_cap_usd"] == "45.00"
+    assert batch["order"] == [key for key, _ in execution.schedule("batch")]
+    with pytest.raises(SpendingBlocked):
+        execution.plan("hnp")
+
+
+@pytest.fixture
+def batch_receipt(receipt):
+    path, data = receipt
+    data |= {"stage": "batch", "max_usd": "45.00", "authorization_id": "unit-batch"}
+    path.write_text(json.dumps(data))
+    return path, data
+
+
+def test_batch_receipt_opens_only_the_batch_scope(batch_receipt, tmp_path):
+    budget = execution.authorize(batch_receipt[0], tmp_path / "run", stage="batch")
+    assert (budget.stage, budget.cap, budget.max_attempts) == ("batch", Decimal("45.00"), 90)
+    assert isinstance(budget, execution.SmokeBudget) and budget.approval is not None
+    assert budget.approval["stage"] == "batch"
+    execution.approved_budget(budget)
+    assert budget.attempts == 0
+
+
+@pytest.mark.parametrize(
+    "stage,changes",
+    [
+        ("smoke", {}),
+        ("batch", {"stage": "smoke", "max_usd": "9.00"}),
+        ("batch", {"max_usd": "45.01"}),
+        ("hnp", {"stage": "hnp"}),
+    ],
+)
+def test_batch_scope_mismatch_fails_closed(batch_receipt, tmp_path, stage, changes):
+    path, data = batch_receipt
+    path.write_text(json.dumps(data | changes))
+    with pytest.raises(SpendingBlocked):
+        execution.authorize(path, tmp_path / "run", stage=stage)
+
+
+def test_CI_cannot_execute_a_batch(batch_receipt, tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    with pytest.raises(SpendingBlocked, match="outside_CI"):
+        execution.authorize(batch_receipt[0], tmp_path / "run", stage="batch")
+
+
+@pytest.mark.parametrize(
+    "field,value", [("max_attempts", 91), ("cap", Decimal("45.01")), ("stage", "smoke")]
+)
+def test_batch_budget_changed_after_claim_cannot_send(batch_receipt, tmp_path, field, value):
+    budget = execution.authorize(batch_receipt[0], tmp_path / "run", stage="batch")
+    setattr(budget, field, value)
+    with pytest.raises(SpendingBlocked, match="scope_changed"):
+        execution.approved_budget(budget)
+
+
 def sink(tmp_path):
     result = SqliteModelRequests(tmp_path / "ledger.sqlite")
     result.initialize()

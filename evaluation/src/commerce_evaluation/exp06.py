@@ -57,6 +57,7 @@ class AttemptBudget:
         self.infrastructure_only = infrastructure_only
         self.cap = Decimal("9") if infrastructure_only else Decimal("0")
         self.max_attempts = 18
+        self.stage = "smoke"
         if not infrastructure_only:
             if authorization is None:
                 raise SpendingBlocked("explicit_model_and_USD_authorization_missing")
@@ -70,6 +71,7 @@ class AttemptBudget:
             ):
                 raise SpendingBlocked("authorization_does_not_match_frozen_protocol")
             self.cap = authorization.max_usd
+            self.stage = authorization.stage
             self.max_attempts = 18 if authorization.stage == "smoke" else 90
         self.reserved_or_spent = Decimal("0")
         self.attempts = 0
