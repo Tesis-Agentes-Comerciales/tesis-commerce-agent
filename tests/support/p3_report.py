@@ -20,6 +20,7 @@ def report(junit: Path, evidence: Path, *, protocol_gate: bool = False) -> dict:
     nodes = ET.parse(junit).getroot().findall(".//testcase") if junit.is_file() else []
     records = {}
     shutdown = []
+    manifests = []
     event = "P3-PV-case" if protocol_gate else "P3-V01-case"
     tests = (
         PROTOCOL_CASES
@@ -31,6 +32,8 @@ def report(junit: Path, evidence: Path, *, protocol_gate: bool = False) -> dict:
             row = json.loads(line)
             if row.get("scenario") == "shutdown":
                 shutdown.append(row)
+            if row.get("scenario") == "P3-V01-manifest":
+                manifests.append(row)
             if row.get("scenario") == event:
                 key = row["case_id"]
                 if key in records:
@@ -78,8 +81,10 @@ def report(junit: Path, evidence: Path, *, protocol_gate: bool = False) -> dict:
     }
     if protocol_gate:
         result["shutdown"] = shutdown
+        result["sources"] = manifests
         result["validated"] &= (
             set(records) == set(tests)
+            and len(manifests) == 1
             and len(shutdown) == 1
             and shutdown[0].get("proxy_closed") is True
             and shutdown[0].get("postgres_removed") is True
@@ -99,7 +104,8 @@ def main() -> None:
     paths = {p.resolve() for p in args.evidence.rglob("evidence.jsonl")}
     paths |= {p.resolve() for p in (args.junit, args.output) if p.is_file()}
     if args.protocol_gate:
-        paths |= {p.resolve() for p in args.evidence.rglob("*.log")}
+        for pattern in ("*.log", "*.jsonl"):
+            paths |= {p.resolve() for p in args.evidence.rglob(pattern)}
     sums = "".join(
         f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(args.output.parent)}\n"
         for p in sorted(paths)

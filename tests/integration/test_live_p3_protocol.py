@@ -126,6 +126,7 @@ def protocol_case(lane, case_id):
             for table in initial_effects.keys() - allowed:
                 assert initial_effects[table] == final_effects[table], table
             assert not lane.proxy.errors
+            assert not any(call.fault == "blocked" for call in lane.proxy.calls)
             assert not any("complete" in call.path for call in lane.proxy.calls)
             facts.update(psp_before=initial_psp, psp_after=psp_state(lane), cleanup_verified=True)
         except BaseException as exc:
@@ -186,7 +187,7 @@ def cleanup_ledger(lane, episodes):
     return readbacks, persisted
 
 
-def clone_inputs(episodes, snapshots, directory):
+def clone_inputs(episodes, snapshots, directory) -> dict[str, dict[str, Any]]:
     return {
         role: dict(
             run_id=ep.run_id,
@@ -275,6 +276,10 @@ def test_protocol_contract_pv05_06_08(p3_lane, tmp_path):
             canceled_readbacks=reads,
             persisted=persisted,
             initial={role: summary(s) for role, s in before.items()},
+            clone_inputs={
+                role: {key: value for key, value in clone.items() if key != "offers"}
+                for role, clone in clones.items()
+            },
             e_unchanged=digest(e_before) == digest(e_after),
             variants=len(before["E"]["offers"]),
         )
@@ -317,8 +322,9 @@ def test_protocol_contract_pv07(p3_lane):
         episodes.append(episode)
         raw = candidates(state(lane, episode))[0]
         # Reuse #160's verified lookup (run, actor, key digest, request/response fingerprints).
-        exercise(lane, episode, episode, raw, "lost-create", facts)
-        proof = facts.pop("reconciliation")
+        reused: dict[str, Any] = {}
+        exercise(lane, episode, episode, raw, "lost-create", reused)
+        proof = reused["reconciliation"]
         cid = proof["checkout_id"]
         attempts = [
             Creation(episode.run_id, proof["idempotency_key_sha256"], "lost", cid, "lookup")
@@ -369,6 +375,9 @@ def test_protocol_contract_pv10(p3_lane, tmp_path, monkeypatch):
         )
         psp_guard = FaultProxy(frozenset())
         psp_guard.upstream = lane.payment_origin
+        original_routes = lane.proxy.routes
+        # The Agent uses discovery before preparing. The direct V01 clients did not need it.
+        lane.proxy.routes |= {("GET", "/.well-known/acp.json")}
         try:
             auth.start()
             buyers = [AuthClient(auth.origin), AuthClient(auth.origin)]
@@ -450,5 +459,8 @@ def test_protocol_contract_pv10(p3_lane, tmp_path, monkeypatch):
                 assert isolated.post(complete, headers=bearer[0]).status_code == 404
             facts["fresh_agent_store_denied_previous_run"] = True
         finally:
-            auth.stop()
-            psp_guard.close()
+            lane.proxy.routes = original_routes
+            try:
+                auth.stop()
+            finally:
+                psp_guard.close()
