@@ -1,5 +1,10 @@
 # Próximos experimentos — propuesta para revisión de Yair
 
+> **Instantánea del 2-nov-2026.** El estado vigente de cada escenario está en
+> [`matrix-observed.json`](matrix-observed.json) y en [`observed-evidence.md`](observed-evidence.md).
+> Desde entonces se ejecutaron y registraron INF27, INF28, INF29 e INF33 (#177, #180), y se
+> fusionaron #178 (`get_offer` exige el mismo id y contexto) y #179 (causa del rechazo HNP en CT13).
+
 **No aprobado ni implementado.** Propuesta v2 de Notion del 2-nov-2026 pendiente de aprobación
 final de Yair. [Auditoría y cruce de cobertura](coverage-audit.md);
 [prerregistro UX03 HP](methodology.md); [cierre P2](../../results/p2-merchant-provenance/README.md).
