@@ -529,27 +529,44 @@ interpretación.
 
 ## 7. PRs
 
-Después de esta spec, tres PRs pueden avanzar en paralelo. Ninguno toca los archivos de otro, salvo
-`runtime.py`, donde los cambios están en bloques distintos (:249 y :283).
+**Los PRs 3, 4 y 5 arrancan en paralelo apenas se fusione el PR 2.** El PR 2 deja en `main` todos
+los contratos compartidos: los tipos Python y TS, la tabla, `priority` y `DelegationDraftView`. Por
+eso ninguno de los tres necesita al otro para empezar. Cada archivo tiene un solo dueño:
+
+| PR | Archivos que toca (solo este PR) |
+|---|---|
+| 3 HP | `src/commerce_agent/application/conversation.py`; `src/commerce_agent/runtime.py`, solo en el bloque `ConversationService(...)` (:249-264); `tests/test_conditional_hp.py` (nuevo); `tests/assistant_support.py`; `ui/src/storybook/fixtures/assistant-transport/` (los `conditional-*.sse` nuevos y el `README.md` que regenera `scripts/export_assistant_fixtures.py`) |
+| 4 HNP | `src/commerce_agent/application/hnp_execution.py`; `src/commerce_agent/delegation/bootstrap.py`; `src/commerce_agent/runtime.py`, solo en el bloque `build_hnp_executor(...)` (:286-300); `src/commerce_agent/delegation/service.py` (`propose`); `src/commerce_agent/delegation/contract.py` (`HNP_MESSAGES`); `tests/test_delegation_contract.py`, que fija el texto de `escalation.selection_unavailable` (:114-117); `tests/delegation/test_hnp_conditional.py` (nuevo) |
+| 5 UI | `ui/src/components/agent/conditional-branches.tsx` y sus historias (nuevos); `ui/src/components/delegation/` (formulario, tarjeta de consentimiento y `delegation-copy.ts`); `ui/src/components/trace/trace-copy.ts`, con la copia neutra (:613 y :616); `ui/src/lib/delegation-draft.ts` (`chatDraft`); `ui/src/features/agent-tool-uis.tsx`, `ui/src/features/agent-results.ts` y `ui/src/features/delegation-in-chat.tsx`. Al final, y solo después del PR 3: `ui/src/storybook/assistant-transport.ts` (registra los SSE) y `ui/e2e/` |
+
+- **Único archivo compartido:** `runtime.py`. Lo tocan los PRs 3 y 4, cada uno en su bloque, y el que
+  se fusione segundo rebasa sin conflicto de contenido.
+- **Fuera de su PR:** ninguno de los tres toca `domain/`, `llm/conversation_router.py`,
+  `persistence/sqlite.py`, `governance/hnp_models.py`, `ui/src/lib/agent-contract.ts` ni
+  `ui/src/lib/delegation-contract.ts`. Esos archivos son del PR 2. Si alguno necesita un cambio de
+  contrato, va en un PR de contrato aparte, no dentro del 3, el 4 o el 5.
 
 | # | PR | Contenido | Archivos | Tamaño | Depende de |
 |---|---|---|---|---|---|
 | 1 | Esta spec | — | `docs/design/p0-conditional-intent.md` | — | — |
 | 2 | Contrato y evaluador puro | tipos de §3.1 y el campo `CommerceDecision.conditional` con su sección del prompt; `resolve_branches`, `evaluate_branches` y `without_variants` puros (§3.2, §3.3, §3.6); la tabla `conditional_decisions` y sus métodos (§3.7); `priority` en `ConsentScope`, `ScopeDisplay`, `ScopeView`, `DelegationProposalRequest` y `DelegationDraftView`, omitido si es `None`; tipos TS y fixtures JSON validadas por los dos lados | `domain/conditional.py` (nuevo), `application/conditional.py` (nuevo), `llm/conversation_router.py`, `persistence/sqlite.py`, `governance/hnp_models.py`, `delegation/service.py` (solo el request), `delegation/contract.py` (solo `ScopeView`), `ui/src/lib/agent-contract.ts`, `ui/src/lib/delegation-contract.ts`, `ui/src/lib/delegation-draft.ts` (tipo del request), fixtures y tests | M, ~1,5 h | 1 |
 | 3 | HP: integración | `_after_search` y `select_product` deterministas; feed filtrado por exclusiones; intent efectivo; verificación del total y cancelación (§3.4); arista condicional después de `prepare_checkout` en todos los modos; textos (§3.8); registro; borrador con exclusiones y prioridad; `offer_reader` en `ConversationService` y runtime; fixtures SSE (`scripts/export_assistant_fixtures.py`) | `application/conversation.py`, `runtime.py` (:249), `tests/test_conditional_hp.py`, `tests/assistant_support.py`, `ui/src/storybook/fixtures/assistant-transport/conditional-*.sse` | M-L, ~2 h | 2 |
-| 4 | HNP: ejecutor | camino `priority` en `_execute`, con el registro, los finales reutilizados y la verificación del total (§3.9); `offers` en `build_hnp_executor`; textos neutros; `propose` guarda `priority` | `application/hnp_execution.py`, `delegation/bootstrap.py`, `runtime.py` (:283), `delegation/service.py` (`propose`), `delegation/contract.py` (`HNP_MESSAGES`), `tests/delegation/test_hnp_conditional.py` | M, ~1,5-2 h | 2 |
+| 4 | HNP: ejecutor | camino `priority` en `_execute`, con el registro, los finales reutilizados y la verificación del total (§3.9); `offers` en `build_hnp_executor`; textos neutros; `propose` guarda `priority` | `application/hnp_execution.py`, `delegation/bootstrap.py`, `runtime.py` (:286), `delegation/service.py` (`propose`), `delegation/contract.py` (`HNP_MESSAGES`), `tests/delegation/test_hnp_conditional.py` | M, ~1,5-2 h | 2 |
 | 5 | UI y Storybook | `conditional-branches.tsx` con sus historias; formulario ordenable; tarjeta de consentimiento con el orden; copia neutra; `chatDraft` con prioridad; al final, E2E del recorrido condicional con el SSE del PR 3 | `ui/src/components/agent/`, `ui/src/components/delegation/`, `ui/src/features/`, `ui/e2e/` | M, ~2 h | 2; el E2E, del 3 |
 | 6 | Evidencia | prerregistro; `test_p0_conditional_intent.py` con un ajuste de 0 efectos para `run_events`; corrida local con `RUN_LIVE_STACK=1`; informe; matriz | `evaluation/scenarios/`, `evaluation/results/`, `tests/integration/` | M, ~2-3 h con la corrida | 3 y 4 |
 
 Cada PR lleva revisor independiente, compuerta local (`docs/testing.md`) y CI en verde. Con
 agentes, el camino crítico es 2 → 3/4 → 6, unas 5 a 6 horas.
 
-## 8. Decisiones abiertas para Yair
+## 8. Decisiones
+
+**Registradas el 5-nov-2026, por delegación de Yair.** D1 a D11 se aceptan tal como se
+recomendaron, sin cambios. D12 queda abierta: se fija cuando se corra el lote pagado.
 
 | # | Decisión | Recomendación |
 |---|---|---|
 | D1 | ¿Capacidad en todos los modos o solo en B2? | **Todos.** Es capacidad de producto, no un control de gobernanza, así que la diferencia B0/B2 no se le atribuye a la PDP. La evidencia P0 corre en B2, como el bloque A. Consecuencia: B0 lee ofertas en los turnos condicionales |
-| D2 | ¿Decidir con la oferta o con checkouts exploratorios? | **Con la oferta**, con un solo checkout. El Merchant copia el pricing de la oferta (§2.4) y la frescura ya compara `total_minor`. Las lecturas quedan en `run_events`, así que «0 efectos» las admite, contadas (§4.4). Hay que confirmarlo con Maldo |
+| D2 | ¿Decidir con la oferta o con checkouts exploratorios? | **Con la oferta**, con un solo checkout. El Merchant copia el pricing de la oferta (§2.4) y la frescura ya compara `total_minor`. Las lecturas quedan en `run_events`, así que «0 efectos» las admite, contadas (§4.4). **Aceptada.** **Nota de coordinación:** el protocolo P3 de Maldo (#158/#176) exige «ausencia de efectos en E» (`docs/design/p3-point5-validation.md:27` en #176). Pero cada lectura de oferta escribe un `offer.read` en `run_events` del Merchant, y el oráculo de esta spec admite solo esa diferencia, exacta por `offer_id` (§4.4). Hay que confirmarlo con Maldo cuando se integre su cadena. No bloquea la implementación |
 | D3 | ¿Qué cuenta como desconocido? | **Todo** `ACPClientError` (incluidos `offer_expired` y `OFFER_NOT_FOUND`, que llega como `invalid_offer`) y la discrepancia entre feed y oferta. Solo los hechos verificados hacen falsa una rama |
 | D4 | ¿El total del checkout distinto del de la oferta, pero más bajo? | **Detenerse igual:** igualdad estricta. Es simple y comparable con el protocolo de Maldo |
 | D5 | ¿Ambigüedad? | **Aclarar**, como en UX11: rama con 0 o más de una variante, rama excluida, o moneda o magnitud ausente |
@@ -559,7 +576,7 @@ agentes, el camino crítico es 2 → 3/4 → 6, unas 5 a 6 horas.
 | D9 | ¿`T` desde la oferta (worker) o calibrado con checkouts en clones? | **Desde la oferta** para nuestra evidencia. La corrida formal P3 usa la puerta de Maldo (#176), que el producto ya respeta |
 | D10 | ¿Deduplicar UX04/UX05-HP con UX03-C/D? | **Un episodio con las dos identidades**, como propone Maldo. HNP lleva celdas propias |
 | D11 | ¿Exclusión solo en la aplicación o también en D1? | **También en D1**, con el feed filtrado: B no aparece como elegible en ninguna evidencia |
-| D12 | ¿Corpus del LLM real? | Frase de cada celda + 2 paráfrasis, 1 repetición, con tope de costo que fija Yair. Va después del PR 6 |
+| D12 | ¿Corpus del LLM real? | **Abierta:** se fija cuando se corra el lote pagado. La propuesta sigue siendo la frase de cada celda + 2 paráfrasis y 1 repetición, con un tope de costo que fija Yair, después del PR 6 |
 
 ## 9. Fuera de alcance
 
