@@ -74,6 +74,7 @@ def receipt(tmp_path, monkeypatch):
         "human_reference": "unit-only-not-real-authorization",
         "authorization_id": "unit-unique",
         "billing_project_confirmed": True,
+        "standard_pricing_confirmed": True,
     }
     path.write_text(json.dumps(data))
     return path, data
@@ -88,6 +89,7 @@ def receipt(tmp_path, monkeypatch):
         ("protocol_sha256", "different"),
         ("max_usd", "10"),
         ("executor_sha", "other"),
+        ("standard_pricing_confirmed", False),
     ],
 )
 def test_changed_authorization_fails_closed(receipt, tmp_path, field, value):
@@ -103,6 +105,20 @@ def test_claim_prevents_restarting_budget_with_same_receipt(receipt, tmp_path):
     assert execution.authorize(path, tmp_path / "run").cap == Decimal("0.89")
     with pytest.raises(SpendingBlocked, match="already_claimed"):
         execution.authorize(path, tmp_path / "different-output")
+
+
+def test_claim_is_shared_between_worktrees(receipt, tmp_path, monkeypatch):
+    path, _ = receipt
+    common = tmp_path / "common-git"
+    monkeypatch.setattr(
+        execution,
+        "git",
+        lambda root, *args: str(common) if args[-1] == "--git-common-dir" else "unit-sha",
+    )
+    execution.authorize(path, tmp_path / "run")
+    monkeypatch.setattr(execution, "ROOT", tmp_path / "another-worktree")
+    with pytest.raises(SpendingBlocked, match="already_claimed"):
+        execution.authorize(path, tmp_path / "other")
 
 
 def test_CI_cannot_execute_even_with_receipt(receipt, tmp_path, monkeypatch):
@@ -266,3 +282,25 @@ def test_timeout_is_journaled_and_retains_reservation(tmp_path):
         )
     assert budget.reserved_or_spent == Decimal("0.445")
     assert json.loads(journal.path.read_text().splitlines()[-1])["phase"] == "uncertain"
+
+
+def test_operator_stop_prevents_next_attempt_without_charge(tmp_path):
+    sent = []
+
+    def send(request):
+        sent.append(request)
+        return httpx.Response(503)
+
+    budget = AttemptBudget(None, infrastructure_only=True)
+    journal = execution.Journal(tmp_path / "a.jsonl")
+    (tmp_path / "STOP").touch()
+    with (
+        httpx.Client(
+            transport=execution.ReservedTransport(httpx.MockTransport(send), budget, journal)
+        ) as client,
+        pytest.raises(SpendingBlocked),
+    ):
+        client.post(
+            "https://api.openai.com/v1/responses", json={"model": budget.model, "store": False}
+        )
+    assert not sent and budget.attempts == 0 and budget.reserved_or_spent == 0

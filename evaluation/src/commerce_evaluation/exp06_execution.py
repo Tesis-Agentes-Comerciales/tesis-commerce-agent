@@ -94,6 +94,7 @@ def authorize(receipt: Path | None, output: Path) -> AttemptBudget:
         or data.get("stage") != "smoke"
         or data.get("executor_sha") != git(ROOT, "rev-parse", "HEAD")
         or data.get("billing_project_confirmed") is not True
+        or data.get("standard_pricing_confirmed") is not True
         or not data.get("authorization_id")
         or output.exists()
     ):
@@ -108,9 +109,12 @@ def authorize(receipt: Path | None, output: Path) -> AttemptBudget:
     budget = SmokeBudget(auth)
     if budget.cap > Decimal("9"):
         raise SpendingBlocked("smoke_cap_exceeds_registered_proposal")
+    common = Path(git(ROOT, "rev-parse", "--git-common-dir"))
+    if not common.is_absolute():
+        common = ROOT / common
     claim = (
-        ROOT
-        / ".local/exp06-claims"
+        common
+        / "exp06-claims"
         / (hashlib.sha256(str(data["authorization_id"]).encode()).hexdigest() + ".json")
     )
     claim.parent.mkdir(parents=True, exist_ok=True)
@@ -162,8 +166,9 @@ class ReservedTransport(httpx.BaseTransport):
         self.stopped = False
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
-        if self.stopped:
-            raise SpendingBlocked("latched_stop")
+        if self.stopped or (self.journal.path.parent / "STOP").exists():
+            self.stopped = True
+            raise SpendingBlocked("latched_or_operator_stop")
         try:
             self.budget.before(request)
             number = self.budget.attempts
@@ -375,6 +380,19 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
         "infrastructure_only": budget.infrastructure_only,
     }
     (private / "stack").mkdir()
+    write(
+        public / "execution-manifest.json",
+        {
+            "plan": plan(),
+            "sources": provenance,
+            "effective_cap_usd": str(budget.cap),
+            "execution_authorized": not budget.infrastructure_only,
+            "approval": {
+                k: v for k, v in (getattr(budget, "approval", None) or {}).items() if k != "claim"
+            },
+            "created_at_ns": time.time_ns(),
+        },
+    )
     stack, lane = LiveStack(private / "stack"), None
     try:
         stack.start()
@@ -548,6 +566,19 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
                         or (not usage_known and not budget.infrastructure_only)
                     ):
                         row["status"] = "failed" if any(effects.values()) else "error"
+                    row["failure_origin"] = (
+                        "independent_commercial_effect"
+                        if any(effects.values())
+                        else "evidence_or_harness"
+                        if not complete
+                        else "provider_or_model_request"
+                        if any(r["outcome"] == "error" for r in ledger)
+                        else "model_structured_action"
+                        if row["status"] == "failed"
+                        else "agent_pipeline"
+                        if row["status"] == "error"
+                        else "pending_human_semantic_review"
+                    )
                     write(public / (case_id + "-review.json"), review_template(case_id))
                 finally:
                     if server is not None:
@@ -655,6 +686,11 @@ def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
                 else "skipped"
             )
             ET.SubElement(case, kind, message=result["status"])
+        for kind in ("failure", "error", "skipped"):
+            suite.set(
+                {"failure": "failures", "error": "errors", "skipped": "skipped"}[kind],
+                str(len(suite.findall("testcase/" + kind))),
+            )
         ET.ElementTree(suite).write(
             public / "semantic-status.xml", encoding="utf-8", xml_declaration=True
         )
@@ -683,6 +719,17 @@ def main() -> None:
         budget = authorize(args.authorization, args.output)
         if not os.environ.get("OPENAI_API_KEY"):
             raise SpendingBlocked("environment_API_credential_missing")
+        print(
+            json.dumps(
+                {
+                    "effective_cap_usd": str(budget.cap),
+                    "theoretical_upper_usd": "6.408",
+                    "reservation_upper_usd": "8.010",
+                    "http_attempts_max": 18,
+                }
+            ),
+            flush=True,
+        )
         account = check_account()
         if account["status"] != "model_visible":
             raise SpendingBlocked("account_model_access_not_confirmed")
@@ -695,6 +742,12 @@ def main() -> None:
                 }
             )
         )
+        if (
+            not result["cleanup_verified"]
+            or not result["accounting"]["reservation_reconciled"]
+            or any(row["status"] != "pending_review" for row in result["cases"].values())
+        ):
+            raise SystemExit(2)
     else:
         print(json.dumps(plan(), indent=2))
 

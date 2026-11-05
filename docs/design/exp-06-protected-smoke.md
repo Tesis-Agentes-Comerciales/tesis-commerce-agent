@@ -24,7 +24,7 @@ Errores de escritura impiden enviar. Un rechazo de presupuesto enclava el corte;
 el retry interno tampoco puede cruzarlo. La autorización vincula snapshot, hash
 histórico, commit del ejecutor, etapa smoke, ID único y máximo USD (hasta 9).
 Un archivo de reclamación exclusivo impide reiniciar la misma autorización en
-este checkout. No es un control de gasto de otros procesos ni de toda la cuenta.
+los worktrees de este clon (registro privado en el directorio Git común). No es un control de gasto de otros procesos ni de toda la cuenta.
 
 ## Secuencia
 
@@ -92,14 +92,26 @@ El recibo privado se prepara DESPUÉS de la autorización humana, con este esque
   "protocol_sha256": "bd813f2541546ddacb1bfd27fdd23f785477ecb95454fdf394b10e56491f2d2b",
   "stage": "smoke",
   "max_usd": "9.00",
-  "billing_project_confirmed": false
+  "billing_project_confirmed": false,
+  "standard_pricing_confirmed": false
 }
 ```
+
+El SDK omite service_tier; la API utiliza auto y puede heredar una tarifa distinta
+del proyecto. Por eso también se exige confirmación de tarifa estándar ANTES del
+consumo: no se cambia el payload ni se presupone la configuración de la cuenta.
+La consulta administrativa de service tiers no se ha realizado: no hay proyecto
+explícito ni acceso administrativo verificado. Referencia oficial:
+https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/projects/subresources/service_tier_settings/methods/retrieve
+El tope financiero calculado presupone las tarifas estándar confirmadas; no limita
+otros procesos, otros clones ni el gasto global de la cuenta.
 
 Estos valores false son deliberados: el ejemplo no habilita consumo. El recibo
 vincula el commit validado y exige confirmación humana del proyecto de facturación,
 incluso si la clave ya está asociada implícitamente a un proyecto. Reutilizar su ID
-se rechaza aunque se elija otro output. Tras un corte no se relanza: se revisa journal,
+se rechaza aunque se elija otro output. Crear el archivo `STOP` dentro de la carpeta evidence impide el siguiente intento;
+un intento ya enviado debe finalizar o agotar su timeout y conserva su reserva.
+Tras un corte no se relanza: se revisa journal,
 ledger y gasto del proyecto; cualquier continuación requiere nueva decisión humana.
 La reserva persistida es una cota contable local, no una conciliación de factura.
 El reporte distingue uso conocido, reservas desconocidas y conciliación pendiente.
