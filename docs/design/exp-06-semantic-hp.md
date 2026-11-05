@@ -8,6 +8,9 @@ hasta la revisión humana doble. Evidencia y costo: `evaluation/results/exp06-sm
 El mismo día corrió el lote (5 repeticiones, 15 episodios) con `--stage batch`, también sin
 cambiar el prerregistro. Los 15 quedan `pending_review`. Evidencia y costo:
 `evaluation/results/exp06-batch/`.
+Ese mismo día, la enmienda A hizo oficial la revisión por agentes de los 18 episodios
+(`agent_reviewed`). En el lote, UX01 queda aprobado (5/5) y UX11 y UX12 no (3/5 y 1/5):
+`evaluation/results/exp06-review/`.
 Base: `eb18775e5b620436d949a82803f5415ec7455bf3`, CI posterior al merge
 [41940776855](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41940776855),
 cuatro jobs satisfactorios. No se modifican producto, pines hermanos ni evidencia anterior.
@@ -77,6 +80,18 @@ clientes del recorder y archivar cada intento y su conciliación con `model_requ
 La guarda detiene solicitudes nuevas antes de exceder el tope; el coste de una
 solicitud de uso desconocido no se considera cero. Límites de gasto de la cuenta son
 una defensa adicional, no sustituyen esta reserva local.
+
+## Enmiendas
+
+El prerregistro no tiene un campo de enmiendas, y su hash está anclado en el ejecutor. Por eso las
+enmiendas se registran fuera de él, con fecha y motivo.
+
+- **A (2026-11-05, después de las corridas; decisión de Yair).** Las dos revisiones humanas de la
+  rúbrica pasan a ser dos calificadores agentes ciegos, `agent:grader-1` (Claude Opus) y
+  `agent:grader-2` (Claude Sonnet), más un adjudicador agente, `agent:adjudicator` (Claude Opus).
+  Las calificaciones llevan `grader_kind=agent` y el estado es `agent_reviewed`. La revisión es
+  la oficial. Ninguna calificación es de una persona. Motivo, citas, regla de agregación y
+  límites: [`amendment-A-agent-review.md`](../../evaluation/results/exp06-review/amendment-A-agent-review.md).
 
 ## Puertas y límites
 
