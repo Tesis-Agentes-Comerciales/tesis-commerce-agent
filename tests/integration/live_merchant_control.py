@@ -553,6 +553,43 @@ class Control:
                 raise ValueError("Unknown CT19 mutation")
         return self.ct19_state(command)
 
+    def p0_llm_batch2_catalog(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Read-only facts of one episode run for p0-llm-batch2: its fixture manifest, the
+        authoritative total of every offer, and its checkouts and orders by offer."""
+        run_id = command["run_id"]
+        with self.connection() as connection:
+            [manifest] = connection.execute(
+                "SELECT manifest FROM experiment_runs WHERE run_id=%s", (run_id,)
+            ).fetchone()
+            totals = connection.execute(
+                "SELECT offer_id,(snapshot->'pricing'->>'total_minor')::bigint "
+                "FROM catalog_offers WHERE run_id=%s ORDER BY offer_id",
+                (run_id,),
+            ).fetchall()
+            checkouts = connection.execute(
+                "SELECT checkout_id,status,offer_id,quantity FROM checkout_sessions "
+                "WHERE run_id=%s ORDER BY checkout_id",
+                (run_id,),
+            ).fetchall()
+            orders = connection.execute(
+                "SELECT o.order_id,o.checkout_id,c.offer_id,c.quantity FROM orders o "
+                "JOIN checkout_sessions c USING (run_id,checkout_id) "
+                "WHERE o.run_id=%s ORDER BY o.order_id",
+                (run_id,),
+            ).fetchall()
+        return {
+            "manifest": manifest,
+            "totals": {offer: total for offer, total in totals},
+            "checkouts": [
+                {"checkout_id": c, "status": s, "offer_id": o, "quantity": q}
+                for c, s, o, q in checkouts
+            ],
+            "orders": [
+                {"order_id": i, "checkout_id": c, "offer_id": o, "quantity": q}
+                for i, c, o, q in orders
+            ],
+        }
+
 
 def main() -> None:
     control = Control(bootstrap())
@@ -585,6 +622,7 @@ def main() -> None:
             "ct19_audit",
             "ct19_constraints",
             "ct19_mutate",
+            "p0_llm_batch2_catalog",
         )
     }
     try:
