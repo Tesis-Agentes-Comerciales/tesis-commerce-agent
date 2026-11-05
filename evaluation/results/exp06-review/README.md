@@ -2,8 +2,8 @@
 
 Esta es la revisión oficial de EXP-06, según la [enmienda A](amendment-A-agent-review.md).
 
-- **Quién revisa.** Dos calificadores agentes ciegos y un adjudicador agente. Las calificaciones
-  llevan `grader_kind=agent` y los episodios quedan `agent_reviewed`.
+- **Quién revisa.** Dos calificadores agentes ciegos (declarado, no verificable) y un adjudicador
+  agente. Las calificaciones llevan `grader_kind=agent` y los episodios quedan `agent_reviewed`.
 - **Ninguna persona calificó.** Los campos de revisor son `agent:grader-1`, `agent:grader-2` y
   `agent:adjudicator`.
 - **Qué se revisa.** El smoke (3 episodios) y el lote (15).
@@ -70,6 +70,9 @@ producto para comprobar disponibilidad y tiempos de envío.»
 
 Ninguna respuesta inventa un plazo de entrega ni compra. Por eso c2 y c3 quedan en 5/5.
 
+El 1/5 depende de la indicación del punto 8, que se agregó después de leer las 15 respuestas (ver
+[Límites](#límites)).
+
 **2. UX11: la moneda se pregunta, la escala queda anclada en «millones».**
 
 - Smoke: «¿Hasta 1.2 qué? (por ejemplo 1.2 millones de pesos COP, 1.2 millones en otra moneda, o
@@ -90,7 +93,7 @@ almacenamiento».
 
 **4. El UX12 del smoke pasa con un texto parecido al de r3:** «confirma tu ubicación si no es
 Colombia para revisar tiempos de entrega.» Sus calificadores no tenían la indicación del punto 8,
-así que no es estrictamente comparable con el lote.
+así que su c1 no es estrictamente comparable con el del lote.
 
 ## Cómo se recalcula
 
@@ -109,14 +112,17 @@ uv run python -m commerce_evaluation.exp06_review --check   # falla si está des
   - otro hash de protocolo;
   - episodios o criterios distintos de la rúbrica;
   - un veredicto fuera de `pass`/`fail`/`unknown`;
-  - una cita que no está en su `observed`;
+  - una cita vacía, o que no está en el mensaje del agente;
   - un desacuerdo sin adjudicar, o una adjudicación sobre un acuerdo.
-- **Citas.** Una cita vale si aparece en el `observed` decodificado, sin escapes `\u`. Hay 112: 61
-  salen del mensaje del agente y 51 son `"purchase": null`.
+- **Citas.** Una cita vale si no está vacía y aparece en el mensaje del agente
+  (`body.assistant_message` del `observed`). La única excepción es `"purchase": null`, y solo si
+  `body.purchase` es `null`. Ninguna otra parte del `observed` cuenta. Hay 112: 61 salen del
+  mensaje del agente y 51 son `"purchase": null`.
 
 `tests/evaluation/test_exp06_review.py` recalcula `summary.json` y lo compara byte a byte. También
 comprueba que ninguna calificación nombre a una persona del equipo, que el estado sea
-`agent_reviewed` y que cada cita esté textual en su `observed`.
+`agent_reviewed` y que cada cita esté textual en el mensaje del agente. Rechaza una cita vacía y
+una subcadena del `observed` ajena al mensaje, como el nombre del modelo.
 
 ## Evidencia sin reescribir
 
@@ -149,9 +155,17 @@ Los seis JSON y la regla se copiaron byte por byte. `summary.json` guarda sus ha
   - los tres revisores son de la familia Claude, y el adjudicador es el mismo modelo que
     `grader-1`;
   - hay casos limítrofes, y el veredicto de UX11 depende de dos de ellos;
+  - en UX11-r2 y r5, el adjudicador dio `fail` aunque ningún calificador lo dio (`pass` contra
+    `unknown`);
+  - el 1/5 de UX12 depende de la indicación del punto 8, agregada después de leer las 15
+    respuestas; sin ella, en el smoke, los dos calificadores dieron `pass` en c1 a un texto
+    parecido;
+  - en UX12-r3, el adjudicador dijo que la sobrepromesa toca al c2, que quedó en `pass` por
+    acuerdo;
   - la enmienda llega tarde y choca con `no_peeking_oracle_changes`;
   - la ceguera se declara, pero no se puede comprobar;
-  - el smoke y el lote no son estrictamente comparables en UX11 c1 ni en UX12 c2.
+  - el smoke y el lote no son estrictamente comparables en UX11 c1 ni en UX12 c1. La regla sellada
+    (`aggregation-rule.md`, punto 8) dice «UX12 c2», pero la indicación se aplicó en c1.
 - **Snapshot no registrado.** De cada revisor solo consta la familia del modelo.
 - **Nota del adjudicador del smoke.** Pide que personas revisen su caso. La enmienda A no lo exige.
 - **Matriz P0 sin registro.** `p0_observed.py` no admite esta revisión:

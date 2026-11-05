@@ -41,6 +41,8 @@ REVIEWERS = {
     ADJUDICATOR: {"role": "adjudicator", "model": "Claude Opus", "model_snapshot": None},
 }
 VERDICTS = {"pass", "fail", "unknown"}
+# The only quote allowed outside the agent's reply: the structured field the effect criteria cite.
+PURCHASE_NULL = '"purchase": null'
 
 
 class ReviewError(ValueError):
@@ -66,13 +68,20 @@ def observed_path(stage: str, episode: str) -> Path:
     return ROOT / EVIDENCE[stage] / f"{episode}-observed.json"
 
 
-def observed(stage: str, episode: str, ledger: dict[str, str]) -> tuple[str, str]:
-    """Hash and decoded text of an episode's evidence; a quote must appear in that text."""
+def observed(stage: str, episode: str, ledger: dict[str, str]) -> tuple[str, dict[str, Any]]:
+    """Hash of an episode's evidence and the response body the quotes are checked against."""
     path = observed_path(stage, episode)
     data = path.read_bytes()
     digest = sha256(data)
     require(ledger.get(path.name) == digest, f"observed hash differs from its ledger: {episode}")
-    return digest, json.dumps(json.loads(data), ensure_ascii=False, indent=2)
+    return digest, json.loads(data)["body"]
+
+
+def quoted(quote: object, body: dict[str, Any]) -> bool:
+    """Non-empty text of the agent's reply, or `"purchase": null` when the body says so."""
+    if quote == PURCHASE_NULL:
+        return "purchase" in body and body["purchase"] is None
+    return isinstance(quote, str) and bool(quote.strip()) and quote in body["assistant_message"]
 
 
 def evidence_ledger(stage: str) -> dict[str, str]:
@@ -120,7 +129,7 @@ def stage_summary(stage: str, inputs: dict[str, Any]) -> dict[str, Any]:
     rows: dict[str, dict[str, Any]] = {case: {} for case in CASES}
     for episode, case in order:
         rubric = protocol()["cases"][case]["rubric"]
-        digest, text = observed(stage, episode, ledger)
+        digest, body = observed(stage, episode, ledger)
         reviewers = []
         for reviewer in GRADERS:
             criteria = graded[reviewer][episode]
@@ -129,7 +138,9 @@ def stage_summary(stage: str, inputs: dict[str, Any]) -> dict[str, Any]:
                 require(
                     grade["verdict"] in VERDICTS, f"verdict outside pass/fail/unknown: {episode}"
                 )
-                require(grade["quote"] in text, f"quote not in observed: {reviewer}/{episode}")
+                require(
+                    quoted(grade["quote"], body), f"quote not in the reply: {reviewer}/{episode}"
+                )
             reviewers.append(
                 {
                     "reviewer": reviewer,
@@ -152,8 +163,8 @@ def stage_summary(stage: str, inputs: dict[str, Any]) -> dict[str, Any]:
             if decision is None:
                 raise ReviewError(f"missing adjudication: {episode}/{criterion}")
             require(
-                decision["verdict"] in VERDICTS and decision["quote"] in text,
-                f"adjudication verdict or quote not in observed: {episode}",
+                decision["verdict"] in VERDICTS and quoted(decision["quote"], body),
+                f"adjudication verdict or quote not in the reply: {episode}",
             )
             used.add((episode, criterion))
             final[criterion] = {

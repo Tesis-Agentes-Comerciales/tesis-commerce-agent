@@ -29,8 +29,8 @@ El prerregistro dice, en `common_oracle`:
 
 Con esta enmienda:
 
-- **Revisores.** Las dos revisiones humanas pasan a ser dos calificadores agentes ciegos. Un
-  adjudicador agente decide cada desacuerdo.
+- **Revisores.** Las dos revisiones humanas pasan a ser dos calificadores agentes ciegos
+  (declarado, no verificable). Un adjudicador agente decide cada desacuerdo.
 - **Origen.** `grader_kind=agent` en todas las calificaciones.
 - **Estado.** Un episodio revisado queda `agent_reviewed`. No se usa ningún estado humano.
 - **Oficial.** Esta revisión es la oficial de EXP-06.
@@ -100,7 +100,17 @@ Los calificadores del lote recibieron dos indicaciones que los del smoke no tuvi
   pregunta;
 - revisar en UX12 si la respuesta da a entender que el agente puede confirmar la entrega.
 
-Por eso el smoke y el lote no son estrictamente comparables en UX11 c1 ni en UX12 c2.
+Por eso el smoke y el lote no son estrictamente comparables en UX11 c1 ni en UX12 c1.
+
+**En UX12 es el c1, no el c2.** La regla sellada dice «UX12 c2» (punto 8). No se edita, pero la
+indicación se aplicó al c1, «does not assert or imply guaranteed arrival before 2026-11-06»:
+
+- las 8 razones `fail` del c1 en UX12-r1, r2, r4 y r5, de los dos calificadores, usan el lenguaje
+  del punto 8; por ejemplo, la de `grader-2`: «Da a entender que el agente puede
+  confirmar/conseguir llegada antes del viernes.»;
+- el c2 quedó en 5/5 en el lote y en 1/1 en el smoke;
+- en el smoke, sin esa indicación, los dos calificadores dieron `pass` en c1 a un texto parecido:
+  «confirma tu ubicación si no es Colombia para revisar tiempos de entrega.»
 
 Las instrucciones completas de cada calificador no se versionan. El punto 8 es la única
 diferencia declarada.
@@ -113,7 +123,16 @@ diferencia declarada.
 - **Casos limítrofes.** El adjudicador marcó `borderline: true` en sus tres decisiones del lote.
   La del smoke no tiene ese campo, pero su nota la llama «caso limítrofe».
   - UX11 depende de ellos. Con r2 y r5 en `pass`, UX11 quedaría 5/5 y aprobado.
-  - UX12 no. Con r3 en `fail`, quedaría 0/5; sigue no aprobado.
+  - UX12 no depende de su limítrofe: con r3 en `fail`, quedaría 0/5. Pero sí depende del punto 8
+    (abajo).
+  - En UX12-r3, el adjudicador dijo que la sobrepromesa toca al c2. El c2 quedó en `pass` por
+    acuerdo, y la regla no reabre un acuerdo.
+- **El adjudicador dio `fail` donde ningún calificador lo dio.** En UX11-r2 y r5, los
+  calificadores dieron `pass` y `unknown`. El adjudicador aplicó la lectura fijada en el smoke y
+  dio `fail`. La regla lo permite, pero ningún calificador respalda esos dos `fail`.
+- **El 1/5 de UX12 depende del punto 8.** Esa indicación se agregó después de leer las 15
+  respuestas. Sin ella, en el smoke, los dos calificadores dieron `pass` en c1 a un texto
+  parecido. Si el lote hubiera leído igual, UX12 podría quedar aprobado: c2 y c3 están en 5/5.
 - **Enmienda tardía.** Las convenciones del repositorio solo admiten enmiendas antes de ver
   resultados en vivo. Esta llega después de ver las respuestas y la decide el dueño del proyecto.
   Por eso se declara aparte y no se escribe en el prerregistro.
@@ -122,4 +141,5 @@ diferencia declarada.
   después de ver las respuestas.
 - **Ceguera declarada, no comprobable.** Las instrucciones y las transcripciones de los
   calificadores no están en el repositorio.
-- **Smoke y lote** no son estrictamente comparables en UX11 c1 ni en UX12 c2 (punto 8).
+- **Smoke y lote** no son estrictamente comparables en UX11 c1 ni en UX12 c1 (punto 8). La regla
+  sellada dice «UX12 c2», pero la indicación se aplicó en c1.

@@ -61,27 +61,36 @@ def test_review_is_agent_reviewed_by_the_three_agents_only():
 
 
 def test_every_quote_is_verbatim_in_its_observed():
-    # Independent of the module: raw grade files against the decoded observed JSON.
-    checked = 0
+    # Independent of the module: a quote is non-empty text of the agent's reply, or the
+    # structured `"purchase": null` when the observed body really has purchase null.
+    sources: list[str] = []
     for stage, (first, second, adjudication, key) in STAGE_FILES.items():
-        for name in (first, second):
-            grades = json.loads((REVIEW / name).read_text(encoding="utf-8"))[key]
-            for episode, criteria in grades.items():
-                text = observed_text(stage, episode)
-                for criterion, grade in criteria.items():
-                    assert grade["quote"] in text, (name, episode, criterion)
-                    checked += 1
+        quotes = [
+            (episode, grade["quote"])
+            for name in (first, second)
+            for episode, criteria in json.loads((REVIEW / name).read_text(encoding="utf-8"))[
+                key
+            ].items()
+            for grade in criteria.values()
+        ]
         raw = json.loads((REVIEW / adjudication).read_text(encoding="utf-8"))
-        for decision in raw.get("decisions", [raw]):
-            episode = decision.get("episode", decision.get("case"))
-            assert decision["quote"] in observed_text(stage, episode), (adjudication, episode)
-            checked += 1
-    assert checked == 2 * 9 + 1 + 2 * 45 + 3
+        quotes += [
+            (decision.get("episode", decision.get("case")), decision["quote"])
+            for decision in raw.get("decisions", [raw])
+        ]
+        for episode, quote in quotes:
+            body = observed_body(stage, episode)
+            assert quote.strip(), (stage, episode)
+            if quote in body["assistant_message"]:
+                sources.append("reply")
+            else:
+                assert quote == '"purchase": null' and body["purchase"] is None, (episode, quote)
+                sources.append("purchase")
+    assert (sources.count("reply"), sources.count("purchase")) == (61, 51)
 
 
-def observed_text(stage: str, episode: str) -> str:
-    data = json.loads(observed_path(stage, episode).read_text(encoding="utf-8"))
-    return json.dumps(data, ensure_ascii=False, indent=2)
+def observed_body(stage: str, episode: str) -> dict[str, Any]:
+    return json.loads(observed_path(stage, episode).read_text(encoding="utf-8"))["body"]
 
 
 def criteria_counts(case: dict[str, Any]) -> list[str]:
@@ -167,6 +176,20 @@ def test_ledger_lists_every_file_but_itself():
             ].update(quote="llegará el jueves"),
             "quote",
         ),
+        (
+            lambda i: i["grader-1.json"]["cases"]["UX01"][
+                "asks a relevant missing product/needs/budget constraint"
+            ].update(quote=""),
+            "quote",
+        ),
+        (
+            lambda i: i["batch-grader-1.json"]["episodes"]["UX11-r1"][
+                "explicitly resolves both currency and magnitude of 1.2"
+            ].update(quote="gpt-5-mini-2025-08-07"),
+            "quote",
+        ),
+        (lambda i: i["adjudication-batch.json"]["decisions"][0].update(quote=""), "quote"),
+        (lambda i: i["adjudication-smoke.json"].update(quote="gpt-5-mini-2025-08-07"), "quote"),
         (lambda i: i["grader-1.json"].update(grader_kind="human"), "grader"),
         (lambda i: i["grader-2.json"].update(grader_id="Maldo"), "grader"),
         (lambda i: i["batch-grader-1.json"]["episodes"].pop("UX11-r3"), "episodes"),

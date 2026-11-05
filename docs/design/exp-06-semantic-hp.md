@@ -87,8 +87,9 @@ El prerregistro no tiene un campo de enmiendas, y su hash está anclado en el ej
 enmiendas se registran fuera de él, con fecha y motivo.
 
 - **A (2026-11-05, después de las corridas; decisión de Yair).** Las dos revisiones humanas de la
-  rúbrica pasan a ser dos calificadores agentes ciegos, `agent:grader-1` (Claude Opus) y
-  `agent:grader-2` (Claude Sonnet), más un adjudicador agente, `agent:adjudicator` (Claude Opus).
+  rúbrica pasan a ser dos calificadores agentes ciegos (declarado, no verificable),
+  `agent:grader-1` (Claude Opus) y `agent:grader-2` (Claude Sonnet), más un adjudicador agente,
+  `agent:adjudicator` (Claude Opus).
   Las calificaciones llevan `grader_kind=agent` y el estado es `agent_reviewed`. La revisión es
   la oficial. Ninguna calificación es de una persona. Motivo, citas, regla de agregación y
   límites: [`amendment-A-agent-review.md`](../../evaluation/results/exp06-review/amendment-A-agent-review.md).
