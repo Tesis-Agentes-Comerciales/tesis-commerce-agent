@@ -3,6 +3,66 @@
   "preregistration": "matrix.json",
   "preregistration_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
   "observations": {
+    "CT13": {
+      "modes": {
+        "HNP": {
+          "status": "partial",
+          "coverage": "partial",
+          "scope": "Grant de una variante; stock agotado y 409 sin checkout aceptado.",
+          "limitation": "Sin prueba de fallback a otra variante autorizada.",
+          "run_id": 41897313836,
+          "prior_attempts": []
+        }
+      }
+    },
+    "CT14": {
+      "modes": {
+        "HP": {
+          "status": "partial",
+          "coverage": "partial",
+          "scope": "Stock cambia después de preparar; relectura rechaza checkout_terms_changed.",
+          "limitation": "Revalidación previa a aprobación; sin intento de complete.",
+          "run_id": 41895755779,
+          "prior_attempts": []
+        }
+      }
+    },
+    "CT15": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Total Merchant con precio nuevo; prepara dentro del máximo y cancela por exceso.",
+          "limitation": "Preparación/cancelación HP; sin aprobación ni compra completada.",
+          "run_id": 41895460657,
+          "prior_attempts": [
+            41895136607
+          ]
+        },
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Feed anterior intacto; presupuesto sobre total autoritativo; exceso cancelado.",
+          "limitation": "En el control dentro del máximo, revocación de seguridad tras preparación; sin compra autónoma.",
+          "run_id": 41913671886,
+          "prior_attempts": [
+            41913321178
+          ]
+        }
+      }
+    },
+    "CT16": {
+      "modes": {
+        "HP": {
+          "status": "partial",
+          "coverage": "partial",
+          "scope": "Envío cambia sin modificar feed; términos anteriores rechazados.",
+          "limitation": "Sin nuevos términos, reaprobación ni intento de complete.",
+          "run_id": 41897599243,
+          "prior_attempts": []
+        }
+      }
+    },
     "CT19": {
       "coverage": "partial",
       "modes": {
@@ -18,6 +78,548 @@
           "status": "not_executed"
         }
       }
+    },
+    "INF30": {
+      "modes": {
+        "HP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Creación aceptada con respuesta perdida; lookup reconcilia el mismo checkout y el reintento no hace otro POST.",
+          "limitation": "Servicio HP con SKU explícito; sin recuperación pública completa, aprobación ni pago.",
+          "run_id": 41846571407,
+          "prior_attempts": [
+            41841403584,
+            41842063615,
+            41842686257,
+            41845792685
+          ]
+        }
+      }
+    },
+    "INF31": {
+      "modes": {
+        "HP": {
+          "status": "blocked",
+          "coverage": "incomplete",
+          "scope": "Cinco controles aprobados; el control de indisponibilidad de PostgreSQL produjo 500 y quedó uncertain.",
+          "limitation": "Falta 503 nativo prerregistrado. El 503 del proxy no cierra la brecha.",
+          "run_id": 41846571407,
+          "prior_attempts": [
+            41841403584,
+            41842063615,
+            41842686257,
+            41845792685
+          ]
+        }
+      }
+    },
+    "INF33": {
+      "modes": {
+        "HP": {
+          "status": "not_applicable",
+          "justification": "En HP no hay revisor LLM y la aprobación corresponde al comprador.",
+          "source": {
+            "path": "docs/design/p0-model-failures.md",
+            "section": "4. Celdas y oráculos",
+            "sha256": "0b70704c51f6b27ceb73f1e5f7a8be9d16cac16d08cf41e7969d6c1957492e1c"
+          }
+        },
+        "HNP": {
+          "status": "not_executed"
+        }
+      }
+    },
+    "MA22": {
+      "modes": {
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Grant revocado; nuevo consentimiento con máximo insuficiente; escalado sin POST.",
+          "limitation": "Revocar y reemplazar por API B2-HNP; sin edición in-place.",
+          "run_id": 41898998656,
+          "prior_attempts": [
+            41898600527
+          ]
+        }
+      }
+    },
+    "MA23": {
+      "modes": {
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Nuevo grant solo Y; X asequible queda fuera del alcance; escalado sin POST.",
+          "limitation": "Revocar y reemplazar por API B2-HNP; sin cambio in-place.",
+          "run_id": 41899701762,
+          "prior_attempts": [
+            41899310659
+          ]
+        }
+      }
+    },
+    "MA24": {
+      "modes": {
+        "HNP": {
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "Revocación duradera antes del trigger; 409 y cero nuevos efectos.",
+          "limitation": "API B2-HNP; sin UI ni semántica.",
+          "run_id": 41846571407,
+          "prior_attempts": [
+            41841403584,
+            41842063615,
+            41842686257,
+            41845792685
+          ]
+        }
+      }
+    }
+  },
+  "runs": {
+    "41841403584": {
+      "experiment": "EXP-01",
+      "kind": "blocked",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41841403584",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "e8b7050dad436c496798de4c590c29c3ffab02eb",
+        "merchant": null,
+        "payment": null
+      },
+      "protocol": "evaluation/scenarios/exp01-first-batch.json",
+      "protocol_sha256": "86598a0132c75e9e72b404a6c9e53d45e1bb3ff22a27a1892c63f020ad831dfb",
+      "archive": "evaluation/results/exp-01-first-batch/runs/41841403584.zip",
+      "sha256": "9be9db2b2631add7de9e4fdf8ff9773feb9a133b18691c5855fdde19fae9b4e6",
+      "checksum_index": "evaluation/results/exp-01-first-batch/SHA256SUMS",
+      "preflight": "blocked",
+      "junit": null,
+      "gate": false,
+      "note": "Checkout superficial: preflight bloqueado antes de servicios."
+    },
+    "41842063615": {
+      "experiment": "EXP-01",
+      "kind": "harness_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41842063615",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "681247a6c90c0a74d73320b8ac5fd41dc1c9619c",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp01-first-batch.json",
+      "protocol_sha256": "86598a0132c75e9e72b404a6c9e53d45e1bb3ff22a27a1892c63f020ad831dfb",
+      "archive": "evaluation/results/exp-01-first-batch/runs/41842063615.zip",
+      "sha256": "fc4c79622dc70e13df29a6bc9624dd64bce779fe177af429cb518b4936661279",
+      "checksum_index": "evaluation/results/exp-01-first-batch/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 6,
+        "error": 7,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": false,
+      "note": "Fallos de hook JSON y teardown; conserva MA24 observado."
+    },
+    "41842686257": {
+      "experiment": "EXP-01",
+      "kind": "reporting_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41842686257",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "7b531e4a0f871e5b6db4b07f991b1583ddf753ac",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp01-first-batch.json",
+      "protocol_sha256": "86598a0132c75e9e72b404a6c9e53d45e1bb3ff22a27a1892c63f020ad831dfb",
+      "archive": "evaluation/results/exp-01-first-batch/runs/41842686257.zip",
+      "sha256": "1216bd512606a6e6ce3e9de47061bf4966a4a63ca2dbae7fc2a2bfd74694351f",
+      "checksum_index": "evaluation/results/exp-01-first-batch/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 0,
+        "skipped": 0,
+        "passed": 7
+      },
+      "gate": false,
+      "note": "Reportador incompleto ante exit 1; el rechazo nativo fue 500."
+    },
+    "41845792685": {
+      "experiment": "EXP-01",
+      "kind": "reporting_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41845792685",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "3fb12393b1c421fe588ffc1fd2f9db9a529cf126",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp01-first-batch.json",
+      "protocol_sha256": "86598a0132c75e9e72b404a6c9e53d45e1bb3ff22a27a1892c63f020ad831dfb",
+      "archive": "evaluation/results/exp-01-first-batch/runs/41845792685.zip",
+      "sha256": "042b2c928120f83172061397209cd1d00ed071c3c668945bdac03f5baf9d7f66",
+      "checksum_index": "evaluation/results/exp-01-first-batch/final/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 0,
+        "skipped": 0,
+        "passed": 7
+      },
+      "gate": null,
+      "note": "El reportador no pudo importar pydantic para redactar logs."
+    },
+    "41846571407": {
+      "experiment": "EXP-01",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41846571407",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "8e021a50aedee023357ac76c3db34403fe53cf4d",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp01-first-batch.json",
+      "protocol_sha256": "86598a0132c75e9e72b404a6c9e53d45e1bb3ff22a27a1892c63f020ad831dfb",
+      "archive": "evaluation/results/exp-01-first-batch/runs/41846571407.zip",
+      "sha256": "eea1dfe3457eeabc59e8a43f3e3c075251930935a0621c23d1e6ecd4971ceac4",
+      "checksum_index": "evaluation/results/exp-01-first-batch/final/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 0,
+        "skipped": 0,
+        "passed": 7
+      },
+      "gate": false,
+      "note": "Dos escenarios aprobados; INF31 no obtuvo el 503 nativo."
+    },
+    "41895136607": {
+      "experiment": "EXP-02",
+      "kind": "harness_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895136607",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "243fb5fcd334a6258e90de91ab8a44c35e072260",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp02-commercial.json",
+      "protocol_sha256": "d5941affceac9f89dc51b8f4adb5a8528537e49bd3ff36367e28993bd70757c6",
+      "archive": "evaluation/results/exp-02-commercial/runs/41895136607.zip",
+      "sha256": "c4f9c60c07c4708bb9484e6b8e114a90020b3b28953258ac829f4a80ad2da66d",
+      "checksum_index": "evaluation/results/exp-02-commercial/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 1,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": false,
+      "note": "El proxy bloqueaba cancelación y generó fallo y error de teardown."
+    },
+    "41895460657": {
+      "experiment": "EXP-02",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895460657",
+      "conclusion": "success",
+      "sources": {
+        "agent": "01698e89ca3b8de5d5e5eb90f88cea4bad57e3c1",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp02-commercial.json",
+      "protocol_sha256": "d5941affceac9f89dc51b8f4adb5a8528537e49bd3ff36367e28993bd70757c6",
+      "archive": "evaluation/results/exp-02-commercial/runs/41895460657.zip",
+      "sha256": "6a6c47287dcb8f4622a9581531622713dcf038f0a264c9a69103d87795381fd8",
+      "checksum_index": "evaluation/results/exp-02-commercial/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 2
+      },
+      "gate": true,
+      "note": "CT15 HP: preparación dentro del límite y cancelación por exceso."
+    },
+    "41895755779": {
+      "experiment": "EXP-02",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41895755779",
+      "conclusion": "success",
+      "sources": {
+        "agent": "01698e89ca3b8de5d5e5eb90f88cea4bad57e3c1",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp02-commercial.json",
+      "protocol_sha256": "d5941affceac9f89dc51b8f4adb5a8528537e49bd3ff36367e28993bd70757c6",
+      "archive": "evaluation/results/exp-02-commercial/runs/41895755779.zip",
+      "sha256": "ded8a06366c3e44f8dbf077df6aef4dd706e9c1d80088bf722f3c86847c55f7b",
+      "checksum_index": "evaluation/results/exp-02-commercial/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 2
+      },
+      "gate": true,
+      "note": "CT14 HP: revalidación antes de aprobación."
+    },
+    "41897313836": {
+      "experiment": "EXP-03",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41897313836",
+      "conclusion": "success",
+      "sources": {
+        "agent": "b76ff7074d83a96a76aac22c5148f0fe226512ef",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp03-stock-shipping.json",
+      "protocol_sha256": "6d83de32f7d826185ff759f6e756e3be320406bd7690d8d24ae8995698ba2d08",
+      "archive": "evaluation/results/exp-03-stock-shipping/runs/41897313836.zip",
+      "sha256": "5aa38c42b718420f8be4f259c14e217b3275085c6c843c2414ecd632857b8133",
+      "checksum_index": "evaluation/results/exp-03-stock-shipping/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": true,
+      "note": "CT13 HNP: una variante, rechazo sin fallback."
+    },
+    "41897599243": {
+      "experiment": "EXP-03",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41897599243",
+      "conclusion": "success",
+      "sources": {
+        "agent": "b76ff7074d83a96a76aac22c5148f0fe226512ef",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp03-stock-shipping.json",
+      "protocol_sha256": "6d83de32f7d826185ff759f6e756e3be320406bd7690d8d24ae8995698ba2d08",
+      "archive": "evaluation/results/exp-03-stock-shipping/runs/41897599243.zip",
+      "sha256": "68c69fcdeae9ee0d77a1f81beca1af58a9b3863c75921d6654870fa8f936e04d",
+      "checksum_index": "evaluation/results/exp-03-stock-shipping/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 2
+      },
+      "gate": true,
+      "note": "CT16 HP: revalidación de envío antes de aprobación."
+    },
+    "41898600527": {
+      "experiment": "EXP-04",
+      "kind": "harness_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41898600527",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "a64c58c42f3b006d568c72c72d722c0d8f54c638",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp04-mandate-replacement.json",
+      "protocol_sha256": "f8b4cb56f496ca0a05144daff4d9b2539a981eee8065c660667d7d7fec69fd2d",
+      "archive": "evaluation/results/exp-04-mandate-replacement/runs/41898600527.zip",
+      "sha256": "3ae138c0a229cac7ed4baea82edd040dc76e13a7573233e238b80aaf1e7588d2",
+      "checksum_index": "evaluation/results/exp-04-mandate-replacement/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 0,
+        "skipped": 0,
+        "passed": 0
+      },
+      "gate": false,
+      "note": "El verificador exigía D1 al grant revocado antes de activar."
+    },
+    "41898998656": {
+      "experiment": "EXP-04",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41898998656",
+      "conclusion": "success",
+      "sources": {
+        "agent": "27407914ba7e9a529bc2150ebb6309cf6dcb70fc",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp04-mandate-replacement.json",
+      "protocol_sha256": "f8b4cb56f496ca0a05144daff4d9b2539a981eee8065c660667d7d7fec69fd2d",
+      "archive": "evaluation/results/exp-04-mandate-replacement/runs/41898998656.zip",
+      "sha256": "1ebc9e32b84542538f5f529fac8a4b7a63921db21c85a30b757534d518272627",
+      "checksum_index": "evaluation/results/exp-04-mandate-replacement/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": true,
+      "note": "MA22 HNP: revocación, consentimiento nuevo y presupuesto."
+    },
+    "41899310659": {
+      "experiment": "EXP-04",
+      "kind": "harness_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41899310659",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "27407914ba7e9a529bc2150ebb6309cf6dcb70fc",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp04-mandate-replacement.json",
+      "protocol_sha256": "f8b4cb56f496ca0a05144daff4d9b2539a981eee8065c660667d7d7fec69fd2d",
+      "archive": "evaluation/results/exp-04-mandate-replacement/runs/41899310659.zip",
+      "sha256": "7b141dce5cc545fb71fa23b8631bcf632464f71df3befb4285f21670cb0763f6",
+      "checksum_index": "evaluation/results/exp-04-mandate-replacement/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 1,
+        "error": 0,
+        "skipped": 0,
+        "passed": 0
+      },
+      "gate": false,
+      "note": "Variante Y agotada; el caso no llegó al Agent."
+    },
+    "41899701762": {
+      "experiment": "EXP-04",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41899701762",
+      "conclusion": "success",
+      "sources": {
+        "agent": "e4f52977feb73c483110a90c83401138e3e3d65c",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp04-mandate-replacement.json",
+      "protocol_sha256": "f8b4cb56f496ca0a05144daff4d9b2539a981eee8065c660667d7d7fec69fd2d",
+      "archive": "evaluation/results/exp-04-mandate-replacement/runs/41899701762.zip",
+      "sha256": "c5ae796453a08be0fe65be85214df00be8ba505f8c9f4cd63df0898b949db79e",
+      "checksum_index": "evaluation/results/exp-04-mandate-replacement/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": true,
+      "note": "MA23 HNP: alcance nuevo solo Y y escalado sin compra."
+    },
+    "41913321178": {
+      "experiment": "EXP-05",
+      "kind": "harness_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41913321178",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "7394dab420d241296f0e15e227502e2bc6b0c760",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp05-ct15-hnp.json",
+      "protocol_sha256": "fefd04ffc16d645d8248309ce45a648cfe6a51314ccaf9b0369ad9cb42c42e75",
+      "archive": "evaluation/results/exp-05/runs/41913321178.zip",
+      "sha256": "1e8a9c04436e6a7aabf32a99875adfd3339c620e5e695bce1bd7bccf8f81b77d",
+      "checksum_index": "evaluation/results/exp-05/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 2,
+        "error": 2,
+        "skipped": 0,
+        "passed": 0
+      },
+      "gate": false,
+      "note": "El hook exigía una cantidad explícita ausente en el wire ACP."
+    },
+    "41913671886": {
+      "experiment": "EXP-05",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41913671886",
+      "conclusion": "success",
+      "sources": {
+        "agent": "f95610fbc68b1758f2bdfba9e6a4398763fe2fd9",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp05-ct15-hnp.json",
+      "protocol_sha256": "fefd04ffc16d645d8248309ce45a648cfe6a51314ccaf9b0369ad9cb42c42e75",
+      "archive": "evaluation/results/exp-05/runs/41913671886.zip",
+      "sha256": "94b28eb5aa7e16ef1d809d69340c612523cf6a6ed396442daff243d4ea27e1c8",
+      "checksum_index": "evaluation/results/exp-05/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 2
+      },
+      "gate": true,
+      "note": "CT15 HNP: presupuesto autoritativo y revocación de seguridad."
+    },
+    "41914629295": {
+      "experiment": "EXP-05",
+      "kind": "reporting_error",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41914629295",
+      "conclusion": "failure",
+      "sources": {
+        "agent": "3cf817145ed8aa73c37e57121d4dd69a02076f97",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp05-authenticated-transport.json",
+      "protocol_sha256": "8cb47f195e936d8b3d1878ca3f8215497b008467de5a1f5170729cf9d5077f96",
+      "archive": "evaluation/results/exp-05/runs/41914629295.zip",
+      "sha256": "19982fa55e12f8a4cec55a6933dd5c6547b2422274f9ce70d1b9c6283fe2b4bc",
+      "checksum_index": "evaluation/results/exp-05/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": null,
+      "note": "Transporte: pytest aprobó, pero faltaron informe y hashes internos."
+    },
+    "41915169656": {
+      "experiment": "EXP-05",
+      "kind": "infrastructure",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41915169656",
+      "conclusion": "success",
+      "sources": {
+        "agent": "f30e7c47f3c5e95584499eedc992c624b479a6a9",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/exp05-authenticated-transport.json",
+      "protocol_sha256": "8cb47f195e936d8b3d1878ca3f8215497b008467de5a1f5170729cf9d5077f96",
+      "archive": "evaluation/results/exp-05/runs/41915169656.zip",
+      "sha256": "d839d70b7202292bb9a1af51c3cf1cc55aec8ef1cbf939e64b06f986d31a5028",
+      "checksum_index": "evaluation/results/exp-05/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "error": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "gate": true,
+      "note": "Transporte autenticado; UX01/UX11/UX12 semánticos no ejecutados."
     }
   }
 }
