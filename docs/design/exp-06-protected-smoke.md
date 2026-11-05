@@ -69,15 +69,13 @@ facturación permanecen no verificados.
 
 ## Operación manual después de autorización (no ejecutada aquí)
 
-Nota 2026-11-05: el requisito real es POSIX, no Linux. `require_live_host()` solo rechaza
-Windows y el arnés admite macOS (`tests/integration/README.md`); el smoke local corrió en macOS
-(`evaluation/results/exp06-smoke/`). Texto original:
-
 El arnés de servicios usa pass_fds y grupos de procesos POSIX: la ejecución manual
-requiere Linux; se reutiliza ubuntu-24.04 de GitHub Actions, sin preparar Ubuntu local. Windows se rechaza antes de reclamar el recibo.
-Inspección local: Ubuntu WSL instalado, sin uv/Node ni integración Docker disponible.
-No se instaló infraestructura ni se cambiaron ajustes de Docker; falta elegir/preparar
-el host. Las validaciones Actions usan su Ubuntu 24.04 ya preparado.
+requiere un host POSIX, Linux o macOS. Windows no está soportado y se rechaza antes de
+reclamar el recibo (`require_live_host()` exige `os.name == "posix"`; el arnés lo documenta en
+`tests/integration/README.md`). Las validaciones de Actions usan su ubuntu-24.04 ya preparado.
+El smoke autorizado del 2026-11-05 corrió en macOS (`evaluation/results/exp06-smoke/`).
+En la etapa anterior, el host disponible era Windows con Ubuntu WSL, sin uv/Node ni integración
+Docker; no se instaló infraestructura ni se cambiaron ajustes de Docker.
 
 Desde el checkout validado, con Python/Node y dependencias congeladas de los tres
 repositorios, exportar MERCHANT_REPO/PAYMENT_REPO hacia los SHAs fijados. La credencial

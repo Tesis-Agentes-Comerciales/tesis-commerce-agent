@@ -378,7 +378,7 @@ def sources() -> dict[str, Any]:
 
 def require_live_host() -> None:
     if os.name != "posix":
-        raise SpendingBlocked("manual_live_stack_requires_prepared_Linux_host_no_claim_consumed")
+        raise SpendingBlocked("manual_live_stack_requires_POSIX_host_no_claim_consumed")
 
 
 def run_stack(output: Path, budget: AttemptBudget, key: str) -> dict[str, Any]:
