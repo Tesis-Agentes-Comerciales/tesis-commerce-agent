@@ -470,9 +470,12 @@ uv run pytest tests/integration/test_p0_model_failures.py -v -rs -p no:cacheprov
 - **Organización de los Agents en HP.** En las celdas de fallo, un mismo Agent atiende REST y
   luego chat. En los controles hay un Agent y un episodio por superficie, porque la guarda de
   compra pendiente bloquea una segunda compra del mismo dueño.
-- **La matriz P0 no se actualiza aquí.** No se editaron `evaluation/scenarios/p0/matrix.json`
-  ni `matrix-observed.json`. El registro observado de estas celdas depende del PR #174, de otro
-  autor, y se hará aparte.
+- **En HP el router corre sin streaming.** `HpAgent` fija `openai_reasoning_summary=False`, así
+  que el router usa `responses.parse` y no `responses.stream`. No se ejercita el fallo de un
+  stream que termina sin `response.completed`.
+- **Matriz P0.** El PR #177 no editó `evaluation/scenarios/p0/matrix.json`, que sigue congelado,
+  ni `matrix-observed.json`. El registro observado de estas celdas se hizo después en
+  `matrix-observed.json` (`local_runs`), y lo describe `evaluation/scenarios/p0/observed-evidence.md`.
 
 ## Archivos
 
