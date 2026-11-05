@@ -10,6 +10,10 @@ simulación con `git merge-tree` encontró conflictos de #157 y #160 en `nightly
 la corrección de nightly `5900b02` de #157. El incremento usa el arnés fijado de #160
 para reproducir el contrato sin llevar esos conflictos a main. No integra #174.
 
+Durante el trabajo `main` avanzó a `cd6d39fcc198f1a8e3bf9a7c4ffaebbd23c1af83` con #175.
+La segunda simulación reprodujo ambos conflictos. La simulación del delta offline solo,
+usando #160 como base explícita de comparación, produjo un árbol sin conflictos.
+
 Para integrar después, revisar #157 → #158 → #160 → esta unidad mediante candidatos sin
 reescritura. Conservar los perfiles y gates de main, el gate P2 y los perfiles manuales P3.
 Unir las operaciones permitidas de los workers por nombre y conservar el aislamiento de

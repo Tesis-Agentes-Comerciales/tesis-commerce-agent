@@ -222,12 +222,23 @@ def test_protocol_contract_pv05_06_08(p3_lane, tmp_path):
         a = next(o for o in eligible if o["pricing"]["shipping_total_minor"] == 0)
         b = next(o for o in eligible if o["pricing"]["shipping_total_minor"] > 0)
         attempts: list[Creation] = []
-        captured: dict[str, tuple[CheckoutWitness, CheckoutWitness]] = {}
-        for branch, raw in (("A", a), ("B", b)):
-            captured[branch] = (
-                create_witness(lane, by_role[f"{branch}-cal"], raw, attempts, {}),
-                create_witness(lane, by_role["V"], raw, attempts, {}),
-            )
+        pair = {"A": a, "B": b}
+        calibration = {
+            branch: create_witness(lane, by_role[f"{branch}-cal"], raw, attempts, {})
+            for branch, raw in pair.items()
+        }
+        reads, persisted = cleanup_ledger(lane, [by_role["A-cal"], by_role["B-cal"]])
+        seal = {
+            "totals": {branch: w.total() for branch, w in calibration.items()},
+            "witnesses": {branch: digest(vars(w)) for branch, w in calibration.items()},
+            "ledger": verified_cleanup(attempts, reads, persisted),
+        }
+        lane.stack.record("P3-PV-calibration", evidence=seal, sha256=digest(seal))
+        assert scoped(state(lane, by_role["V"])) == scoped(before["V"])
+        captured = {
+            branch: (calibration[branch], create_witness(lane, by_role["V"], raw, attempts, {}))
+            for branch, raw in pair.items()
+        }
         gate = ProtocolGate(ORACLE.read_bytes())
         gate.calibrate(captured)
         facts["totals"] = {branch: [w.total() for w in pair] for branch, pair in captured.items()}
@@ -245,7 +256,7 @@ def test_protocol_contract_pv05_06_08(p3_lane, tmp_path):
             for branch, pair in captured.items()
         }
 
-        # Probe a real session from the other run while the session is still ready.
+        # The unrelated actor may not read or mutate the real canceled calibration session.
         cal, v = by_role["A-cal"], by_role["V"]
         with pytest.raises(AssertionError, match="ValueError"):
             lane.rpc("session", run_id=cal.run_id, actor_id=v.actor_id)
@@ -310,7 +321,35 @@ def test_protocol_contract_pv05_06_08(p3_lane, tmp_path):
             assert not snapshots["V"]["checkouts"]
             changed[kind] = summary(snapshots["V"])
         facts["blocked_drift"] = changed
+        # Reuse the existing P2 worker and keep the administrative catalog outside the clones.
+        admin_feed = str(tmp_path / "managed-control-export")
+        provenance = lane.rpc("p0_provenance", run_id=by_role["E"].run_id, feed_dir=admin_feed)
+        assert provenance["managed_run_id"] not in {ep.run_id for ep in episodes}
+        managed = next(o for o in provenance["managed_offers"] if o["id"] == a["id"])
+        assert managed["available_quantity"] > 0
+        try:
+            edited = lane.rpc("p0_managed_update", offer_id=a["id"], stock=0)
+            assert edited["available_quantity"] == 0 and edited["revision"] > managed["revision"]
+            assert scoped(state(lane, by_role["E"])) == e_before
+        finally:
+            restored = lane.rpc(
+                "p0_managed_update", offer_id=a["id"], stock=managed["available_quantity"]
+            )
+        assert restored["available_quantity"] == managed["available_quantity"]
+        assert restored["pricing"] == managed["pricing"]
+        assert restored["revision"] > managed["revision"]
+        facts["managed_control"] = {
+            "run_id": provenance["managed_run_id"],
+            "offer_id": a["id"],
+            "stock": [
+                managed["available_quantity"],
+                edited["available_quantity"],
+                restored["available_quantity"],
+            ],
+            "revisions": [managed["revision"], edited["revision"], restored["revision"]],
+        }
         assert scoped(state(lane, by_role["E"])) == e_before
+        assert feed_digest(by_role["E"].feed) == clones["E"]["feed_sha256"]
         for role in ("A-cal", "B-cal", "V"):
             assert state(lane, by_role[role])["offers"] == before[role]["offers"]
 

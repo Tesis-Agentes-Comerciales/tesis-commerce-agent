@@ -172,10 +172,18 @@ class ProtocolGate:
         self._witnesses["totals"] = {
             branch: [digest(vars(witness)) for witness in pair] for branch, pair in observed.items()
         }
-        self._calibration_scopes = {"A-cal": a.run_id, "B-cal": b.run_id, "V": va.run_id}
+        self._calibration_scopes = {
+            role: (w.run_id, w.actor_id) for role, w in (("A-cal", a), ("B-cal", b), ("V", va))
+        }
+        self._calibrated_offers = {
+            "A-cal": [digest(a.offer)],
+            "B-cal": [digest(b.offer)],
+            "V": [digest(va.offer), digest(vb.offer)],
+        }
         self._calibrated_checkouts = {
             witness.wire["id"]: witness.run_id for pair in observed.values() for witness in pair
         }
+        require(len(self._calibrated_checkouts) == 4, "Calibration reused a checkout identity")
         self._phase = "calibrated"
 
     def cleanup(self, attempts, readbacks, persisted) -> None:
@@ -196,10 +204,16 @@ class ProtocolGate:
         self._witnesses["clones"] = equivalent_clones(clones)
         require(
             all(
-                clones[role]["run_id"] == scope for role, scope in self._calibration_scopes.items()
+                (clones[role]["run_id"], clones[role]["actor_id"]) == scope
+                for role, scope in self._calibration_scopes.items()
             ),
             "Calibration clone binding changed",
         )
+        for role, witnessed in self._calibrated_offers.items():
+            require(
+                set(witnessed) <= {digest(offer) for offer in clones[role]["offers"]},
+                "Calibration Offer absent from frozen clone",
+            )
         require(evaluation_before.get("run_id") == clones["E"]["run_id"], "Unbound E snapshot")
         self._witnesses["evaluation"] = digest(evaluation_before)
         self._phase = "equivalent"

@@ -3,8 +3,10 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from tests.support.p3_contract import CASES, condition
-from tests.support.p3_report import report
+from tests.support.p3_report import PROTOCOL_CASES, report
 
 
 def test_missing_or_unbound_observation_cannot_be_commercial_false():
@@ -44,3 +46,28 @@ def test_report_rejects_empty_collection_skips_and_unverified_success(tmp_path: 
     )
     result = report(junit, tmp_path)
     assert result["counts"]["blocked"] == 1 and not result["validated"]
+
+
+@pytest.mark.parametrize("defect", [None, "skipped", "missing_shutdown", "missing_manifest"])
+def test_live_report_requires_execution_cleanup_and_sources(tmp_path, defect):
+    junit = tmp_path / "junit.xml"
+    names = list(PROTOCOL_CASES.values())
+    nodes = [
+        f'<testcase name="{name}"><skipped/></testcase>'
+        if defect == "skipped" and i == 0
+        else f'<testcase name="{name}"/>'
+        for i, name in enumerate(names)
+    ]
+    junit.write_text("<testsuite>" + "".join(nodes) + "</testsuite>", encoding="utf8")
+    rows = [
+        dict(scenario="P3-PV-case", case_id=case, status="passed", cleanup_verified=True)
+        for case in PROTOCOL_CASES
+    ]
+    if defect != "missing_shutdown":
+        rows.append(dict(scenario="shutdown", proxy_closed=True, postgres_removed=True))
+    if defect != "missing_manifest":
+        rows.append(dict(scenario="P3-V01-manifest"))
+    (tmp_path / "evidence.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf8"
+    )
+    assert report(junit, tmp_path, protocol_gate=True)["validated"] is (defect is None)

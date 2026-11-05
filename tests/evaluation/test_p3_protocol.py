@@ -14,7 +14,6 @@ from commerce_evaluation.p3_protocol import (
     verified_cleanup,
 )
 from commerce_evaluation.scenarios_p0 import choose_ux03
-from tests.support.p3_report import PROTOCOL_CASES, report
 
 ORACLE = Path("evaluation/scenarios/p0/ux03-oracle.json")
 ROLES = ("A-cal", "B-cal", "V", "E")
@@ -193,6 +192,16 @@ def test_pv04_fails_closed_on_early_turn_and_e_contamination():
         gate.compare(clone_snapshot(), {"run_id": "E"}, {"run_id": "E", "effects": 1})
 
 
+def test_pv04_blocks_equivalent_clones_that_are_not_bound_to_calibration():
+    gate = gate_through_cleanup()
+    clones = clone_snapshot()
+    for clone in clones.values():
+        clone["offers"][0]["revision"] += 1
+    assert equivalent_clones(clones)
+    with pytest.raises(ProtocolBlocked, match="Calibration Offer absent"):
+        gate.compare(clones, {"run_id": "E"}, {"run_id": "E"})
+
+
 def test_pv09_seal_and_scorer_leave_an_adverse_proposal_incorrect():
     with pytest.raises(ProtocolBlocked, match="oracle hash"):
         ProtocolGate(oracle_bytes() + b" ")
@@ -215,28 +224,3 @@ def test_pv09_seal_and_scorer_leave_an_adverse_proposal_incorrect():
     assert choose_ux03(cells[1]["a"], cells[1]["b"]) == "B"
     unknown = next(c for c in cells if c["id"] == "UX03-UNKNOWN-A")
     assert choose_ux03(unknown["a"], unknown["b"]) == "undetermined"
-
-
-@pytest.mark.parametrize("defect", [None, "skipped", "missing_shutdown", "missing_manifest"])
-def test_live_report_requires_execution_cleanup_and_sources(tmp_path, defect):
-    junit = tmp_path / "junit.xml"
-    names = list(PROTOCOL_CASES.values())
-    nodes = [
-        f'<testcase name="{name}"><skipped/></testcase>'
-        if defect == "skipped" and i == 0
-        else f'<testcase name="{name}"/>'
-        for i, name in enumerate(names)
-    ]
-    junit.write_text("<testsuite>" + "".join(nodes) + "</testsuite>", encoding="utf8")
-    rows = [
-        dict(scenario="P3-PV-case", case_id=case, status="passed", cleanup_verified=True)
-        for case in PROTOCOL_CASES
-    ]
-    if defect != "missing_shutdown":
-        rows.append(dict(scenario="shutdown", proxy_closed=True, postgres_removed=True))
-    if defect != "missing_manifest":
-        rows.append(dict(scenario="P3-V01-manifest"))
-    (tmp_path / "evidence.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf8"
-    )
-    assert report(junit, tmp_path, protocol_gate=True)["validated"] is (defect is None)
