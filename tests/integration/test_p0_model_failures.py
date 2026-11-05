@@ -27,12 +27,11 @@ import pytest
 
 from commerce_agent.api import create_app
 from commerce_agent.llm import CommerceDecision
-from commerce_agent.llm.model_failures import NO_RETRY_HEADER
 from tests.assistant_support import add_message, assistant_body, parse_sse, rebuild_state, sse_body
 from tests.delegation.test_hnp_model_failure_kind import read_timeout
 from tests.integration.exp01_support import ROOT, recorded_case, sqlite_snapshot
 from tests.integration.live_browser import ExplicitSettings
-from tests.integration.live_model import MODEL_SETTINGS, ModelHnpAgent
+from tests.integration.live_model import MODEL_SETTINGS, ModelHnpAgent, ScriptedModel
 from tests.integration.live_purchase import (
     PAYMENT_REPO,
     PHONE,
@@ -51,7 +50,6 @@ from tests.integration.test_live_hnp import SHIPPING_ROOM_MINOR, catalog, effect
 from tests.support.agent_server import AgentServer
 from tests.support.model_server import (
     Answer,
-    ModelServer,
     disconnect,
     failure,
     shortlisted_choice,
@@ -100,50 +98,6 @@ LEDGER = (
     "ap2_evidence",
     "closed_mandates",
 )
-
-
-class ScriptedModel(ModelServer):
-    """`ModelServer` serving a named script of the protocol whose last answer persists: an attempt
-    beyond the oracle gets the same stimulus and is counted, instead of breaking the double. Each
-    served response keeps its `x-should-retry` as scripted, before the Agent's hooks see it.
-    `restart` starts the script again: the protocol runs it per surface (HP) or per task run."""
-
-    def __init__(self, script: list[str]) -> None:
-        super().__init__()
-        self.script = script
-        self.served: list[tuple[str, httpx.Response | None, str | None]] = []
-        self.origin = 0
-
-    def restart(self) -> None:
-        self.origin = len(self.requests)
-
-    def handle(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        name = self.script[min(len(self.requests) - self.origin, len(self.script)) - 1]
-        try:
-            response = ANSWERS[name](json.loads(request.content))
-        except httpx.TransportError:
-            self.served.append((name, None, None))
-            raise
-        self.served.append((name, response, response.headers.get(NO_RETRY_HEADER)))
-        return response
-
-    def since(self, start: int) -> dict[str, Any]:
-        """The attempts from `start` on: how many, which answers and each 429's retry header as
-        sent and after the Agent's httpx response hooks (`refuse_quota_retry`)."""
-        served = self.served[start:]
-        return {
-            "model_http_attempts": len(served),
-            "answers": [name for name, _, _ in served],
-            "scripted_429": [
-                {
-                    "x_should_retry_as_sent": sent,
-                    "x_should_retry_after_agent_hooks": response.headers.get(NO_RETRY_HEADER),
-                }
-                for _, response, sent in served
-                if response is not None and response.status_code == 429
-            ],
-        }
 
 
 def plan(*cells: str) -> list[Any]:
@@ -468,7 +422,7 @@ def test_p0_hp_model_failure(b0, tmp_path, monkeypatch, p0_cases, cell, repetiti
     """INF27-HP, INF28-HP, INF29-HP: REST, then the chat, in one B2-HP Agent; no effect."""
     case = CASES[cell]
     oracle = case["oracle"]
-    model = ScriptedModel(case["script"])
+    model = ScriptedModel(case["script"], ANSWERS)
     model.install(monkeypatch)
     episode = b0.episode(f"p0-{cell.lower()}")
     inputs = {"run_id": episode.run_id, "actor_id": episode.actor_id, "lane": "b0"}
@@ -623,7 +577,7 @@ def test_p0_hnp_model_failure(hnp, tmp_path, monkeypatch, p0_cases, cell, repeti
     """INF27/28/29-HNP (selector) and INF33-HNP-a/b (reviewer) in B2-HNP; no effect."""
     case = CASES[cell]
     oracle = case["oracle"]
-    model = ScriptedModel(case["script"])
+    model = ScriptedModel(case["script"], ANSWERS)
     model.install(monkeypatch)
     episode = hnp.episode(f"p0-{cell.lower()}")
     inputs = {"run_id": episode.run_id, "actor_id": episode.actor_id, "lane": "hnp"}
@@ -676,7 +630,7 @@ def test_p0_hp_control(b0, tmp_path, monkeypatch, p0_cases, cell, repetition):
         summary: dict[str, Any] = {}
         cleaned: list[bool] = []
         for surface, episode in episodes.items():
-            model = ScriptedModel(case["script"])
+            model = ScriptedModel(case["script"], ANSWERS)
             model.install(monkeypatch)
             agent = HpAgent(b0, episode, tmp_path / surface, monkeypatch)
             try:
@@ -746,7 +700,7 @@ def test_p0_hnp_control(hnp, tmp_path, monkeypatch, p0_cases, cell, repetition):
     """CTRL-HNP and CTRL-HNP-REVIEW: a valid answer prepares the checkout and the run buys."""
     case = CASES[cell]
     oracle = case["oracle"]
-    model = ScriptedModel(case["script"])
+    model = ScriptedModel(case["script"], ANSWERS)
     model.install(monkeypatch)
     episode = hnp.episode(f"p0-{cell.lower()}")
     inputs = {"run_id": episode.run_id, "actor_id": episode.actor_id, "lane": "hnp"}
