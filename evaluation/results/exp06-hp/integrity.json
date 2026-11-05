@@ -1,0 +1,60 @@
+{
+  "schema": "exp06-archived-integrity/1",
+  "run": 41943476926,
+  "artifact_id": 13378130667,
+  "executed_sha": "873d3019a171e84177044989f2387fbe60bb0410",
+  "zip_sha256": "621c42595dd01ba521529dcdfa8bc4acaefd88a6c4e5a115561021ba9fa0841a",
+  "verified_inner_hashes": 15,
+  "checks": [
+    "exp01-junit.xml",
+    "exp01-manifest.json",
+    "exp01-outcomes.json",
+    "exp01-report.json",
+    "exp01-stack/live-stack0/b0/feed-b0-exp06-auth-aafd767a/metadata.json",
+    "exp01-stack/live-stack0/b0/feed-b0-exp06-auth-aafd767a/products.jsonl",
+    "exp01-stack/live-stack0/b0/merchant-control.log",
+    "exp01-stack/live-stack0/b0/merchant.log",
+    "exp01-stack/live-stack0/b0/payment.log",
+    "exp01-stack/live-stack0/evidence.jsonl",
+    "exp01-stack/live-stack0/merchant-control.log",
+    "exp01-stack/live-stack0/merchant.log",
+    "exp01-stack/test_real_router_ledger_withou0/auth.log",
+    "exp01-stack/test_real_router_ledger_withou0/exp01-frozen.json",
+    "exp01-stack/test_real_router_ledger_withou0/exp01-observed.json"
+  ],
+  "junit": {
+    "failed": 0,
+    "skipped": 0,
+    "error": 0,
+    "passed": 1
+  },
+  "validated_infrastructure_only": true,
+  "attributed_scenarios": {},
+  "real_provider_calls": 0,
+  "actual_api_usd": "0",
+  "merchant_tables_unchanged": true,
+  "psp_tables_unchanged": true,
+  "agent_commercial_effects": {
+    "approvals": 0,
+    "completion_results": 0,
+    "purchases": 0
+  },
+  "cleanup_verified": true,
+  "shutdown": [
+    {
+      "scenario": "shutdown",
+      "merchant_pids": [
+        3314
+      ],
+      "proxy_closed": true,
+      "postgres_removed": true
+    }
+  ],
+  "semantic_scenarios": {
+    "UX01": "not_executed",
+    "UX11": "not_executed",
+    "UX12": "not_executed"
+  },
+  "secret_pattern_scan": "no JWT/private-key/API-key patterns; not a general proof of absence",
+  "semantic_protocol_sha256": "bd813f2541546ddacb1bfd27fdd23f785477ecb95454fdf394b10e56491f2d2b"
+}

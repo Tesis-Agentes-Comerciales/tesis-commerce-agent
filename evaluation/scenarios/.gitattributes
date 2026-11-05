@@ -5,3 +5,5 @@
 /exp04-mandate-replacement.json -text
 /exp05-ct15-hnp.json -text
 /exp05-authenticated-transport.json -text
+/exp06-hp.json -text
+/exp06-hp-infrastructure.json -text

@@ -1,0 +1,105 @@
+
+=================================== ERRORS ====================================
+____________ ERROR collecting tests/evaluation/test_demo_stack.py _____________
+tests\evaluation\test_demo_stack.py:34: in <module>
+    from commerce_evaluation import demo_stack
+evaluation\src\commerce_evaluation\demo_stack.py:127: in <module>
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'
+__________ ERROR collecting tests/evaluation/test_verify_evidence.py __________
+tests\evaluation\test_verify_evidence.py:23: in <module>
+    from commerce_evaluation.demo_stack import OTHER_MERCHANT
+evaluation\src\commerce_evaluation\demo_stack.py:127: in <module>
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'
+________ ERROR collecting tests/evaluation/test_verify_evidence_hnp.py ________
+tests\evaluation\test_verify_evidence_hnp.py:25: in <module>
+    from tests.evaluation.test_verify_evidence import body_edit, edit
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:935: in _load_unlocked
+    ???
+.venv\Lib\site-packages\_pytest\assertion\rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+tests\evaluation\test_verify_evidence.py:23: in <module>
+    from commerce_evaluation.demo_stack import OTHER_MERCHANT
+evaluation\src\commerce_evaluation\demo_stack.py:127: in <module>
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'
+____ ERROR collecting tests/evaluation/test_verify_evidence_hnp_status.py _____
+tests\evaluation\test_verify_evidence_hnp_status.py:17: in <module>
+    from tests.evaluation.test_verify_evidence_hnp import SCENARIOS, only_run, rechain
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:935: in _load_unlocked
+    ???
+.venv\Lib\site-packages\_pytest\assertion\rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+tests\evaluation\test_verify_evidence_hnp.py:25: in <module>
+    from tests.evaluation.test_verify_evidence import body_edit, edit
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:935: in _load_unlocked
+    ???
+.venv\Lib\site-packages\_pytest\assertion\rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+tests\evaluation\test_verify_evidence.py:23: in <module>
+    from commerce_evaluation.demo_stack import OTHER_MERCHANT
+evaluation\src\commerce_evaluation\demo_stack.py:127: in <module>
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'
+_____ ERROR collecting tests/integration/test_live_b2_d2_authorization.py _____
+tests\integration\test_live_b2_d2_authorization.py:32: in <module>
+    from commerce_evaluation.demo_stack import MODES, mode_environment
+evaluation\src\commerce_evaluation\demo_stack.py:127: in <module>
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'
+_____ ERROR collecting tests/integration/test_live_b2_pol02_allowlist.py ______
+tests\integration\test_live_b2_pol02_allowlist.py:31: in <module>
+    from commerce_evaluation.demo_stack import MODES, mode_environment
+evaluation\src\commerce_evaluation\demo_stack.py:127: in <module>
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'
+_______ ERROR collecting tests/integration/test_live_b2_pol11_budget.py _______
+tests\integration\test_live_b2_pol11_budget.py:22: in <module>
+    from commerce_evaluation.demo_stack import MODES, mode_environment
+evaluation\src\commerce_evaluation\demo_stack.py:127: in <module>
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'
+______ ERROR collecting tests/integration/test_live_browser_journeys.py _______
+tests\integration\test_live_browser_journeys.py:44: in <module>
+    from commerce_evaluation.demo_stack import MODES, mode_environment
+evaluation\src\commerce_evaluation\demo_stack.py:127: in <module>
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'
+============================== warnings summary ===============================
+.venv\Lib\site-packages\starlette\testclient.py:53
+  C:\ANDES\Tesis\tesis-commerce-agent-eval\.local\worktrees\exp-06\.venv\Lib\site-packages\starlette\testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/evaluation/test_demo_stack.py - AttributeError: module 'signal' h...
+ERROR tests/evaluation/test_verify_evidence.py - AttributeError: module 'sign...
+ERROR tests/evaluation/test_verify_evidence_hnp.py - AttributeError: module '...
+ERROR tests/evaluation/test_verify_evidence_hnp_status.py - AttributeError: m...
+ERROR tests/integration/test_live_b2_d2_authorization.py - AttributeError: mo...
+ERROR tests/integration/test_live_b2_pol02_allowlist.py - AttributeError: mod...
+ERROR tests/integration/test_live_b2_pol11_budget.py - AttributeError: module...
+ERROR tests/integration/test_live_browser_journeys.py - AttributeError: modul...
+!!!!!!!!!!!!!!!!!!! Interrupted: 8 errors during collection !!!!!!!!!!!!!!!!!!!
+1 warning, 8 errors in 42.08s
