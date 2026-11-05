@@ -178,25 +178,39 @@ def verify_checkout(lane: PurchaseLane, ep: Episode, offer: MerchantOffer, check
     assert internal["delivery_context"] == offer.delivery_context.model_dump(mode="json")
 
 
-def prepare(lane: PurchaseLane, ep: Episode, offer: MerchantOffer, facts: dict[str, Any]):
+def checkout_update(checkout: CheckoutSession) -> CheckoutUpdateRequest:
+    details = buyer_details("p3")
+    options = checkout.model_extra["fulfillment_options"] if checkout.model_extra else []
+    assert len(options) == 1
+    return CheckoutUpdateRequest(
+        buyer=details.buyer,
+        fulfillment_details=details.fulfillment,
+        selected_fulfillment_options=[
+            SelectedFulfillmentOption(
+                type="shipping",
+                option_id=options[0]["id"],
+                item_ids=[checkout.line_items[0]["id"]],
+            )
+        ],
+    )
+
+
+def prepare(
+    lane: PurchaseLane,
+    ep: Episode,
+    offer: MerchantOffer,
+    facts: dict[str, Any],
+    *,
+    creation_key: str | None = None,
+):
     with client(lane, ep) as gateway:
-        checkout = gateway.create_checkout(offer.id, currency="cop", idempotency_key=str(uuid4()))
-        verify_checkout(lane, ep, offer, checkout)
-        details = buyer_details("p3")
-        options = checkout.model_extra["fulfillment_options"] if checkout.model_extra else []
-        assert len(options) == 1
-        update = CheckoutUpdateRequest(
-            buyer=details.buyer,
-            fulfillment_details=details.fulfillment,
-            selected_fulfillment_options=[
-                SelectedFulfillmentOption(
-                    type="shipping",
-                    option_id=options[0]["id"],
-                    item_ids=[checkout.line_items[0]["id"]],
-                )
-            ],
+        checkout = gateway.create_checkout(
+            offer.id, currency="cop", idempotency_key=creation_key or str(uuid4())
         )
-        updated = gateway.update_checkout(checkout.id, update, idempotency_key=str(uuid4()))
+        verify_checkout(lane, ep, offer, checkout)
+        updated = gateway.update_checkout(
+            checkout.id, checkout_update(checkout), idempotency_key=str(uuid4())
+        )
         current = gateway.get_checkout(checkout.id)
         assert updated == current and current.status == "ready_for_payment"
         verify_checkout(lane, ep, offer, current)

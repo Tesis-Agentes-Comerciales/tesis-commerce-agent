@@ -105,12 +105,6 @@ jobs:
           ACCESS: ${{ needs.sibling-access.outputs.available }}
         run: test "$ACCESS" = "true"
 
-      - name: Require the separate P3 protocol implementation
-        if: inputs.test_scope == 'p3-protocol-gate'
-        run: |
-          echo "::error::P3 protocol gate is blocked until its separate implementation (#176) is integrated"
-          exit 1
-
       - name: Checkout merchant
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -142,7 +136,7 @@ jobs:
           (cd payment && uv python install && uv sync --frozen --all-groups)
 
       - name: Install Node.js
-        if: ${{ (!startsWith(inputs.test_scope, 'exp0') && inputs.test_scope != 'p0-catalog-bridge' && !startsWith(inputs.test_scope, 'p3-')) || inputs.test_scope == 'exp05-authenticated-transport' || inputs.test_scope == 'exp06-hp-infrastructure' || inputs.test_scope == 'exp06-runner-infrastructure' }}
+        if: ${{ (!startsWith(inputs.test_scope, 'exp0') && inputs.test_scope != 'p0-catalog-bridge' && !startsWith(inputs.test_scope, 'p3-')) || inputs.test_scope == 'exp05-authenticated-transport' || inputs.test_scope == 'exp06-hp-infrastructure' || inputs.test_scope == 'exp06-runner-infrastructure' || inputs.test_scope == 'p3-protocol-gate' }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
@@ -164,6 +158,16 @@ jobs:
           (cd auth && npm ci)
           (cd ui && npm ci)
           uv run playwright install --with-deps --only-shell chromium
+
+      - name: Install auth for the P3 protocol guard
+        if: inputs.test_scope == 'p3-protocol-gate'
+        working-directory: agent/auth
+        run: npm ci
+
+      - name: Require offline P3 protocol controls
+        if: inputs.test_scope == 'p3-protocol-gate'
+        working-directory: agent
+        run: uv run pytest tests/evaluation/test_p3_protocol.py tests/evaluation/test_p3_contract_evidence.py -q
 
       - name: Verify EXP-01 preregistration and exact sources
         if: startsWith(inputs.test_scope, 'exp0')
@@ -232,6 +236,9 @@ jobs:
               -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/live-outcomes.json"
           elif [ "${{ inputs.test_scope }}" = "p3-offer-checkout" ]; then
             uv run pytest tests/integration/test_live_p3_offer_checkout.py -vv -p no:cacheprovider \
+              --basetemp="$RUNNER_TEMP/live-stack" --junitxml="$RUNNER_TEMP/live-junit.xml"
+          elif [ "${{ inputs.test_scope }}" = "p3-protocol-gate" ]; then
+            uv run pytest tests/integration/test_live_p3_protocol.py -vv -p no:cacheprovider \
               --basetemp="$RUNNER_TEMP/live-stack" --junitxml="$RUNNER_TEMP/live-junit.xml"
           elif [ "${{ inputs.test_scope }}" = "exp07-ct19-hp" ]; then
             uv run pytest tests/integration/test_ct19_hp.py -vv --durations=20 -p no:cacheprovider \
@@ -354,11 +361,20 @@ jobs:
           --evidence "$RUNNER_TEMP/live-stack"
           --output "$RUNNER_TEMP/p3-v01-report.json"
 
+      - name: Require complete P3 protocol evidence
+        if: ${{ !cancelled() && inputs.test_scope == 'p3-protocol-gate' }}
+        working-directory: agent
+        run: >-
+          uv run python -m tests.support.p3_report --protocol-gate
+          --junit "$RUNNER_TEMP/live-junit.xml"
+          --evidence "$RUNNER_TEMP/live-stack"
+          --output "$RUNNER_TEMP/p3-point5-report.json"
+
       - name: Upload live evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.test_scope == 'p3-offer-checkout' && 'nightly-p3-offer-checkout-evidence' || inputs.test_scope == 'p0-catalog-bridge' && 'nightly-p0-catalog-bridge-evidence' || inputs.test_scope == 'exp07-ct19-hp' && 'ct19-hp-evidence' || inputs.test_scope == 'exp07-ct19-fixture' && 'ct19-fixture-evidence' || inputs.test_scope == 'exp06-runner-infrastructure' && 'exp06-runner-infrastructure-evidence' || inputs.test_scope == 'exp06-hp-infrastructure' && 'exp06-hp-infrastructure-evidence' || inputs.test_scope == 'exp05-authenticated-transport' && 'exp05-authenticated-transport-evidence' || inputs.test_scope == 'exp05-ct15-hnp' && 'exp05-ct15-hnp-evidence' || inputs.test_scope == 'exp04-mandate-replacement' && format('exp04-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp03-stock-shipping' && format('exp03-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp02-commercial' && format('exp02-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp08-inf31-hp' && 'exp08-inf31-hp-evidence' || inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
+          name: ${{ inputs.test_scope == 'p3-protocol-gate' && 'nightly-p3-protocol-gate-evidence' || inputs.test_scope == 'p3-offer-checkout' && 'nightly-p3-offer-checkout-evidence' || inputs.test_scope == 'p0-catalog-bridge' && 'nightly-p0-catalog-bridge-evidence' || inputs.test_scope == 'exp07-ct19-hp' && 'ct19-hp-evidence' || inputs.test_scope == 'exp07-ct19-fixture' && 'ct19-fixture-evidence' || inputs.test_scope == 'exp06-runner-infrastructure' && 'exp06-runner-infrastructure-evidence' || inputs.test_scope == 'exp06-hp-infrastructure' && 'exp06-hp-infrastructure-evidence' || inputs.test_scope == 'exp05-authenticated-transport' && 'exp05-authenticated-transport-evidence' || inputs.test_scope == 'exp05-ct15-hnp' && 'exp05-ct15-hnp-evidence' || inputs.test_scope == 'exp04-mandate-replacement' && format('exp04-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp03-stock-shipping' && format('exp03-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp02-commercial' && format('exp02-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp08-inf31-hp' && 'exp08-inf31-hp-evidence' || inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
           path: |
             ${{ runner.temp }}/live-stack/**/*.jsonl
             ${{ runner.temp }}/live-stack/**/*.log
@@ -370,6 +386,8 @@ jobs:
             ${{ runner.temp }}/nightly-SHA256SUMS
             ${{ runner.temp }}/p3-v01-report.json
             ${{ runner.temp }}/p3-v01-SHA256SUMS
+            ${{ runner.temp }}/p3-point5-report.json
+            ${{ runner.temp }}/p3-point5-SHA256SUMS
             ${{ runner.temp }}/exp01-stack/**/*.json
             ${{ runner.temp }}/exp01-stack/**/*.jsonl
             ${{ runner.temp }}/exp01-stack/**/*.log

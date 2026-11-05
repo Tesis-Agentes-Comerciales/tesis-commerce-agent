@@ -15,7 +15,7 @@ from tests.support.p3_contract import (
     PSP,
     condition,
 )
-from tests.support.p3_report import report
+from tests.support.p3_report import PROTOCOL_CASES, report
 
 
 def test_missing_or_unbound_observation_cannot_be_commercial_false():
@@ -115,3 +115,55 @@ def test_green_junit_needs_verified_sources_and_stack_cleanup(tmp_path: Path, co
     assert result["issues"] == [
         "manifest_unverified" if corruption.startswith("wrong") else "stack_cleanup_unverified"
     ]
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [None, "skipped", "missing_shutdown", "missing_manifest", "missing_psp", "wrong_tree"],
+)
+def test_protocol_report_rejects_unverified_evidence(tmp_path: Path, defect: str | None):
+    """A green JUnit alone cannot validate the protocol gate or its cleanup."""
+    junit = tmp_path / "junit.xml"
+    suite = ET.SubElement(ET.Element("testsuites"), "testsuite")
+    for i, name in enumerate(PROTOCOL_CASES.values()):
+        node = ET.SubElement(suite, "testcase", name=name)
+        if defect == "skipped" and i == 0:
+            ET.SubElement(node, "skipped")
+    ET.ElementTree(suite).write(junit)
+    agent = "1" * 40
+    manifest = {
+        "scenario": "P3-V01-manifest",
+        "agent_sha": agent,
+        "agent_base": INTEGRATED_AGENT_BASE,
+        "historical_agent_base": AGENT_BASE,
+        "product_tree": "4" * 40 if defect == "wrong_tree" else INTEGRATED_PRODUCT_TREE,
+        "base_product_tree": INTEGRATED_PRODUCT_TREE,
+        "required_cases": list(CASES),
+        "llm": False,
+        "payments": False,
+        "pins": {
+            "MERCHANT_REPO": {"sha": MERCHANT, "lock_sha256": "2" * 64},
+            "PAYMENT_REPO": {"sha": PSP, "lock_sha256": "3" * 64},
+        },
+    }
+    shutdown = {"scenario": "shutdown", "proxy_closed": True, "postgres_removed": True}
+    psp_shutdown = {"scenario": "P3-V01-psp-shutdown", "psp_stopped": True}
+    cases = [
+        {"scenario": "P3-PV-case", "case_id": case, "status": "passed", "cleanup_verified": True}
+        for case in PROTOCOL_CASES
+    ]
+    rows = [*cases]
+    if defect != "missing_manifest":
+        rows.append(manifest)
+    if defect != "missing_shutdown":
+        rows.append(shutdown)
+    if defect != "missing_psp":
+        rows.append(psp_shutdown)
+    (tmp_path / "evidence.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+    )
+    result = report(junit, tmp_path, agent, protocol_gate=True)
+    assert result["validated"] is (defect is None)
+    assert result["schema"] == "p3-point5-report/1"
+    if defect is not None:
+        assert result["issues"] or result["counts"]["skipped"]

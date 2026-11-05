@@ -18,15 +18,33 @@ from tests.support.p3_contract import (
     PSP,
 )
 
+PROTOCOL_CASES = {
+    "PV-05-06-08": "test_protocol_contract_pv05_06_08",
+    "PV-07": "test_protocol_contract_pv07",
+    "PV-10": "test_protocol_contract_pv10",
+}
 
-def report(junit: Path, evidence: Path, expected_agent: str | None = None) -> dict:
+
+def report(
+    junit: Path,
+    evidence: Path,
+    expected_agent: str | None = None,
+    *,
+    protocol_gate: bool = False,
+) -> dict:
     nodes = ET.parse(junit).getroot().findall(".//testcase") if junit.is_file() else []
     records = {}
     manifests, shutdowns, psp_shutdowns = [], [], []
+    event = "P3-PV-case" if protocol_gate else "P3-V01-case"
+    tests = (
+        PROTOCOL_CASES
+        if protocol_gate
+        else {case: f"test_offer_checkout_contract[{case}]" for case in CASES}
+    )
     for path in sorted({p.resolve() for p in evidence.rglob("evidence.jsonl")}):
         for line in path.read_text(encoding="utf-8").splitlines():
             row = json.loads(line)
-            if row.get("scenario") == "P3-V01-case":
+            if row.get("scenario") == event:
                 key = row["case_id"]
                 if key in records:
                     raise ValueError("Duplicate case evidence")
@@ -38,8 +56,8 @@ def report(junit: Path, evidence: Path, expected_agent: str | None = None) -> di
             elif row.get("scenario") == "P3-V01-psp-shutdown":
                 psp_shutdowns.append(row)
     results = []
-    for case in CASES:
-        matching = [n for n in nodes if n.get("name") == f"test_offer_checkout_contract[{case}]"]
+    for case, test_name in tests.items():
+        matching = [n for n in nodes if n.get("name") == test_name]
         row = records.get(case, {})
         status = "not_executed"
         if matching:
@@ -99,16 +117,22 @@ def report(junit: Path, evidence: Path, expected_agent: str | None = None) -> di
         or psp_shutdowns[0].get("psp_stopped") is not True
     ):
         issues.append("stack_cleanup_unverified")
-    return {
-        "schema": "p3-v01-report/1",
+    if protocol_gate and set(records) != set(tests):
+        issues.append("protocol_evidence_incomplete")
+    result = {
+        "schema": "p3-point5-report/1" if protocol_gate else "p3-v01-report/1",
         "p3_status": "BLOCKED",
         "collected": len(nodes),
         "counts": counts,
         "cases": results,
         "manifest": manifest,
         "issues": issues,
-        "validated": counts["passed"] == len(CASES) and len(nodes) == len(CASES) and not issues,
+        "validated": counts["passed"] == len(tests) and len(nodes) == len(tests) and not issues,
     }
+    if protocol_gate:
+        result["shutdown"] = shutdowns
+        result["sources"] = manifests
+    return result
 
 
 def main() -> None:
@@ -116,16 +140,23 @@ def main() -> None:
     parser.add_argument("--junit", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--protocol-gate", action="store_true")
     args = parser.parse_args()
-    result = report(args.junit, args.evidence, os.environ.get("GITHUB_SHA"))
+    result = report(
+        args.junit, args.evidence, os.environ.get("GITHUB_SHA"), protocol_gate=args.protocol_gate
+    )
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     paths = {p.resolve() for p in args.evidence.rglob("evidence.jsonl")}
     paths |= {p.resolve() for p in (args.junit, args.output) if p.is_file()}
+    if args.protocol_gate:
+        for pattern in ("*.log", "*.jsonl"):
+            paths |= {p.resolve() for p in args.evidence.rglob(pattern)}
     sums = "".join(
         f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(args.output.parent)}\n"
         for p in sorted(paths)
     )
-    args.output.with_name("p3-v01-SHA256SUMS").write_text(sums, encoding="utf-8")
+    hash_file = "p3-point5-SHA256SUMS" if args.protocol_gate else "p3-v01-SHA256SUMS"
+    args.output.with_name(hash_file).write_text(sums, encoding="utf-8")
     print(
         json.dumps(
             {
