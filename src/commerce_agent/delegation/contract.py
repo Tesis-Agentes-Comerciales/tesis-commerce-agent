@@ -145,6 +145,19 @@ HNP_MESSAGES: Mapping[str, str] = MappingProxyType(
             "Detuve la compra delegada por precaución porque no pude verificar todo lo necesario. "
             "No se hizo ningún cobro y cerré la delegación."
         ),
+        # CT13: a `checkout_failed` whose creation the merchant refused (`merchant_refusal`): the
+        # cause in the trace's words (`FAILURE_COPY`), then what `task.failed` says did not happen.
+        "task.refused.out_of_stock": (
+            "El producto se agotó antes de completar la compra. No se hizo ningún cobro y cerré la "
+            "delegación."
+        ),
+        "task.refused.offer_expired": (
+            "La oferta del comercio venció. No se hizo ningún cobro y cerré la delegación."
+        ),
+        "task.refused.invalid_item": (
+            "El producto ya no está disponible en el comercio. No se hizo ningún cobro y cerré la "
+            "delegación."
+        ),
         "task.uncertain": (
             "No sé todavía si la compra delegada se completó: el comercio o el proveedor de pagos "
             "no confirmó el resultado. No voy a intentarlo con otra autorización; la estoy "

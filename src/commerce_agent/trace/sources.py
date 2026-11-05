@@ -21,7 +21,7 @@ from pydantic import SecretBytes, TypeAdapter, ValidationError
 
 from commerce_agent.application.conversation import turn_run_id
 from commerce_agent.config import Settings, validate_service_base_url
-from commerce_agent.delegation.models import DelegationEvent
+from commerce_agent.delegation.models import DelegationEvent, MerchantRefusal
 from commerce_agent.delegation.models import chain_is_valid as delegation_chain_is_valid
 from commerce_agent.governance.evaluator import GovernanceError, verify_artifact
 from commerce_agent.governance.evidence import DecisionRecord, EvidenceError
@@ -74,6 +74,8 @@ class RevokedBody(TypedDict):
 class FinishedBody(TypedDict):
     state: str
     outcome_code: str | None
+    # CT13: only a `checkout_failed` whose creation the merchant refused (TaskFinish).
+    merchant_refusal: NotRequired[MerchantRefusal]
 
 
 class ReviewedBody(TypedDict):

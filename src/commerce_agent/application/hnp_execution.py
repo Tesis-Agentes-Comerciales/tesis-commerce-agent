@@ -34,10 +34,11 @@ from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, NoReturn, Protocol
+from typing import Literal, NoReturn, Protocol, get_args
 
 import jwt
 
+from commerce_agent.acp.client import ACPClientError
 from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.acp.models import CheckoutSession
 from commerce_agent.ap2 import checkout_hash
@@ -72,6 +73,7 @@ from commerce_agent.delegation.models import (
     Execution,
     KillSwitchStage,
     MandateRecord,
+    MerchantRefusal,
     OutcomeCode,
     ReservationRequest,
     SignedMandate,
@@ -88,6 +90,7 @@ from commerce_agent.governance.hnp_models import ConsentScope, parse_consent_sco
 from commerce_agent.governance.hnp_policy import HnpGrant
 from commerce_agent.governance.hnp_ports import HnpGateDecision, HnpPolicyGate
 from commerce_agent.governance.models import POLICY_REASONS
+from commerce_agent.governance.runtime_dispatch import DEFINITIVE_CREATION_REFUSALS
 from commerce_agent.llm.model_failures import ModelFailureKind, model_failure_kind
 from commerce_agent.llm.model_requests import model_request_scope
 from commerce_agent.persistence import SqliteAgentStore
@@ -135,6 +138,8 @@ _START_OUTCOMES: dict[str, OutcomeCode] = {
     "invalid_candidate": "selection_not_eligible",
     "no_candidate": "no_candidate_in_scope",
 }
+# CT13: the merchant's typed refusals of the creation, which `checkout_failed` may name.
+_REFUSALS: dict[str, MerchantRefusal] = {code: code for code in get_args(MerchantRefusal)}
 # §8.1, «alerta al operador»: these terminals may mean altered mandates or a scope the operator
 # misconfigured. Each is logged once at ERROR on `commerce_agent.hnp.alerts`, with ids only.
 OPERATOR_ALERTS: frozenset[OutcomeCode] = frozenset(
@@ -662,14 +667,32 @@ class HnpExecutionService:
                 grant=grant,
             )
         except PurchaseServiceError as error:
-            outcome = self._start_outcome(run.run_id, error.code)
+            # B2-HNP: D1-HNP raises a refusal's own code only after recording that its one POST
+            # created nothing (`definitive_failure`); any other failure there is uncertain.
+            outcome, refused = self._start_outcome(run.run_id, error.code), error.code
+        except ACPClientError as error:
+            # B0-HNP: the merchant's answer to the POST of `start` or to a later call of it.
+            outcome, refused = "checkout_failed", _creation_refusal(error)
         except Exception:
-            outcome = "checkout_failed"
+            outcome, refused = "checkout_failed", None
         else:
             return prepared.checkout
         # §4.6: the terminal fails or cancels a `received` purchase and keeps what `start` left.
         outcome = self._unrecovered(run.run_id) or outcome
-        self._end(run, outcome, purchase=self._closable(run.run_id))
+        refusal = self._refusal(run.run_id, outcome, refused)
+        self._end(run, outcome, purchase=self._closable(run.run_id), merchant_refusal=refusal)
+
+    def _refusal(
+        self, run_id: str, outcome: OutcomeCode, code: str | None
+    ) -> MerchantRefusal | None:
+        """CT13: the merchant's refusal a `checkout_failed` names, only when it is certain: a
+        typed refusal of the creation, with the purchase failed and no checkout stored. The same
+        code on the details update comes with the checkout already created, so it names none."""
+        refusal = _REFUSALS.get(code or "") if outcome == "checkout_failed" else None
+        purchase = self._store.purchase(run_id) if refusal is not None else None
+        if purchase is None or purchase["checkout_id"] is not None:
+            return None
+        return refusal if purchase["stage"] == PurchaseStage.FAILED else None
 
     def _start_outcome(self, run_id: str, code: str) -> OutcomeCode:
         if code == "d1_denied":
@@ -821,6 +844,7 @@ class HnpExecutionService:
         checkout: CheckoutSession | None = None,
         hooks: Sequence[TransactionHook] = (),
         failure_kind: ModelFailureKind | None = None,
+        merchant_refusal: MerchantRefusal | None = None,
     ) -> NoReturn:
         """The terminal of §8.1 by CAS, with the purchase closed in the same unit of work when
         `start` prepared it; an escalation also cancels its own checkout (§8.2)."""
@@ -829,7 +853,9 @@ class HnpExecutionService:
             () if purchase is None else (purchase_terminal(run.task_id, run.run_id, purchase),)
         )
         try:
-            step = self._finish(run, state, outcome, stage, (*hooks, *closing), failure_kind)
+            step = self._finish(
+                run, state, outcome, stage, (*hooks, *closing), failure_kind, merchant_refusal
+            )
         except GovernanceError:
             if not hooks:
                 raise
@@ -851,9 +877,12 @@ class HnpExecutionService:
         stage: KillSwitchStage,
         hooks: Sequence[TransactionHook],
         failure_kind: ModelFailureKind | None = None,
+        merchant_refusal: MerchantRefusal | None = None,
     ) -> Step:
         kill_stage = stage if outcome == "kill_switch" else None
-        request = TaskFinish(run.task_id, run.lease_id, state, outcome, kill_stage, failure_kind)
+        request = TaskFinish(
+            run.task_id, run.lease_id, state, outcome, kill_stage, failure_kind, merchant_refusal
+        )
         step = self._ledger.finish_task(request, hooks=hooks)
         revoked = step.execution is not None and step.execution.grant.revoked_reason == "owner"
         if step.status == "blocked" and revoked and outcome != "revoked_by_owner":
@@ -902,6 +931,14 @@ class HnpExecutionService:
             )
 
         return complete
+
+
+def _creation_refusal(error: ACPClientError) -> str | None:
+    """The merchant's definitive refusal of a creation, by exact status and code, as the governed
+    dispatch reads it (`runtime_dispatch`); anything else proves nothing."""
+    if error.status_code is None:
+        return None
+    return DEFINITIVE_CREATION_REFUSALS.get((error.status_code, error.code))
 
 
 def _listed(shortlist: tuple[RankedCandidate, ...], variant_id: str) -> bool:
