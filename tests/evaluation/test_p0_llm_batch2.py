@@ -152,7 +152,35 @@ def test_plan_binds_its_spec_the_matrix_and_batch_one():
     exp06 = load(PLAN["batch1"]["path"])
     assert PLAN["model"] == exp06["model"] == "gpt-5-mini-2025-08-07"
     assert PLAN["context"] == exp06["context"]
-    assert PLAN["run_ref"] is None and PLAN["status"] == "draft_pending_approval"
+    assert PLAN["run_ref"] is None
+
+
+def test_yair_approved_every_recommendation_and_the_review_rule():
+    approval = PLAN["approval"]
+    assert PLAN["status"] == "pre_registered" and approval["status"] == "approved"
+    assert approval["approved_at"] == "2026-11-05"
+    quote = "«vamos con lo recomendado, pero no esperemos a Maldo o a mí, es blocker»"
+    assert quote in approval["record"]
+    spec = (ROOT / PLAN["spec"]["path"]).read_text(encoding="utf-8")
+    assert quote in spec
+    assert set(approval["resolutions"]) == {*(str(n) for n in range(1, 11)), "review"}
+    assert "CT21-HP" in CELLS and CELLS["CT21-HP"]["conditions"] == ["B0prime", "B2"]
+    assert CELLS["CT21-HNP"]["conditions"] == ["B0-HNP", "B2-HNP"]
+    assert PLAN["cost"]["input_token_ceiling_per_attempt"] == 400000
+    assert PLAN["design"]["batch_repetitions_per_cell"] == 5
+    assert PLAN["ct21"]["mount"].startswith("feed-side")
+    review = PLAN["common_oracle"]["provisional_review"]
+    assert review["blocks_run"] is False
+    assert "grader_kind=agent" in review["marking"]
+    assert "pending_review" in review["human_boxes"]
+
+
+def test_the_ux12_hp_twin_reuses_the_product_specific_message():
+    twin, proposal = CELLS["UX12-HP"], CELLS[CELLS["UX12-HP"]["twin_of"]]
+    assert (twin["mode"], twin["conditions"], twin["surface"]) == ("HP", ["B2"], "hp_rest")
+    assert twin["messages"] == proposal["messages"]
+    assert set(twin["actions"]) <= {"clarify", "respond"}
+    assert set(twin["effects"].values()) == {0}
 
 
 def test_cells_cover_exactly_the_batch_two_rows_and_modes():
@@ -169,6 +197,7 @@ def test_cells_cover_exactly_the_batch_two_rows_and_modes():
         ("UX02", "HP"),
         ("UX02", "HNP"),
         ("UX11", "HNP"),
+        ("UX12", "HP"),
         ("UX12", "HNP"),
         ("CT21", "HP"),
         ("CT21", "HNP"),
@@ -188,7 +217,8 @@ def test_ambiguity_always_asks_and_a_proposal_never_drafts_or_spends():
         assert "purchase" not in cell["actions"]
     for cell_id in ("UX01-HNP-proposal", "UX02-HP", "UX02-HNP-proposal", "UX11-HNP-proposal"):
         assert CELLS[cell_id]["actions"] == ["clarify"]
-    assert set(CELLS["UX12-HNP-proposal"]["actions"]) <= {"clarify", "respond"}
+    for cell_id in ("UX12-HNP-proposal", "UX12-HP"):
+        assert set(CELLS[cell_id]["actions"]) <= {"clarify", "respond"}
 
 
 def test_stimuli_carry_the_ambiguity_by_construction():
@@ -278,21 +308,9 @@ def test_caps_follow_the_batch_one_formula(path):
 def test_attempts_add_up_per_cell_condition_and_repetition():
     cost, design = PLAN["cost"], PLAN["design"]
     per_repetition = sum(cell_attempts(c, c["conditions"]) for c in PLAN["cells"])
-    assert per_repetition == cost["attempts_per_repetition"] == 44
+    assert per_repetition == cost["attempts_per_repetition"] == 50
     assert cost["smoke_max_attempts"] == per_repetition * design["smoke_repetitions_per_cell"]
     assert cost["batch_max_attempts"] == per_repetition * design["batch_repetitions_per_cell"]
-    # Without the B0 conditions of CT21.
-    alternative = cost["b2_only_alternative"]
-    kept = sum(
-        cell_attempts(c, [k for k in c["conditions"] if k not in {"B0prime", "B0-HNP"}])
-        for c in PLAN["cells"]
-    )
-    assert kept == alternative["attempts_per_repetition"] == 36
-    worst = Decimal(cost["worst_reserved_usd_per_attempt"])
-    for stage, repetitions, step in (("smoke", 1, 1), ("batch", 5, 5)):
-        bound = kept * repetitions * worst
-        assert Decimal(alternative[f"{stage}_reservation_bound_usd"]) == bound
-        assert Decimal(alternative[f"proposed_{stage}_cap_usd"]) == cap(bound, step)
 
 
 # CT21
