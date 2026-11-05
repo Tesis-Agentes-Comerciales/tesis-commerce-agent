@@ -17,6 +17,7 @@ import pytest
 
 from commerce_agent.config import Settings
 from commerce_agent.delegation.models import ReservationRequest
+from commerce_agent.llm.model_failures import IntentInterpretationError
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
 from commerce_agent.trace import PurchaseTrace, PurchaseTraces, TraceUnavailable
@@ -568,6 +569,37 @@ def test_a_choice_not_confirmed_shows_its_review_and_the_escalation(
     # No decision was taken, but the reviewer only runs in B2-HNP.
     assert (trace.status, trace.policy_mode, trace.total) == ("canceled", "enforce", None)
     assert summarize(trace).policy is None
+
+
+def test_a_review_the_model_could_not_give_keeps_the_same_trace(
+    tmp_path: Path, ticking: Ticking
+) -> None:
+    """p0-model-failures.md §3.5: the review's `failure_kind` stays in the ledger; the trace reads
+    its decision and reason, as before."""
+    error = IntentInterpretationError(
+        "The intent review request failed", failure_kind="unreachable"
+    )
+    bench = Bench(tmp_path, mode="enforce", reviewer=FakeReviewer(error))
+    bench.run()
+    (body,) = [
+        e.body for e in bench.ledger.events(bench.grant_id) if e.event_type == "choice_reviewed"
+    ]
+    assert body["failure_kind"] == "unreachable"
+
+    trace = bench_trace(bench)
+
+    assert kinds(trace) == [
+        "delegation_consented",
+        "task_activated",
+        "choice_reviewed",
+        "escalated",
+    ]
+    (review,) = of(trace, "choice_reviewed")
+    assert (review.state, review.decision, review.reason) == (
+        "blocked",
+        "not_confirmed",
+        "review_unavailable",
+    )
 
 
 def test_a_confirmed_review_goes_after_the_claim_and_before_the_checkout(

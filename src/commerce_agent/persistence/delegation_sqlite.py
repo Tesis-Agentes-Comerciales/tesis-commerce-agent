@@ -12,7 +12,7 @@ from contextlib import closing, contextmanager
 from dataclasses import asdict, fields, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, get_args
+from typing import TYPE_CHECKING, Any, get_args
 from uuid import uuid4
 
 from ..delegation.models import (
@@ -60,6 +60,9 @@ from ..delegation.models import (
 )
 from ..delegation.ports import TransactionHook
 from ..governance.canonical import canonical_bytes
+
+if TYPE_CHECKING:
+    from ..llm.model_failures import ModelFailureKind
 
 Clock = Callable[[], datetime]
 IdFactory = Callable[[str], str]
@@ -883,6 +886,8 @@ class SqliteDelegationLedger:
             raise ValueError("Dispatch outcomes end the task through the outbox")
         if (request.outcome_code == "kill_switch") != (request.stage is not None):
             raise ValueError("Only the kill switch names the stage that met it")
+        if request.failure_kind is not None and request.outcome_code != "selection_unavailable":
+            raise ValueError("Only selection_unavailable names why the model failed")
         with self._fenced(request.task_id, request.lease_id) as (connection, now, ex):
             if ex is None:
                 return Step("lease_lost")
@@ -898,6 +903,7 @@ class SqliteDelegationLedger:
                 request.outcome_code,
                 utc_text(now),
                 stage=request.stage,
+                failure_kind=request.failure_kind,
             )
             return _closed(connection, ex, hooks)
 
@@ -1169,6 +1175,7 @@ def _close_task(
     *,
     stage: KillSwitchStage | None = None,
     release: ReleaseBasis = "no_outbox",
+    failure_kind: "ModelFailureKind | None" = None,
 ) -> None:
     """A terminal of spec §8.1: release the held reservation, close an active grant, end. A PSP
     error receipt releases a committed reservation: nothing reached the merchant."""
@@ -1200,7 +1207,7 @@ def _close_task(
             _event(connection, ex, "revoked", actor, revoked, text)
     elif released:
         _bump_grant(connection, grant, text)
-    _finish(connection, ex, state, outcome, text)
+    _finish(connection, ex, state, outcome, text, failure_kind=failure_kind)
 
 
 def _settle_uncertain(
@@ -1237,6 +1244,8 @@ def _finish(
     state: TaskState,
     outcome: OutcomeCode | None,
     text: str,
+    *,
+    failure_kind: "ModelFailureKind | None" = None,
 ) -> None:
     task = ex.task
     _update(
@@ -1251,6 +1260,9 @@ def _finish(
         finished_at=text,
     )
     body = {"state": state, "outcome_code": outcome, "run_id": task.run_id}
+    if failure_kind is not None:
+        # Only when there is one, so every other terminal keeps its body (and its digest).
+        body["failure_kind"] = failure_kind
     _event(connection, ex, "task_finished", "service", body, text)
 
 
