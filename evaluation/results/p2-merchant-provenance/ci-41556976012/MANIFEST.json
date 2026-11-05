@@ -1,0 +1,35 @@
+{
+  "run_id": 41556976012,
+  "url": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41556976012",
+  "artifact_id": 13195362806,
+  "archive_sha256": "1835ce67f66b28423091544808a0d173884eb66118abf0c9d04af7067f4d847a",
+  "pr_head_sha": "99252720a9418b52ad8189c280d8c49dc3d31d03",
+  "checked_out_merge_sha": "e40c60e71675fbab2ae2ed352587c0f57ef601f1",
+  "files": [
+    {
+      "path": "python-outcomes.json",
+      "sha256": "5fd1221eda203f3aea54773eb59ee2dc0baf20f0a363d578806cb78107cd75a5",
+      "bytes": 392,
+      "transformation": "none"
+    },
+    {
+      "path": "report.json",
+      "sha256": "53d12feac32214fe405b3b7be61b479c7ced7530630c285b1a50a8cff4469749",
+      "bytes": 3131,
+      "transformation": "none"
+    },
+    {
+      "path": "python-junit.xml",
+      "sha256": "8bf66c45f0664af3d4279ef76dd500c5c53aabc5119a2340f111fd5643743f93",
+      "bytes": 527485,
+      "transformation": "none"
+    },
+    {
+      "path": "summary.md",
+      "sha256": "ccce99e2e9e7663e8ad65193a5bbb3dfc2583297733075f33f6530cf05eb3424",
+      "bytes": 807,
+      "transformation": "none"
+    }
+  ],
+  "scope": "offline CI, not live P2; byte-identical sanitized text selection"
+}

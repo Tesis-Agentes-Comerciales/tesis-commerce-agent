@@ -1,0 +1,11 @@
+4aee2c58e5b3caa0ae8572230624cc6c6e0aa09c5f79ffcd93879a71bf0c975f  live-junit.xml
+40a514edaaaf3ed3729fe1cb2d52467a79450b306862f3354e0905d32b65d5e2  live-stack/p2-p00/acp/feed-acp-agent-98cbf0c4/products.jsonl
+40a514edaaaf3ed3729fe1cb2d52467a79450b306862f3354e0905d32b65d5e2  live-stack/p2-p00/acp/feed-acp-mutation-c2451d52/products.jsonl
+40a514edaaaf3ed3729fe1cb2d52467a79450b306862f3354e0905d32b65d5e2  live-stack/p2-p00/acp/feed-acp-provenance-5a63c196/products.jsonl
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  live-stack/p2-p00/acp/merchant-control.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  live-stack/p2-p00/acp/merchant.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  live-stack/p2-p00/acp/payment.log
+a25381218bd6faef2daf281a48969762d37304a4cf7993be652cdb5994557732  live-stack/p2-p00/evidence.jsonl
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  live-stack/p2-p00/merchant-control.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  live-stack/p2-p00/merchant.log
+fbf5872409e0139e83b087833469d3a665380dd07bf2bb5bb19d74eba1cc9740  MANIFEST.json

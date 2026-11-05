@@ -1,0 +1,2 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuite name="EXP06-smoke-technical" tests="3" failures="0" errors="0" skipped="3"><testcase name="UX01"><skipped message="pending_review" /></testcase><testcase name="UX11"><skipped message="pending_review" /></testcase><testcase name="UX12"><skipped message="pending_review" /></testcase></testsuite>

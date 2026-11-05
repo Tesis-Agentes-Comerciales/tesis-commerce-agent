@@ -284,6 +284,8 @@ test("en «Delegar» el chat busca y la delegación se autoriza en el hilo; el d
 for (const [name, code] of [
   ["scope-mismatch", "delegation_scope_mismatch"],
   ["proposal-expired", "delegation_proposal_expired"],
+  // La otra propuesta la preparó otra pestaña: está fuera de la secuencia, esta página no la pide.
+  ["proposal-superseded", "delegation_proposal_superseded"],
 ] as const) {
   test(`autorizar responde 409 ${code}: muestra el mensaje y pide otra propuesta`, async ({
     page,

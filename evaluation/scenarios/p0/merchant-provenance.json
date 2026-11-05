@@ -1,0 +1,644 @@
+{
+  "schema_version": 1,
+  "agent_base_sha": "99f570dfc8d07b7e02b210b7c0c2d4c2d758db1e",
+  "merchant": {
+    "repository": "Tesis-Agentes-Comerciales/tesis-commerce-merchant",
+    "sha": "abf30df3b6a611284dedcc26c00accac6a853329"
+  },
+  "psp": {
+    "repository": "Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox",
+    "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+  },
+  "sources_sha256": {
+    "src/commerce_lab/fixtures/catalog_snapshot.json": "724ab9ad656946924d06d75787cd094047b1b718960d804b0749c4ce45793815",
+    "src/commerce_lab/fixtures/p0.py": "8402f057763a0d32a8c6140b76c6156bdbb4aa638dd241fb4fa600d27d5a88c8",
+    "src/commerce_lab/fixtures/generated.py": "3b51fd416fff29f37857f991754a8414e38aef1a0d3ece8a1bd92116f512e7a8",
+    "src/commerce_lab/fixtures/specs.py": "1a274190c7fe4482f96b509aa6b254f2874140a2255d731c0d6912cd1e1eb4ee",
+    "src/commerce_lab/fixtures/__init__.py": "2dec0646f5e8b367eee59aac307572479c114a403d5e763354c1af5456f76d22",
+    "src/commerce_lab/managed_catalog.py": "6f861c13c2d6cc73651b07379df06e3ec9f232a1b7624481e58f0d136d98ff68",
+    "src/commerce_lab/feed.py": "fe2e78fb0ae33469cbad29682268dca43f8c7a82096168f3b92ae0dc94e098d7"
+  },
+  "snapshot_sidecar_sha256": "e82297917dfcfd1879f0e32daf1187569c802d8866cbbf363254fe67e4c5ea4d",
+  "sidecar_matches_raw_bytes": false,
+  "snapshot_product_count": 143,
+  "static_admissible_product_count": 141,
+  "availability_basis": "Static generator filter: tracked downloaded photograph and not is_vector. Not an observed DB import, exported feed or in-stock count.",
+  "static_admissible_products": [
+    {
+      "entity": "BBGooglePixel7a",
+      "title": "Google Pixel 7a"
+    },
+    {
+      "entity": "BBGooglePixel8",
+      "title": "Google Pixel 8"
+    },
+    {
+      "entity": "BBGooglePixel8Pro",
+      "title": "Google Pixel 8 Pro"
+    },
+    {
+      "entity": "BBGooglePixel8a",
+      "title": "Google Pixel 8a"
+    },
+    {
+      "entity": "BBGooglePixel9",
+      "title": "Google Pixel 9"
+    },
+    {
+      "entity": "BBGooglePixel9Pro",
+      "title": "Google Pixel 9 Pro"
+    },
+    {
+      "entity": "BBGooglePixel9ProXL",
+      "title": "Google Pixel 9 Pro XL"
+    },
+    {
+      "entity": "BBMotorolaEdge50Pro",
+      "title": "Motorola Edge 50 Pro"
+    },
+    {
+      "entity": "BBMotorolaMotoGPower",
+      "title": "Motorola Moto G Power"
+    },
+    {
+      "entity": "BBMotorolaRazr50Ultra",
+      "title": "Motorola Razr 50 Ultra"
+    },
+    {
+      "entity": "BBOnePlus11",
+      "title": "OnePlus 11"
+    },
+    {
+      "entity": "BBOnePlus12",
+      "title": "OnePlus 12"
+    },
+    {
+      "entity": "BBSamsungGalaxyA15",
+      "title": "Samsung Galaxy A15"
+    },
+    {
+      "entity": "BBSamsungGalaxyA25",
+      "title": "Samsung Galaxy A25"
+    },
+    {
+      "entity": "BBSamsungGalaxyA35",
+      "title": "Samsung Galaxy A35"
+    },
+    {
+      "entity": "BBSamsungGalaxyA54",
+      "title": "Samsung Galaxy A54"
+    },
+    {
+      "entity": "BBSamsungGalaxyA55",
+      "title": "Samsung Galaxy A55"
+    },
+    {
+      "entity": "BBSamsungGalaxyS23Ultra",
+      "title": "Samsung Galaxy S23 Ultra"
+    },
+    {
+      "entity": "BBSonyXperia10VI",
+      "title": "Sony Xperia 10 VI"
+    },
+    {
+      "entity": "BBSonyXperia1VI",
+      "title": "Sony Xperia 1 VI"
+    },
+    {
+      "entity": "BBTCL50XL",
+      "title": "TCL 50 XL"
+    },
+    {
+      "entity": "BBiPhone11",
+      "title": "iPhone 11"
+    },
+    {
+      "entity": "BBiPhone12Pro",
+      "title": "iPhone 12 Pro"
+    },
+    {
+      "entity": "BBiPhone12ProMax",
+      "title": "iPhone 12 Pro Max"
+    },
+    {
+      "entity": "BBiPhone12mini",
+      "title": "iPhone 12 mini"
+    },
+    {
+      "entity": "BBiPhone13",
+      "title": "iPhone 13"
+    },
+    {
+      "entity": "BBiPhone13ProMax",
+      "title": "iPhone 13 Pro Max"
+    },
+    {
+      "entity": "BBiPhone14",
+      "title": "iPhone 14"
+    },
+    {
+      "entity": "BBiPhone14Plus",
+      "title": "iPhone 14 Plus"
+    },
+    {
+      "entity": "BBiPhone16",
+      "title": "iPhone 16"
+    },
+    {
+      "entity": "BBiPhone16Pro",
+      "title": "iPhone 16 Pro"
+    },
+    {
+      "entity": "BBiPhone17",
+      "title": "iPhone 17"
+    },
+    {
+      "entity": "BBiPhone17Pro",
+      "title": "iPhone 17 Pro"
+    },
+    {
+      "entity": "BBiPhoneAir",
+      "title": "iPhone Air"
+    },
+    {
+      "entity": "BBiPhoneSE2022",
+      "title": "iPhone SE (2022)"
+    },
+    {
+      "entity": "Q100286751",
+      "title": "Sony Xperia 5 II"
+    },
+    {
+      "entity": "Q100348826",
+      "title": "OnePlus 8T"
+    },
+    {
+      "entity": "Q104772244",
+      "title": "Samsung Galaxy A12"
+    },
+    {
+      "entity": "Q105176473",
+      "title": "Samsung Galaxy S21 Ultra"
+    },
+    {
+      "entity": "Q106044016",
+      "title": "Samsung Galaxy A52"
+    },
+    {
+      "entity": "Q106629718",
+      "title": "Samsung Galaxy A52 5G"
+    },
+    {
+      "entity": "Q108044294",
+      "title": "Samsung Galaxy A22 5G"
+    },
+    {
+      "entity": "Q108051842",
+      "title": "Samsung Galaxy Z Fold 3"
+    },
+    {
+      "entity": "Q108057818",
+      "title": "Samsung Galaxy Z Flip 3"
+    },
+    {
+      "entity": "Q108266001",
+      "title": "Samsung Galaxy A10e"
+    },
+    {
+      "entity": "Q108541666",
+      "title": "iPhone 13 mini"
+    },
+    {
+      "entity": "Q108541719",
+      "title": "iPhone 13 Pro"
+    },
+    {
+      "entity": "Q109264698",
+      "title": "Samsung Galaxy M32"
+    },
+    {
+      "entity": "Q109341356",
+      "title": "Samsung Galaxy A52s 5G"
+    },
+    {
+      "entity": "Q109908096",
+      "title": "Samsung Galaxy A03"
+    },
+    {
+      "entity": "Q109908100",
+      "title": "Samsung Galaxy A13 5G"
+    },
+    {
+      "entity": "Q110461772",
+      "title": "Samsung Galaxy M12"
+    },
+    {
+      "entity": "Q110528997",
+      "title": "OnePlus 9 Pro"
+    },
+    {
+      "entity": "Q111088113",
+      "title": "Samsung Galaxy A23"
+    },
+    {
+      "entity": "Q111094451",
+      "title": "Sony Xperia 1 IV"
+    },
+    {
+      "entity": "Q111280037",
+      "title": "Samsung Galaxy A53 5G"
+    },
+    {
+      "entity": "Q111281190",
+      "title": "Samsung Galaxy A73 5G"
+    },
+    {
+      "entity": "Q111281459",
+      "title": "Samsung Galaxy A33 5G"
+    },
+    {
+      "entity": "Q111550463",
+      "title": "Samsung Galaxy M53 5G"
+    },
+    {
+      "entity": "Q111754633",
+      "title": "Samsung Galaxy S22 Ultra"
+    },
+    {
+      "entity": "Q112159052",
+      "title": "Samsung Galaxy M13"
+    },
+    {
+      "entity": "Q113486831",
+      "title": "Samsung Galaxy Z Fold 4"
+    },
+    {
+      "entity": "Q113486834",
+      "title": "Samsung Galaxy Z Flip 4"
+    },
+    {
+      "entity": "Q113800722",
+      "title": "iPhone 14 Pro"
+    },
+    {
+      "entity": "Q113816991",
+      "title": "iPhone 14 Pro Max"
+    },
+    {
+      "entity": "Q115518310",
+      "title": "Sony Xperia 5 IV"
+    },
+    {
+      "entity": "Q116629964",
+      "title": "Samsung Galaxy S23+"
+    },
+    {
+      "entity": "Q117154490",
+      "title": "Samsung Galaxy A54 5G"
+    },
+    {
+      "entity": "Q117154514",
+      "title": "Samsung Galaxy A34 5G"
+    },
+    {
+      "entity": "Q117801782",
+      "title": "Samsung Galaxy A24"
+    },
+    {
+      "entity": "Q118586112",
+      "title": "Samsung Galaxy S23"
+    },
+    {
+      "entity": "Q118593938",
+      "title": "Samsung Galaxy S22+"
+    },
+    {
+      "entity": "Q118593984",
+      "title": "Samsung Galaxy S22"
+    },
+    {
+      "entity": "Q121992935",
+      "title": "iPhone 15"
+    },
+    {
+      "entity": "Q122442399",
+      "title": "iPhone 15 Pro"
+    },
+    {
+      "entity": "Q124316718",
+      "title": "Samsung Galaxy S24"
+    },
+    {
+      "entity": "Q124316732",
+      "title": "Samsung Galaxy S24 Ultra"
+    },
+    {
+      "entity": "Q124316763",
+      "title": "Samsung Galaxy S24+"
+    },
+    {
+      "entity": "Q124339427",
+      "title": "Samsung Galaxy A25 5G"
+    },
+    {
+      "entity": "Q124653339",
+      "title": "iPhone 15 Plus"
+    },
+    {
+      "entity": "Q124813406",
+      "title": "Samsung Galaxy A55 5G"
+    },
+    {
+      "entity": "Q124813453",
+      "title": "Samsung Galaxy A35 5G"
+    },
+    {
+      "entity": "Q124974572",
+      "title": "Samsung Galaxy A05"
+    },
+    {
+      "entity": "Q125029543",
+      "title": "Samsung Galaxy A05s"
+    },
+    {
+      "entity": "Q125178718",
+      "title": "iPhone 15 Pro Max"
+    },
+    {
+      "entity": "Q127328023",
+      "title": "Samsung Galaxy Z Flip 6"
+    },
+    {
+      "entity": "Q127328030",
+      "title": "Samsung Galaxy Z Fold 6"
+    },
+    {
+      "entity": "Q129176356",
+      "title": "Moto G54 5G"
+    },
+    {
+      "entity": "Q130306896",
+      "title": "Samsung Galaxy M35 5G"
+    },
+    {
+      "entity": "Q130312645",
+      "title": "iPhone 16 Plus"
+    },
+    {
+      "entity": "Q130315105",
+      "title": "iPhone 16 Pro Max"
+    },
+    {
+      "entity": "Q130384521",
+      "title": "Samsung Galaxy S24 FE"
+    },
+    {
+      "entity": "Q131291786",
+      "title": "Samsung Galaxy A16"
+    },
+    {
+      "entity": "Q131860814",
+      "title": "Samsung Galaxy S25"
+    },
+    {
+      "entity": "Q131860826",
+      "title": "Samsung Galaxy S25+"
+    },
+    {
+      "entity": "Q131860835",
+      "title": "Samsung Galaxy S25 Ultra"
+    },
+    {
+      "entity": "Q132559447",
+      "title": "iPhone 16e"
+    },
+    {
+      "entity": "Q133249205",
+      "title": "Samsung Galaxy A56 5G"
+    },
+    {
+      "entity": "Q133270095",
+      "title": "Samsung Galaxy A36 5G"
+    },
+    {
+      "entity": "Q135280843",
+      "title": "Samsung Galaxy Z Fold 7"
+    },
+    {
+      "entity": "Q136203050",
+      "title": "iPhone 17 Pro Max"
+    },
+    {
+      "entity": "Q137828933",
+      "title": "Samsung Galaxy S26"
+    },
+    {
+      "entity": "Q138529589",
+      "title": "iPhone 17e"
+    },
+    {
+      "entity": "Q140676695",
+      "title": "Samsung Galaxy Z Fold 8"
+    },
+    {
+      "entity": "Q16599646",
+      "title": "Samsung Galaxy A06 5G"
+    },
+    {
+      "entity": "Q26831164",
+      "title": "iPhone 7"
+    },
+    {
+      "entity": "Q26833946",
+      "title": "iPhone 7 Plus"
+    },
+    {
+      "entity": "Q28864618",
+      "title": "Samsung Galaxy S8"
+    },
+    {
+      "entity": "Q30898021",
+      "title": "Samsung Galaxy A26 5G"
+    },
+    {
+      "entity": "Q51885191",
+      "title": "Xperia XZ2 Premium"
+    },
+    {
+      "entity": "Q60021939",
+      "title": "Samsung Galaxy S10"
+    },
+    {
+      "entity": "Q61913556",
+      "title": "Sony Xperia 1"
+    },
+    {
+      "entity": "Q63858911",
+      "title": "OnePlus 7"
+    },
+    {
+      "entity": "Q64262423",
+      "title": "OnePlus 7 Pro"
+    },
+    {
+      "entity": "Q64819686",
+      "title": "Samsung Galaxy A50"
+    },
+    {
+      "entity": "Q64889429",
+      "title": "Samsung Galaxy A40"
+    },
+    {
+      "entity": "Q65033630",
+      "title": "Samsung Galaxy A80"
+    },
+    {
+      "entity": "Q65059301",
+      "title": "Samsung Galaxy A70"
+    },
+    {
+      "entity": "Q65062493",
+      "title": "Samsung Galaxy A10"
+    },
+    {
+      "entity": "Q66209066",
+      "title": "Samsung Galaxy Note 10"
+    },
+    {
+      "entity": "Q66688566",
+      "title": "Samsung Galaxy S10+"
+    },
+    {
+      "entity": "Q67216142",
+      "title": "iPhone 11 Pro"
+    },
+    {
+      "entity": "Q67876968",
+      "title": "Samsung Galaxy A90 5G"
+    },
+    {
+      "entity": "Q68025803",
+      "title": "Samsung Galaxy A30"
+    },
+    {
+      "entity": "Q71620144",
+      "title": "Samsung Galaxy Note 10+"
+    },
+    {
+      "entity": "Q78585853",
+      "title": "Samsung Galaxy S20"
+    },
+    {
+      "entity": "Q84458425",
+      "title": "Samsung Galaxy S20+"
+    },
+    {
+      "entity": "Q84882182",
+      "title": "Samsung Galaxy Z Flip"
+    },
+    {
+      "entity": "Q84949463",
+      "title": "Samsung Galaxy S20 Ultra"
+    },
+    {
+      "entity": "Q86265338",
+      "title": "Sony Xperia 1 II"
+    },
+    {
+      "entity": "Q90413128",
+      "title": "Samsung Galaxy A11"
+    },
+    {
+      "entity": "Q96608989",
+      "title": "iPhone 12"
+    },
+    {
+      "entity": "Q97189547",
+      "title": "OnePlus Nord"
+    },
+    {
+      "entity": "Q97223461",
+      "title": "Samsung Galaxy A31"
+    },
+    {
+      "entity": "Q97223473",
+      "title": "Samsung Galaxy A41"
+    },
+    {
+      "entity": "Q97349752",
+      "title": "Samsung Galaxy M31"
+    },
+    {
+      "entity": "Q98078754",
+      "title": "Samsung Galaxy A21s"
+    },
+    {
+      "entity": "Q98148411",
+      "title": "OnePlus 8 Pro"
+    },
+    {
+      "entity": "Q98148416",
+      "title": "Samsung Galaxy M21"
+    },
+    {
+      "entity": "Q99532825",
+      "title": "Samsung Galaxy M11"
+    },
+    {
+      "entity": "Q99887992",
+      "title": "Samsung Galaxy M51"
+    }
+  ],
+  "static_excluded_products": [
+    {
+      "entity": "Q140421681",
+      "title": "iPhone 18 Pro",
+      "reason": "vector_or_missing_asset"
+    },
+    {
+      "entity": "Q23309966",
+      "title": "iPhone SE (1st generation)",
+      "reason": "vector_or_missing_asset"
+    }
+  ],
+  "pair_rules": [
+    {
+      "role": "A",
+      "brand": "Sony",
+      "product_title": "Sony Xperia 5 II",
+      "storage": "256 GB",
+      "condition": "new",
+      "available": true
+    },
+    {
+      "role": "B",
+      "brand": "OnePlus",
+      "product_title": "OnePlus 8T",
+      "storage": "256 GB",
+      "condition": "new",
+      "available": true
+    }
+  ],
+  "runtime_execution": {
+    "status": "passed",
+    "scope": "P2-PROV-01/02/03 only; deterministic HP ACP bridge, no LLM, AP2 or UX03",
+    "evidence": [
+      {
+        "run_id": 41553912401,
+        "agent_sha": "656ad3a00ef2cbb15871c79df1f8615afe6dc194",
+        "passed": 1,
+        "failed": 2,
+        "skipped": 0,
+        "retained": "evaluation/results/p2-merchant-provenance/41553912401/MANIFEST.json"
+      },
+      {
+        "run_id": 41563374624,
+        "agent_sha": "99252720a9418b52ad8189c280d8c49dc3d31d03",
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "retained": "evaluation/results/p2-merchant-provenance/41563374624/MANIFEST.json"
+      }
+    ]
+  }
+}

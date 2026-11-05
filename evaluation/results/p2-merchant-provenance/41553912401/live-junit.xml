@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="3" time="21.002" timestamp="2026-11-03T00:36:31.802909+00:00" hostname="runnervm48cm3"><testcase classname="tests.integration.test_live_p0_catalog_bridge" name="test_p0_managed_and_b0_export_reach_the_agent" time="16.719" /><testcase classname="tests.integration.test_live_p0_catalog_bridge" name="test_managed_price_and_stock_revision_are_visible_to_the_agent" time="1.125"><failure message="httpx.HTTPStatusError: Client error '405 Method Not Allowed' for url 'http://127.0.0.1:43299/feeds/current'&#10;For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/405">p2_lane = &lt;tests.integration.live_purchase.PurchaseLane object at 0x7f7b306e6210&gt;
+tmp_path = PosixPath('/home/runner/work/_temp/live-stack/test_managed_price_and_stock_r0')
+
+    def test_managed_price_and_stock_revision_are_visible_to_the_agent(
+        p2_lane: PurchaseLane, tmp_path: Path
+    ):
+        facts: dict[str, Any] = {"phase": "preconditions", "cleanup_verified": False}
+        with verified_case(p2_lane.stack.record, "P2-PROV-02", facts):
+            episode, observed = catalog(p2_lane, "mutation")
+            a, _ = pair(observed["managed_offers"])
+            price = a["pricing"]["items_total_minor"] + 1
+            facts.update(
+                offer_id=a["id"],
+                source="managed catalog",
+                initial_revision=a["revision"],
+                initial_price_minor=a["pricing"]["items_total_minor"],
+                initial_stock=a["available_quantity"],
+                adverse_price_minor=price,
+                adverse_stock=0,
+            )
+            changed = None
+            try:
+                facts["phase"] = "mutation"
+                changed = p2_lane.rpc("p0_managed_update", offer_id=a["id"], price_minor=price, stock=0)
+                response = httpx.get(p2_lane.origin + "/feeds/current")
+&gt;               response.raise_for_status()
+
+tests/integration/test_live_p0_catalog_bridge.py:170: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;Response [405 Method Not Allowed]&gt;
+
+    def raise_for_status(self) -&gt; Response:
+        """
+        Raise the `HTTPStatusError` if one occurred.
+        """
+        request = self._request
+        if request is None:
+            raise RuntimeError(
+                "Cannot call `raise_for_status` as the request "
+                "instance has not been set on this response."
+            )
+    
+        if self.is_success:
+            return self
+    
+        if self.has_redirect_location:
+            message = (
+                "{error_type} '{0.status_code} {0.reason_phrase}' for url '{0.url}'\n"
+                "Redirect location: '{0.headers[location]}'\n"
+                "For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/{0.status_code}"
+            )
+        else:
+            message = (
+                "{error_type} '{0.status_code} {0.reason_phrase}' for url '{0.url}'\n"
+                "For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/{0.status_code}"
+            )
+    
+        status_class = self.status_code // 100
+        error_types = {
+            1: "Informational response",
+            3: "Redirect response",
+            4: "Client error",
+            5: "Server error",
+        }
+        error_type = error_types.get(status_class, "Invalid status code")
+        message = message.format(self, error_type=error_type)
+&gt;       raise HTTPStatusError(message, request=request, response=self)
+E       httpx.HTTPStatusError: Client error '405 Method Not Allowed' for url 'http://127.0.0.1:43299/feeds/current'
+E       For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/405
+
+.venv/lib/python3.12/site-packages/httpx/_models.py:829: HTTPStatusError</failure></testcase><testcase classname="tests.integration.test_live_p0_catalog_bridge" name="test_agent_prepares_one_disposable_checkout_and_requires_hp_approval" time="2.962"><failure message="assert 502 == 200&#10; +  where 502 = &lt;Response [502 Bad Gateway]&gt;.status_code">p2_lane = &lt;tests.integration.live_purchase.PurchaseLane object at 0x7f7b306e6210&gt;
+tmp_path = PosixPath('/home/runner/work/_temp/live-stack/test_agent_prepares_one_dispos0')
+
+    def test_agent_prepares_one_disposable_checkout_and_requires_hp_approval(
+        p2_lane: PurchaseLane, tmp_path: Path
+    ):
+        facts: dict[str, Any] = {"phase": "preconditions", "cleanup_verified": False}
+        with verified_case(p2_lane.stack.record, "P2-PROV-03", facts):
+            episode, observed = catalog(p2_lane, "agent")
+            a, b = pair(observed["episode_offers"])
+            currency = a["pricing"]["currency"].upper()
+            budget = a["pricing"]["total_minor"]  # Planning input, not yet an observed checkout total.
+            intent = PurchaseIntent.model_validate(
+                {
+                    "hard": {
+                        "currency": currency,
+                        "max_total_amount_minor": budget,
+                        "categories": [a["category"]],
+                        "conditions": [a["condition"]],
+                        "required_terms": [a["product_title"]],
+                        "required_options": [
+                            {"name": "almacenamiento", "value": a["attributes"]["storage"]}
+                        ],
+                    }
+                }
+            )
+            request = (
+                f"Compra {a['product_title']} {a['attributes']['storage']}, {a['condition']}, "
+                f"con presupuesto total de {budget} centavos de {currency}."
+            )
+            facts.update(
+                user_input=request,
+                intent=intent.model_dump(mode="json"),
+                expected_selection=a["id"],
+                episode_run_id=episode.run_id,
+                feed_sha256=feed_hash(episode.feed),
+            )
+            settings = Settings(
+                merchant_base_url=p2_lane.origin,
+                merchant_bearer_token=episode.bearer,
+                merchant_webhook_secret=p2_lane.webhook_secret,
+                agent_approval_secret=p2_lane.approval_secret,
+                payment_provider_url=p2_lane.payment.origin,
+                payment_agent_bearer_token=p2_lane.payment_token,
+                agent_database_path=tmp_path / "agent.sqlite",
+                agent_feed_source="file",
+                agent_feed_path=episode.feed,
+                agent_principal_id="p2-buyer",
+            )
+            before = p2_lane.rpc("p0_episode_state", run_id=episode.run_id)
+            tokens = p2_lane.payment_tokens()
+            calls_before = p2_lane.proxy.count("POST", "/checkout_sessions")
+            ranked = rank_candidates(load_product_feed(episode.feed), intent)
+            app = create_app(
+                settings=settings,
+                clock=lambda: APPROVED_AT,
+                conversation_router=StaticConversationRouter(request, intent),
+            )
+            with TestClient(app) as client:
+                response = client.post(
+                    "/conversation/turn",
+                    json={
+                        "turn_id": "p2-bridge",
+                        "messages": [{"role": "user", "content": request}],
+                        "details": buyer_details("p2").model_dump(mode="json", exclude_none=True),
+                    },
+                )
+                turn = response.json()
+                facts.update(http_status=response.status_code, action=turn.get("action"))
+                assert response.status_code == 200 and turn["action"] == "purchase"
+                purchase = turn["purchase"]
+                run_id = purchase["run_id"]
+                blocked = client.post(f"/purchases/{run_id}/complete")
+                prepared = p2_lane.rpc("p0_episode_state", run_id=episode.run_id)
+                total = next(
+                    row["amount"] for row in purchase["checkout"]["totals"] if row["type"] == "total"
+                )
+                facts.update(
+                    {
+                        "interpretation": "simulated; existing StaticConversationRouter",
+                        "user_input": request,
+                        "intent": intent.model_dump(mode="json"),
+                        "episode_run_id": episode.run_id,
+                        "feed_sha256": feed_hash(episode.feed),
+                        "eligible": [r.candidate.variant_id for r in ranked.ranked],
+                        "rejection_counts": ranked.rejection_counts,
+                        "pair": [a["id"], b["id"]],
+                        "expected_selection": a["id"],
+                        "observed_selection": purchase["selected_candidate"]["variant_id"],
+                        "action": turn["action"],
+                        "checkout_total_minor": total,
+                        "checkout_posts": p2_lane.proxy.count("POST", "/checkout_sessions")
+                        - calls_before,
+                        "orders": prepared["orders"],
+                        "payment_tokens": p2_lane.payment_tokens() - tokens,
+                        "approval_gate_http": blocked.status_code,
+                        "ux03_validated": False,
+                    }
+                )
+                try:
+                    assert facts["observed_selection"] == a["id"]
+                    assert facts["checkout_posts"] == 1 and len(prepared["checkouts"]) == 1
+                    assert blocked.status_code == 409 and facts["orders"] == 0
+                    assert facts["payment_tokens"] == 0 and total &lt;= budget
+                    assert before["offers"] == prepared["offers"]
+                except BaseException as error:
+                    facts["exercise_error_type"] = type(error).__name__
+                    raise
+                finally:
+                    facts["phase"] = "cancellation"
+                    canceled = client.post(f"/purchases/{run_id}/cancel")
+&gt;                   assert canceled.status_code == 200
+E                   assert 502 == 200
+E                    +  where 502 = &lt;Response [502 Bad Gateway]&gt;.status_code
+
+tests/integration/test_live_p0_catalog_bridge.py:335: AssertionError</failure></testcase></testsuite></testsuites>

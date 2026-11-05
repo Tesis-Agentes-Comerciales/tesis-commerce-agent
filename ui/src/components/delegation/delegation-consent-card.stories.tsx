@@ -54,6 +54,7 @@ export const Proposed: Story = {
     await expect(canvas.getByText(`«${scope.preference_text}»`)).toBeVisible()
     await expect(canvas.getByText(scope.destination_label)).toBeVisible()
     await expect(canvas.getByText(scope.instrument_label)).toBeVisible()
+    await expect(canvas.getByText("1 unidad")).toBeVisible()
     await expect(canvas.getByText("Un solo uso")).toBeVisible()
     const expires = plain(`Vence el ${formatDateTime(scope.expires_at)}`)
     await expect(canvas.getByText(expires)).toBeVisible()
@@ -101,6 +102,24 @@ export const SingleVariantWithoutPreference: Story = {
 }
 
 /**
+ * UX10 (D3): el comprador pidió dos unidades en su indicación. La tarjeta la cita tal cual y dice lo
+ * que autoriza: 1 unidad, un solo uso.
+ */
+export const TwoUnitsRequested: Story = {
+  args: {
+    proposal: parseDelegationProposal({
+      ...DELEGATION_PROPOSAL,
+      scope: { ...scope, preference_text: "Quiero dos unidades, una para mi hermana." },
+    }),
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("«Quiero dos unidades, una para mi hermana.»")).toBeVisible()
+    await expect(canvas.getByText("1 unidad")).toBeVisible()
+    await expect(canvas.getByText("Un solo uso")).toBeVisible()
+  },
+}
+
+/**
  * Respuesta real con `valid_for_seconds = 60`: la propuesta vale 10 min (TTL), pero la delegación
  * vence al minuto, y el servidor rechaza autorizar después. Se autoriza hasta lo que llegue primero.
  */
@@ -137,6 +156,32 @@ export const WithoutAuthorize: Story = {
     authorize.focus()
     await userEvent.keyboard("{Enter}")
     await expect(canvas.getByRole("alert")).toHaveTextContent("Crea una nueva")
+    await userEvent.click(canvas.getByRole("button", { name: "Cancelar" }))
+    await expect(args.onCancel).toHaveBeenCalledOnce()
+  },
+}
+
+const SUPERSEDED = DELEGATION_REPLAYS.proposalSuperseded
+
+/**
+ * Respuesta real: otra pestaña o conversación del mismo comprador preparó otra propuesta, y solo la
+ * última se puede autorizar (409 `delegation_proposal_superseded`, D2). Como la vencida, no se
+ * reintenta: «Autorizar» queda deshabilitado y «Cancelar» vuelve al formulario.
+ */
+export const ProposalSuperseded: Story = {
+  args: {
+    proposal: parseDelegationProposal(replayed(SUPERSEDED, "POST /delegations/proposals").body),
+    onAuthorize: undefined,
+    error: (replayed(SUPERSEDED, "POST /delegations").body as { message?: string }).message,
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    await expect(canvas.getByRole("alert")).toHaveTextContent(
+      "Esta propuesta fue reemplazada por una más reciente. Revisa la última.",
+    )
+    const authorize = canvas.getByRole("button", { name: "Autorizar" })
+    await expect(authorize).toHaveAttribute("aria-disabled", "true")
+    authorize.focus()
+    await userEvent.keyboard("{Enter}")
     await userEvent.click(canvas.getByRole("button", { name: "Cancelar" }))
     await expect(args.onCancel).toHaveBeenCalledOnce()
   },

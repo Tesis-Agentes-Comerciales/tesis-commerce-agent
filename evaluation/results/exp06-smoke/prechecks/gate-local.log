@@ -1,0 +1,15 @@
+## format
+493 files already formatted
+rc=0
+## check
+All checks passed!
+rc=0
+## pyright
+0 errors, 0 warnings, 0 informations
+rc=0
+## pytest
+SKIPPED [15] tests/integration/test_p0_model_failures.py:617: requires RUN_LIVE_STACK=1 (docs/testing.md)
+SKIPPED [6] tests/integration/test_p0_model_failures.py:658: requires RUN_LIVE_STACK=1 (docs/testing.md)
+SKIPPED [6] tests/integration/test_p0_model_failures.py:743: requires RUN_LIVE_STACK=1 (docs/testing.md)
+3707 passed, 153 skipped, 1 warning, 89 subtests passed in 131.33s (0:02:11)
+rc=0

@@ -30,7 +30,7 @@ los worktrees de este clon (registro privado en el directorio Git común). No es
 
 El comando por defecto sólo muestra el plan. `--execute` exige recibo humano;
 se rechaza en CI general/nightly. La excepción solicitada posteriormente por el
-usuario es el workflow manual protegido exp06-smoke.yml, con alcance explícito. No hay opción batch/HNP/CT19. Antes de crear
+usuario es el workflow manual protegido exp06-smoke.yml, con alcance explícito. No hay opción HNP/CT19; el lote solo es local (ver «Lote»). Antes de crear
 servicios comprueba repositorios limpios y SHAs hermanos exactos. Reutiliza
 LiveStack/PurchaseLane, AuthClient/JWT/JWKS, create_app y el router de producto.
 Congela los tres episodios, catálogos completos, contexto y rúbricas antes de
@@ -70,10 +70,12 @@ facturación permanecen no verificados.
 ## Operación manual después de autorización (no ejecutada aquí)
 
 El arnés de servicios usa pass_fds y grupos de procesos POSIX: la ejecución manual
-requiere Linux; se reutiliza ubuntu-24.04 de GitHub Actions, sin preparar Ubuntu local. Windows se rechaza antes de reclamar el recibo.
-Inspección local: Ubuntu WSL instalado, sin uv/Node ni integración Docker disponible.
-No se instaló infraestructura ni se cambiaron ajustes de Docker; falta elegir/preparar
-el host. Las validaciones Actions usan su Ubuntu 24.04 ya preparado.
+requiere un host POSIX, Linux o macOS. Windows no está soportado y se rechaza antes de
+reclamar el recibo (`require_live_host()` exige `os.name == "posix"`; el arnés lo documenta en
+`tests/integration/README.md`). Las validaciones de Actions usan su ubuntu-24.04 ya preparado.
+El smoke autorizado del 2026-11-05 corrió en macOS (`evaluation/results/exp06-smoke/`).
+En la etapa anterior, el host disponible era Windows con Ubuntu WSL, sin uv/Node ni integración
+Docker; no se instaló infraestructura ni se cambiaron ajustes de Docker.
 
 Desde el checkout validado, con Python/Node y dependencias congeladas de los tres
 repositorios, exportar MERCHANT_REPO/PAYMENT_REPO hacia los SHAs fijados. La credencial
@@ -125,6 +127,36 @@ La reserva persistida es una cota contable local, no una conciliación de factur
 El reporte distingue uso conocido, reservas desconocidas y conciliación pendiente.
 Las bases privadas son temporales y se eliminan después de detener servicios;
 sólo evidencia y logs sanitizados son publicables.
+
+## Lote (`--stage batch`)
+
+Añadido el 2026-11-05, tras el smoke y con la autorización de Yair para el lote. Es el mismo
+ejecutor; solo cambian los límites, que se leen de `exp06-hp.json` y no se reescriben:
+
+| Etapa | Episodios | Intentos máximos | Reserva máxima | Tope máximo del recibo |
+| --- | ---: | ---: | ---: | ---: |
+| `smoke` (por defecto) | 3 | 18 | USD 8,010 | USD 9,00 |
+| `batch` | 15 | 90 | USD 40,050 | USD 45,00 |
+
+- **Orden.** Repetición afuera, UX01/UX11/UX12 adentro (`design.order`): `UX01-r1`, `UX11-r1`,
+  `UX12-r1`, `UX01-r2`… `UX12-r5`. El smoke conserva los nombres `UX01`, `UX11` y `UX12`.
+- **Episodios.** Cada uno es nuevo, con runtime, comprador y base del Agent propios. Los 15
+  se congelan antes de la primera solicitud. Sus archivos llevan el sufijo: `UX01-r1-frozen.json`,
+  `-observed.json` y `-review.json`. El `turn_id` no llega al modelo.
+- **Recibo.** `stage` del recibo y `--stage` deben coincidir. El tope del recibo no puede pasar
+  de `proposed_batch_cap_usd`. La reclamación guarda la etapa y la guarda la vuelve a comprobar
+  antes de cada intento. Un recibo de smoke no abre un lote, ni al revés.
+- **Actions.** El workflow sigue siendo solo smoke: `matches_dispatch` solo produce recibos
+  `smoke`, así que un lote se rechaza en CI.
+- **Parada.** Se conserva la regla del smoke: el primer episodio que no quede `pending_review`
+  detiene el lote, y los siguientes quedan `not_executed`. El prerregistro no fija otra regla
+  para el lote. Continuar exige una decisión humana nueva.
+
+```sh
+uv run python -m commerce_evaluation.exp06_execution --stage batch
+uv run python -m commerce_evaluation.exp06_execution --execute --stage batch \
+  --authorization .local/exp06-batch-approval.json --output .local/exp06-batch
+```
 
 ## Validación previa
 

@@ -1,0 +1,99 @@
+{
+  "control": "EXP06 batch orchestration, ModelServer only, real_provider_calls 0",
+  "plan": {
+    "model": "gpt-5-mini-2025-08-07",
+    "mode": "HP",
+    "stage": "batch",
+    "service_tier": "default",
+    "cases": [
+      "UX01",
+      "UX11",
+      "UX12"
+    ],
+    "repetitions": 5,
+    "http_attempts_max": 90,
+    "theoretical_upper_usd": "32.040",
+    "reserved_upper_usd": "40.050",
+    "proposed_cap_usd": "45.00",
+    "order": [
+      "UX01-r1",
+      "UX11-r1",
+      "UX12-r1",
+      "UX01-r2",
+      "UX11-r2",
+      "UX12-r2",
+      "UX01-r3",
+      "UX11-r3",
+      "UX12-r3",
+      "UX01-r4",
+      "UX11-r4",
+      "UX12-r4",
+      "UX01-r5",
+      "UX11-r5",
+      "UX12-r5"
+    ],
+    "protocol_sha256": "bd813f2541546ddacb1bfd27fdd23f785477ecb95454fdf394b10e56491f2d2b",
+    "authorized": false,
+    "context": {
+      "anchor": "2026-11-04T19:31:24-05:00",
+      "timezone": "America/Bogota",
+      "friday": "2026-11-06",
+      "model_visible_message": "Contexto temporal de esta conversaci\u00f3n: 2026-11-04T19:31:24-05:00, zona America/Bogota. El viernes de referencia es 2026-11-06.",
+      "merchant_clock": "2026-09-10T14:05:00Z",
+      "note": "explicit conversational date context distinct from synthetic Merchant clock; no oracle or delivery guarantee given to Agent"
+    },
+    "semantic_status": "not_executed"
+  },
+  "sources": {
+    "agent": {
+      "sha": "42386610887b2f7e89fdd4607fe0f0b9de2d4471",
+      "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+    },
+    "merchant": {
+      "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+      "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+    },
+    "psp": {
+      "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+      "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+    }
+  },
+  "attempts": 30,
+  "simulated_reserved_usd": "13.350",
+  "statuses": {
+    "UX01-r1": "not_executed",
+    "UX11-r1": "not_executed",
+    "UX12-r1": "not_executed",
+    "UX01-r2": "not_executed",
+    "UX11-r2": "not_executed",
+    "UX12-r2": "not_executed",
+    "UX01-r3": "not_executed",
+    "UX11-r3": "not_executed",
+    "UX12-r3": "not_executed",
+    "UX01-r4": "not_executed",
+    "UX11-r4": "not_executed",
+    "UX12-r4": "not_executed",
+    "UX01-r5": "not_executed",
+    "UX11-r5": "not_executed",
+    "UX12-r5": "not_executed"
+  },
+  "checks": {
+    "episodes_in_preregistered_order": true,
+    "scenario_per_episode": true,
+    "all_frozen_before_first_reservation": true,
+    "same_catalog_every_episode": true,
+    "fresh_episode_per_case": true,
+    "model_attempts": true,
+    "standard_tier_every_body": true,
+    "credential_unchanged_every_attempt": true,
+    "turn_input_is_the_preregistered_pair": true,
+    "every_episode_simulated_not_graded": true,
+    "effects_zero_and_ledger_complete": true,
+    "review_templates_unfilled": true,
+    "accounting_reconciled": true,
+    "cleanup_verified": true,
+    "junit_15_skipped": true,
+    "evidence_hashes": true
+  },
+  "passed": true
+}

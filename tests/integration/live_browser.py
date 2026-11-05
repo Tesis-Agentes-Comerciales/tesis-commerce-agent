@@ -14,10 +14,8 @@ import os
 import secrets
 import shutil
 import signal
-import socket
 import sqlite3
 import subprocess
-import threading
 import time
 from collections.abc import Iterator, Mapping
 from contextlib import closing, contextmanager, suppress
@@ -25,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import uvicorn
 from fastapi import FastAPI
 from playwright.sync_api import Locator, Page, Playwright, Response, expect
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
@@ -40,6 +37,7 @@ from tests.integration.live_purchase import (
     PurchaseLane,
 )
 from tests.integration.live_stack import AGENT, clean_environment, closed, free_port, wait_until
+from tests.support.agent_server import AgentServer
 from tests.support.browser_trace import sanitize_trace
 
 AUTH = AGENT / "auth"
@@ -142,45 +140,6 @@ class NodeServer:
                 self.process.wait(timeout=15)
         self.process = None
         wait_until(lambda: closed(self.port), f"{self.name} listener closed", timeout=15)
-
-
-class AgentServer:
-    """The Agent API under uvicorn in a thread of this process, on a listener bound here. A new
-    server can take the port of a stopped one, so the UI keeps the Agent's origin."""
-
-    def __init__(self, app: FastAPI, port: int = 0):
-        self.listener = socket.socket()
-        self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.listener.bind(("127.0.0.1", port))
-        config = uvicorn.Config(app, log_level="warning", access_log=False)
-        self.server = uvicorn.Server(config)
-        self.thread = threading.Thread(
-            target=self.server.run, kwargs={"sockets": [self.listener]}, daemon=True
-        )
-
-    @property
-    def port(self) -> int:
-        return self.listener.getsockname()[1]
-
-    @property
-    def origin(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
-
-    def start(self) -> None:
-        self.thread.start()
-
-        def ready():
-            assert self.thread.is_alive()
-            with httpx.Client(trust_env=False, timeout=2) as client:
-                assert client.get(self.origin + "/health").status_code == 200
-
-        wait_until(ready, "agent")
-
-    def stop(self) -> None:
-        self.server.should_exit = True
-        if self.thread.ident is not None:
-            self.thread.join(timeout=15)
-        self.listener.close()
 
 
 class BuyerUi:

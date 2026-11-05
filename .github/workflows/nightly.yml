@@ -12,6 +12,7 @@ on:
         default: full
         options:
           - full
+          - p0-catalog-bridge
           - exp01-first-batch
           - exp02-commercial
           - exp03-stock-shipping
@@ -68,14 +69,15 @@ jobs:
       - name: Check sibling read token
         id: token
         env:
-          MERCHANT_REPO_TOKEN: ${{ secrets.MERCHANT_REPO_TOKEN }}
+          SIBLING_TOKEN_CONFIGURED: ${{ secrets.MERCHANT_REPO_TOKEN != '' }}
+          TEST_SCOPE: ${{ inputs.test_scope || 'full' }}
         run: |
-          if [ -n "$MERCHANT_REPO_TOKEN" ]; then
+          if [ "$SIBLING_TOKEN_CONFIGURED" = "true" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            if [[ "${{ inputs.test_scope }}" == exp0* ]]; then
-              echo "::error::EXP-01 blocked: required sibling read credential missing"
+            if [[ "$TEST_SCOPE" == exp0* || "$TEST_SCOPE" == p0-catalog-bridge ]]; then
+              echo "::error::Required live validation blocked: sibling read credential missing"
               exit 1
             fi
             echo "::notice title=Live stack skipped::Secret MERCHANT_REPO_TOKEN is not configured. Add a read-only token (contents: read) for Tesis-Agentes-Comerciales/tesis-commerce-merchant and Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox to run tests/integration."
@@ -83,7 +85,7 @@ jobs:
 
   live-stack:
     needs: sibling-access
-    if: ${{ !cancelled() && inputs.test_scope != 'exp06-actions-validation' && (startsWith(inputs.test_scope, 'exp0') || needs.sibling-access.outputs.available == 'true') }}
+    if: ${{ !cancelled() && inputs.test_scope != 'exp06-actions-validation' && (startsWith(inputs.test_scope, 'exp0') || inputs.test_scope == 'p0-catalog-bridge' || needs.sibling-access.outputs.available == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -94,8 +96,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Require access for EXP-01
-        if: startsWith(inputs.test_scope, 'exp0')
+      - name: Require access for targeted live validation
+        if: startsWith(inputs.test_scope, 'exp0') || inputs.test_scope == 'p0-catalog-bridge'
         env:
           ACCESS: ${{ needs.sibling-access.outputs.available }}
         run: test "$ACCESS" = "true"
@@ -104,7 +106,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Tesis-Agentes-Comerciales/tesis-commerce-merchant
-          ref: ${{ inputs.merchant_ref || (startsWith(inputs.test_scope, 'exp0') && 'abf30df3b6a611284dedcc26c00accac6a853329') || '' }}
+          ref: ${{ inputs.merchant_ref || ((startsWith(inputs.test_scope, 'exp0') || inputs.test_scope == 'p0-catalog-bridge') && 'abf30df3b6a611284dedcc26c00accac6a853329') || '' }}
           token: ${{ secrets.MERCHANT_REPO_TOKEN }}
           path: merchant
           persist-credentials: false
@@ -113,7 +115,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox
-          ref: ${{ inputs.payment_ref || (startsWith(inputs.test_scope, 'exp0') && 'e6ab67b5963434a9a3caae2012b70232a3cca65d') || '' }}
+          ref: ${{ inputs.payment_ref || ((startsWith(inputs.test_scope, 'exp0') || inputs.test_scope == 'p0-catalog-bridge') && 'e6ab67b5963434a9a3caae2012b70232a3cca65d') || '' }}
           token: ${{ secrets.MERCHANT_REPO_TOKEN }}
           path: payment
           persist-credentials: false
@@ -131,7 +133,7 @@ jobs:
           (cd payment && uv python install && uv sync --frozen --all-groups)
 
       - name: Install Node.js
-        if: ${{ !startsWith(inputs.test_scope, 'exp0') || inputs.test_scope == 'exp05-authenticated-transport' || inputs.test_scope == 'exp06-hp-infrastructure' || inputs.test_scope == 'exp06-runner-infrastructure' }}
+        if: ${{ (!startsWith(inputs.test_scope, 'exp0') && inputs.test_scope != 'p0-catalog-bridge') || inputs.test_scope == 'exp05-authenticated-transport' || inputs.test_scope == 'exp06-hp-infrastructure' || inputs.test_scope == 'exp06-runner-infrastructure' }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
@@ -147,7 +149,7 @@ jobs:
 
       # The browser test drives auth/ and ui/ with the Agent's own pinned Playwright.
       - name: Install auth, UI and Chromium
-        if: ${{ !startsWith(inputs.test_scope, 'exp0') }}
+        if: ${{ !startsWith(inputs.test_scope, 'exp0') && inputs.test_scope != 'p0-catalog-bridge' }}
         working-directory: agent
         run: |
           (cd auth && npm ci)
@@ -189,6 +191,23 @@ jobs:
 
       # Disposable PostgreSQL in Docker, the real Merchant and payment provider, and the
       # Agent with its UI; see docs/testing.md and tests/integration/README.md.
+      - name: Verify pinned P2 sources before starting services
+        if: inputs.test_scope == 'p0-catalog-bridge'
+        working-directory: agent
+        env:
+          MERCHANT_REPO: ${{ github.workspace }}/merchant
+          PAYMENT_REPO: ${{ github.workspace }}/payment
+        run: >-
+          uv run python -m tests.support.nightly_evidence --preflight
+          --scope p0-catalog-bridge --output "$RUNNER_TEMP/nightly-manifest.json"
+
+      - name: Check P2 offline gates on Linux
+        if: inputs.test_scope == 'p0-catalog-bridge'
+        working-directory: agent
+        run: >-
+          uv run pytest tests/evaluation/test_nightly_evidence.py
+          tests/evaluation/test_p2_bridge_evidence.py tests/evaluation/test_p2_proxy_policy.py -q
+
       - name: Run live suite
         working-directory: agent
         env:
@@ -196,7 +215,11 @@ jobs:
           MERCHANT_REPO: ${{ github.workspace }}/merchant
           PAYMENT_REPO: ${{ github.workspace }}/payment
         run: |
-          if [ "${{ inputs.test_scope }}" = "exp07-ct19-hp" ]; then
+          if [ "${{ inputs.test_scope }}" = "p0-catalog-bridge" ]; then
+            uv run pytest tests/integration/test_live_p0_catalog_bridge.py -rs -p no:cacheprovider \
+              --basetemp="$RUNNER_TEMP/live-stack" --junitxml="$RUNNER_TEMP/live-junit.xml" \
+              -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/live-outcomes.json"
+          elif [ "${{ inputs.test_scope }}" = "exp07-ct19-hp" ]; then
             uv run pytest tests/integration/test_ct19_hp.py -vv --durations=20 -p no:cacheprovider \
               --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
               -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
@@ -251,7 +274,7 @@ jobs:
               --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
               -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
           else
-            uv run pytest tests/integration --ignore=tests/integration/test_ct19_hp.py --ignore=tests/integration/test_ct19_fixture.py --ignore=tests/integration/test_exp01_first_batch.py --ignore=tests/integration/test_exp02_commercial.py --ignore=tests/integration/test_exp03_stock_shipping.py --ignore=tests/integration/test_exp04_mandate_replacement.py --ignore=tests/integration/test_exp05_ct15_hnp.py --ignore=tests/integration/test_exp05_authenticated_ux.py --ignore=tests/integration/test_exp06_hp_infrastructure.py --ignore=tests/integration/test_exp06_runner_infrastructure.py -rs -p no:cacheprovider \
+            uv run pytest tests/integration --ignore=tests/integration/test_live_p0_catalog_bridge.py --ignore=tests/integration/test_ct19_hp.py --ignore=tests/integration/test_ct19_fixture.py --ignore=tests/integration/test_exp01_first_batch.py --ignore=tests/integration/test_exp02_commercial.py --ignore=tests/integration/test_exp03_stock_shipping.py --ignore=tests/integration/test_exp04_mandate_replacement.py --ignore=tests/integration/test_exp05_ct15_hnp.py --ignore=tests/integration/test_exp05_authenticated_ux.py --ignore=tests/integration/test_exp06_hp_infrastructure.py --ignore=tests/integration/test_exp06_runner_infrastructure.py -rs -p no:cacheprovider \
               --basetemp="$RUNNER_TEMP/live-stack" --junitxml="$RUNNER_TEMP/live-junit.xml"
           fi
 
@@ -292,16 +315,29 @@ jobs:
 
       # Evidence, service logs, the browser screenshot and the JUnit report; workers never
       # log tokens or bodies.
+      - name: Require complete P2 evidence
+        if: ${{ !cancelled() && inputs.test_scope == 'p0-catalog-bridge' }}
+        working-directory: agent
+        run: >-
+          uv run python -m tests.support.nightly_evidence --scope p0-catalog-bridge
+          --manifest "$RUNNER_TEMP/nightly-manifest.json" --junit "$RUNNER_TEMP/live-junit.xml"
+          --outcomes "$RUNNER_TEMP/live-outcomes.json" --evidence "$RUNNER_TEMP/live-stack"
+          --output "$RUNNER_TEMP/nightly-report.json"
+
       - name: Upload live evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.test_scope == 'exp07-ct19-hp' && 'ct19-hp-evidence' || inputs.test_scope == 'exp07-ct19-fixture' && 'ct19-fixture-evidence' || inputs.test_scope == 'exp06-runner-infrastructure' && 'exp06-runner-infrastructure-evidence' || inputs.test_scope == 'exp06-hp-infrastructure' && 'exp06-hp-infrastructure-evidence' || inputs.test_scope == 'exp05-authenticated-transport' && 'exp05-authenticated-transport-evidence' || inputs.test_scope == 'exp05-ct15-hnp' && 'exp05-ct15-hnp-evidence' || inputs.test_scope == 'exp04-mandate-replacement' && format('exp04-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp03-stock-shipping' && format('exp03-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp02-commercial' && format('exp02-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
+          name: ${{ inputs.test_scope == 'p0-catalog-bridge' && 'nightly-p0-catalog-bridge-evidence' || inputs.test_scope == 'exp07-ct19-hp' && 'ct19-hp-evidence' || inputs.test_scope == 'exp07-ct19-fixture' && 'ct19-fixture-evidence' || inputs.test_scope == 'exp06-runner-infrastructure' && 'exp06-runner-infrastructure-evidence' || inputs.test_scope == 'exp06-hp-infrastructure' && 'exp06-hp-infrastructure-evidence' || inputs.test_scope == 'exp05-authenticated-transport' && 'exp05-authenticated-transport-evidence' || inputs.test_scope == 'exp05-ct15-hnp' && 'exp05-ct15-hnp-evidence' || inputs.test_scope == 'exp04-mandate-replacement' && format('exp04-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp03-stock-shipping' && format('exp03-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp02-commercial' && format('exp02-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
           path: |
             ${{ runner.temp }}/live-stack/**/*.jsonl
             ${{ runner.temp }}/live-stack/**/*.log
             ${{ runner.temp }}/live-stack/**/*.png
             ${{ runner.temp }}/live-junit.xml
+            ${{ runner.temp }}/live-outcomes.json
+            ${{ runner.temp }}/nightly-manifest.json
+            ${{ runner.temp }}/nightly-report.json
+            ${{ runner.temp }}/nightly-SHA256SUMS
             ${{ runner.temp }}/exp01-stack/**/*.json
             ${{ runner.temp }}/exp01-stack/**/*.jsonl
             ${{ runner.temp }}/exp01-stack/**/*.log
@@ -312,5 +348,5 @@ jobs:
             ${{ runner.temp }}/exp01-outcomes.json
             ${{ runner.temp }}/exp01-report.json
             ${{ runner.temp }}/exp01-SHA256SUMS
-          if-no-files-found: ${{ startsWith(inputs.test_scope, 'exp0') && 'error' || 'ignore' }}
+          if-no-files-found: ${{ (startsWith(inputs.test_scope, 'exp0') || inputs.test_scope == 'p0-catalog-bridge') && 'error' || 'ignore' }}
           retention-days: 14

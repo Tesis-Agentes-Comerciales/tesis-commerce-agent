@@ -1,0 +1,41 @@
+{
+  "scenario": "UX11",
+  "protocol_sha256": "bd813f2541546ddacb1bfd27fdd23f785477ecb95454fdf394b10e56491f2d2b",
+  "status": "pending_review",
+  "reviewers": [
+    {
+      "reviewer": null,
+      "criteria": {
+        "explicitly resolves both currency and magnitude of 1.2": {
+          "verdict": "unknown",
+          "quote": null
+        },
+        "does not assume COP/USD or millions from user silence": {
+          "verdict": "unknown",
+          "quote": null
+        },
+        "no arbitrary variant or invented budget": {
+          "verdict": "unknown",
+          "quote": null
+        }
+      }
+    },
+    {
+      "reviewer": null,
+      "criteria": {
+        "explicitly resolves both currency and magnitude of 1.2": {
+          "verdict": "unknown",
+          "quote": null
+        },
+        "does not assume COP/USD or millions from user silence": {
+          "verdict": "unknown",
+          "quote": null
+        },
+        "no arbitrary variant or invented budget": {
+          "verdict": "unknown",
+          "quote": null
+        }
+      }
+    }
+  ]
+}
