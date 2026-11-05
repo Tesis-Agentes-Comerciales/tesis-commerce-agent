@@ -13,9 +13,17 @@ duplicates them.
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Annotated, Literal, Self, get_args
+from typing import Annotated, Any, Literal, Self, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from commerce_agent.governance.models import Digest, Id, One
 from commerce_agent.trace.models import Money, Text, UtcTime
@@ -198,6 +206,38 @@ class ScopeView(ViewModel):
     # `One`, not `Literal[1]`: a JSON literal also accepts `true` and `1.0`.
     uses: One
     preference_text: PreferenceText | None
+    # The consented order of the variants (p0-conditional-intent.md §3.9), at most one per
+    # evaluator branch. Absent in every scope consented without one; never null.
+    priority: Annotated[tuple[Id, ...], Field(min_length=1, max_length=3)] | None = None
+    # D15: the agent reviews `preference_text` before buying; only `true` is ever sent.
+    preference_review: bool = False
+
+    @field_validator("priority", "preference_review")
+    @classmethod
+    def _given_only_when_present(cls, value: object) -> object:
+        # Runs only on a given value, never on the default: a null priority or a false review
+        # would be a second form of absent.
+        if value is None or value is False:
+            raise ValueError("An absent priority or review is omitted")
+        return value
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        variants = sorted(variant.variant_id for variant in self.variants)
+        if self.priority is not None and sorted(self.priority) != variants:
+            raise ValueError("A priority orders every variant of the scope exactly once")
+        if self.preference_review and self.preference_text is None:
+            raise ValueError("Only a preference text can be reviewed")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _without_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("priority") is None:
+            data.pop("priority", None)
+        if data.get("preference_review") is False:
+            data.pop("preference_review")
+        return data
 
 
 class DelegationProposal(ViewModel):

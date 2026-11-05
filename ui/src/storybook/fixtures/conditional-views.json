@@ -1,0 +1,142 @@
+{
+  "A": {
+    "outcome": "branch",
+    "chosen_index": 0,
+    "currency": "COP",
+    "branches": [
+      {
+        "index": 0,
+        "variant_id": "SON-X5II-256-BLK",
+        "title": "Sony Xperia 5 II 256 GB negro",
+        "status": "eligible",
+        "total_minor": 292400000,
+        "limit_minor": 292400000,
+        "items_total_minor": 289900000,
+        "unit_limit_minor": null
+      },
+      {
+        "index": 1,
+        "variant_id": "ONP-8T-256-GRN",
+        "title": "OnePlus 8T 256 GB verde",
+        "status": "not_evaluated",
+        "total_minor": null,
+        "limit_minor": 202399999,
+        "items_total_minor": null,
+        "unit_limit_minor": null
+      }
+    ],
+    "checkout_total_minor": null
+  },
+  "B": {
+    "outcome": "branch",
+    "chosen_index": 1,
+    "currency": "COP",
+    "branches": [
+      {
+        "index": 0,
+        "variant_id": "SON-X5II-256-BLK",
+        "title": "Sony Xperia 5 II 256 GB negro",
+        "status": "over_limit",
+        "total_minor": 292400000,
+        "limit_minor": 292399999,
+        "items_total_minor": 289900000,
+        "unit_limit_minor": null
+      },
+      {
+        "index": 1,
+        "variant_id": "ONP-8T-256-GRN",
+        "title": "OnePlus 8T 256 GB verde",
+        "status": "eligible",
+        "total_minor": 202400000,
+        "limit_minor": 202400000,
+        "items_total_minor": 199900000,
+        "unit_limit_minor": null
+      }
+    ],
+    "checkout_total_minor": null
+  },
+  "none": {
+    "outcome": "none",
+    "chosen_index": null,
+    "currency": "COP",
+    "branches": [
+      {
+        "index": 0,
+        "variant_id": "SON-X5II-256-BLK",
+        "title": "Sony Xperia 5 II 256 GB negro",
+        "status": "over_limit",
+        "total_minor": 292400000,
+        "limit_minor": 292399999,
+        "items_total_minor": 289900000,
+        "unit_limit_minor": null
+      },
+      {
+        "index": 1,
+        "variant_id": "ONP-8T-256-GRN",
+        "title": "OnePlus 8T 256 GB verde",
+        "status": "over_limit",
+        "total_minor": 202400000,
+        "limit_minor": 202399999,
+        "items_total_minor": 199900000,
+        "unit_limit_minor": null
+      }
+    ],
+    "checkout_total_minor": null
+  },
+  "undetermined": {
+    "outcome": "undetermined",
+    "chosen_index": null,
+    "currency": "COP",
+    "branches": [
+      {
+        "index": 0,
+        "variant_id": "SON-X5II-256-BLK",
+        "title": "Sony Xperia 5 II 256 GB negro",
+        "status": "unknown",
+        "total_minor": null,
+        "limit_minor": 292400000,
+        "items_total_minor": null,
+        "unit_limit_minor": null
+      },
+      {
+        "index": 1,
+        "variant_id": "ONP-8T-256-GRN",
+        "title": "OnePlus 8T 256 GB verde",
+        "status": "not_evaluated",
+        "total_minor": null,
+        "limit_minor": 202400000,
+        "items_total_minor": null,
+        "unit_limit_minor": null
+      }
+    ],
+    "checkout_total_minor": null
+  },
+  "offer_changed": {
+    "outcome": "offer_changed",
+    "chosen_index": 1,
+    "currency": "COP",
+    "branches": [
+      {
+        "index": 0,
+        "variant_id": "SON-X5II-256-BLK",
+        "title": "Sony Xperia 5 II 256 GB negro",
+        "status": "over_limit",
+        "total_minor": 292400000,
+        "limit_minor": 292399999,
+        "items_total_minor": 289900000,
+        "unit_limit_minor": null
+      },
+      {
+        "index": 1,
+        "variant_id": "ONP-8T-256-GRN",
+        "title": "OnePlus 8T 256 GB verde",
+        "status": "eligible",
+        "total_minor": 202400000,
+        "limit_minor": 202400000,
+        "items_total_minor": 199900000,
+        "unit_limit_minor": null
+      }
+    ],
+    "checkout_total_minor": 203400000
+  }
+}

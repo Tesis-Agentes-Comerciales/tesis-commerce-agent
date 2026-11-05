@@ -9,6 +9,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from commerce_agent.persistence.conditional_sqlite import (
+    ConditionalEntry,
+    ConditionalRecord,
+    append_conditional,
+    initialize_conditional_decisions,
+    read_conditional,
+)
+
 # Why a purchase failed, for its trace: a code, never a message or merchant text.
 _FAILURE_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 
@@ -168,6 +176,7 @@ class SqliteAgentStore:
             self._initialize_webhook_events(connection)
             self._initialize_purchase_revision(connection)
             self._initialize_purchase_mode(connection)
+            initialize_conditional_decisions(connection)
 
     @staticmethod
     def _initialize_purchase_revision(connection: sqlite3.Connection) -> None:
@@ -373,6 +382,20 @@ class SqliteAgentStore:
         values: list[object] = [value for _, value in fields] * 2
         values.append(_timestamp())
         return assignments, values
+
+    def append_conditional(self, run_id: str, entry: ConditionalEntry) -> ConditionalRecord:
+        """Appends one conditional record (p0-conditional-intent.md §3.7) as the run's next."""
+        with closing(self._connect()) as connection:
+            return append_conditional(connection, run_id, entry, _timestamp())
+
+    def conditional_records(self, run_id: str) -> tuple[ConditionalRecord, ...]:
+        with closing(self._connect()) as connection:
+            return read_conditional(connection, run_id)
+
+    def latest_conditional_decision(self, run_id: str) -> ConditionalRecord | None:
+        """The decision the oracle reads: the run's last `decision` row."""
+        decisions = [r for r in self.conditional_records(run_id) if r.kind == "decision"]
+        return decisions[-1] if decisions else None
 
     def purchase_state_version(self, run_id: str) -> int | None:
         """Read the persisted revision, without changing the legacy purchase projection."""
