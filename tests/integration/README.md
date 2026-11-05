@@ -151,9 +151,10 @@ uv run pytest tests/integration -rs
 
 Un módulo o un escenario: pase su archivo, o filtre por el identificador que llevan los nombres
 (`-k 06dc`, `-k 07a`, `-k 07bb`, `-k 07bp`, `-k i09`, `-k b0`, `-k b2`, `-k pol02`, `-k pol11`,
-`-k d2`, `-k acp`, `-k hnp`, `-k browser`). `-k` no distingue mayúsculas, así que `-k b0` y
-`-k b2` también eligen las pruebas HNP de las condiciones B0-HNP y B2-HNP; `-k "b2 and not hnp"`
-las deja fuera. Con `--basetemp=<dir>` la evidencia queda en un lugar conocido.
+`-k d2`, `-k acp`, `-k hnp`, `-k browser`, `-k p0_`). `-k` no distingue mayúsculas, así que
+`-k b0` y `-k b2` también eligen las pruebas HNP de las condiciones B0-HNP y B2-HNP;
+`-k "b2 and not hnp"` las deja fuera. Con `--basetemp=<dir>` la evidencia queda en un lugar
+conocido.
 
 La suite completa (92 pruebas) tarda unos 13 minutos en macOS con OrbStack. Casi todo es 07B-B
 (marker `slow`): cada escenario hace una selección nueva sobre el catálogo completo del Merchant
@@ -239,6 +240,15 @@ pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
   condición; puede reiniciar el Agent en el mismo puerto y disparar una tarea HNP con el token de
   servicio. `Journey` graba vídeo, capturas, controles y traza sanitizada. `hnp_condition` da
   las variables de una condición HNP que comparten `HnpAgent` y `BuyerUi`.
+- `live_model.py`: `ModelHnpAgent`, el Agent HNP de `HnpAgent` (mismas variables, rutas y
+  lecturas) servido en este proceso con `AgentServer` y `ExplicitSettings`, con
+  `AGENT_HNP_SELECTOR=llm` y, si se pide, `AGENT_HNP_REVIEWER=llm`, más una clave y un modelo
+  sintéticos que solo van a esos settings. Así el transporte guionado de
+  `tests/support/model_server.py` llega al selector y al revisor reales; nunca hay modelo ni
+  proveedor. No se puede matar ni reiniciar: los casos de caída siguen con `HnpAgent`.
+  `test_p0_model_failures.py` lo usa para la evidencia P0 de fallos del modelo (INF27–INF29,
+  INF33; `-k p0_`), con el protocolo congelado `evaluation/scenarios/p0-model-failures.json`, y
+  deja `p0-model-failures/summary.json` en el directorio de la ejecución.
 - `live_merchant_control.py`: corre con el intérprete del Merchant. Aprovisiona con las
   funciones del propio Merchant (migraciones, episodios, sesiones, catálogo gestionado) y toma
   instantáneas y contadores de efectos; para las compras siembra episodios B0, exporta su feed,
