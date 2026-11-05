@@ -45,7 +45,8 @@ el prefijo de las claves de OpenAI, las cabeceras de autorización y los JWT, si
 
 ## Por qué en macOS y no en Docker
 
-El diseño dice que «la ejecución manual requiere Linux». El código pide POSIX, no Linux:
+Cuando corrió el smoke, el diseño decía que «la ejecución manual requiere Linux». El código pide
+POSIX, no Linux:
 
 - `require_live_host()` solo rechaza `os.name != "posix"`, que es Windows.
 - El arnés (`tests/integration/live_stack.py::missing_requirements`) pide «macOS or Linux (the
@@ -57,7 +58,13 @@ Las piezas no portables son `pass_fds` con `uvicorn --fd` y los grupos de proces
 `unshare`, namespaces ni rutas de Linux. PostgreSQL corre en Docker en cualquier host. La frase
 del diseño viene del host de Windows/WSL de la etapa anterior.
 
-Correr nativo en macOS es entonces fiel, y no hubo que tocar el protocolo ni el ejecutor. En un
+Correr nativo en macOS es entonces fiel, y no hubo que tocar el protocolo ni el ejecutor para
+correr. Después de la corrida, a pedido de Yair, el commit `e796f4c` corrigió el diseño para que
+diga POSIX (Linux o macOS; Windows no). También renombró el código del bloqueo de host, de
+`manual_live_stack_requires_prepared_Linux_host_no_claim_consumed` a
+`manual_live_stack_requires_POSIX_host_no_claim_consumed`. Ninguna prueba ni hash ancla ese
+código: la prueba solo compara `no_claim_consumed`. El comportamiento no cambia, y la corrida usó
+el ejecutor de `be31775`, anterior a ese cambio. En un
 contenedor Linux, el arnés habría tenido que lanzar el PostgreSQL efímero a través del socket de
 Docker del host, sin ganar fidelidad.
 
@@ -96,7 +103,16 @@ Diferencias con el `ubuntu-24.04` de Actions:
   (`.git/exp06-claims/bb6ae149….json`). Esa misma autorización no puede volver a correrse desde
   este clon.
 
-## `agent_base` del prerregistro y SHA del ejecutor
+## SHAs fijados, checkouts y `agent_base`
+
+Merchant y PSP corrieron en los SHAs que fija `exp06-hp.json` (`merchant_sha` `abf30df`,
+`payment_sha` `e6ab67b`), desde dos worktrees desechables creados para esta corrida en el
+scratchpad, en HEAD separado y limpios después de `uv sync --frozen`. Los checkouts de trabajo de
+Yair no se movieron; además ya estaban en esos mismos SHAs. Antes de levantar servicios,
+`sources()` del ejecutor exigió ambos SHAs exactos y `git status --porcelain` vacío en los tres
+repositorios; el preflight EXP-01 lo verificó también. Quedó registrado en
+`evidence/execution-manifest.json` y en el `bootstrap` de `evidence/evidence.jsonl`. No hubo que
+cambiar ningún SHA ni volver a sellar el prerregistro.
 
 El prerregistro fija `agent_base` = `eb18775`. El ejecutor corrió en `be31775`: `main` en
 `343f099`, con #180, integrado en esta rama con un merge. El protocolo no pide volver a sellar:
