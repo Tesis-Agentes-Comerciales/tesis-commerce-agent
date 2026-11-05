@@ -1,0 +1,43 @@
+{
+  "schema": "ct19-protocol/1",
+  "agent_base": "adbe120cecf6bffc3eaf22df5c9270760697a93a",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "matrix_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "ux03_oracle_sha256": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+  "scope": "CT19 reversible identity fixture only; not a P0 execution; no LLM/payment",
+  "cases": {
+    "CT19:fixture": {
+      "scenario": "CT19-FIXTURE",
+      "mode": "HP",
+      "test": "test_identity_retirement_fixture",
+      "expected": "real scoped absence and full catalog reexport; exact full-row restoration, constraints intact; zero checkouts/payments",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "before",
+        "retired",
+        "restored",
+        "reads",
+        "feed_before",
+        "feed_removed",
+        "feed_restored",
+        "after_cleanup"
+      ]
+    }
+  },
+  "effect_limits": {
+    "create_posts": 0,
+    "accepted_checkouts": 0,
+    "orders": 0,
+    "payments": 0
+  },
+  "limitations": [
+    "fixture validation only, not CT19 HP or HNP",
+    "audit writes retained",
+    "single deterministic episode"
+  ],
+  "test_module": "tests/integration/test_ct19_fixture.py::"
+}
