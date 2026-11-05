@@ -1,0 +1,26 @@
+{
+  "snapshot": "gpt-5-mini-2025-08-07",
+  "checks": [
+    {
+      "network": "restricted",
+      "status": "unknown",
+      "error_kind": "ConnectError"
+    },
+    {
+      "network": "authorized",
+      "http_status": 200,
+      "status": "model_visible"
+    }
+  ],
+  "credential_present": true,
+  "project_configured": false,
+  "organization_configured": false,
+  "inference_calls": 0,
+  "billing_limits": "not_verified",
+  "project_service_tier": "not_verified",
+  "Responses_quota": "not_verified",
+  "sources": [
+    "https://developers.openai.com/api/docs/models/gpt-5-mini",
+    "https://developers.openai.com/api/docs/deprecations"
+  ]
+}

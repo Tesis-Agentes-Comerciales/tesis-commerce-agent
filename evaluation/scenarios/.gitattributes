@@ -1,0 +1,10 @@
+# EXP-01 protocol bytes must survive checkout without EOL conversion.
+/exp01-first-batch.json -text
+/exp02-commercial.json -text
+/exp03-stock-shipping.json -text
+/exp04-mandate-replacement.json -text
+/exp05-ct15-hnp.json -text
+/exp05-authenticated-transport.json -text
+/exp06-hp.json -text
+/exp06-hp-infrastructure.json -text
+/exp06-runner-infrastructure.json -text

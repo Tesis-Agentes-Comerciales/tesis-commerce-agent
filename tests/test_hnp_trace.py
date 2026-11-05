@@ -15,8 +15,10 @@ from typing import Any
 
 import pytest
 
+from commerce_agent.acp.client import ACPClientError
 from commerce_agent.config import Settings
 from commerce_agent.delegation.models import ReservationRequest
+from commerce_agent.llm.model_failures import IntentInterpretationError
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
 from commerce_agent.trace import PurchaseTrace, PurchaseTraces, TraceUnavailable
@@ -530,11 +532,81 @@ def test_a_purchase_failure_keeps_its_code_next_to_the_task_failure(
 
     trace = bench_trace(bench)
 
-    assert [(item.id, item.code) for item in of(trace, "failed")] == [
-        ("failed", "out_of_stock"),
-        ("failed:task", "checkout_failed"),
-    ]
+    # The shape of ui/src/storybook/trace-fixtures/hnp/checkout-refused.json: the task's step also
+    # names the refusal the ledger recorded, and the purchase's step does not repeat it.
+    assert kinds(trace) == ["delegation_consented", "task_activated", "failed", "failed"]
+    purchase_end, task_end = of(trace, "failed")
+    assert (purchase_end.id, purchase_end.code, purchase_end.merchant_refusal) == (
+        "failed",
+        "out_of_stock",
+        None,
+    )
+    assert (task_end.id, task_end.code, task_end.merchant_refusal) == (
+        "failed:task",
+        "checkout_failed",
+        "out_of_stock",
+    )
+    assert "merchant_refusal" not in purchase_end.model_dump(mode="json")
+    assert task_end.model_dump(mode="json")["merchant_refusal"] == "out_of_stock"
     assert trace.status == "failed"
+
+
+class OfferExpired(Merchant):
+    """The merchant's own spelling, `409 OFFER_EXPIRED`: the purchase row cannot keep that code."""
+
+    def create_checkout(self, variant_id: str, *, currency: str, idempotency_key: str):
+        self.calls.append(("create", idempotency_key))
+        raise ACPClientError("Offer expired", status_code=409, code="OFFER_EXPIRED")
+
+
+def test_a_refusal_the_purchase_could_not_keep_is_named_by_the_task(
+    tmp_path: Path, ticking: Ticking
+) -> None:
+    """B0-HNP stores no code it cannot read (`purchase_failed`); the task names the refusal."""
+    bench = Bench(tmp_path, merchant=OfferExpired())
+    bench.run()
+    assert bench.purchase() == ("failed", None)
+
+    trace = bench_trace(bench)
+
+    assert [(item.id, item.code, item.merchant_refusal) for item in of(trace, "failed")] == [
+        ("failed", "purchase_failed", None),
+        ("failed:task", "checkout_failed", "offer_expired"),
+    ]
+
+
+class RefusesTheUpdate(Merchant):
+    """Creates the checkout, then refuses the details update with the typed `out_of_stock`."""
+
+    def update_checkout(self, checkout_id, update, *, idempotency_key):
+        self.calls.append(("update", idempotency_key))
+        raise ACPClientError("Out of stock", status_code=409, code="out_of_stock")
+
+
+def test_a_refused_update_shows_the_checkout_and_names_no_cause(
+    tmp_path: Path, ticking: Ticking
+) -> None:
+    bench = Bench(tmp_path, merchant=RefusesTheUpdate())
+    bench.run()
+    assert (bench.ended(), bench.purchase()) == (
+        ("failed", "checkout_failed"),
+        ("failed", "out_of_stock"),
+    )
+
+    trace = bench_trace(bench)
+
+    # The shape of ui/src/storybook/trace-fixtures/hnp/update-refused.json.
+    assert kinds(trace) == [
+        "delegation_consented",
+        "task_activated",
+        "checkout_created",
+        "failed",
+        "failed",
+    ]
+    assert [(item.id, item.code, item.merchant_refusal) for item in of(trace, "failed")] == [
+        ("failed", "out_of_stock", None),
+        ("failed:task", "checkout_failed", None),
+    ]
 
 
 # The intent reviewer (docs/design/hnp-intent-review.md §8)
@@ -568,6 +640,37 @@ def test_a_choice_not_confirmed_shows_its_review_and_the_escalation(
     # No decision was taken, but the reviewer only runs in B2-HNP.
     assert (trace.status, trace.policy_mode, trace.total) == ("canceled", "enforce", None)
     assert summarize(trace).policy is None
+
+
+def test_a_review_the_model_could_not_give_keeps_the_same_trace(
+    tmp_path: Path, ticking: Ticking
+) -> None:
+    """p0-model-failures.md §3.5: the review's `failure_kind` stays in the ledger; the trace reads
+    its decision and reason, as before."""
+    error = IntentInterpretationError(
+        "The intent review request failed", failure_kind="unreachable"
+    )
+    bench = Bench(tmp_path, mode="enforce", reviewer=FakeReviewer(error))
+    bench.run()
+    (body,) = [
+        e.body for e in bench.ledger.events(bench.grant_id) if e.event_type == "choice_reviewed"
+    ]
+    assert body["failure_kind"] == "unreachable"
+
+    trace = bench_trace(bench)
+
+    assert kinds(trace) == [
+        "delegation_consented",
+        "task_activated",
+        "choice_reviewed",
+        "escalated",
+    ]
+    (review,) = of(trace, "choice_reviewed")
+    assert (review.state, review.decision, review.reason) == (
+        "blocked",
+        "not_confirmed",
+        "review_unavailable",
+    )
 
 
 def test_a_confirmed_review_goes_after_the_claim_and_before_the_checkout(

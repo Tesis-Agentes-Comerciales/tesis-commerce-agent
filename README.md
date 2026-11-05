@@ -10,6 +10,10 @@ El Merchant ([`tesis-commerce-merchant`](https://github.com/Tesis-Agentes-Comerc
 y el proveedor de pagos sandbox (`tesis-payment-provider-sandbox`) son repositorios y procesos
 separados. Este repositorio nunca importa `commerce_lab` ni accede a la base de datos del merchant.
 
+## Estado verificable de la tesis
+
+Para revisar en GitHub el avance de pilotos, las pruebas de integración, los PRs P1–P3, CI-PSP-01, las limitaciones conocidas y el siguiente trabajo, consulta el [registro de estado fechado](docs/status/README.md). Es un índice con fuentes y alcances, no reemplaza los oráculos ni los informes originales de [evaluation/](evaluation/).
+
 ## Arranque rápido
 
 Requiere Python 3.12, `uv` y Node.js 24 o posterior. Desde la raíz del clon:

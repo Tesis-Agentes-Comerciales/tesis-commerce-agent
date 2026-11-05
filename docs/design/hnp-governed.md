@@ -351,6 +351,7 @@ logs. Es la misma protección que los mandatos HP (`ap2-profile.md`).
 | `checkout_details_json` | TEXT NOT NULL, **protegida**; `CheckoutDetails` (buyer y fulfillment) |
 | `presented_at`, `expires_at` | TEXT NOT NULL |
 | `grant_id` | TEXT NULL UNIQUE; se llena al consentir |
+| `superseded_by` | TEXT NULL; la propuesta más reciente del mismo dueño que la reemplazó mientras estaba abierta (D2 de `p0-ux08-ux10.md`). Nula si `grant_id` no lo es. Una base anterior la recibe al iniciar, con sus filas abiertas |
 
 **`delegation_grants`**
 
@@ -700,13 +701,21 @@ genérico de FastAPI. Las rutas HP no cambian.
 | Método y ruta | Cuerpo | Éxito | Errores |
 | --- | --- | --- | --- |
 | `POST /delegations/proposals` | `DelegationProposalRequest` | 201 `DelegationProposal` | 401; 422 `delegation_request_invalid`, `delegation_variant_unavailable`, `delegation_validity_exceeded`, `delegation_destination_unsupported` |
-| `POST /delegations` | `{proposal_id, scope_digest}` | 201 `DelegationView`; 200 con el mismo grant si la propuesta ya se consintió con ese digest | 401; 404 `delegation_proposal_not_found`; 409 `delegation_scope_mismatch`, `delegation_proposal_expired`; 503 `delegation_signer_unavailable` |
+| `POST /delegations` | `{proposal_id, scope_digest}` | 201 `DelegationView`; 200 con el mismo grant si la propuesta ya se consintió con ese digest | 401; 404 `delegation_proposal_not_found`; 409 `delegation_scope_mismatch`, `delegation_proposal_superseded`, `delegation_proposal_expired`; 503 `delegation_signer_unavailable` |
 | `GET /me/delegations` | — | 200 `DelegationList` (más recientes primero) | 401 |
 | `GET /delegations/{grant_id}` | — | 200 `DelegationView` | 401; 404 `delegation_not_found` |
 | `POST /delegations/{grant_id}/revoke` | — | 200 `RevokeReceipt`; repetir devuelve el mismo recibo; un grant ya `revoked` por otra causa (`operator`, `escalated`, `failed`) devuelve 200 con su estado actual (ver abajo) | 401; 404 `delegation_not_found`; 409 `delegation_not_revocable` (grant `consumed` o `expired`) |
 | `POST /me/delegations/revoke-all` | — | 200 `RevokeAllReceipt` (solo los grants que estaban `active`) | 401 |
 
 Un grant o una propuesta de otro dueño responden 404, igual que una inexistente.
+
+Una propuesta nueva reemplaza las propuestas abiertas del mismo dueño (D2 de `p0-ux08-ux10.md`):
+las que no se consintieron ni se reemplazaron y no vencieron, ni por su TTL ni por la vigencia del
+grant. El dueño es todo el contexto, porque la solicitud no nombra conversación, pestaña ni turno:
+una propuesta de cualquiera de ellas deja solo la última para consentir. Es a propósito y falla
+cerrado. Al consentir, el orden es digest, propuesta ya consentida (200 con el mismo grant, aunque
+después haya otra más reciente), reemplazada (409 `delegation_proposal_superseded`, sin grant) y
+vencida.
 
 Revocar un grant que ya está `revoked(operator|escalated|failed)` no escribe nada: responde 200 con
 `RevokeReceipt{state: "revoked", revoked_reason: <la causa guardada>, revoked_at: closed_at, effect:
@@ -953,7 +962,7 @@ Policy set nuevo, revisión 2 (la 1 solo tenía la fila D1), con las filas HNP d
 | `failed` | `governance_unavailable` | `GOV_ENGINE_UNAVAILABLE`, `GOV_OUTPUT_INVALID`, `GOV_ARTIFACT_MISMATCH`, `GOV_EVIDENCE_UNAVAILABLE`, `GOV_FACTS_UNAVAILABLE`, `GOV_INPUT_INVALID`, `GOV_FRESHNESS_UNRESOLVED` | Ídem | `revoked(failed)` | Fallo |
 | `failed` | `state_conflict` | Perdió un CAS sin otra causa (§4.5, «Lease y fencing») | Ídem | `revoked(failed)` | Fallo |
 | `failed` | `verifier_invalid_mandate`, `verifier_invalid_credential` | Recibo de error del PSP; alerta al operador | `released(psp_error_receipt)` | `revoked(failed)` | Fallo |
-| `failed` | `checkout_failed` | El comercio rechaza crear o actualizar el checkout | — | `revoked(failed)` | Fallo |
+| `failed` | `checkout_failed` | El comercio rechaza crear o actualizar el checkout; si rechazó crearlo con un código tipado y no quedó ningún checkout, `task_finished` lo nombra en `merchant_refusal` (CT13) | — | `revoked(failed)` | Fallo |
 | `failed` | `budget_guard` | La guarda común cancela el checkout (total autoritativo sobre el máximo) | — | `revoked(failed)` | Fallo |
 | `failed` | `close_expired_before_dispatch` | §4.5 | `released(no_outbox)` | `revoked(failed)` | Fallo |
 | `uncertain` | `dispatch_timeout`, `partial_verifier_failure`, `receipt_mismatch` | Después del outbox | `uncertain` | `active` | Incierto |
@@ -1003,6 +1012,16 @@ escalamiento: **«Necesito tu decisión»** (clave `escalation.title`; el prelle
 seguido del sufijo (`escalation_message`): `suffix_rejected_by_psp` para los dos `verifier_*`, y
 `suffix_before_presentation` para los demás.
 
+**Rechazo del comercio al crear el checkout (CT13).** Una tarea `failed(checkout_failed)` usa
+`task.refused.<código>` en lugar de `task.failed` solo si su `task_finished` trae
+`merchant_refusal`. El executor lo pone cuando, y solo cuando, el comercio rechazó la creación con
+un código tipado (los de `runtime_dispatch.DEFINITIVE_CREATION_REFUSALS`, por estado HTTP y código
+exactos) y la compra quedó `failed` sin `checkout_id`: en B2-HNP, D1-HNP solo devuelve ese código
+después de registrar `definitive_failure`; en B0-HNP, la respuesta es la del único POST de `start`.
+Un update rechazado (aunque traiga `out_of_stock`), un cierre fallido, una excepción genérica o un
+código desconocido no nombran causa. La causa usa las palabras de `FAILURE_COPY` de la traza, y el
+`outcome_code` sigue siendo `checkout_failed`.
+
 **Montos (K16, reemplaza a K13).** `<total>` usa la notación de `formatMoney` de la UI, para que la
 tarjeta no mezcle dos: «$ 1.924.000,00 COP», con espacio duro (U+00A0) después de «$», miles con
 punto y siempre dos decimales. La escribe `format_cop` (`delegation/views.py`); la tabla
@@ -1032,6 +1051,9 @@ sigue en el chat HP y en el texto del modelo.
 | `task.grant_expired` | Tu delegación venció antes de que el agente comprara. No se hizo ningún cobro. |
 | `task.revoked_by_owner` | Revocaste la delegación antes de la compra. No se hizo ningún cobro. |
 | `task.failed` | Detuve la compra delegada por precaución porque no pude verificar todo lo necesario. No se hizo ningún cobro y cerré la delegación. |
+| `task.refused.out_of_stock` | El producto se agotó antes de completar la compra. No se hizo ningún cobro y cerré la delegación. |
+| `task.refused.offer_expired` | La oferta del comercio venció. No se hizo ningún cobro y cerré la delegación. |
+| `task.refused.invalid_item` | El producto ya no está disponible en el comercio. No se hizo ningún cobro y cerré la delegación. |
 | `task.uncertain` | No sé todavía si la compra delegada se completó: el comercio o el proveedor de pagos no confirmó el resultado. No voy a intentarlo con otra autorización; la estoy conciliando. |
 | `task.purchased` | Compré <título> por <total> con tu delegación. Orden <número>. |
 | `task.running` | Estoy haciendo la compra que delegaste. |
@@ -1084,7 +1106,7 @@ Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autoriza
 | `consented` | `user` | `proposal_id`, `scope_digest`, `presented_at`, `consented_at`, `grant_version`, `authority_epoch`, `task_id` |
 | `mandates_issued` | `service` | Por mandato abierto: `token_digest`, `link_hash`, `issuer_kid`; `cnf_kid`, `exp`, `payment_reference` |
 | `task_claimed` | `service` | `run_id`, `claim_count`, `lease_expires_at`, `trigger: "service_token"` |
-| `choice_reviewed` | `service` | `decision`, `reason`, `prompt_id`, `model` (solo con `AGENT_HNP_REVIEWER=llm`, `hnp-intent-review.md`) |
+| `choice_reviewed` | `service` | `decision`, `reason`, `prompt_id`, `model` (solo con `AGENT_HNP_REVIEWER=llm`, `hnp-intent-review.md`); `failure_kind` si el modelo no pudo revisar (`p0-model-failures.md` §3.5) |
 | `reservation_reserved` | `service` | `reservation_id`, `operation_id`, `amount_minor`, `expected_epoch`, `state_version`, `d2_evidence_id` |
 | `mandates_closed` | `service` | Por cerrado: `token_digest`, `link_hash` (`sd_hash` del último salto), `checkout_hash`, `agent_key_kid` |
 | `dispatch_committed` | `service` | `outbox_id`, `d3_evidence_id`, `authority_epoch`, `control_epoch` |
@@ -1095,7 +1117,7 @@ Bogotá D.C.», «Tu indicación (opcional)» y el botón «Preparar la autoriza
 | `revoked` | `user`, `operator` o `service` | `revoked_reason`, `epoch_before`, `epoch_after`, `effect` |
 | `expired` | `service` | `expires_at`, `observed_at` |
 | `kill_switch_blocked` | `service` | `control_epoch`, `stage: claim \| uow1 \| uow2` |
-| `task_finished` | `service` | `state`, `outcome_code`, `run_id` |
+| `task_finished` | `service` | `state`, `outcome_code`, `run_id`; `failure_kind` si el modelo hizo fallar al selector (`selection_unavailable`, `p0-model-failures.md` §3.5); `merchant_refusal` (`out_of_stock`, `offer_expired` o `invalid_item`) si la tarea terminó `checkout_failed` porque el comercio rechazó crear el checkout con ese código y no quedó ninguno (CT13) |
 
 Todos llevan `actor_kind`, `actor_ref`, `on_behalf_of`, `task_id` y `run_id` en la fila. Las
 decisiones D1/D2/D3 viven en `governance_evidence` y la frescura `close` en `hp_evidence`. La

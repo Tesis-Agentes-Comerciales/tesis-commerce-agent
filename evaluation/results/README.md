@@ -60,3 +60,20 @@ independientes (incluido el fallido) y el CI offline del fix, con MANIFEST.json 
 Esta selección permite publicar únicamente texto sanitizado: JUnit, evidencia JSONL, feeds y logs
 de servicio sin credenciales; no es el artefacto privado completo de los pilotos descrito arriba.
 No incluye bases, .env, tokens ni ZIP originales. Los alias current duplicados no se cuentan.
+
+## Fallos del modelo (P0)
+
+La evidencia P0 de fallos del modelo (INF27, INF28, INF29 e INF33; protocolo `evaluation/scenarios/p0-model-failures.json`) está en `p0-model-failures/`.
+- Contiene la corrida registrada y la corrida 1, conservada con su fallo de arnés, con `SHA256SUMS`.
+- Su `README.md` explica el fallo de arnés y su corrección, los SHAs y los límites.
+- Los archivos se copiaron byte por byte.
+
+El smoke semántico HP de EXP-06 (UX01, UX11 y UX12; prerregistro `evaluation/scenarios/exp06-hp.json`) está en `exp06-smoke/`.
+- Es una sola corrida local con `gpt-5-mini-2025-08-07`. Los tres casos quedan `pending_review` hasta la revisión humana doble.
+- `evidence/` es la salida pública del ejecutor, copiada byte por byte con su `SHA256SUMS`; `prechecks/` guarda las comprobaciones sin gasto.
+- Su `README.md` da el costo, los SHAs, los límites y los seguimientos.
+
+El lote semántico HP de EXP-06 (UX01, UX11 y UX12 × 5 repeticiones; mismo prerregistro) está en `exp06-batch/`.
+- Es una sola corrida local con `gpt-5-mini-2025-08-07` y el ejecutor en `--stage batch`. Los 15 episodios quedan `pending_review` hasta la revisión doble.
+- `evidence/` es la salida pública del ejecutor, copiada byte por byte con su `SHA256SUMS`; `prechecks/` guarda las comprobaciones sin gasto, incluido el control del lote.
+- Su `README.md` da el costo, los SHAs, los límites y los seguimientos.

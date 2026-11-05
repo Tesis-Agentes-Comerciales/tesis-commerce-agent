@@ -1,0 +1,7 @@
+[2m2026-11-05T19:21:21.006Z[0m [31mERROR[0m [1m[Better Auth]:[0m Database schema mismatch
+
+  Missing tables
+    user, session, account, verification, jwks, rateLimit
+
+  help: Run `npx auth migrate` to add the missing tables and columns.
+[2m2026-11-05T19:21:21.179Z[0m [33mWARN[0m [1m[Better Auth]:[0m Rate limiting could not determine a client IP and is falling back to a single shared per-path bucket. Ensure your runtime forwards a trusted client IP header, then set `advanced.ipAddress.ipAddressHeaders` or `advanced.ipAddress.trustedProxies` so the address can be resolved.

@@ -1,0 +1,99 @@
+{
+  "schema": "ct19-protocol/1",
+  "agent_base": "adbe120cecf6bffc3eaf22df5c9270760697a93a",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "matrix_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "ux03_oracle_sha256": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+  "scope": "CT19 HP B2 real removed identity after D1; separate stock-zero control; no LLM/payment",
+  "cases": {
+    "CT19:HP:removed": {
+      "scenario": "CT19",
+      "mode": "HP",
+      "test": "test_ct19_hp[removed]",
+      "expected": "After durable D1 allow, native Merchant 404 invalid_item; one create; failed/invalid_item; same selected identity; VERIFIED_NOT_CREATED; zero accepted checkouts/approval/orders/tokens/payments; exact restoration",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "catalog_before",
+        "catalog_changed",
+        "catalog_restored",
+        "read_before",
+        "read_changed",
+        "feed_before",
+        "feed_changed",
+        "pre_mutation_agent",
+        "d1_observed_at_ns",
+        "mutation_verified_at_ns",
+        "idempotency_sha256",
+        "create_posts",
+        "acp_calls",
+        "agent_result",
+        "agent_after",
+        "agent_effect_counts",
+        "agent_tables",
+        "after_cleanup",
+        "psp_after_cleanup",
+        "commercial_result"
+      ]
+    },
+    "CT19:HP:stock_zero": {
+      "scenario": "CT19-STOCK",
+      "mode": "HP",
+      "test": "test_ct19_hp[stock_zero]",
+      "expected": "After durable D1 allow, native Merchant 409 out_of_stock; one create; failed/out_of_stock; same selected identity; VERIFIED_NOT_CREATED; zero accepted checkouts/approval/orders/tokens/payments; exact restoration",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "catalog_before",
+        "catalog_changed",
+        "catalog_restored",
+        "read_before",
+        "read_changed",
+        "feed_before",
+        "feed_changed",
+        "pre_mutation_agent",
+        "d1_observed_at_ns",
+        "mutation_verified_at_ns",
+        "idempotency_sha256",
+        "create_posts",
+        "acp_calls",
+        "agent_result",
+        "agent_after",
+        "agent_effect_counts",
+        "agent_tables",
+        "after_cleanup",
+        "psp_after_cleanup",
+        "commercial_result"
+      ]
+    }
+  },
+  "effect_limits": {
+    "create_posts_per_control": 1,
+    "accepted_checkouts": 0,
+    "orders": 0,
+    "payment_tokens": 0,
+    "approvals": 0,
+    "payments": 0
+  },
+  "limitations": [
+    "HP contract flow with explicit observed SKU, no conversational selection",
+    "stock-zero control is not an additional P0 scenario",
+    "HNP not_executed",
+    "single deterministic episode per control",
+    "PSP HP observation uses full database snapshot, no HNP proxy",
+    "technical failures remain unknown/error, never commercial false"
+  ],
+  "test_module": "tests/integration/test_ct19_hp.py::",
+  "fixture_prerequisite": {
+    "run_id": 41967635493,
+    "agent_sha": "e2537f2632a586010ef9734b0cf17d0cbb2c970b",
+    "zip_sha256": "237b04b72973fe106003b41766029311845e0fd5007a12aeed20d648467a8a28",
+    "protocol_sha256": "2aa5627cfe6a30441fd03f0d4a2c74f9217aa6cd7bff2b1676f96fc77b609744",
+    "validated": true
+  }
+}

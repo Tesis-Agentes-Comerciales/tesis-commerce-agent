@@ -560,6 +560,76 @@ export const EscalatedSelectionUnavailable: Story = {
   },
 }
 
+/** Una delegación que falló `checkout_failed`, con el texto que escribe el backend (§8.3). */
+function checkoutFailed(message: string) {
+  const view = DELEGATIONS.failed
+  return parseDelegationView({ ...view, task: { ...view.task, outcome_code: "checkout_failed", message } })
+}
+
+const CLOSED = "No se hizo ningún cobro y cerré la delegación."
+/** CT13: el comercio se negó a crear el checkout; el backend nombra la causa (`task.refused.*`). */
+const REFUSED_OUT_OF_STOCK = checkoutFailed(
+  `El producto se agotó antes de completar la compra. ${CLOSED}`,
+)
+const REFUSED_OFFER_EXPIRED = checkoutFailed(`La oferta del comercio venció. ${CLOSED}`)
+/** Sin una causa cierta (aquí, el update rechazado con el checkout creado): `task.failed`. */
+const FAILED_WITHOUT_CAUSE = checkoutFailed(DELEGATIONS.failed.task.message ?? "")
+
+/**
+ * CT13 en B0-HNP: el producto se agotó antes de crear el checkout. La tarjeta lo dice con las mismas
+ * palabras que la gobernanza, que lo repite en la compra y en la tarea, sin el texto de precaución.
+ */
+export const FailedOutOfStock: Story = {
+  args: { delegation: REFUSED_OUT_OF_STOCK, trace: traceFor(REFUSED_OUT_OF_STOCK, HNP_TRACES.checkoutRefused) },
+  play: async (context) => {
+    await expectStatus(context, "Compra no completada", false)
+    const titles = await openGovernance(context, /^La compra no se pudo completar/)
+    await expect(titles.slice(2, 4)).toEqual(["La compra no se pudo completar", "La compra delegada se detuvo"])
+    const governance = within(context.canvas.getByRole("group", { name: GOVERNANCE }))
+    const cause = "El producto se agotó antes de completar la compra. No se hizo ningún cobro."
+    await expect(governance.getAllByText(cause)).toHaveLength(2)
+    await expect(context.canvas.queryByText(/por precaución/i)).toBeNull()
+  },
+}
+
+/** CT13 en B2-HNP: la política permitió y la oferta venció antes de crear el checkout. */
+export const FailedOfferExpired: Story = {
+  args: {
+    delegation: REFUSED_OFFER_EXPIRED,
+    trace: traceFor(REFUSED_OFFER_EXPIRED, HNP_TRACES.checkoutRefusedOfferExpired),
+  },
+  play: async (context) => {
+    await expectStatus(context, "Compra no completada", false)
+    const titles = await openGovernance(context, /^La compra no se pudo completar/)
+    await expect(titles.slice(2, 5)).toEqual([
+      "Política de compra: permitida",
+      "La compra no se pudo completar",
+      "La compra delegada se detuvo",
+    ])
+    const governance = within(context.canvas.getByRole("group", { name: GOVERNANCE }))
+    await expect(governance.getAllByText("La oferta del comercio venció. No se hizo ningún cobro.")).toHaveLength(2)
+    await expect(context.canvas.queryByText(/por precaución/i)).toBeNull()
+  },
+}
+
+/**
+ * Sin causa cierta: el comercio rechazó el update con el checkout ya creado. La compra muestra su
+ * código, y la tarjeta y la tarea conservan la precaución.
+ */
+export const FailedWithoutCause: Story = {
+  args: {
+    delegation: FAILED_WITHOUT_CAUSE,
+    trace: traceFor(FAILED_WITHOUT_CAUSE, HNP_TRACES.updateRefused),
+  },
+  play: async (context) => {
+    await expectStatus(context, "Compra no completada", false)
+    await expect(context.canvas.getByText(/^Detuve la compra delegada por precaución/)).toBeVisible()
+    await openGovernance(context, /^La compra no se pudo completar/)
+    const governance = within(context.canvas.getByRole("group", { name: GOVERNANCE }))
+    await expect(governance.getByText("Por precaución, la compra se detuvo. No se hizo ningún cobro.")).toBeVisible()
+  },
+}
+
 /** Sin la traza (todavía no hay compra, o no se pudo leer) la tarjeta no muestra la gobernanza. */
 export const WithoutTrace: Story = {
   args: { delegation: DELEGATIONS.running, trace: null },
@@ -588,6 +658,11 @@ export const Phone320WithTrace: Story = {
         delegation={ESCALATED}
         trace={traceFor(ESCALATED, HNP_TRACES.escalated)}
       />
+      <DelegationStatusCard
+        {...args}
+        delegation={REFUSED_OUT_OF_STOCK}
+        trace={traceFor(REFUSED_OUT_OF_STOCK, HNP_TRACES.checkoutRefused)}
+      />
     </div>
   ),
   play: async ({ canvas, canvasElement, userEvent }) => {
@@ -596,7 +671,7 @@ export const Phone320WithTrace: Story = {
       const details = region.querySelector("details")
       if (details) details.open = true
     }
-    await waitFor(() => expect(canvas.getAllByRole("list", { name: "Controles de la compra" })).toHaveLength(4))
+    await waitFor(() => expect(canvas.getAllByRole("list", { name: "Controles de la compra" })).toHaveLength(5))
     // Medido con todo quieto: a medio giro, la flecha de la fila ocupa más que su caja. Solo
     // siguen las que no terminan (el giro y el brillo de la compra en curso).
     const finite = () =>

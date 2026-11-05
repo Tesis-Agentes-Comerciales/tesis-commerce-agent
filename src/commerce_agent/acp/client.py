@@ -114,12 +114,18 @@ class ACPClient:
         return self._parse_checkout(payload)
 
     def get_offer(self, offer_id: str, delivery_context: DeliveryContext) -> MerchantOffer:
-        """Lab extension, not ACP. One attempt: a failed read must surface, never be retried."""
+        """Lab extension, not ACP. One attempt: a failed read must surface, never be retried.
+
+        The answer must be the offer asked for, at the destination asked for: shipping, total
+        and delivery days depend on it. A well-formed offer of another id or destination is
+        `offer_mismatch`, not `invalid_offer`, so the trace tells it from a malformed answer.
+        """
+        requested = self._identifier(offer_id)
         payload = self._request(
             "POST",
             "/lab/offers/get",
             json={
-                "offer_id": self._identifier(offer_id),
+                "offer_id": requested,
                 "delivery_context": delivery_context.model_dump(mode="json"),
             },
         )
@@ -128,11 +134,16 @@ class ACPClient:
             # A typed answer, not a malformed one: the merchant no longer sells at these terms.
             raise ACPClientError("Merchant offer has expired", code="offer_expired")
         try:
-            return OfferResponse.model_validate(payload).data
+            offer = OfferResponse.model_validate(payload).data
         except ValidationError as error:
             raise ACPClientError(
                 "Merchant returned an invalid offer", code="invalid_offer"
             ) from error
+        if offer.id != requested or offer.delivery_context != delivery_context:
+            raise ACPClientError(
+                "Merchant returned a different offer than requested", code="offer_mismatch"
+            )
+        return offer
 
     def signed_checkout(self, checkout: CheckoutSession) -> str:
         checked_id = self._identifier(checkout.id)

@@ -83,7 +83,8 @@ corte dentro de `start` (§4.5): nunca compra.
 ## 7. Evidencia
 
 Cada revisión, confirme o no, es un evento `choice_reviewed` de `delegation_events` (actor `service`)
-con `{decision, reason, prompt_id, model}`. La llamada al modelo se mide como `model.hnp_review` en
+con `{decision, reason, prompt_id, model}`; si el modelo no pudo revisar, también `failure_kind`
+(`docs/design/p0-model-failures.md` §3.5). La llamada al modelo se mide como `model.hnp_review` en
 `stage_timings` (con tokens) y queda en `model_requests` bajo el `run_id` de la tarea, con su entrada
 y su salida estructurada.
 

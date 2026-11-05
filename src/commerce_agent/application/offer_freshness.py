@@ -101,6 +101,7 @@ class OfferFreshnessGuard:
         try:
             offer_id = _offer_line(checkout)[0]
             offer = self._reader.get_offer(offer_id, LAB_DESTINATION)
+            # ACPClient already refuses it as `offer_mismatch`; kept for any other reader.
             if offer.id != offer_id:
                 return FreshnessResult("unavailable", reason="offer_mismatch")
             return compare_offer(offer, checkout)

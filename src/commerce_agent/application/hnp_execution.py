@@ -34,10 +34,11 @@ from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, NoReturn, Protocol
+from typing import Literal, NoReturn, Protocol, get_args
 
 import jwt
 
+from commerce_agent.acp.client import ACPClientError
 from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.acp.models import CheckoutSession
 from commerce_agent.ap2 import checkout_hash
@@ -67,11 +68,13 @@ from commerce_agent.application.purchase import (
 from commerce_agent.approval import ApprovalError
 from commerce_agent.delegation.models import (
     Authority,
+    CheckoutCancel,
     ClosedMandates,
     DispatchCommit,
     Execution,
     KillSwitchStage,
     MandateRecord,
+    MerchantRefusal,
     OutcomeCode,
     ReservationRequest,
     SignedMandate,
@@ -88,6 +91,8 @@ from commerce_agent.governance.hnp_models import ConsentScope, parse_consent_sco
 from commerce_agent.governance.hnp_policy import HnpGrant
 from commerce_agent.governance.hnp_ports import HnpGateDecision, HnpPolicyGate
 from commerce_agent.governance.models import POLICY_REASONS
+from commerce_agent.governance.runtime_dispatch import DEFINITIVE_CREATION_REFUSALS
+from commerce_agent.llm.model_failures import ModelFailureKind, model_failure_kind
 from commerce_agent.llm.model_requests import model_request_scope
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger, utc_moment
@@ -99,6 +104,17 @@ Mode = Literal["off", "enforce"]
 Terminal = Literal["escalated", "failed", "canceled"]
 
 _CANCELLATIONS = frozenset({"revoked_by_owner", "kill_switch", "grant_expired"})
+# D4 (p0-ux08-ux10.md): the terminals that cancel the checkout left open after the POST, by the
+# cause each names in its idempotency key. `grant_expired` and the other failures are not among
+# them: they keep the checkout as today.
+_WITHDRAWN: dict[str, Literal["stopped", "mismatch"]] = {
+    "revoked_by_owner": "stopped",
+    "kill_switch": "stopped",
+    "checkout_failed": "mismatch",
+}
+# The purchase stages whose checkout the run knows for certain: prepared (a stop after `start`) or
+# failed by `start` itself. An `uncertain` one is D1's to reconcile; a `canceled` one is closed.
+_WITHDRAWABLE = frozenset({PurchaseStage.CHECKOUT_PREPARED, PurchaseStage.FAILED})
 _ESCALATIONS = frozenset(
     {
         "budget_not_satisfiable",
@@ -134,6 +150,8 @@ _START_OUTCOMES: dict[str, OutcomeCode] = {
     "invalid_candidate": "selection_not_eligible",
     "no_candidate": "no_candidate_in_scope",
 }
+# CT13: the merchant's typed refusals of the creation, which `checkout_failed` may name.
+_REFUSALS: dict[str, MerchantRefusal] = {code: code for code in get_args(MerchantRefusal)}
 # §8.1, «alerta al operador»: these terminals may mean altered mandates or a scope the operator
 # misconfigured. Each is logged once at ERROR on `commerce_agent.hnp.alerts`, with ids only.
 OPERATOR_ALERTS: frozenset[OutcomeCode] = frozenset(
@@ -293,16 +311,25 @@ def purchase_terminal(task_id: str, run_id: str, version: int) -> TransactionHoo
     return close
 
 
-def cancel_escalated_checkout(
-    store: SqliteAgentStore, merchant: CheckoutCanceler, run_id: str, checkout_id: str
-) -> None:
-    """§8.2: an escalation cancels its own checkout, once per run, at best effort."""
+def cancel_own_checkout(
+    store: SqliteAgentStore,
+    merchant: CheckoutCanceler,
+    run_id: str,
+    checkout_id: str,
+    *,
+    cause: Literal["escalation", "stopped", "mismatch"] = "escalation",
+) -> bool:
+    """§8.2 and p0-ux08-ux10.md D4: a terminal cancels its own checkout, once per run, at best
+    effort and without retrying, under the key `checkout.cancel.<cause>`. True once the merchant
+    answers that very checkout canceled."""
     try:
-        key = store.idempotency_key(run_id, "checkout.cancel.escalation")
-        merchant.cancel_checkout(checkout_id, idempotency_key=key, reason_code="other")
+        key = store.idempotency_key(run_id, f"checkout.cancel.{cause}")
+        canceled = merchant.cancel_checkout(checkout_id, idempotency_key=key, reason_code="other")
     except Exception:
         # Harmless: without the closed mandates, or after the PSP's rejection, nobody completes it.
-        _log.warning("HNP escalation could not cancel its checkout")
+        _log.warning("HNP %s could not cancel its checkout", cause)
+        return False
+    return canceled.id == checkout_id and canceled.status == "canceled"
 
 
 def alert_operator(step: Step) -> None:
@@ -349,6 +376,23 @@ class _Run:
         if task.lease_id is None or task.run_id is None:
             raise LookupError("A claimed task without its lease or run")
         return cls(task.task_id, task.lease_id, task.run_id, task.grant_id, task.owner_id)
+
+
+class _Withdrawal:
+    """D4 for one terminal: what it does with the checkout left open. Asked again when §4.5
+    renames the terminal, it decides again only while nothing was decided, so the merchant hears
+    of the checkout at most once."""
+
+    def __init__(self, decide: Callable[[OutcomeCode], CheckoutCancel | None]) -> None:
+        self._decide = decide
+        self.cancel: CheckoutCancel | None = None
+
+    def __call__(self, outcome: OutcomeCode) -> CheckoutCancel | None:
+        if outcome not in _WITHDRAWN:
+            return None
+        if self.cancel is None:
+            self.cancel = self._decide(outcome)
+        return self.cancel
 
 
 class _Stopped(Exception):
@@ -483,9 +527,10 @@ class HnpExecutionService:
             self._end(run, "checkout_failed")
         shortlist = self._shortlist(run, feed, intent, consent)
         variant_id = self._select(run, shortlist, intent, consent)
-        self._hold(run)
+        self._hold(run, ex.authority)
         if self._reviewer is not None and _listed(shortlist, variant_id):
             self._review(run, self._reviewer, shortlist, intent, consent, variant_id)
+            self._hold(run, ex.authority)  # the review is a model call too
         checkout = self._start(run, feed, intent, consent, details, variant_id)
         purchase = self._store.purchase_state_version(run.run_id)
         if self._stage(run.run_id) != PurchaseStage.CHECKOUT_PREPARED or purchase is None:
@@ -544,11 +589,15 @@ class HnpExecutionService:
         self._applied(run, step, purchase, stage="uow2", lost=d3.conflict_hooks)
         return step
 
-    def _hold(self, run: _Run) -> None:
-        """Before the first effect (`start`): the selector may be a model call longer than the
-        lease, so the run renews the lease it still holds, or stops if another run re-claimed the
-        task meanwhile (§4.5). The lease's CAS lets only one of them advance."""
-        step = self._ledger.renew_lease(run.task_id, run.lease_id)
+    def _hold(self, run: _Run, expected: Authority) -> None:
+        """Before the first effect (`start`): the selector and the reviewer may be model calls
+        longer than the lease, so the run renews the lease it still holds, or stops if another run
+        re-claimed the task meanwhile (§4.5). The lease's CAS lets only one of them advance. A
+        revocation, kill switch or expiry committed during the call, or a grant that moved under
+        the claim, ends the task here, before any POST (p0-ux08-ux10.md §3.1)."""
+        step = self._ledger.renew_lease(run.task_id, run.lease_id, expected)
+        if step.status == "blocked":
+            self._end(run, step.outcome or "state_conflict", purchase=self._closable(run.run_id))
         if step.status != "reused":
             raise _Stopped(step)
 
@@ -574,6 +623,7 @@ class HnpExecutionService:
         intent: PurchaseIntent,
         consent: ConsentScope,
     ) -> str:
+        failure_kind: ModelFailureKind | None = None
         try:
             # A model selector records its request under the task's run (run-traceability §4.4).
             with model_request_scope(run_id=run.run_id):
@@ -582,11 +632,12 @@ class HnpExecutionService:
             # The classes only, never the message: it may carry catalog or request text. The
             # request itself, with its `error_kind`, is in `model_requests` under the run.
             _log.warning("HNP selector unavailable for task %s: %s", run.task_id, _kind(error))
-            chosen = None
+            chosen, failure_kind = None, model_failure_kind(error)
         if chosen is None:
             # No choice is not a choice outside the grant (§8.1): it fails closed like the intent
             # reviewer, before any effect, and escalates in B2-HNP without the operator's alert.
-            self._end(run, "selection_unavailable")
+            # `task_finished` keeps why the model failed (p0-model-failures.md §3.5).
+            self._end(run, "selection_unavailable", failure_kind=failure_kind)
         if not _listed(shortlist, chosen) and self._mode == "off":
             # K12: B0-HNP has no D1, so its own guard stops a choice outside the shortlist. B2-HNP
             # has no guard here: D1-HNP denies that choice with POL-01, with its evidence, before
@@ -607,6 +658,7 @@ class HnpExecutionService:
         row exists first (`start` creates the same one, idempotently) so that the trace of a choice
         not confirmed shows the review. It fails closed, and only a confirmation goes on."""
         self._store.create_purchase(run.run_id, HNP_REQUEST, run.owner_id, grant_id=run.grant_id)
+        failure_kind: ModelFailureKind | None = None
         try:
             # Like the selector's, its model request goes under the task's run (§4.4).
             with model_request_scope(run_id=run.run_id):
@@ -616,9 +668,9 @@ class HnpExecutionService:
                     preference_text=consent.preference_text,
                     chosen_variant_id=variant_id,
                 )
-        except Exception:
+        except Exception as error:
             _log.warning("HNP intent review unavailable")
-            result = REVIEW_UNAVAILABLE
+            result, failure_kind = REVIEW_UNAVAILABLE, model_failure_kind(error)
         review: IntentReview = checked(result)
         body = {
             "decision": review.decision,
@@ -626,6 +678,10 @@ class HnpExecutionService:
             "prompt_id": reviewer.prompt_id,
             "model": reviewer.model,
         }
+        if failure_kind is not None:
+            # Why the model could not review (p0-model-failures.md §3.5); only then, so every
+            # other review keeps its body.
+            body["failure_kind"] = failure_kind
         step = self._ledger.record_choice_review(run.task_id, run.lease_id, body)
         if step.status != "reused":
             raise _Stopped(step)  # another lease owns the task: it writes the terminal
@@ -654,14 +710,40 @@ class HnpExecutionService:
                 grant=grant,
             )
         except PurchaseServiceError as error:
-            outcome = self._start_outcome(run.run_id, error.code)
+            # B2-HNP: D1-HNP raises a refusal's own code only after recording that its one POST
+            # created nothing (`definitive_failure`); any other failure there is uncertain.
+            outcome, refused = self._start_outcome(run.run_id, error.code), error.code
+            # D4: the checkout the merchant created and `start` rejected before storing it.
+            mismatched = error.checkout_id if error.code == "checkout_mismatch" else None
+        except ACPClientError as error:
+            # B0-HNP: the merchant's answer to the POST of `start` or to a later call of it.
+            outcome, refused, mismatched = "checkout_failed", _creation_refusal(error), None
         except Exception:
-            outcome = "checkout_failed"
+            outcome, refused, mismatched = "checkout_failed", None, None
         else:
             return prepared.checkout
         # §4.6: the terminal fails or cancels a `received` purchase and keeps what `start` left.
         outcome = self._unrecovered(run.run_id) or outcome
-        self._end(run, outcome, purchase=self._closable(run.run_id))
+        refusal = self._refusal(run.run_id, outcome, refused)
+        self._end(
+            run,
+            outcome,
+            purchase=self._closable(run.run_id),
+            merchant_refusal=refusal,
+            mismatched=mismatched,
+        )
+
+    def _refusal(
+        self, run_id: str, outcome: OutcomeCode, code: str | None
+    ) -> MerchantRefusal | None:
+        """CT13: the merchant's refusal a `checkout_failed` names, only when it is certain: a
+        typed refusal of the creation, with the purchase failed and no checkout stored. The same
+        code on the details update comes with the checkout already created, so it names none."""
+        refusal = _REFUSALS.get(code or "") if outcome == "checkout_failed" else None
+        purchase = self._store.purchase(run_id) if refusal is not None else None
+        if purchase is None or purchase["checkout_id"] is not None:
+            return None
+        return refusal if purchase["stage"] == PurchaseStage.FAILED else None
 
     def _start_outcome(self, run_id: str, code: str) -> OutcomeCode:
         if code == "d1_denied":
@@ -812,15 +894,31 @@ class HnpExecutionService:
         purchase: int | None = None,
         checkout: CheckoutSession | None = None,
         hooks: Sequence[TransactionHook] = (),
+        failure_kind: ModelFailureKind | None = None,
+        merchant_refusal: MerchantRefusal | None = None,
+        mismatched: str | None = None,
     ) -> NoReturn:
         """The terminal of §8.1 by CAS, with the purchase closed in the same unit of work when
-        `start` prepared it; an escalation also cancels its own checkout (§8.2)."""
+        `start` prepared it; an escalation also cancels its own checkout (§8.2). A revocation or
+        kill switch after the POST, or the checkout `start` rejected as `mismatched` (its id,
+        which the purchase never stored), cancels the checkout left open first, so that
+        `task_finished` records the result (p0-ux08-ux10.md D4)."""
         state = _terminal(outcome, escalates=self._mode == "enforce")
         closing = (
             () if purchase is None else (purchase_terminal(run.task_id, run.run_id, purchase),)
         )
+        withdraw = _Withdrawal(lambda final: self._withdraw(run, final, mismatched))
         try:
-            step = self._finish(run, state, outcome, stage, (*hooks, *closing))
+            step = self._finish(
+                run,
+                state,
+                outcome,
+                stage,
+                (*hooks, *closing),
+                failure_kind,
+                merchant_refusal,
+                withdraw,
+            )
         except GovernanceError:
             if not hooks:
                 raise
@@ -829,9 +927,11 @@ class HnpExecutionService:
             _log.warning("HNP terminal evidence unavailable")
             if outcome not in _CANCELLATIONS:
                 state, outcome = "failed", "governance_unavailable"
-            step = self._finish(run, state, outcome, stage, closing)
-        if state == "escalated" and checkout is not None and step.status == "closed":
-            cancel_escalated_checkout(self._store, self._checkout, run.run_id, checkout.id)
+            step = self._finish(run, state, outcome, stage, closing, withdraw=withdraw)
+        escalated = state == "escalated" and step.status == "closed"
+        # Not when §4.5 renamed it a revocation that already canceled the checkout (D4).
+        if escalated and checkout is not None and withdraw.cancel is None:
+            cancel_own_checkout(self._store, self._checkout, run.run_id, checkout.id)
         raise _Stopped(step)
 
     def _finish(
@@ -841,16 +941,63 @@ class HnpExecutionService:
         outcome: OutcomeCode,
         stage: KillSwitchStage,
         hooks: Sequence[TransactionHook],
+        failure_kind: ModelFailureKind | None = None,
+        merchant_refusal: MerchantRefusal | None = None,
+        withdraw: _Withdrawal | None = None,
     ) -> Step:
         kill_stage = stage if outcome == "kill_switch" else None
-        request = TaskFinish(run.task_id, run.lease_id, state, outcome, kill_stage)
+        cancel = withdraw(outcome) if withdraw is not None else None
+        request = TaskFinish(
+            run.task_id,
+            run.lease_id,
+            state,
+            outcome,
+            kill_stage,
+            failure_kind,
+            merchant_refusal,
+            cancel,
+        )
         step = self._ledger.finish_task(request, hooks=hooks)
         revoked = step.execution is not None and step.execution.grant.revoked_reason == "owner"
         if step.status == "blocked" and revoked and outcome != "revoked_by_owner":
             # §4.5: the owner's revocation committed first, so it names the terminal.
-            owner = TaskFinish(run.task_id, run.lease_id, "canceled", "revoked_by_owner")
+            cancel = withdraw("revoked_by_owner") if withdraw is not None else None
+            owner = TaskFinish(
+                run.task_id, run.lease_id, "canceled", "revoked_by_owner", checkout_cancel=cancel
+            )
             return self._ledger.finish_task(owner, hooks=hooks)
         return step
+
+    def _withdraw(
+        self, run: _Run, outcome: OutcomeCode, mismatched: str | None
+    ) -> CheckoutCancel | None:
+        """D4 (p0-ux08-ux10.md): read before the terminal, the purchase says which checkout the
+        run left open. A revocation or kill switch cancels the one `start` prepared (or stored
+        before failing); `checkout_failed` cancels only the one `start` rejected as
+        `checkout_mismatch`. A purchase D1 left `uncertain` is not touched: D1's reconciliation
+        owns it, and the terminal records that it was left to it. Nothing else is canceled.
+
+        It runs before the terminal's CAS, which records the result. That is safe even if the
+        lease is lost meanwhile: under a revocation or the kill switch no run can commit the
+        dispatch (UoW-2 and the re-claim compare the authority), and a purchase `start` failed
+        is never resumed (§4.5), so the checkout is no other run's."""
+        purchase = self._store.purchase(run.run_id)
+        if purchase is None:
+            return None  # the run stopped before `start` and the reviewer: no checkout
+        stage, checkout_id = purchase["stage"], mismatched or purchase["checkout_id"]
+        if stage == PurchaseStage.UNCERTAIN:
+            return CheckoutCancel(checkout_id, "left_to_d1_reconciliation")
+        cause = _WITHDRAWN[outcome]
+        if (
+            checkout_id is None
+            or stage not in _WITHDRAWABLE
+            or (cause == "mismatch" and mismatched is None)
+        ):
+            return None
+        canceled = cancel_own_checkout(
+            self._store, self._checkout, run.run_id, checkout_id, cause=cause
+        )
+        return CheckoutCancel(checkout_id, "canceled" if canceled else "cancel_failed")
 
     # The purchase (§4.6): its transitions run inside the ledger's unit of work.
 
@@ -892,6 +1039,14 @@ class HnpExecutionService:
             )
 
         return complete
+
+
+def _creation_refusal(error: ACPClientError) -> str | None:
+    """The merchant's definitive refusal of a creation, by exact status and code, as the governed
+    dispatch reads it (`runtime_dispatch`); anything else proves nothing."""
+    if error.status_code is None:
+        return None
+    return DEFINITIVE_CREATION_REFUSALS.get((error.status_code, error.code))
 
 
 def _listed(shortlist: tuple[RankedCandidate, ...], variant_id: str) -> bool:

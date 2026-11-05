@@ -1,0 +1,50 @@
+{
+  "schema": "exp05-auth-transport-protocol/1",
+  "agent_base": "4ce219623ed0304a3e7378519a37f0b8844694c5",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "matrix_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "ux03_oracle_sha256": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+  "scope": "authenticated HTTP adapter only; real AuthClient/JWT/JWKS and Agent; no configured model or semantic UX execution",
+  "cases": {
+    "AUTH:transport": {
+      "scenario": "AUTH-TRANSPORT",
+      "mode": "HP",
+      "test": "test_real_auth_adapter_without_model",
+      "expected": "real signup/JWT; missing/invalid token 401; valid history 200; UX prepared requests reach unconfigured model and return 502 intent_model_error; zero Merchant/PSP effects and model calls; authenticated 307 redirect refused without following",
+      "required_observations": [
+        "merchant_before",
+        "merchant_after",
+        "psp_before",
+        "psp_after",
+        "after_cleanup",
+        "http_statuses",
+        "prepared_turns",
+        "agent_effect_counts",
+        "auth_after_signup",
+        "auth_after_requests",
+        "semantic_scenarios"
+      ]
+    }
+  },
+  "effect_limits": {
+    "completed_orders": 0,
+    "payment_requests": 0,
+    "checkouts": 0,
+    "model_calls": 0,
+    "auth_writes": "synthetic signup/session/JWKS allowed and observed"
+  },
+  "limitations": [
+    "UX01/UX11/UX12 remain not_executed semantically",
+    "HTTP 502 intent_model_error is technical, not commercial false",
+    "HP authenticated route only; HNP conversation not evaluated",
+    "auth database writes expected, no commercial effects",
+    "no scripted clarification responses or model credentials"
+  ],
+  "test_module": "tests/integration/test_exp05_authenticated_ux.py::",
+  "prepared_prompts": {
+    "UX01": "Quiero un celular.",
+    "UX11": "Quiero un celular de hasta 1.2.",
+    "UX12": "Solo quiero comprarlo si llega antes del viernes."
+  }
+}

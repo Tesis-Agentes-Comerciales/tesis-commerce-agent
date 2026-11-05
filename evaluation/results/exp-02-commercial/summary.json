@@ -1,0 +1,225 @@
+{
+  "schema": "exp02-archival-summary/1",
+  "runs": [
+    {
+      "run_id": 41895136607,
+      "artifact_id": 13355461599,
+      "sha256": "c4f9c60c07c4708bb9484e6b8e114a90020b3b28953258ac829f4a80ad2da66d",
+      "sources": {
+        "agent": {
+          "sha": "243fb5fcd334a6258e90de91ab8a44c35e072260",
+          "clean": true,
+          "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+        },
+        "merchant": {
+          "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+          "clean": true,
+          "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+        },
+        "payment": {
+          "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+          "clean": true,
+          "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+        }
+      },
+      "protocol_sha256": "d5941affceac9f89dc51b8f4adb5a8528537e49bd3ff36367e28993bd70757c6",
+      "validated": false,
+      "scenarios": {
+        "CT15": "failed"
+      },
+      "issues": [
+        "recorder_incomplete",
+        "required_controls_missing_duplicate_or_extra"
+      ],
+      "junit": {
+        "failed": 1,
+        "skipped": 0,
+        "error": 1,
+        "passed": 1
+      },
+      "hashes_verified": 22,
+      "shutdown": [
+        {
+          "scenario": "shutdown",
+          "merchant_pids": [
+            3240
+          ],
+          "proxy_closed": true,
+          "postgres_removed": true
+        }
+      ],
+      "controls": {
+        "CT15:HP:within": {
+          "status": "passed",
+          "cleanup_verified": true,
+          "agent_result": "awaiting_confirmation",
+          "agent_effect_counts": {
+            "approvals": 0,
+            "completion_results": 0
+          },
+          "create_posts": 1
+        },
+        "CT15:HP:above": {
+          "status": "failed",
+          "cleanup_verified": true,
+          "agent_result": "d1_post_create_uncertain",
+          "agent_effect_counts": {
+            "approvals": 0,
+            "completion_results": 0
+          },
+          "create_posts": 1
+        }
+      }
+    },
+    {
+      "run_id": 41895460657,
+      "artifact_id": 13356640011,
+      "sha256": "6a6c47287dcb8f4622a9581531622713dcf038f0a264c9a69103d87795381fd8",
+      "sources": {
+        "agent": {
+          "sha": "01698e89ca3b8de5d5e5eb90f88cea4bad57e3c1",
+          "clean": true,
+          "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+        },
+        "merchant": {
+          "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+          "clean": true,
+          "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+        },
+        "payment": {
+          "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+          "clean": true,
+          "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+        }
+      },
+      "protocol_sha256": "d5941affceac9f89dc51b8f4adb5a8528537e49bd3ff36367e28993bd70757c6",
+      "validated": true,
+      "scenarios": {
+        "CT15": "passed"
+      },
+      "issues": [],
+      "junit": {
+        "failed": 0,
+        "skipped": 0,
+        "error": 0,
+        "passed": 2
+      },
+      "hashes_verified": 22,
+      "shutdown": [
+        {
+          "scenario": "shutdown",
+          "merchant_pids": [
+            3272
+          ],
+          "proxy_closed": true,
+          "postgres_removed": true
+        }
+      ],
+      "controls": {
+        "CT15:HP:within": {
+          "status": "passed",
+          "cleanup_verified": true,
+          "agent_result": "awaiting_confirmation",
+          "agent_effect_counts": {
+            "approvals": 0,
+            "completion_results": 0
+          },
+          "create_posts": 1
+        },
+        "CT15:HP:above": {
+          "status": "passed",
+          "cleanup_verified": true,
+          "agent_result": "budget_exceeded",
+          "agent_effect_counts": {
+            "approvals": 0,
+            "completion_results": 0
+          },
+          "create_posts": 1
+        }
+      }
+    },
+    {
+      "run_id": 41895755779,
+      "artifact_id": 13355273888,
+      "sha256": "ded8a06366c3e44f8dbf077df6aef4dd706e9c1d80088bf722f3c86847c55f7b",
+      "sources": {
+        "agent": {
+          "sha": "01698e89ca3b8de5d5e5eb90f88cea4bad57e3c1",
+          "clean": true,
+          "uv_lock_sha256": "3b9396ebc12f4306e31739df1f0b9ecea885135c35b17cc768ad12a3bce1e7b9"
+        },
+        "merchant": {
+          "sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+          "clean": true,
+          "uv_lock_sha256": "47ce5d15a07e5f976810d6a1d599b08ef80e6f81546a2b29494fe59b4157f25c"
+        },
+        "payment": {
+          "sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+          "clean": true,
+          "uv_lock_sha256": "bc2f1f2d8b4e4c4495f5fa41bb055b60293374a900b1723a8732f4b29864b04c"
+        }
+      },
+      "protocol_sha256": "d5941affceac9f89dc51b8f4adb5a8528537e49bd3ff36367e28993bd70757c6",
+      "validated": true,
+      "scenarios": {
+        "CT14": "passed"
+      },
+      "issues": [],
+      "junit": {
+        "failed": 0,
+        "skipped": 0,
+        "error": 0,
+        "passed": 2
+      },
+      "hashes_verified": 18,
+      "shutdown": [
+        {
+          "scenario": "shutdown",
+          "merchant_pids": [
+            3195
+          ],
+          "proxy_closed": true,
+          "postgres_removed": true
+        }
+      ],
+      "controls": {
+        "CT14:HP:stable": {
+          "status": "passed",
+          "cleanup_verified": true,
+          "agent_result": "fresh_terms",
+          "agent_effect_counts": {
+            "approvals": 0,
+            "completion_results": 0
+          },
+          "create_posts": 1
+        },
+        "CT14:HP:depleted": {
+          "status": "passed",
+          "cleanup_verified": true,
+          "agent_result": "checkout_terms_changed",
+          "agent_effect_counts": {
+            "approvals": 0,
+            "completion_results": 0
+          },
+          "create_posts": 1
+        }
+      }
+    }
+  ],
+  "current_validated_scope": {
+    "CT15": [
+      "HP:within",
+      "HP:above"
+    ],
+    "CT14": [
+      "HP:stable",
+      "HP:depleted"
+    ]
+  },
+  "limits": [
+    "no HNP CT15 measurement",
+    "no CT14 complete or approval attempted",
+    "no semantic LLM",
+    "first failed run retained; proxy fixture lacked cancel route"
+  ]
+}
