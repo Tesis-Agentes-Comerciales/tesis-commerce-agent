@@ -40,6 +40,32 @@ explícita UTF-8; no se cambió ninguna aserción, rúbrica o resultado esperado
 El JUnit posterior se conserva por separado. Los runs reales del workflow de
 validación y el CI final se enlazan en el PR #170 con sus SHAs y artefactos.
 
+## Validación del workflow en Actions
+
+[Run 41956029223](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41956029223)
+ejecutó `3281a2d79ac807fd79965ac2f6a8c4a87bcaea23` mediante el puente
+nightly > exp06-smoke.yml: **73 controles passed** y **1 control de integración
+passed, cero failed/error/skipped obligatorios**, validated=true sólo de infraestructura.
+Los dos jobs legacy del nightly quedaron skipped deliberadamente para no ejecutar
+otro lote; el job requerido exp06-actions-validation/protected-run sí se ejecutó.
+Los pasos pagados no se ejecutaron. No se contó ningún escenario semántico aprobado.
+
+Artefacto **13383146485**, archivado íntegro en `runs/41956029223.zip`;
+SHA-256 `ccd93bbee11e23285164ac22d3c770089697b753095457c66a5d39b8b20f53e9`.
+Digest de GitHub y **27 hashes internos** verificados. Se verificaron los seis
+intentos MockTransport con service_tier=default y tags de caso, congelación de los
+tres episodios antes del primer intento, snapshots sin efectos, reserva simulada
+USD 2,670 conciliada, detención y eliminación privadas. No contiene bases/receipt
+ni patrones de secretos detectados (el análisis por patrones no es exhaustivo).
+Los JUnit, manifest, reporte e integrity.json conservan estas comprobaciones.
+
+Agent SHA anterior, Merchant abf30df3b6a611284dedcc26c00accac6a853329 y PSP
+e6ab67b5963434a9a3caae2012b70232a3cca65d: checkouts limpios y locks verificados.
+El [CI general 41956034792](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/41956034792)
+aprobó sus cuatro jobs. El commit posterior archiva evidencia/documentación, sin
+cambiar flujo, ejecutor, pruebas, protocolo o condiciones; el CI del último HEAD se
+enlaza y verifica en el PR #170. No se ha probado una inferencia real satisfactoria.
+
 ## Cómo lanzar después de revisión y autorización
 
 1. Incorporar el workflow a main mediante revisión/merge humano. GitHub necesita
