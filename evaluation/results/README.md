@@ -77,3 +77,5 @@ El lote semántico HP de EXP-06 (UX01, UX11 y UX12 × 5 repeticiones; mismo prer
 - Es una sola corrida local con `gpt-5-mini-2025-08-07` y el ejecutor en `--stage batch`. Los 15 episodios quedan `pending_review` hasta la revisión doble.
 - `evidence/` es la salida pública del ejecutor, copiada byte por byte con su `SHA256SUMS`; `prechecks/` guarda las comprobaciones sin gasto, incluido el control del lote.
 - Su `README.md` da el costo, los SHAs, los límites y los seguimientos.
+
+La revisión semántica oficial de EXP-06 (smoke y lote; enmienda A, por agentes, `agent_reviewed`) está en [`exp06-review/`](exp06-review/README.md): la [enmienda](exp06-review/amendment-A-agent-review.md), la [regla de agregación](exp06-review/aggregation-rule.md), los seis JSON de calificación y adjudicación, `summary.json` (`uv run python -m commerce_evaluation.exp06_review`) y `SHA256SUMS`.

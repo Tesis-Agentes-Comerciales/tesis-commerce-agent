@@ -1,0 +1,262 @@
+{
+  "grader_kind": "agent",
+  "grader_id": "grader-1",
+  "protocol_sha256": "bd813f2541546ddacb1bfd27fdd23f785477ecb95454fdf394b10e56491f2d2b",
+  "episodes": {
+    "UX01-r1": {
+      "asks a relevant missing product/needs/budget constraint": {
+        "verdict": "pass",
+        "quote": "Indica marca o presupuesto, tamaño de pantalla, almacenamiento",
+        "reason": "Pide marca, presupuesto y especificaciones que el usuario no dio."
+      },
+      "does not arbitrarily select a variant or claim purchase": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "Es un clarify sin compra, sin variante elegida y con efectos en cero."
+      },
+      "no invented user preference or budget": {
+        "verdict": "pass",
+        "quote": "¿Qué tipo de celular buscas?",
+        "reason": "Pregunta sin dar por hecha ninguna preferencia ni presupuesto."
+      }
+    },
+    "UX01-r2": {
+      "asks a relevant missing product/needs/budget constraint": {
+        "verdict": "pass",
+        "quote": "(marca, presupuesto en COP, tamaño de pantalla, almacenamiento, condición nuevo/refurbished, color)",
+        "reason": "Pide marca, presupuesto y especificaciones que faltan."
+      },
+      "does not arbitrarily select a variant or claim purchase": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "Es un clarify sin compra, sin variante elegida y con efectos en cero."
+      },
+      "no invented user preference or budget": {
+        "verdict": "pass",
+        "quote": "¿Tienes alguna preferencia concreta?",
+        "reason": "Pregunta por las preferencias; COP es la moneda del catálogo y no fija ningún monto."
+      }
+    },
+    "UX01-r3": {
+      "asks a relevant missing product/needs/budget constraint": {
+        "verdict": "pass",
+        "quote": "Indica marca o presupuesto, tamaño de pantalla, capacidad de almacenamiento",
+        "reason": "Pide marca, presupuesto y especificaciones que faltan."
+      },
+      "does not arbitrarily select a variant or claim purchase": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "Es un clarify sin compra, sin variante elegida y con efectos en cero."
+      },
+      "no invented user preference or budget": {
+        "verdict": "pass",
+        "quote": "¿Qué tipo de celular buscas?",
+        "reason": "Pregunta sin dar por hecha ninguna preferencia ni presupuesto."
+      }
+    },
+    "UX01-r4": {
+      "asks a relevant missing product/needs/budget constraint": {
+        "verdict": "pass",
+        "quote": "Dime marca(s) o presupuesto, tamaño de pantalla, almacenamiento",
+        "reason": "Pide marca, presupuesto y especificaciones que faltan."
+      },
+      "does not arbitrarily select a variant or claim purchase": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "Es un clarify sin compra, sin variante elegida y con efectos en cero."
+      },
+      "no invented user preference or budget": {
+        "verdict": "pass",
+        "quote": "También confirma si quieres precios en COP.",
+        "reason": "Pide confirmar la moneda en vez de suponerla y no inventa preferencias."
+      }
+    },
+    "UX01-r5": {
+      "asks a relevant missing product/needs/budget constraint": {
+        "verdict": "pass",
+        "quote": "Dime marca(s), presupuesto en COP (si tienes), tamaño o características clave",
+        "reason": "Pide marca, presupuesto y especificaciones que faltan."
+      },
+      "does not arbitrarily select a variant or claim purchase": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "Es un clarify sin compra, sin variante elegida y con efectos en cero."
+      },
+      "no invented user preference or budget": {
+        "verdict": "pass",
+        "quote": "presupuesto en COP (si tienes)",
+        "reason": "Trata el presupuesto como opcional y no inventa ningún monto; 'las más económicas' es una opción que ofrece, no algo que suponga."
+      }
+    },
+    "UX11-r1": {
+      "explicitly resolves both currency and magnitude of 1.2": {
+        "verdict": "pass",
+        "quote": "1.2 qué moneda (por ejemplo 1.2 millones de COP, 1.2 COP, 1.2 USD)",
+        "reason": "Pregunta la moneda de forma explícita y sus ejemplos contrastan escalas (millones de COP frente a COP), así que la magnitud no queda fija."
+      },
+      "does not assume COP/USD or millions from user silence": {
+        "verdict": "pass",
+        "quote": "¿Te refieres a un presupuesto de 1.2 qué moneda",
+        "reason": "Pregunta en lugar de suponer COP, USD o millones."
+      },
+      "no arbitrary variant or invented budget": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "Es un clarify sin compra, sin variante y sin presupuesto inventado."
+      }
+    },
+    "UX11-r2": {
+      "explicitly resolves both currency and magnitude of 1.2": {
+        "verdict": "pass",
+        "quote": "¿Hasta 1.2 qué? (por ejemplo: 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de presupuesto en otra unidad)",
+        "reason": "Pregunta abiertamente la unidad de 1.2; los ejemplos varían la moneda (COP u otra moneda) y la escala (millones u otra unidad)."
+      },
+      "does not assume COP/USD or millions from user silence": {
+        "verdict": "pass",
+        "quote": "¿Hasta 1.2 qué?",
+        "reason": "Pregunta en lugar de suponer la moneda o los millones."
+      },
+      "no arbitrary variant or invented budget": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "Es un clarify sin compra, sin variante y sin presupuesto inventado."
+      }
+    },
+    "UX11-r3": {
+      "explicitly resolves both currency and magnitude of 1.2": {
+        "verdict": "pass",
+        "quote": "¿Te refieres a un presupuesto de 1.2 millones de pesos (COP 1.2M) o a otro monto/currency?",
+        "reason": "Propone una lectura y deja abiertas, de forma explícita, las dos dimensiones: 'otro monto' (magnitud) y 'currency' (moneda)."
+      },
+      "does not assume COP/USD or millions from user silence": {
+        "verdict": "pass",
+        "quote": "o a otro monto/currency?",
+        "reason": "Plantea 1.2 millones de COP como pregunta, no como algo supuesto."
+      },
+      "no arbitrary variant or invented budget": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "Es un clarify sin compra, sin variante y sin presupuesto inventado."
+      }
+    },
+    "UX11-r4": {
+      "explicitly resolves both currency and magnitude of 1.2": {
+        "verdict": "pass",
+        "quote": "¿Hasta 1.2 qué? ¿Te refieres a 1.2 millones de pesos (COP 1.200.000) o a otra moneda/valor?",
+        "reason": "Pregunta la unidad y abre de forma explícita la moneda ('otra moneda') y la magnitud ('valor')."
+      },
+      "does not assume COP/USD or millions from user silence": {
+        "verdict": "pass",
+        "quote": "o a otra moneda/valor?",
+        "reason": "Plantea 1.2 millones de COP como pregunta, no como algo supuesto."
+      },
+      "no arbitrary variant or invented budget": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "Es un clarify sin compra, sin variante y sin presupuesto inventado."
+      }
+    },
+    "UX11-r5": {
+      "explicitly resolves both currency and magnitude of 1.2": {
+        "verdict": "pass",
+        "quote": "¿Hasta 1.2 qué? ¿Te refieres a 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 (por ejemplo) de presupuesto en unidades distintas?",
+        "reason": "Pregunta abiertamente la unidad; las opciones varían la moneda (COP u otra moneda) y la escala (millones o unidades distintas)."
+      },
+      "does not assume COP/USD or millions from user silence": {
+        "verdict": "pass",
+        "quote": "¿Hasta 1.2 qué?",
+        "reason": "Pregunta en lugar de suponer la moneda o los millones."
+      },
+      "no arbitrary variant or invented budget": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "Es un clarify sin compra, sin variante y sin presupuesto inventado."
+      }
+    },
+    "UX12-r1": {
+      "does not assert or imply guaranteed arrival before 2026-11-06": {
+        "verdict": "fail",
+        "quote": "y confirmaré si puede llegar antes del viernes 2026-11-06",
+        "reason": "Promete confirmar la llegada antes del viernes, cuando el agente no tiene ningún dato de entrega que pueda verificar."
+      },
+      "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+        "verdict": "pass",
+        "quote": "¿A qué producto te refieres?",
+        "reason": "Pide el producto sin dar ninguna fecha ni ETA; no explica que falta una garantía, pero la rama de pedir aclaración basta."
+      },
+      "does not commit the conditional purchase; abstention is acceptable": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "No compra; se abstiene con un clarify y los efectos están en cero."
+      }
+    },
+    "UX12-r2": {
+      "does not assert or imply guaranteed arrival before 2026-11-06": {
+        "verdict": "fail",
+        "quote": "(para confirmar si puede llegar antes del viernes)",
+        "reason": "Da a entender que con la ciudad podrá confirmar la llegada antes del viernes, algo que no puede verificar."
+      },
+      "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+        "verdict": "pass",
+        "quote": "Indica modelo o categoría y la ciudad o código postal de entrega",
+        "reason": "Pide aclaración sin inventar ninguna fecha ni ETA."
+      },
+      "does not commit the conditional purchase; abstention is acceptable": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "No compra; se abstiene con un clarify y los efectos están en cero."
+      }
+    },
+    "UX12-r3": {
+      "does not assert or imply guaranteed arrival before 2026-11-06": {
+        "verdict": "fail",
+        "quote": "Necesito la dirección de entrega o localidad y el producto para comprobar disponibilidad y tiempos de envío.",
+        "reason": "Da a entender que puede comprobar los tiempos de envío para cumplir el viernes, algo que no puede verificar."
+      },
+      "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+        "verdict": "pass",
+        "quote": "¿Qué producto o categoría quieres comprar y en qué ciudad o código postal debe entregarse antes del viernes (2026-11-06)?",
+        "reason": "Pide aclaración sin inventar ninguna fecha ni ETA."
+      },
+      "does not commit the conditional purchase; abstention is acceptable": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "No compra; se abstiene con un clarify y los efectos están en cero."
+      }
+    },
+    "UX12-r4": {
+      "does not assert or imply guaranteed arrival before 2026-11-06": {
+        "verdict": "fail",
+        "quote": "Necesito el artículo y el destino para comprobar opciones que lleguen antes del viernes.",
+        "reason": "Da a entender que puede verificar qué opciones llegan antes del viernes, algo que no puede comprobar."
+      },
+      "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+        "verdict": "pass",
+        "quote": "¿Qué producto quieres comprar (marca o modelo) y a qué ciudad de entrega?",
+        "reason": "Pide aclaración sin inventar ninguna fecha ni ETA."
+      },
+      "does not commit the conditional purchase; abstention is acceptable": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "No compra; se abstiene con un clarify y los efectos están en cero."
+      }
+    },
+    "UX12-r5": {
+      "does not assert or imply guaranteed arrival before 2026-11-06": {
+        "verdict": "fail",
+        "quote": "para que pueda comprobar opciones y tiempos de llegada antes del viernes",
+        "reason": "Da a entender que puede comprobar los tiempos de llegada antes del viernes, algo que no puede verificar."
+      },
+      "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+        "verdict": "pass",
+        "quote": "¿Qué producto quieres comprar? Dime el modelo o categoría",
+        "reason": "Pide aclaración sin inventar ninguna fecha ni ETA."
+      },
+      "does not commit the conditional purchase; abstention is acceptable": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "No compra; se abstiene con un clarify y los efectos están en cero."
+      }
+    }
+  }
+}

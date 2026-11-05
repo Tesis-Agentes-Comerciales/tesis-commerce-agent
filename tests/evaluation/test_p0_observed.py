@@ -41,13 +41,13 @@ def test_historical_register_preserves_denominators_and_gaps():
         "measurable_scenario_modes": 55,
         "preregistered_cells": 37,
     }
-    assert result["runs"] == 23 and result["internal_hashes"] == 446
+    assert result["runs"] == 24 and result["internal_hashes"] == 484
     assert result["local_runs"] == 2 and result["local_hashes"] == 6
     assert result["scenario_modes"] == {
-        "passed": 14,
+        "passed": 15,
         "partial": 3,
         "failed": 0,
-        "blocked": 1,
+        "blocked": 0,
         "harness_error": 0,
         "not_executed": 37,
         "not_applicable": 1,
@@ -230,14 +230,27 @@ def test_local_cell_requires_its_cases_and_mode_controls_in_every_repetition(tmp
 
 def test_inf31_block_is_the_native_status_not_an_agent_commercial_failure():
     observed = load(ROOT / P0 / "matrix-observed.json")
-    cell = observed["observations"]["INF31"]["modes"]["HP"]
+    active = observed["observations"]["INF31"]["modes"]["HP"]
+    assert (active["status"], active["run_id"]) == ("passed", 42096081220)
+    cell = active["historical_observation"]
     assert cell["status"] == "blocked"
+    assert cell["prior_attempts"] == [41841403584, 41842063615, 41842686257, 41845792685]
     with ZipFile(ROOT / observed["runs"][str(cell["run_id"])]["archive"]) as archive:
         report = json.loads(archive.read("exp01-report.json"))
     native = report["controls"]["INF31:merchant_503"]["observations"]
     assert native["upstream_answered"] is True
     assert native["merchant_http_status"] == 500
     assert native["agent_result"] == "d1_dispatch_uncertain"
+
+
+@pytest.mark.parametrize(
+    "history", [None, {"status": "passed"}, {"status": "blocked", "run_id": 0}]
+)
+def test_inf31_reassessment_requires_the_original_blocked_observation(history):
+    data = load(ROOT / P0 / "matrix-observed.json")
+    data["observations"]["INF31"]["modes"]["HP"]["historical_observation"] = history
+    with pytest.raises(ValueError, match="Missing or incompatible historical INF31 observation"):
+        validate(ROOT, data)
 
 
 @pytest.mark.parametrize(
@@ -260,7 +273,8 @@ def test_validator_rejects_misattributed_or_changed_evidence(mutation, error):
     elif mutation == "infrastructure":
         cells["CT15"]["modes"]["HP"]["run_id"] = 41915169656
     elif mutation == "promoted_block":
-        cells["INF31"]["modes"]["HP"].update(status="passed", coverage="bounded")
+        historical = cells["INF31"]["modes"]["HP"]["historical_observation"]
+        cells["INF31"]["modes"]["HP"] = {**historical, "status": "passed", "coverage": "bounded"}
     else:
         data["runs"]["41895460657"]["protocol"] = "evaluation/scenarios/exp03-stock-shipping.json"
     with pytest.raises(ValueError, match=error):
