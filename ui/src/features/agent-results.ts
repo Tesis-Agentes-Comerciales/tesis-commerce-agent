@@ -1,13 +1,15 @@
-import type {
-  ApprovalTerms,
-  DelegationDraftView,
-  InterpretRequestResult,
-  PrepareCheckoutResult,
-  ProductCard,
-  PurchaseUpdateResult,
-  RequestApprovalResult,
-  SearchCatalogResult,
-  SelectProductResult,
+import {
+  parseConditionalView,
+  type ApprovalTerms,
+  type ConditionalView,
+  type DelegationDraftView,
+  type InterpretRequestResult,
+  type PrepareCheckoutResult,
+  type ProductCard,
+  type PurchaseUpdateResult,
+  type RequestApprovalResult,
+  type SearchCatalogResult,
+  type SelectProductResult,
 } from "@/lib/agent-contract"
 import { MAX_PRIORITY_VARIANTS } from "@/lib/delegation-draft"
 
@@ -119,14 +121,25 @@ export function asSearchResult(value: unknown): SearchCatalogResult | null {
   return { matches: value.matches, rejections, products }
 }
 
+/** Las ramas de un turno condicional: con el contrato completo o nada (la decisión es del backend). */
+function asConditional(value: unknown): ConditionalView | null {
+  try {
+    return value === undefined ? null : parseConditionalView(value)
+  } catch {
+    return null
+  }
+}
+
 export function asSelectResult(value: unknown): SelectProductResult | null {
   if (!isRecord(value)) return null
   const decision = value.decision === "select" ? "select" : value.decision === "clarify" ? "clarify" : null
   if (!decision) return null
+  const conditional = asConditional(value.conditional)
   return {
     decision,
     product: asProduct(value.product),
     rationale: isString(value.rationale) ? value.rationale : "",
+    ...(conditional && { conditional }),
   }
 }
 
