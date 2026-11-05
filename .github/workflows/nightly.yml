@@ -23,6 +23,7 @@ on:
           - exp06-runner-infrastructure
           - exp07-ct19-fixture
           - exp07-ct19-hp
+          - exp08-inf31-hp
           - exp06-actions-validation
       experimental_scenario:
         description: Experimental profile only; validate one scenario before expanding
@@ -106,7 +107,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Tesis-Agentes-Comerciales/tesis-commerce-merchant
-          ref: ${{ inputs.merchant_ref || ((startsWith(inputs.test_scope, 'exp0') || inputs.test_scope == 'p0-catalog-bridge') && 'abf30df3b6a611284dedcc26c00accac6a853329') || '' }}
+          ref: ${{ (inputs.test_scope == 'exp08-inf31-hp' && !inputs.merchant_ref && '5db4bd5da814fc621be7b1caf067eaa88e6a1a67') || inputs.merchant_ref || ((startsWith(inputs.test_scope, 'exp0') || inputs.test_scope == 'p0-catalog-bridge') && 'abf30df3b6a611284dedcc26c00accac6a853329') || '' }}
           token: ${{ secrets.MERCHANT_REPO_TOKEN }}
           path: merchant
           persist-credentials: false
@@ -185,6 +186,8 @@ jobs:
             protocol=evaluation/scenarios/exp06-hp-infrastructure.json
           elif [ "${{ inputs.test_scope }}" = "exp06-runner-infrastructure" ]; then
             protocol=evaluation/scenarios/exp06-runner-infrastructure.json
+          elif [ "${{ inputs.test_scope }}" = "exp08-inf31-hp" ]; then
+            protocol=evaluation/scenarios/exp08-inf31-hp.json
           fi
           python3 -m commerce_evaluation.exp01 --preflight --protocol "$protocol" \
             --output "$RUNNER_TEMP/exp01-manifest.json"
@@ -231,6 +234,10 @@ jobs:
             uv run pytest tests/integration/test_exp01_first_batch.py -vv --durations=20 -p no:cacheprovider \
               --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
               -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
+          elif [ "${{ inputs.test_scope }}" = "exp08-inf31-hp" ]; then
+            uv run pytest tests/integration/test_inf31_hp.py -vv --durations=20 -p no:cacheprovider \
+              --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
+              -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
           elif [ "${{ inputs.test_scope }}" = "exp02-commercial" ]; then
             case "${{ inputs.experimental_scenario }}" in
               CT15) target=test_ct15_price_change ;;
@@ -274,7 +281,7 @@ jobs:
               --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
               -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
           else
-            uv run pytest tests/integration --ignore=tests/integration/test_live_p0_catalog_bridge.py --ignore=tests/integration/test_ct19_hp.py --ignore=tests/integration/test_ct19_fixture.py --ignore=tests/integration/test_exp01_first_batch.py --ignore=tests/integration/test_exp02_commercial.py --ignore=tests/integration/test_exp03_stock_shipping.py --ignore=tests/integration/test_exp04_mandate_replacement.py --ignore=tests/integration/test_exp05_ct15_hnp.py --ignore=tests/integration/test_exp05_authenticated_ux.py --ignore=tests/integration/test_exp06_hp_infrastructure.py --ignore=tests/integration/test_exp06_runner_infrastructure.py -rs -p no:cacheprovider \
+            uv run pytest tests/integration --ignore=tests/integration/test_live_p0_catalog_bridge.py --ignore=tests/integration/test_ct19_hp.py --ignore=tests/integration/test_ct19_fixture.py --ignore=tests/integration/test_exp01_first_batch.py --ignore=tests/integration/test_inf31_hp.py --ignore=tests/integration/test_exp02_commercial.py --ignore=tests/integration/test_exp03_stock_shipping.py --ignore=tests/integration/test_exp04_mandate_replacement.py --ignore=tests/integration/test_exp05_ct15_hnp.py --ignore=tests/integration/test_exp05_authenticated_ux.py --ignore=tests/integration/test_exp06_hp_infrastructure.py --ignore=tests/integration/test_exp06_runner_infrastructure.py -rs -p no:cacheprovider \
               --basetemp="$RUNNER_TEMP/live-stack" --junitxml="$RUNNER_TEMP/live-junit.xml"
           fi
 
@@ -292,6 +299,9 @@ jobs:
           fi
           if [ "${{ inputs.test_scope }}" = "exp07-ct19-fixture" ]; then
             args+=(--protocol evaluation/scenarios/ct19-fixture.json --scenario CT19-FIXTURE)
+          fi
+          if [ "${{ inputs.test_scope }}" = "exp08-inf31-hp" ]; then
+            args+=(--protocol evaluation/scenarios/exp08-inf31-hp.json --scenario INF31)
           fi
           if [ "${{ inputs.test_scope }}" = "exp02-commercial" ]; then
             args+=(--protocol evaluation/scenarios/exp02-commercial.json --scenario "${{ inputs.experimental_scenario }}")
@@ -328,7 +338,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.test_scope == 'p0-catalog-bridge' && 'nightly-p0-catalog-bridge-evidence' || inputs.test_scope == 'exp07-ct19-hp' && 'ct19-hp-evidence' || inputs.test_scope == 'exp07-ct19-fixture' && 'ct19-fixture-evidence' || inputs.test_scope == 'exp06-runner-infrastructure' && 'exp06-runner-infrastructure-evidence' || inputs.test_scope == 'exp06-hp-infrastructure' && 'exp06-hp-infrastructure-evidence' || inputs.test_scope == 'exp05-authenticated-transport' && 'exp05-authenticated-transport-evidence' || inputs.test_scope == 'exp05-ct15-hnp' && 'exp05-ct15-hnp-evidence' || inputs.test_scope == 'exp04-mandate-replacement' && format('exp04-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp03-stock-shipping' && format('exp03-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp02-commercial' && format('exp02-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
+          name: ${{ inputs.test_scope == 'p0-catalog-bridge' && 'nightly-p0-catalog-bridge-evidence' || inputs.test_scope == 'exp07-ct19-hp' && 'ct19-hp-evidence' || inputs.test_scope == 'exp07-ct19-fixture' && 'ct19-fixture-evidence' || inputs.test_scope == 'exp06-runner-infrastructure' && 'exp06-runner-infrastructure-evidence' || inputs.test_scope == 'exp06-hp-infrastructure' && 'exp06-hp-infrastructure-evidence' || inputs.test_scope == 'exp05-authenticated-transport' && 'exp05-authenticated-transport-evidence' || inputs.test_scope == 'exp05-ct15-hnp' && 'exp05-ct15-hnp-evidence' || inputs.test_scope == 'exp04-mandate-replacement' && format('exp04-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp03-stock-shipping' && format('exp03-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp02-commercial' && format('exp02-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp08-inf31-hp' && 'exp08-inf31-hp-evidence' || inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
           path: |
             ${{ runner.temp }}/live-stack/**/*.jsonl
             ${{ runner.temp }}/live-stack/**/*.log
