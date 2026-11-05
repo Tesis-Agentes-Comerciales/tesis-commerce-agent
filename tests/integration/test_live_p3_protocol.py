@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from commerce_agent.acp.client import ACPClientError
-from commerce_agent.acp.models import ACP_VERSION
+from commerce_agent.acp.models import ACP_VERSION, CheckoutSession
 from commerce_agent.api import create_app
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent
@@ -41,6 +41,7 @@ from tests.integration.live_stack import FaultProxy, clean_environment, free_por
 from tests.integration.test_live_p3_offer_checkout import (
     CONTEXT,
     CREATE,
+    checkout_update,
     cleanup,
     client,
     exercise,
@@ -368,6 +369,23 @@ def test_protocol_contract_pv07(p3_lane):
         attempts = [
             Creation(episode.run_id, proof["idempotency_key_sha256"], "lost", cid, "lookup")
         ]
+        update_key = str(uuid4())
+        update = checkout_update(CheckoutSession.model_validate(proof["original_response"]))
+        with client(lane, episode) as acp:
+            first = acp.update_checkout(cid, update, idempotency_key=update_key)
+            after_update = state(lane, episode)
+            assert acp.update_checkout(cid, update, idempotency_key=update_key) == first
+            conflict = update.model_copy(update={"buyer": buyer_details("other-buyer").buyer})
+            with pytest.raises(ACPClientError) as refused:
+                acp.update_checkout(cid, conflict, idempotency_key=update_key)
+            assert refused.value.status_code == 422
+            assert acp.get_checkout(cid) == first
+        after_replay = state(lane, episode)
+        assert after_replay["checkouts"] == after_update["checkouts"]
+        assert (
+            after_replay["tables"]["checkout_mutations"]
+            == after_update["tables"]["checkout_mutations"]
+        )
         path = f"/checkout_sessions/{cid}/cancel"
         key = str(uuid4())
         lane.proxy.faults[path] = "drop"
@@ -387,6 +405,9 @@ def test_protocol_contract_pv07(p3_lane):
             canceled_readbacks=reads,
             persisted=persisted,
             cancel_key_sha256=hashlib.sha256(key.encode()).hexdigest(),
+            update_key_sha256=hashlib.sha256(update_key.encode()).hexdigest(),
+            update_replay_same_checkout=True,
+            update_conflict_http=refused.value.status_code,
         )
 
 
