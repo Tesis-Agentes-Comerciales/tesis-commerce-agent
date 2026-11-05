@@ -103,6 +103,7 @@ export function DelegationConsentCard({
 
         <div className="space-y-2">
           <p className="flex flex-wrap gap-2">
+            <span className={chip({ tone: "neutral", size: "sm" })}>{CONSENT_COPY.oneUnit}</span>
             <span className={chip({ tone: "neutral", size: "sm" })}>{CONSENT_COPY.singleUse}</span>
             <span className={chip({ tone: "outline", size: "sm" })}>
               <time dateTime={scope.expires_at}>{expiresOn(expires)}</time>

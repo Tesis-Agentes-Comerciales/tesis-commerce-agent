@@ -54,6 +54,7 @@ export const Proposed: Story = {
     await expect(canvas.getByText(`«${scope.preference_text}»`)).toBeVisible()
     await expect(canvas.getByText(scope.destination_label)).toBeVisible()
     await expect(canvas.getByText(scope.instrument_label)).toBeVisible()
+    await expect(canvas.getByText("1 unidad")).toBeVisible()
     await expect(canvas.getByText("Un solo uso")).toBeVisible()
     const expires = plain(`Vence el ${formatDateTime(scope.expires_at)}`)
     await expect(canvas.getByText(expires)).toBeVisible()
@@ -97,6 +98,24 @@ export const SingleVariantWithoutPreference: Story = {
     await expect(canvas.getByRole("listitem")).toHaveTextContent(scope.variants[1].title)
     await expect(canvas.queryByText(scope.variants[0].title)).toBeNull()
     await expect(canvas.queryByText("Tu indicación")).toBeNull()
+  },
+}
+
+/**
+ * UX10 (D3): el comprador pidió dos unidades en su indicación. La tarjeta la cita tal cual y dice lo
+ * que autoriza: 1 unidad, un solo uso.
+ */
+export const TwoUnitsRequested: Story = {
+  args: {
+    proposal: parseDelegationProposal({
+      ...DELEGATION_PROPOSAL,
+      scope: { ...scope, preference_text: "Quiero dos unidades, una para mi hermana." },
+    }),
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("«Quiero dos unidades, una para mi hermana.»")).toBeVisible()
+    await expect(canvas.getByText("1 unidad")).toBeVisible()
+    await expect(canvas.getByText("Un solo uso")).toBeVisible()
   },
 }
 
