@@ -19,6 +19,7 @@ on:
           - exp05-ct15-hnp
           - exp05-authenticated-transport
           - exp06-hp-infrastructure
+          - exp06-runner-infrastructure
       experimental_scenario:
         description: Experimental profile only; validate one scenario before expanding
         required: false
@@ -118,7 +119,7 @@ jobs:
           (cd payment && uv python install && uv sync --frozen --all-groups)
 
       - name: Install Node.js
-        if: ${{ !startsWith(inputs.test_scope, 'exp0') || inputs.test_scope == 'exp05-authenticated-transport' || inputs.test_scope == 'exp06-hp-infrastructure' }}
+        if: ${{ !startsWith(inputs.test_scope, 'exp0') || inputs.test_scope == 'exp05-authenticated-transport' || inputs.test_scope == 'exp06-hp-infrastructure' || inputs.test_scope == 'exp06-runner-infrastructure' }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
@@ -128,7 +129,7 @@ jobs:
             agent/ui/package-lock.json
 
       - name: Install auth for authenticated adapter validation
-        if: inputs.test_scope == 'exp05-authenticated-transport' || inputs.test_scope == 'exp06-hp-infrastructure'
+        if: inputs.test_scope == 'exp05-authenticated-transport' || inputs.test_scope == 'exp06-hp-infrastructure' || inputs.test_scope == 'exp06-runner-infrastructure'
         working-directory: agent/auth
         run: npm ci
 
@@ -162,6 +163,8 @@ jobs:
             protocol=evaluation/scenarios/exp05-authenticated-transport.json
           elif [ "${{ inputs.test_scope }}" = "exp06-hp-infrastructure" ]; then
             protocol=evaluation/scenarios/exp06-hp-infrastructure.json
+          elif [ "${{ inputs.test_scope }}" = "exp06-runner-infrastructure" ]; then
+            protocol=evaluation/scenarios/exp06-runner-infrastructure.json
           fi
           python3 -m commerce_evaluation.exp01 --preflight --protocol "$protocol" \
             --output "$RUNNER_TEMP/exp01-manifest.json"
@@ -217,8 +220,12 @@ jobs:
             uv run pytest tests/integration/test_exp06_hp_infrastructure.py -vv --durations=20 -p no:cacheprovider \
               --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
               -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
+          elif [ "${{ inputs.test_scope }}" = "exp06-runner-infrastructure" ]; then
+            uv run pytest tests/integration/test_exp06_runner_infrastructure.py -vv --durations=20 -p no:cacheprovider \
+              --basetemp="$RUNNER_TEMP/exp01-stack" --junitxml="$RUNNER_TEMP/exp01-junit.xml" \
+              -p commerce_evaluation.p0_pytest_report --p0-report="$RUNNER_TEMP/exp01-outcomes.json"
           else
-            uv run pytest tests/integration --ignore=tests/integration/test_exp01_first_batch.py --ignore=tests/integration/test_exp02_commercial.py --ignore=tests/integration/test_exp03_stock_shipping.py --ignore=tests/integration/test_exp04_mandate_replacement.py --ignore=tests/integration/test_exp05_ct15_hnp.py --ignore=tests/integration/test_exp05_authenticated_ux.py --ignore=tests/integration/test_exp06_hp_infrastructure.py -rs -p no:cacheprovider \
+            uv run pytest tests/integration --ignore=tests/integration/test_exp01_first_batch.py --ignore=tests/integration/test_exp02_commercial.py --ignore=tests/integration/test_exp03_stock_shipping.py --ignore=tests/integration/test_exp04_mandate_replacement.py --ignore=tests/integration/test_exp05_ct15_hnp.py --ignore=tests/integration/test_exp05_authenticated_ux.py --ignore=tests/integration/test_exp06_hp_infrastructure.py --ignore=tests/integration/test_exp06_runner_infrastructure.py -rs -p no:cacheprovider \
               --basetemp="$RUNNER_TEMP/live-stack" --junitxml="$RUNNER_TEMP/live-junit.xml"
           fi
 
@@ -243,6 +250,8 @@ jobs:
             args+=(--protocol evaluation/scenarios/exp05-authenticated-transport.json --scenario AUTH-TRANSPORT)
           elif [ "${{ inputs.test_scope }}" = "exp06-hp-infrastructure" ]; then
             args+=(--protocol evaluation/scenarios/exp06-hp-infrastructure.json --scenario EXP06-INFRA)
+          elif [ "${{ inputs.test_scope }}" = "exp06-runner-infrastructure" ]; then
+            args+=(--protocol evaluation/scenarios/exp06-runner-infrastructure.json --scenario EXP06-INFRA)
           fi
           "$reporter" -m commerce_evaluation.exp01 "${args[@]}" \
             --evidence "$RUNNER_TEMP/exp01-stack" --junit "$RUNNER_TEMP/exp01-junit.xml" \
@@ -255,7 +264,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ inputs.test_scope == 'exp06-hp-infrastructure' && 'exp06-hp-infrastructure-evidence' || inputs.test_scope == 'exp05-authenticated-transport' && 'exp05-authenticated-transport-evidence' || inputs.test_scope == 'exp05-ct15-hnp' && 'exp05-ct15-hnp-evidence' || inputs.test_scope == 'exp04-mandate-replacement' && format('exp04-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp03-stock-shipping' && format('exp03-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp02-commercial' && format('exp02-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
+          name: ${{ inputs.test_scope == 'exp06-runner-infrastructure' && 'exp06-runner-infrastructure-evidence' || inputs.test_scope == 'exp06-hp-infrastructure' && 'exp06-hp-infrastructure-evidence' || inputs.test_scope == 'exp05-authenticated-transport' && 'exp05-authenticated-transport-evidence' || inputs.test_scope == 'exp05-ct15-hnp' && 'exp05-ct15-hnp-evidence' || inputs.test_scope == 'exp04-mandate-replacement' && format('exp04-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp03-stock-shipping' && format('exp03-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp02-commercial' && format('exp02-{0}-evidence', inputs.experimental_scenario) || inputs.test_scope == 'exp01-first-batch' && 'exp01-first-batch-evidence' || 'live-stack-evidence' }}
           path: |
             ${{ runner.temp }}/live-stack/**/*.jsonl
             ${{ runner.temp }}/live-stack/**/*.log
@@ -264,6 +273,8 @@ jobs:
             ${{ runner.temp }}/exp01-stack/**/*.json
             ${{ runner.temp }}/exp01-stack/**/*.jsonl
             ${{ runner.temp }}/exp01-stack/**/*.log
+            ${{ runner.temp }}/exp01-stack/**/semantic-status.xml
+            ${{ runner.temp }}/exp01-stack/**/SHA256SUMS
             ${{ runner.temp }}/exp01-manifest.json
             ${{ runner.temp }}/exp01-junit.xml
             ${{ runner.temp }}/exp01-outcomes.json
