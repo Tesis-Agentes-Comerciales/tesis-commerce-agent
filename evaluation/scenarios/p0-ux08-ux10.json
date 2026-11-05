@@ -1,0 +1,808 @@
+{
+  "schema": "p0-ux08-ux10-protocol/1",
+  "id": "p0-ux08-ux10",
+  "frozen": "2026-11-05, committed after PR-A (#187) and PR-B (#185) were merged and before the registered live run; never edited after seeing its results",
+  "spec": {
+    "path": "docs/design/p0-ux08-ux10.md",
+    "sha256": "1ebc84bdbe0611e4080cc1998f6132730bf24747e3dd80628d124f66239e04a0"
+  },
+  "agent_base": "df3df33a864022612c8d1d25c30d4a34b074afc7",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "scope": "Matrix UX08 (HP, HNP), UX09 (HP, HNP) and UX10 (HNP) of P0. Live cells against the live stack: real Merchant, real payment provider and ephemeral PostgreSQL of tests/integration, with the real OpenAI SDK over a scripted transport. CI cells: the pytest node ids of ci_cells, run once at the same Agent commit, without network. No real model, no provider call, no cost.",
+  "harness": {
+    "module": "tests/integration/test_p0_ux08_ux10.py",
+    "model_double": "tests/support/model_server.py: httpx.MockTransport given to the SDK's HTTP clients in the test process; ScriptedModel (tests/integration/live_model.py) serves the case's script from this module's answers",
+    "held_answer": "held(...) of tests/support/model_server.py: `entered` is set when its request arrives and the response waits for `release`. The test stops the run while it waits (HP: the client closes its connection; HNP: the owner revokes or the operator turns the kill switch on) and then releases it",
+    "hp_agent": "HpAgent of tests/integration/test_p0_model_failures.py: AgentServer (uvicorn on 127.0.0.1) in the test process, create_app with ExplicitSettings, buyer authenticated by EpisodeBuyer. The chat is POST /assistant over a real connection; REST is POST /conversation/turn; approval, cancel and completion are the Agent's own HTTP routes (POST /purchases/{run_id}/approval, /cancel, /complete), as the UI calls them",
+    "hp_disconnect": "the client streams POST /assistant on its own connection and closes it while the answer is held; a test hook on RunController._mark_cancelled sets an event when the server marks the run cancelled, and the release waits for it plus release_after_mark_ms; a hook on AssistantTransport._turn_worker sets an event when the worker ends",
+    "hp_cancel_route": "the b0 lane's proxy does not allowlist POST /checkout_sessions/*/cancel (its tests never cancel through the Agent); UX08-HP and UX08-HP-control add that route for the case and restore the allowlist after it",
+    "approval_note": "the B2-HP approval goes through the Agent's HTTP route, not through Agent.approve of tests/integration/live_purchase.py:451, which always takes the current fingerprint and cannot express «approve B with fA»",
+    "hnp_agent": "ModelHnpAgent (tests/integration/live_model.py): the variables of HnpAgent for B2-HNP, served in the test process with AGENT_HNP_SELECTOR=llm and, where stated, AGENT_HNP_REVIEWER=llm",
+    "hnp_stop": "revoke: HnpAgent.revoke (the buyer's POST /delegations/{grant_id}/revoke on its own connection); kill: HnpAgent.as_operator('POST', '/internal/hnp/kill-switch', {enabled: true}); revoke_after_checkout_post: HnpAgent.revoke inside the Merchant proxy's after_answer hook of POST /checkout_sessions. The stop mark is the length of the Merchant and PSP proxy logs right before the stop is sent",
+    "model": "p0-scripted-model",
+    "credential": "synthetic; only the scripted transport sees it",
+    "real_provider_calls": 0,
+    "cost_usd": "0"
+  },
+  "repetitions": 3,
+  "execution_order": [
+    "UX09-HP-a",
+    "UX09-HP-b",
+    "UX09-HP-race",
+    "UX09-HNP-sel",
+    "UX09-HNP-sel-kill",
+    "UX09-HNP-rev",
+    "UX08-HP",
+    "UX09-HNP-post",
+    "UX09-HP-control",
+    "UX08-HP-control",
+    "UX08-HNP-control",
+    "UX09-HNP-control",
+    "UX09-HNP-rev-control",
+    "UX10-HNP-control",
+    "UX10-HNP-b"
+  ],
+  "execution_order_reason": "Cells that must leave no effect run first, then the cells whose checkouts are declared (no order), then the controls that prepare a checkout or buy, so no effect of a later cell can fall inside the window of an earlier one. The three repetitions of a cell run one after the other.",
+  "not_applicable": {
+    "UX09-HP-REST": "REST is synchronous, the runners use it and it has no way to be interrupted: a second request waits for the lock and gets the pending-purchase guard (spec §2.2, §4.4). Declared, not executed, not counted.",
+    "UX10-HP": "the matrix puts UX10 only in HNP (spec §4.4).",
+    "UX10-HNP-c (live)": "the live Merchant has no fault that answers quantity 2 (spec §4.4); UX10-HNP-c runs in CI only.",
+    "UX10-HNP-a and UX08-HNP (live)": "no model and nothing the stack adds (spec §5.2); CI only."
+  },
+  "conditions": {
+    "B2-HP": "b0 lane; AGENT_GOVERNANCE_MODE=enforce, AGENT_HP_FLOW=governed, policy set b2-hp-v2, AP2 on (settings_for of tests/integration/test_live_b2_d2_authorization.py), plus the synthetic model settings. A new Merchant episode and a new Agent SQLite per repetition.",
+    "B2-HNP": "hnp lane; the variables of HnpAgent for B2-HNP (hnp_condition of tests/integration/live_purchase.py), AGENT_HNP_SELECTOR=llm, AGENT_HNP_REVIEWER=off unless the case says reviewer, plus the synthetic model settings. A new Merchant episode and a new Agent SQLite per repetition. The buyer delegates with delegation_request of tests/integration/live_purchase.py (city Bogotá), total_max = the variant's observed price + 500,000.00 COP, then the service token triggers the task."
+  },
+  "requests": {
+    "request_a": "PHONE_REQUEST of tests/integration/live_purchase.py (the chat's «Quiero A»)",
+    "request_b": "«Mejor quiero el OnePlus 8T de 256 GB.» (the chat's «Mejor quiero B»)",
+    "next_turn": "«hola»",
+    "hnp_variant": "Q100286751-256GB unless the case says otherwise",
+    "details": "buyer_details of tests/integration/live_purchase.py"
+  },
+  "stimuli": {
+    "route_a": "200, structured CommerceDecision: action purchase, purchase_request PHONE_REQUEST, intent PHONE_INTENT",
+    "choose_a": "200, structured choice of Q100286751-256GB (asserted in the request's JSON schema)",
+    "route_b": "200, structured CommerceDecision: action purchase, purchase_request request_b, intent PHONE_INTENT with preference oneplus",
+    "choose_b": "200, structured choice of Q100348826-256GB (asserted in the request's JSON schema)",
+    "route_respond": "200, structured CommerceDecision: action respond, «Entendido. Dime qué quieres buscar.»",
+    "choice_ok": "200, structured choice of the first id the request's JSON schema admits (shortlisted_choice)",
+    "review_confirmed": "200, structured {decision: confirmed, reason: matches_request}",
+    "held_route_a": "route_a, held",
+    "held_choose_a": "choose_a, held",
+    "held_choice_ok": "choice_ok, held",
+    "held_review_confirmed": "review_confirmed, held"
+  },
+  "script_semantics": "Each HTTP attempt takes the next answer of the case's script; the last answer persists for any later attempt, so an attempt beyond the oracle receives the same stimulus and is counted instead of breaking the double.",
+  "measures": {
+    "model_http_attempts": "requests the scripted transport received in the window the oracle names",
+    "checkout_posts": "POST /checkout_sessions through the lane's Merchant proxy",
+    "merchant_checkouts": "the episode's checkout_sessions rows read by the Merchant control (checkout_id, status, offer_id, quantity), never through the Agent",
+    "events_after_claim": "the grant's delegation_events from task_claimed on, choice_reviewed left out",
+    "after_stop": "Merchant POSTs and PSP requests in the proxy logs after the stop mark",
+    "model_requests": "the Agent's model_requests rows of the window, projected to (stage, outcome, error_kind, http_status, provider_error_code, retries); recorded, and an oracle only where the case says so"
+  },
+  "zero_effects": {
+    "window": "HP: from right before the stopped turn to after the next turn (or the stopped turn, when there is none). HNP: from right before the trigger to the terminal task.",
+    "outside_agent": [
+      "no POST /checkout_sessions through the lane's Merchant proxy",
+      "the checkouts of the episode run unchanged (none before, none after)",
+      "the full Merchant snapshot (count and SHA-256 of every table) equal before and after",
+      "PSP: no request through the payment proxy (HNP), the delegations (vt_ tokens) count unchanged and the full PSP SQLite snapshot equal before and after"
+    ],
+    "agent_ledger": [
+      "no new row in approvals, completion_results, grant_reservations, dispatch_outbox, orders, hp_evidence, governance_evidence, ap2_evidence and no closed mandate",
+      "purchases exactly as the case's oracle"
+    ]
+  },
+  "limits": {
+    "left_to_d1_reconciliation": "task_finished records checkout_cancel {checkout_id, result: left_to_d1_reconciliation} for any checkout_failed whose purchase D1 left uncertain, not only for a quantity mismatch (for example a timeout of the details update in B2-HNP). It cancels nothing, but it changes the body of task_finished in those new B2-HNP runs.",
+    "ux10_hnp_c_b2": "in B2-HNP the two-unit checkout stays open at the Merchant until D1's reconciliation resolves the uncertain purchase",
+    "ux09_hnp_rev": "the purchase the reviewer opened ends canceled without a checkout",
+    "d4_scope": "D4 does not cover grant_expired, policy_denied, governance_unavailable, mandate_proof_invalid, checkout_failed at the close, the claim after a crash, nor a D1 uncertain state",
+    "d1_deviation": "UX08's «Actualizar propuesta» is two steps (cancel A, then ask for B), as decision D1 of the spec states"
+  },
+  "development_runs": "Before freezing, three development runs (not evidence, not registered) exercised the harness on the same stack. The first two ran the first repetition only. The first stopped at UX09-HP-a: a discarded line iterator closed the chat's connection before the model was called, so the stimulus never happened (stimulus_verified false); the harness keeps the iterator now. The second passed 15/15. The third, at df3df33 with only the §3.2 fix reverted, ran the three UX09-HP stop cases three times: UX09-HP-race failed 3/3 (the checkout was created), UX09-HP-a and UX09-HP-b passed 3/3, so live only UX09-HP-race discriminates §3.2. No oracle changed after them.",
+  "cases": {
+    "UX09-HP-a": {
+      "matrix_id": "UX09",
+      "mode": "HP",
+      "condition": "B2-HP",
+      "stimulus": "chat «Quiero A» with route_a held; the client closes the connection; route_a is released 100 ms after the server marked the run cancelled; then a new turn «hola»",
+      "script": [
+        "held_route_a",
+        "route_respond"
+      ],
+      "release_after_mark_ms": 100,
+      "oracle": {
+        "model_http_attempts_stopped_turn": 1,
+        "stopped_turn_saved": false,
+        "checkout_posts": 0,
+        "purchases": [],
+        "next_turn_text": [
+          "route_respond's message"
+        ],
+        "next_turn_model_http_attempts": 1,
+        "pending_purchase_after": null,
+        "zero_effects": true
+      }
+    },
+    "UX09-HP-b": {
+      "matrix_id": "UX09",
+      "mode": "HP",
+      "condition": "B2-HP",
+      "stimulus": "chat «Quiero A» with route_a answered and choose_a held (the catalog already read); the client closes the connection; choose_a is released 100 ms after the server marked the run cancelled; then a new turn «hola»",
+      "script": [
+        "route_a",
+        "held_choose_a",
+        "route_respond"
+      ],
+      "release_after_mark_ms": 100,
+      "oracle": {
+        "model_http_attempts_stopped_turn": 2,
+        "stopped_turn_saved": false,
+        "checkout_posts": 0,
+        "purchases": [],
+        "next_turn_text": [
+          "route_respond's message"
+        ],
+        "next_turn_model_http_attempts": 1,
+        "pending_purchase_after": null,
+        "zero_effects": true
+      }
+    },
+    "UX09-HP-race": {
+      "matrix_id": "UX09",
+      "mode": "HP",
+      "condition": "B2-HP",
+      "stimulus": "chat «Quiero A» with route_a answered and choose_a held; the client closes the connection; choose_a is released as soon as the server marked the run cancelled (0 ms), observed with a test hook on RunController._mark_cancelled",
+      "script": [
+        "route_a",
+        "held_choose_a"
+      ],
+      "release_after_mark_ms": 0,
+      "oracle": {
+        "model_http_attempts_stopped_turn": 2,
+        "stopped_turn_saved": false,
+        "checkout_posts": 0,
+        "purchases": [],
+        "zero_effects": true
+      },
+      "note": "Evidence over the real server. The deterministic oracle of spec §3.2 is the CI unit test (ci_cells UX09-HP-race). The window between the TCP close and is_cancelled is declared in §3.2 and not measured: the release waits for the mark."
+    },
+    "UX09-HNP-sel": {
+      "matrix_id": "UX09",
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": false,
+      "stimulus": "choice_ok held; while it is held the owner revokes (POST /delegations/{grant_id}/revoke); then it is released",
+      "script": [
+        "held_choice_ok"
+      ],
+      "stop": "revoke",
+      "oracle": {
+        "model_http_attempts": 1,
+        "task": {
+          "state": "canceled",
+          "outcome_code": "revoked_by_owner"
+        },
+        "events_after_claim": [
+          "task_claimed",
+          "revoked",
+          "task_finished"
+        ],
+        "events_note": "from task_claimed on, choice_reviewed left out",
+        "purchases": [],
+        "task_finished_checkout_cancel": null,
+        "merchant_posts_after_stop": 0,
+        "psp_requests_after_stop": 0,
+        "zero_effects": true
+      }
+    },
+    "UX09-HNP-sel-kill": {
+      "matrix_id": "UX09",
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": false,
+      "stimulus": "choice_ok held; while it is held the operator turns the kill switch on (POST /internal/hnp/kill-switch {enabled: true}); then it is released",
+      "script": [
+        "held_choice_ok"
+      ],
+      "stop": "kill",
+      "oracle": {
+        "model_http_attempts": 1,
+        "task": {
+          "state": "canceled",
+          "outcome_code": "kill_switch"
+        },
+        "events_after_claim": [
+          "task_claimed",
+          "kill_switch_blocked",
+          "revoked",
+          "task_finished"
+        ],
+        "events_note": "from task_claimed on, choice_reviewed left out",
+        "purchases": [],
+        "task_finished_checkout_cancel": null,
+        "merchant_posts_after_stop": 0,
+        "psp_requests_after_stop": 0,
+        "zero_effects": true
+      }
+    },
+    "UX09-HNP-rev": {
+      "matrix_id": "UX09",
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": true,
+      "stimulus": "choice_ok, then review_confirmed held; while it is held the owner revokes; then it is released",
+      "script": [
+        "choice_ok",
+        "held_review_confirmed"
+      ],
+      "stop": "revoke",
+      "oracle": {
+        "model_http_attempts": 2,
+        "task": {
+          "state": "canceled",
+          "outcome_code": "revoked_by_owner"
+        },
+        "events_after_claim": [
+          "task_claimed",
+          "revoked",
+          "task_finished"
+        ],
+        "events_note": "from task_claimed on, choice_reviewed left out: the review may be recorded, nothing comes after it",
+        "purchases": [
+          {
+            "stage": "canceled",
+            "checkout_id": null
+          }
+        ],
+        "purchases_note": "the purchase the reviewer opened closes with the task, without a checkout",
+        "task_finished_checkout_cancel": null,
+        "merchant_posts_after_stop": 0,
+        "psp_requests_after_stop": 0,
+        "zero_effects": true
+      }
+    },
+    "UX08-HP": {
+      "matrix_id": "UX08",
+      "mode": "HP",
+      "condition": "B2-HP",
+      "stimulus": "chat turn 1 «Quiero A» (route_a, choose_a): A awaiting approval with fingerprint fA. Turn 2 «Mejor quiero B» on the chat and on REST, with route_b queued. Cancel A (POST /purchases/{run_a}/cancel). Turn 3 «Mejor quiero B» (route_b, choose_b): B with fB. Then approve B with fA and B's checkout_jwt; approve A with fA; complete B without approval",
+      "script": [
+        "route_a",
+        "choose_a",
+        "route_b",
+        "choose_b"
+      ],
+      "variants": {
+        "A": "Q100286751-256GB",
+        "B": "Q100348826-256GB"
+      },
+      "oracle": {
+        "turn_1": {
+          "model_http_attempts": 2,
+          "checkout_posts": 1,
+          "stage": "awaiting_confirmation",
+          "line_variant": "A"
+        },
+        "turn_2": {
+          "chat_text": [
+            "PENDING_PURCHASE_MESSAGE"
+          ],
+          "rest": {
+            "status": 200,
+            "action": "clarify",
+            "assistant_message": "PENDING_PURCHASE_MESSAGE"
+          },
+          "model_http_attempts": 0,
+          "checkout_posts": 0,
+          "pending_purchase": "A, with fA"
+        },
+        "cancel_a": {
+          "status": 200,
+          "stage": "canceled",
+          "merchant_cancels": 1,
+          "merchant_checkout_status": "canceled"
+        },
+        "turn_3": {
+          "model_http_attempts": 2,
+          "checkout_posts": 1,
+          "stage": "awaiting_confirmation",
+          "line_variant": "B",
+          "new_run": true,
+          "new_checkout": true,
+          "fingerprint_differs": true,
+          "checkout_jwt": true
+        },
+        "refused": [
+          {
+            "action": "approve B with fA",
+            "status": 409,
+            "code": "checkout_terms_changed"
+          },
+          {
+            "action": "approve A with fA",
+            "status": 409,
+            "code": "invalid_stage"
+          },
+          {
+            "action": "complete B without approval",
+            "status": 409,
+            "code": "invalid_stage"
+          }
+        ],
+        "b_after": "awaiting_confirmation",
+        "merchant_checkouts": "exactly two: A canceled and B open, one unit each",
+        "no_complete": true,
+        "no_payment_effects": "no /complete, no new PSP token, PSP snapshot equal, no Merchant order",
+        "agent_ledger": "no approvals, completion_results, orders, ap2_evidence nor D2 governance_evidence row"
+      },
+      "cleanup": "B is canceled through the Merchant control (cancel_fixture), as the controls of p0-model-failures"
+    },
+    "UX09-HNP-post": {
+      "matrix_id": "UX09",
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": false,
+      "stimulus": "choice_ok; the owner revokes inside the Merchant proxy right after the Merchant answered POST /checkout_sessions and before the Agent reads that answer (after_answer hook), so before D2",
+      "script": [
+        "choice_ok"
+      ],
+      "stop": "revoke_after_checkout_post",
+      "oracle": {
+        "model_http_attempts": 1,
+        "task": {
+          "state": "canceled",
+          "outcome_code": "revoked_by_owner"
+        },
+        "purchase_stage": "canceled",
+        "checkout_posts": 1,
+        "checkout_post_status": 201,
+        "merchant_cancels": 1,
+        "merchant_checkouts": "exactly one, canceled, one unit",
+        "task_finished_checkout_cancel": {
+          "checkout_id": "the created checkout",
+          "result": "canceled"
+        },
+        "grant_reservations": 0,
+        "closed_mandates": 0,
+        "dispatch_outbox": 0,
+        "no_complete": true,
+        "orders_created": 0,
+        "psp_tokens_created": 0,
+        "psp_posts": 0
+      }
+    },
+    "UX09-HP-control": {
+      "matrix_id": null,
+      "mode": "HP",
+      "condition": "B2-HP",
+      "stimulus": "positive control of UX09-HP: the same script, read to its end, nobody stops it",
+      "script": [
+        "route_a",
+        "choose_a"
+      ],
+      "oracle": {
+        "model_http_attempts": 2,
+        "turn_saved": true,
+        "stage": "awaiting_confirmation",
+        "checkout_posts": 1,
+        "checkout_post_status": 201,
+        "no_payment": true
+      },
+      "cleanup": "the checkout is canceled through the Merchant control (cancel_fixture)"
+    },
+    "UX08-HP-control": {
+      "matrix_id": null,
+      "mode": "HP",
+      "condition": "B2-HP",
+      "stimulus": "positive control of UX08-HP: everything of UX08-HP, then GET /purchases/{run_b}/approval, approve B with fB and its checkout_jwt, and complete B",
+      "script": [
+        "route_a",
+        "choose_a",
+        "route_b",
+        "choose_b"
+      ],
+      "variants": {
+        "A": "Q100286751-256GB",
+        "B": "Q100348826-256GB"
+      },
+      "oracle": {
+        "ux08_hp_oracle": "every check of UX08-HP holds first",
+        "approve_b": 200,
+        "complete_b": 200,
+        "order_checkout": "B's checkout",
+        "order_lines": "B",
+        "a_after": {
+          "stage": "canceled",
+          "order_id": null
+        },
+        "merchant_checkouts": "A canceled, B completed with one unit",
+        "complete_calls": 1,
+        "orders_created": 1,
+        "psp_tokens_created": 1,
+        "approvals": "only B"
+      }
+    },
+    "UX08-HNP-control": {
+      "matrix_id": null,
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": false,
+      "stimulus": "positive control of UX08-HNP: propose A (variant A, its price + 500,000.00 COP), propose B (variant B, its price + 500,000.00 COP), consent B, trigger with choice_ok",
+      "script": [
+        "choice_ok"
+      ],
+      "variants": {
+        "A": "Q100286751-256GB",
+        "B": "Q100348826-256GB"
+      },
+      "oracle": {
+        "proposal_digests_differ": true,
+        "consent_b": 201,
+        "grant_scope": "B's",
+        "model_http_attempts": 1,
+        "task": {
+          "state": "purchased",
+          "outcome_code": null
+        },
+        "merchant_checkouts": "exactly one, completed, variant B, one unit; none of A",
+        "orders_created": 1,
+        "psp_tokens_created": 1
+      }
+    },
+    "UX09-HNP-control": {
+      "matrix_id": null,
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": false,
+      "stimulus": "positive control of UX09-HNP: choice_ok, nobody revokes",
+      "script": [
+        "choice_ok"
+      ],
+      "oracle": {
+        "model_http_attempts": 1,
+        "model_requests": [
+          {
+            "stage": "model.hnp_select",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          }
+        ],
+        "task": {
+          "state": "purchased",
+          "outcome_code": null
+        },
+        "checkout_posts": 1,
+        "checkout_post_status": 201,
+        "orders_created": 1,
+        "psp_tokens_created": 1
+      }
+    },
+    "UX09-HNP-rev-control": {
+      "matrix_id": null,
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": true,
+      "stimulus": "positive control of UX09-HNP-rev: choice_ok and review_confirmed, nobody revokes",
+      "script": [
+        "choice_ok",
+        "review_confirmed"
+      ],
+      "oracle": {
+        "model_http_attempts": 2,
+        "model_requests": [
+          {
+            "stage": "model.hnp_select",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          },
+          {
+            "stage": "model.hnp_review",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          }
+        ],
+        "task": {
+          "state": "purchased",
+          "outcome_code": null
+        },
+        "checkout_posts": 1,
+        "checkout_post_status": 201,
+        "orders_created": 1,
+        "psp_tokens_created": 1
+      }
+    },
+    "UX10-HNP-control": {
+      "matrix_id": null,
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": false,
+      "stimulus": "positive control of UX10-HNP on the live Merchant, which answers one unit: a delegation without preference text, choice_ok",
+      "script": [
+        "choice_ok"
+      ],
+      "oracle": {
+        "model_http_attempts": 1,
+        "task": {
+          "state": "purchased",
+          "outcome_code": null
+        },
+        "merchant_checkouts": "exactly one, completed, one unit",
+        "orders_created": 1,
+        "psp_tokens_created": 1
+      }
+    },
+    "UX10-HNP-b": {
+      "matrix_id": "UX10",
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": false,
+      "stimulus": "propose with preference_text «Quiero dos unidades, una para mi hermana.»; consent twice; trigger with choice_ok",
+      "script": [
+        "choice_ok"
+      ],
+      "oracle": {
+        "consents": [
+          201,
+          200
+        ],
+        "same_grant": true,
+        "scope_uses": 1,
+        "model_http_attempts": 1,
+        "task": {
+          "state": "purchased",
+          "outcome_code": null
+        },
+        "merchant_checkouts": "exactly one, completed, one unit",
+        "orders_created": 1,
+        "psp_tokens_created": 1,
+        "grant_state": "consumed"
+      }
+    }
+  },
+  "ci_cells": {
+    "UX08-HP": {
+      "matrix_id": "UX08",
+      "mode": "HP",
+      "conditions": [
+        "B0",
+        "B2-HP"
+      ],
+      "tests": [
+        "tests/test_ux08_ux09_hp.py::test_ux08_hp_nothing_approved_for_a_serves_b[B0]",
+        "tests/test_ux08_ux09_hp.py::test_ux08_hp_nothing_approved_for_a_serves_b[B2-HP]"
+      ],
+      "oracle": "spec §4.2 UX08-HP"
+    },
+    "UX08-HP-control": {
+      "matrix_id": null,
+      "mode": "HP",
+      "conditions": [
+        "B0",
+        "B2-HP"
+      ],
+      "tests": [
+        "tests/test_ux08_ux09_hp.py::test_ux08_hp_control_b_approved_with_its_own_fingerprint_buys_b[B0]",
+        "tests/test_ux08_ux09_hp.py::test_ux08_hp_control_b_approved_with_its_own_fingerprint_buys_b[B2-HP]"
+      ],
+      "oracle": "spec §4.2 UX08-HP-control"
+    },
+    "UX08-HNP": {
+      "matrix_id": "UX08",
+      "mode": "HNP",
+      "conditions": [
+        "delegation API (B0-HNP and B2-HNP share it)"
+      ],
+      "tests": [
+        "tests/test_delegation_api.py::test_ux08_hnp_from_a_to_b_before_consent_only_b_can_be_consented"
+      ],
+      "oracle": "spec §4.2 UX08-HNP, and the CI part of UX08-HNP-control (the grant has B's scope)"
+    },
+    "UX09-HP-a": {
+      "matrix_id": "UX09",
+      "mode": "HP",
+      "conditions": [
+        "B0",
+        "B2-HP"
+      ],
+      "tests": [
+        "tests/test_ux08_ux09_hp.py::test_ux09_hp_stopping_while_the_model_answers_prepares_nothing[a-interpreting-B0]",
+        "tests/test_ux08_ux09_hp.py::test_ux09_hp_stopping_while_the_model_answers_prepares_nothing[a-interpreting-B2-HP]"
+      ],
+      "oracle": "spec §4.2 UX09-HP-a"
+    },
+    "UX09-HP-b": {
+      "matrix_id": "UX09",
+      "mode": "HP",
+      "conditions": [
+        "B0",
+        "B2-HP"
+      ],
+      "tests": [
+        "tests/test_ux08_ux09_hp.py::test_ux09_hp_stopping_while_the_model_answers_prepares_nothing[b-choosing-B0]",
+        "tests/test_ux08_ux09_hp.py::test_ux09_hp_stopping_while_the_model_answers_prepares_nothing[b-choosing-B2-HP]"
+      ],
+      "oracle": "spec §4.2 UX09-HP-b"
+    },
+    "UX09-HP-race": {
+      "matrix_id": "UX09",
+      "mode": "HP",
+      "conditions": [
+        "B0"
+      ],
+      "tests": [
+        "tests/test_assistant_transport.py::test_the_worker_reads_the_stream_cancellation_without_new_operations[stopped]",
+        "tests/test_assistant_transport.py::test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[0-stopped]",
+        "tests/test_assistant_transport.py::test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[5-stopped]",
+        "tests/test_assistant_transport.py::test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[20-stopped]"
+      ],
+      "oracle": "spec §4.2 UX09-HP-race and §5.1: the unit test [stopped] is the deterministic oracle of §3.2",
+      "discrimination": "Measured without the §3.2 fix by PR-A's reviewer: [stopped] of the unit test fails 5/5, [5-stopped] 5/5, [0-stopped] 3/5 and [20-stopped] 0/5. The 20 ms cell does not discriminate. Measured again before freezing, at df3df33 with only the fix reverted (not evidence, not registered): [stopped] 5/5, [5-stopped] 5/5, [0-stopped] 4/5, [20-stopped] 0/5; with the fix all pass 5/5. The CI tests of UX09-HP-a and UX09-HP-b pass without the fix too: they cover UX09-HP, not §3.2."
+    },
+    "UX09-HP-disconnect": {
+      "matrix_id": "UX09",
+      "mode": "HP",
+      "conditions": [
+        "B0"
+      ],
+      "tests": [
+        "tests/test_assistant_transport.py::test_client_disconnect_cancels_the_turn_before_checkout"
+      ],
+      "oracle": "spec §6: a client disconnect while the router answers cancels the turn before the checkout"
+    },
+    "UX09-HP-control": {
+      "matrix_id": null,
+      "mode": "HP",
+      "conditions": [
+        "B0",
+        "B2-HP"
+      ],
+      "tests": [
+        "tests/test_ux08_ux09_hp.py::test_ux09_hp_control_the_same_script_without_stopping_prepares_the_checkout[B0]",
+        "tests/test_ux08_ux09_hp.py::test_ux09_hp_control_the_same_script_without_stopping_prepares_the_checkout[B2-HP]",
+        "tests/test_assistant_transport.py::test_the_worker_reads_the_stream_cancellation_without_new_operations[running]",
+        "tests/test_assistant_transport.py::test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[0-control]",
+        "tests/test_assistant_transport.py::test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[5-control]",
+        "tests/test_assistant_transport.py::test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_disconnect[20-control]"
+      ],
+      "oracle": "spec §4.2 UX09-HP-control"
+    },
+    "UX09-HNP-sel": {
+      "matrix_id": "UX09",
+      "mode": "HNP",
+      "conditions": [
+        "B0-HNP (Bench, off)",
+        "B2-HNP (Bench, enforce)"
+      ],
+      "tests": [
+        "tests/delegation/test_hnp_stop_before_effects.py::test_a_stop_while_the_selector_answers_ends_the_task_before_any_post[off-revoke]",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_a_stop_while_the_selector_answers_ends_the_task_before_any_post[enforce-revoke]"
+      ],
+      "oracle": "spec §4.2 UX09-HNP-sel"
+    },
+    "UX09-HNP-sel-kill": {
+      "matrix_id": "UX09",
+      "mode": "HNP",
+      "conditions": [
+        "B0-HNP (Bench, off)",
+        "B2-HNP (Bench, enforce)"
+      ],
+      "tests": [
+        "tests/delegation/test_hnp_stop_before_effects.py::test_a_stop_while_the_selector_answers_ends_the_task_before_any_post[off-kill]",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_a_stop_while_the_selector_answers_ends_the_task_before_any_post[enforce-kill]"
+      ],
+      "oracle": "spec §4.2 UX09-HNP-sel-kill"
+    },
+    "UX09-HNP-rev": {
+      "matrix_id": "UX09",
+      "mode": "HNP",
+      "conditions": [
+        "B2-HNP (Bench, enforce, reviewer)"
+      ],
+      "tests": [
+        "tests/delegation/test_hnp_stop_before_effects.py::test_a_stop_while_the_reviewer_answers_ends_the_task_before_any_post[revoke]",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_a_stop_while_the_reviewer_answers_ends_the_task_before_any_post[kill]"
+      ],
+      "oracle": "spec §4.2 UX09-HNP-rev"
+    },
+    "UX09-HNP-post": {
+      "matrix_id": "UX09",
+      "mode": "HNP",
+      "conditions": [
+        "B0-HNP (Bench, off)",
+        "B2-HNP (Bench, enforce)",
+        "B2-HNP (real D1-HNP harness)"
+      ],
+      "tests": [
+        "tests/delegation/test_hnp_stop_before_effects.py::test_a_stop_right_after_the_post_cancels_the_checkout_at_the_merchant[off-revoke]",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_a_stop_right_after_the_post_cancels_the_checkout_at_the_merchant[off-kill]",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_a_stop_right_after_the_post_cancels_the_checkout_at_the_merchant[enforce-revoke]",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_a_stop_right_after_the_post_cancels_the_checkout_at_the_merchant[enforce-kill]",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_in_b2_a_revocation_after_d1s_post_cancels_through_the_acp_client",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_a_cancel_the_merchant_refuses_is_recorded_and_keeps_the_terminal"
+      ],
+      "oracle": "spec §4.2 UX09-HNP-post and D4 (one cancel, at best effort)"
+    },
+    "UX09-HNP-control": {
+      "matrix_id": null,
+      "mode": "HNP",
+      "conditions": [
+        "B0-HNP (Bench, off)",
+        "B2-HNP (Bench, enforce)"
+      ],
+      "tests": [
+        "tests/delegation/test_hnp_stop_before_effects.py::test_the_control_without_a_stop_reaches_the_commitment[off]",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_the_control_without_a_stop_reaches_the_commitment[enforce]"
+      ],
+      "oracle": "spec §4.2 UX09-HNP-control: in CI the run reaches the dispatch commitment"
+    },
+    "UX10-HNP-a": {
+      "matrix_id": "UX10",
+      "mode": "HNP",
+      "conditions": [
+        "delegation API"
+      ],
+      "tests": [
+        "tests/test_delegation_api.py::test_ux10_hnp_a_proposal_cannot_ask_for_two_units[quantity]",
+        "tests/test_delegation_api.py::test_ux10_hnp_a_proposal_cannot_ask_for_two_units[quantity_max]",
+        "tests/test_delegation_api.py::test_ux10_hnp_a_proposal_cannot_ask_for_two_units[uses]",
+        "tests/test_delegation_api.py::test_ux10_hnp_a_proposal_cannot_ask_for_two_units[uses_max]"
+      ],
+      "oracle": "spec §4.2 UX10-HNP-a"
+    },
+    "UX10-HNP-b": {
+      "matrix_id": "UX10",
+      "mode": "HNP",
+      "conditions": [
+        "delegation API",
+        "assistant (D3)"
+      ],
+      "tests": [
+        "tests/test_delegation_api.py::test_ux10_hnp_asking_for_two_units_still_consents_one_unit_once",
+        "tests/test_assistant_delegate.py::test_the_message_that_offers_the_delegation_says_one_unit"
+      ],
+      "oracle": "spec §4.2 UX10-HNP-b, CI part and D3's message; the card is Storybook (not in this JUnit)"
+    },
+    "UX10-HNP-c": {
+      "matrix_id": "UX10",
+      "mode": "HNP",
+      "conditions": [
+        "B0-HNP (Bench)",
+        "B2-HNP (real D1-HNP harness)"
+      ],
+      "tests": [
+        "tests/delegation/test_hnp_stop_before_effects.py::test_in_b0_a_checkout_with_two_units_fails_and_is_canceled[create]",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_in_b0_a_checkout_with_two_units_fails_and_is_canceled[update]",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_in_b2_a_checkout_with_two_units_is_left_to_d1_reconciliation[create-None]",
+        "tests/delegation/test_hnp_stop_before_effects.py::test_in_b2_a_checkout_with_two_units_is_left_to_d1_reconciliation[update-cs_api_1]"
+      ],
+      "oracle": "spec §4.2 UX10-HNP-c in B0-HNP and B2-HNP"
+    },
+    "UX10-HNP-control": {
+      "matrix_id": null,
+      "mode": "HNP",
+      "conditions": [
+        "B0-HNP (Bench)",
+        "B2-HNP (real D1-HNP harness)"
+      ],
+      "tests": [
+        "tests/delegation/test_hnp_one_unit.py::test_ux10_hnp_control_in_b0_one_unit_reaches_the_dispatch",
+        "tests/delegation/test_hnp_one_unit.py::test_ux10_hnp_control_in_b2_one_unit_reaches_the_dispatch"
+      ],
+      "oracle": "spec §4.2 UX10-HNP-control"
+    }
+  }
+}

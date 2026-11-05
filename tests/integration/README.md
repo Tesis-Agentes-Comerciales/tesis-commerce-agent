@@ -261,7 +261,17 @@ pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
   proveedor. No se puede matar ni reiniciar: los casos de caída siguen con `HnpAgent`.
   `test_p0_model_failures.py` lo usa para la evidencia P0 de fallos del modelo (INF27–INF29,
   INF33; `-k p0_`), con el protocolo congelado `evaluation/scenarios/p0-model-failures.json`, y
-  deja `p0-model-failures/summary.json` en el directorio de la ejecución.
+  deja `p0-model-failures/summary.json` en el directorio de la ejecución. `ScriptedModel` sirve
+  el guion de un caso con las respuestas que le pasa su módulo.
+- `test_p0_ux08_ux10.py`: la evidencia P0 de UX08, UX09 y UX10 en vivo
+  (`docs/design/p0-ux08-ux10.md` §5.2), con el protocolo congelado
+  `evaluation/scenarios/p0-ux08-ux10.json`. HP es B2-HP sobre `b0` con el `HpAgent` de
+  `test_p0_model_failures.py`; «Detener respuesta» es una desconexión real mientras una respuesta
+  del modelo está retenida (`held`). HNP es B2-HNP sobre `hnp` con `ModelHnpAgent`: el dueño
+  revoca, o el operador enciende el kill switch, mientras el selector o el revisor responden, o
+  justo después del POST del checkout. UX08-HP agrega la ruta de cancel al proxy de `b0` solo
+  durante su caso. Deja `p0-ux08-ux10/summary.json`; las celdas de CI del protocolo corren
+  aparte, sin red.
 - `live_merchant_control.py`: corre con el intérprete del Merchant. Aprovisiona con las
   funciones del propio Merchant (migraciones, episodios, sesiones, catálogo gestionado) y toma
   instantáneas y contadores de efectos; para las compras siembra episodios B0, exporta su feed,
