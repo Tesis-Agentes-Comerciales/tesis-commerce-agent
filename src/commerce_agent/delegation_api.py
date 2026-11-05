@@ -54,6 +54,10 @@ _ERRORS: dict[str, tuple[int, str]] = {
         409,
         "Lo que autorizaste no coincide con la propuesta. Revísala de nuevo antes de autorizar.",
     ),
+    "delegation_proposal_superseded": (
+        409,
+        "Esta propuesta fue reemplazada por una más reciente. Revisa la última.",
+    ),
     "delegation_proposal_expired": (
         409,
         "La propuesta venció antes de que la autorizaras. Crea una nueva.",

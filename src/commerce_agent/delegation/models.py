@@ -73,7 +73,9 @@ OutcomeCode = Literal[
     "partial_verifier_failure",
     "receipt_mismatch",
 ]
-ConsentStatus = Literal["created", "existing", "not_found", "scope_mismatch", "proposal_expired"]
+ConsentStatus = Literal[
+    "created", "existing", "not_found", "scope_mismatch", "proposal_superseded", "proposal_expired"
+]
 ReservationState = Literal["reserved", "committed", "consumed", "released", "uncertain"]
 ReleaseBasis = Literal["no_outbox", "psp_error_receipt"]
 UncertainReason = Literal["dispatch_timeout", "partial_verifier_failure", "receipt_mismatch"]
@@ -124,6 +126,9 @@ class ProposalRecord:
     presented_at: str
     expires_at: str
     grant_id: str | None
+    # D2 (docs/design/p0-ux08-ux10.md §3.3): the owner's newer proposal that replaced this one
+    # while it was open. Never set together with `grant_id`.
+    superseded_by: str | None
 
 
 @dataclass(frozen=True, slots=True)

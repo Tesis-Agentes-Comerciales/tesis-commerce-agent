@@ -7,7 +7,14 @@ purchase run and no merchant write. Its shortlist goes to the `delegation_draft`
 from pathlib import Path
 from typing import Any
 
-from commerce_agent.application.conversation import PENDING_STAGES, scoped_id, turn_run_id
+import pytest
+
+from commerce_agent.application.conversation import (
+    PENDING_STAGES,
+    delegation_offers_message,
+    scoped_id,
+    turn_run_id,
+)
 from commerce_agent.persistence import SqliteAgentStore
 from tests.assistant_support import (
     GREETING_REQUEST,
@@ -74,6 +81,23 @@ def test_delegate_searches_and_drafts_without_checkout(tmp_path: Path) -> None:
     store = SqliteAgentStore(tmp_path / "agent.db")
     assert store.purchase(turn_run_id(scoped_id("buyer-a", "turn-delegate"))) is None
     assert store.pending_purchase(PENDING_STAGES, "buyer-a") is None
+
+
+def test_the_message_that_offers_the_delegation_says_one_unit(tmp_path: Path) -> None:
+    """D3 (docs/design/p0-ux08-ux10.md §3.3): whoever asked for two units reads that it is one."""
+    with assistant_client(
+        tmp_path / "agent.db", governance=HNP_ON, buyer_authenticator=TwoBuyers()
+    ) as client:
+        _, state = post_assistant(client, delegate_body(PURCHASE_REQUEST))
+
+    assert state["delegation_draft"]["offers"]
+    text = state["messages"][-1]["content"][-1]
+    assert text["type"] == "text" and "1 unidad" in text["text"]
+
+
+@pytest.mark.parametrize("count", [1, 3])
+def test_the_offer_says_one_unit_with_one_option_or_several(count: int) -> None:
+    assert "1 unidad" in delegation_offers_message(count)
 
 
 def test_delegate_without_candidates_drafts_no_offers(tmp_path: Path) -> None:
