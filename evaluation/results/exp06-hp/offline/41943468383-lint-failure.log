@@ -1,0 +1,49 @@
+python-lint	Format, lint and types	﻿2026-11-05T00:43:55.1898209Z ##[group]Run uv run ruff format --check .
+python-lint	Format, lint and types	2026-11-05T00:43:55.1898479Z ^[[36;1muv run ruff format --check .^[[0m
+python-lint	Format, lint and types	2026-11-05T00:43:55.1898660Z ^[[36;1muv run ruff check .^[[0m
+python-lint	Format, lint and types	2026-11-05T00:43:55.1898826Z ^[[36;1muv run pyright^[[0m
+python-lint	Format, lint and types	2026-11-05T00:43:55.1917924Z shell: /usr/bin/bash -e {0}
+python-lint	Format, lint and types	2026-11-05T00:43:55.1918095Z env:
+python-lint	Format, lint and types	2026-11-05T00:43:55.1918273Z   UV_PYTHON_INSTALL_DIR: /home/runner/work/_temp/uv-python-dir
+python-lint	Format, lint and types	2026-11-05T00:43:55.1918507Z   UV_CACHE_DIR: /home/runner/work/_temp/setup-uv-cache
+python-lint	Format, lint and types	2026-11-05T00:43:55.1918690Z ##[endgroup]
+python-lint	Format, lint and types	2026-11-05T00:43:55.3723568Z 468 files already formatted
+python-lint	Format, lint and types	2026-11-05T00:43:55.5206356Z All checks passed!
+python-lint	Format, lint and types	2026-11-05T00:44:26.8150119Z /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py
+python-lint	Format, lint and types	2026-11-05T00:44:26.8154021Z   /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py:130:32 - error: Argument of type "Any | int" cannot be assigned to parameter "body" of type "dict[str, Any]" in function "classify"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8156377Z     Type "Any | int" is not assignable to type "dict[str, Any]"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8157209Z       "int" is not assignable to "dict[str, Any]" (reportArgumentType)
+python-lint	Format, lint and types	2026-11-05T00:44:26.8158358Z   /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py:130:32 - error: Argument of type "Any | int" cannot be assigned to parameter "effects" of type "dict[str, int]" in function "classify"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8159461Z     Type "Any | int" is not assignable to type "dict[str, int]"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8160019Z       "int" is not assignable to "dict[str, int]" (reportArgumentType)
+python-lint	Format, lint and types	2026-11-05T00:44:26.8161046Z   /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py:130:32 - error: Argument of type "Any | int" cannot be assigned to parameter "ledger_complete" of type "bool" in function "classify"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8162159Z     Type "Any | int" is not assignable to type "bool"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8162735Z       "int" is not assignable to "bool" (reportArgumentType)
+python-lint	Format, lint and types	2026-11-05T00:44:26.8163908Z   /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py:130:32 - error: Argument of type "Any | int" cannot be assigned to parameter "simulated" of type "bool" in function "classify"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8164921Z     Type "Any | int" is not assignable to type "bool"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8165439Z       "int" is not assignable to "bool" (reportArgumentType)
+python-lint	Format, lint and types	2026-11-05T00:44:26.8166421Z   /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py:131:32 - error: Argument of type "Any | dict[str, int]" cannot be assigned to parameter "status" of type "int" in function "classify"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8167476Z     Type "Any | dict[str, int]" is not assignable to type "int"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8168062Z       "dict[str, int]" is not assignable to "int" (reportArgumentType)
+python-lint	Format, lint and types	2026-11-05T00:44:26.8169051Z   /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py:131:32 - error: Argument of type "Any | dict[str, int]" cannot be assigned to parameter "ledger_complete" of type "bool" in function "classify"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8170121Z     Type "Any | dict[str, int]" is not assignable to type "bool"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8170670Z       "dict[str, int]" is not assignable to "bool" (reportArgumentType)
+python-lint	Format, lint and types	2026-11-05T00:44:26.8171675Z   /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py:131:32 - error: Argument of type "Any | dict[str, int]" cannot be assigned to parameter "simulated" of type "bool" in function "classify"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8172682Z     Type "Any | dict[str, int]" is not assignable to type "bool"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8173563Z       "dict[str, int]" is not assignable to "bool" (reportArgumentType)
+python-lint	Format, lint and types	2026-11-05T00:44:26.8174641Z   /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py:133:32 - error: Argument of type "Any | dict[str, str]" cannot be assigned to parameter "status" of type "int" in function "classify"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8176249Z     Type "Any | dict[str, str]" is not assignable to type "int"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8176877Z       "dict[str, str]" is not assignable to "int" (reportArgumentType)
+python-lint	Format, lint and types	2026-11-05T00:44:26.8178018Z   /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py:133:32 - error: Argument of type "Any | dict[str, str]" cannot be assigned to parameter "effects" of type "dict[str, int]" in function "classify"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8179185Z     Type "Any | dict[str, str]" is not assignable to type "dict[str, int]"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8179824Z       "dict[str, str]" is not assignable to "dict[str, int]"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8180486Z         Type parameter "_VT@dict" is invariant, but "str" is not the same as "int"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8181321Z         Consider switching from "dict" to "Mapping" which is covariant in the value type (reportArgumentType)
+python-lint	Format, lint and types	2026-11-05T00:44:26.8182729Z   /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py:133:32 - error: Argument of type "Any | dict[str, str]" cannot be assigned to parameter "ledger_complete" of type "bool" in function "classify"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8183937Z     Type "Any | dict[str, str]" is not assignable to type "bool"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8184479Z       "dict[str, str]" is not assignable to "bool" (reportArgumentType)
+python-lint	Format, lint and types	2026-11-05T00:44:26.8185480Z   /home/runner/work/tesis-commerce-agent/tesis-commerce-agent/tests/evaluation/test_exp06.py:133:32 - error: Argument of type "Any | dict[str, str]" cannot be assigned to parameter "simulated" of type "bool" in function "classify"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8186507Z     Type "Any | dict[str, str]" is not assignable to type "bool"
+python-lint	Format, lint and types	2026-11-05T00:44:26.8187072Z       "dict[str, str]" is not assignable to "bool" (reportArgumentType)
+python-lint	Format, lint and types	2026-11-05T00:44:26.8187543Z 11 errors, 0 warnings, 0 informations
+python-lint	Format, lint and types	2026-11-05T00:44:26.9964723Z ##[error]Process completed with exit code 1.

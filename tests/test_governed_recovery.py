@@ -83,7 +83,11 @@ INTERNAL_DETAILS = re.compile(r"[A-Za-z]+_[A-Za-z_]+|BBGoogle|Traceback|Error|va
 # What B0 answers when the recovery cannot leave evidence.
 B0_UNKNOWN_VARIANT = (
     502,
-    {"code": "intent_model_error", "message": "The candidate model selected an unknown variant"},
+    {
+        "code": "intent_model_error",
+        "message": "The candidate model selected an unknown variant",
+        "model_failure": "invalid_output",
+    },
 )
 B0_INVALID_CANDIDATE = (
     409,

@@ -310,7 +310,11 @@ export const WaitingForPolicy: Story = {
   },
 }
 
-/** #93: la compra conserva el código del comercio y la tarea muestra el suyo. */
+/**
+ * #93 y CT13 en B0-HNP: el comercio se negó a crear el checkout porque el producto se agotó. La
+ * compra conserva su código y la tarea, que terminó `checkout_failed`, dice la misma causa: el
+ * backend solo la manda cuando el comercio rechazó la creación y no quedó ningún checkout.
+ */
 export const CheckoutRefused: Story = {
   args: { trace: HNP_TRACES.checkoutRefused },
   play: async ({ canvas, canvasElement }) => {
@@ -321,11 +325,69 @@ export const CheckoutRefused: Story = {
       "Crear el checkout",
       ...NOT_REACHED,
     ])
-    await expect(
-      canvas.getByText(`El producto se agotó antes de completar la compra. ${NO_CHARGE}`),
-    ).toBeVisible()
-    // `checkout_failed` no dice qué falló: también sale con el checkout ya creado.
-    await expect(canvas.getByText(`${PRECAUTION} ${NO_CHARGE}`)).toBeVisible()
+    const refused = `El producto se agotó antes de completar la compra. ${NO_CHARGE}`
+    await expect(rows(canvasElement)[2]).toHaveTextContent(refused)
+    await expect(rows(canvasElement)[3]).toHaveTextContent(refused)
+    await expect(canvas.queryByText(new RegExp(PRECAUTION))).toBeNull()
+  },
+}
+
+/** CT13 en B2-HNP: D1 permitió y el comercio se negó a crear el checkout porque la oferta venció. */
+export const CheckoutRefusedOfferExpired: Story = {
+  args: { trace: HNP_TRACES.checkoutRefusedOfferExpired },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(titles(canvasElement)).toEqual([
+      "Delegación autorizada",
+      "Compra delegada en marcha",
+      "Política de compra: permitida",
+      "La compra no se pudo completar",
+      "La compra delegada se detuvo",
+      "Crear el checkout",
+      ...NOT_REACHED,
+    ])
+    const refused = `La oferta del comercio venció. ${NO_CHARGE}`
+    await expect(rows(canvasElement)[3]).toHaveTextContent(refused)
+    await expect(rows(canvasElement)[4]).toHaveTextContent(refused)
+    await expect(canvas.queryByText(new RegExp(PRECAUTION))).toBeNull()
+  },
+}
+
+/**
+ * El comercio creó el checkout y rechazó el update con `out_of_stock`. La compra guarda ese código,
+ * pero la tarea no trae causa: `checkout_failed` también sale con el checkout ya creado, así que
+ * conserva el texto de precaución.
+ */
+export const UpdateRefusedWithoutCause: Story = {
+  args: { trace: HNP_TRACES.updateRefused },
+  play: async ({ canvasElement }) => {
+    await expect(titles(canvasElement)).toEqual([
+      "Delegación autorizada",
+      "Compra delegada en marcha",
+      "Política desactivada",
+      "Checkout creado en el comercio",
+      "La compra no se pudo completar",
+      "La compra delegada se detuvo",
+      ...NOT_REACHED,
+    ])
+    await expect(rows(canvasElement)[4]).toHaveTextContent(
+      `El producto se agotó antes de completar la compra. ${NO_CHARGE}`,
+    )
+    await expect(rows(canvasElement)[5]).toHaveTextContent(`${PRECAUTION} ${NO_CHARGE}`)
+  },
+}
+
+/** Una causa fuera de `checkout_failed` no se lee: la regla es solo para el rechazo de la creación. */
+export const RefusalOnlyExplainsCheckoutFailed: Story = {
+  args: {
+    trace: {
+      ...HNP_TRACES.checkoutRefused,
+      steps: HNP_TRACES.checkoutRefused.steps.map((step) =>
+        step.id === "failed:task" ? { ...step, code: "state_conflict" } : step,
+      ),
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await expect(rows(canvasElement)[3]).toHaveTextContent(`${PRECAUTION} ${NO_CHARGE}`)
   },
 }
 

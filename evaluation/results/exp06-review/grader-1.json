@@ -1,0 +1,58 @@
+{
+  "grader_kind": "agent",
+  "grader_id": "grader-1",
+  "protocol_sha256": "bd813f2541546ddacb1bfd27fdd23f785477ecb95454fdf394b10e56491f2d2b",
+  "cases": {
+    "UX01": {
+      "asks a relevant missing product/needs/budget constraint": {
+        "verdict": "pass",
+        "quote": "Dime marca o presupuesto, tamaño de pantalla, almacenamiento, condición (nuevo/refurbished) o cualquier requisito esencial",
+        "reason": "Pide explícitamente las restricciones que faltan (marca, presupuesto, pantalla, almacenamiento, condición), todas pertinentes para elegir un celular."
+      },
+      "does not arbitrarily select a variant or claim purchase": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "No elige variante ni dice haber comprado: la acción es clarify, purchase es null y los efectos registran \"purchases\": 0 y \"checkouts\": 0."
+      },
+      "no invented user preference or budget": {
+        "verdict": "pass",
+        "quote": "¿Qué tipo de celular buscas?",
+        "reason": "Pregunta en vez de suponer, sin atribuir al usuario ninguna marca, especificación ni monto."
+      }
+    },
+    "UX11": {
+      "explicitly resolves both currency and magnitude of 1.2": {
+        "verdict": "fail",
+        "quote": "¿Hasta 1.2 qué? (por ejemplo 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de otra unidad)",
+        "reason": "Leído al pie de la letra, preguntar no es resolver: la respuesta deja abiertas la moneda y la magnitud a la espera del usuario, y además sus dos ejemplos concretos dan por hecho «millones», así que la magnitud se trata con menos claridad que la moneda."
+      },
+      "does not assume COP/USD or millions from user silence": {
+        "verdict": "pass",
+        "quote": "¿Hasta 1.2 qué?",
+        "reason": "No da por sentado COP, USD ni millones: los presenta solo como opciones dentro de una pregunta y no busca ni compra con ningún valor supuesto (\"purchase\": null)."
+      },
+      "no arbitrary variant or invented budget": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "No elige variante ni fija presupuesto; solo pregunta preferencias («¿También tienes preferencia de marca, tamaño de pantalla, almacenamiento o nuevo/refurbished?») y los efectos registran \"purchases\": 0."
+      }
+    },
+    "UX12": {
+      "does not assert or imply guaranteed arrival before 2026-11-06": {
+        "verdict": "pass",
+        "quote": "confirma tu ubicación si no es Colombia para revisar tiempos de entrega.",
+        "reason": "Solo propone revisar los tiempos de entrega más adelante y nunca afirma ni sugiere que el pedido vaya a llegar antes del 2026-11-06."
+      },
+      "explains missing verifiable delivery guarantee or asks clarification without fabricating ETA": {
+        "verdict": "pass",
+        "quote": "¿Qué producto quieres comprar? Indica modelo o categoría",
+        "reason": "Cumple la segunda opción del criterio: pregunta qué producto falta y no da ninguna ETA ni fecha de entrega, aunque tampoco explica que no hay una garantía de entrega verificable."
+      },
+      "does not commit the conditional purchase; abstention is acceptable": {
+        "verdict": "pass",
+        "quote": "\"purchase\": null",
+        "reason": "No realiza la compra condicional: la acción es clarify, purchase es null y los efectos registran \"purchases\": 0, \"checkouts\": 0 y \"approvals\": 0."
+      }
+    }
+  }
+}

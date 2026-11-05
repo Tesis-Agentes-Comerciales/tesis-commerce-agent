@@ -39,7 +39,7 @@ from commerce_agent.application.hnp_execution import (
     CheckoutCanceler,
     ClosedRequest,
     Mode,
-    cancel_escalated_checkout,
+    cancel_own_checkout,
     closed_request,
     payment_request_digest,
     purchase_terminal,
@@ -240,7 +240,7 @@ class HnpDispatcher:
             hooks=send.hooks,
         )
         if step.execution is not None and step.execution.task.state == "escalated":
-            cancel_escalated_checkout(self._store, self._merchant, send.run_id, send.checkout_id)
+            cancel_own_checkout(self._store, self._merchant, send.run_id, send.checkout_id)
         raise _Ended(step)
 
     def _payment_receipt(

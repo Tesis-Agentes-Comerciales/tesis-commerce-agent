@@ -1,0 +1,113 @@
+{
+  "schema": "p0-llm-batch2-amendment/v1",
+  "id": "A1",
+  "date": "2026-11-05",
+  "allowed_by": "amendments.allowed_before_first_live_call of the preregistration: «A1: fix run_ref and list the product PRs merged since agent_base»",
+  "decided_by": "the coordinator, under Yair's delegation, on 2026-11-05: the batch runs without #190",
+  "why_a_separate_file": "the run_ref executor pins the bytes of the preregistration and the spec (FROZEN_PROTOCOL_SHA256, FROZEN_SPEC_SHA256 of p0_llm_batch2_execution.py), and a commit cannot contain its own SHA; editing either file would change the hashes the run_ref checks. Both stay byte for byte as merged in #186, run_ref null included; this file is the amendment",
+  "amends": {
+    "preregistration": {
+      "path": "evaluation/scenarios/p0-llm-batch2.json",
+      "sha256": "d1e56d17cc8f8e4690c90b941cd468d2d875c57f143e0174cd81013afdea12e5"
+    },
+    "spec": {
+      "path": "docs/design/p0-llm-batch2.md",
+      "sha256": "f025beb258261e556bf5db070ec905157698589ee1e7ef977ce0b5d6f27538fb"
+    }
+  },
+  "run_ref": {
+    "commit": "4269067dad34bf9460462d0e2a3cec4059a02421",
+    "tag": "p0-llm-batch2-run",
+    "branch": "eval/p0-llm-batch2-runner",
+    "what": "the executor (PR 2 of spec §12) on top of 4c60aae; the smoke and the batch run from a clean checkout of this tag, and each stage's receipt names it as executor_sha"
+  },
+  "agent_base": "343f099e6c4f1dd98e7cf04d81cfa09c99113206",
+  "product_base": {
+    "commit": "4c60aae9d7e7336ada6242d3d31a754402b07ef3",
+    "what": "org/main right after #186 and before #190",
+    "paths": [
+      "src",
+      "ui",
+      "auth",
+      "pyproject.toml",
+      "uv.lock",
+      "langgraph.json",
+      "Dockerfile"
+    ],
+    "rule": "git diff <product_base> <run_ref> -- <paths> is empty: only the executor and its evaluation differ. The executor checks it (product_changes) before claiming a receipt and before every model client of a paid run"
+  },
+  "included": [
+    {
+      "pr": 181,
+      "merge": "a295d594e73a3470124edbcb29b6f0e3dca0a861",
+      "product_code": false,
+      "title": "test(evaluation): smoke EXP-06 HP con el modelo real en local (UX01, UX11, UX12)"
+    },
+    {
+      "pr": 157,
+      "merge": "51aac29d42d40c82100bcfda4a5c28e8d4610a22",
+      "product_code": false,
+      "title": "P2: procedencia del catálogo P0 y primer puente Merchant–Agent"
+    },
+    {
+      "pr": 182,
+      "merge": "49a3b47441ba0419ac5d73905b6dc91b3b5d3fbc",
+      "product_code": false,
+      "title": "docs(design): spec P0 de cambio, desistimiento y cantidad (UX08, UX09, UX10)"
+    },
+    {
+      "pr": 185,
+      "merge": "f6a4f8aea341270c988ad8b0998dd1c97467ebd1",
+      "product_code": true,
+      "title": "feat(delegation): propuesta reemplazada y «1 unidad» en HNP (PR-B: D2 y D3)"
+    },
+    {
+      "pr": 184,
+      "merge": "bf54850d3862083ab36705608de2b8e5a883f2c3",
+      "product_code": false,
+      "title": "docs(evaluation): actualiza el estado de P2 y del nightly tras fusionar #157"
+    },
+    {
+      "pr": 183,
+      "merge": "139552553c782cd42df58c5f05215f8b53365066",
+      "product_code": false,
+      "title": "docs(design): spec P0 de intención condicional (UX03–UX07)"
+    },
+    {
+      "pr": 187,
+      "merge": "df3df33a864022612c8d1d25c30d4a34b074afc7",
+      "product_code": true,
+      "title": "fix(hnp,chat): detener antes de los efectos y cancelar el checkout abierto (UX09/UX10, PR-A)"
+    },
+    {
+      "pr": 188,
+      "merge": "6c7d8c92cf11c731a486243b1f3416e178dc9297",
+      "product_code": false,
+      "title": "test(evaluation): lote EXP-06 HP con el modelo real en local (UX01, UX11, UX12 × 5)"
+    },
+    {
+      "pr": 186,
+      "merge": "4c60aae9d7e7336ada6242d3d31a754402b07ef3",
+      "product_code": false,
+      "title": "docs(evaluation): spec y prerregistro del segundo lote P0 con LLM real"
+    }
+  ],
+  "included_note": "every PR merged into main between agent_base and product_base. Only #185 and #187 change product code; both were in the main that enmienda A6 merged (6c7d8c9), where the symbol-anchored references of the spec were verified again",
+  "excluded": [
+    {
+      "pr": 190,
+      "merge": "3cb6c1d982a9d01ea5ec79cad1879a67885a9fcc",
+      "title": "feat(conditional): contrato y evaluador puro de la intención condicional (PR 2)",
+      "changes": "the router prompt (new section «Conditional purchases» of llm/conversation_router.py) and its output schema (CommerceDecision.conditional); HP and the delegate turn do not read conditional until PR 3",
+      "why": "the preregistration was written and frozen for the agent_base prompt; with #190 the routes of UX02, UX11, UX12 and CT21 would answer a different prompt and schema, and a half-integrated product would confound their results"
+    }
+  ],
+  "controls": {
+    "on": "4269067dad34bf9460462d0e2a3cec4059a02421",
+    "command": "RUN_LIVE_STACK=1 uv run pytest tests/integration -k p0_llm_batch2 -rs (MERCHANT_REPO at abf30df, PAYMENT_REPO at e6ab67b, no OPENAI_* variable)",
+    "result": "20 passed: C-PREFLIGHT, C-HP-LEGIT (B0', B2), C-HP-OBEY (B0', B2), C-HNP-LEGIT (B0-HNP, B2-HNP), C-HNP-OBEY (B0-HNP, B2-HNP), C-DELEGATE-DRAFT (2), C-HP-CLARIFY-SOURCE (4), C-UX12-EXEC-CONFIRM (3), C-UX12-EXEC-B0 and the executor loop; 0 provider calls",
+    "date": "2026-11-05"
+  },
+  "unchanged": "prompts, the injection text, the model, repetitions, caps, oracles and rubrics: nothing of the preregistration changes",
+  "spending": "this amendment authorizes nothing: each stage still needs its own receipt"
+}

@@ -1,0 +1,560 @@
+{
+  "schema": "p0-model-failures-protocol/1",
+  "id": "p0-model-failures",
+  "frozen": "2026-11-05, committed before the first live run; never edited after seeing results",
+  "spec": {
+    "path": "docs/design/p0-model-failures.md",
+    "sha256": "0b70704c51f6b27ceb73f1e5f7a8be9d16cac16d08cf41e7969d6c1957492e1c"
+  },
+  "agent_base": "cd6d39fcc198f1a8e3bf9a7c4ffaebbd23c1af83",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "scope": "Matrix INF27, INF28, INF29 and INF33 (P0) against the live stack: real Merchant, real payment provider and ephemeral PostgreSQL of tests/integration, with the real OpenAI SDK over a scripted transport. No real model, no provider call, no cost.",
+  "harness": {
+    "module": "tests/integration/test_p0_model_failures.py",
+    "model_double": "tests/support/model_server.py: httpx.MockTransport given to the SDK's HTTP clients in the test process; the SDK, its retry policy and the Agent's response hook are real",
+    "hp_agent": "AgentServer (tests/integration/live_browser.py) in the test process, create_app with ExplicitSettings, buyer authenticated by EpisodeBuyer",
+    "hnp_agent": "ModelHnpAgent (tests/integration/live_model.py): the variables of HnpAgent, served in the test process with AGENT_HNP_SELECTOR=llm and, where stated, AGENT_HNP_REVIEWER=llm",
+    "model": "p0-scripted-model",
+    "credential": "synthetic; only the scripted transport sees it",
+    "real_provider_calls": 0,
+    "cost_usd": "0"
+  },
+  "repetitions": 3,
+  "execution_order": [
+    "INF27-HP",
+    "INF28-HP",
+    "INF29-HP",
+    "INF27-HNP",
+    "INF28-HNP",
+    "INF29-HNP",
+    "INF33-HNP-a",
+    "INF33-HNP-b",
+    "INF27-HP-control",
+    "CTRL-HP",
+    "CTRL-HNP",
+    "CTRL-HNP-REVIEW"
+  ],
+  "execution_order_reason": "Cells that must leave no effect run before the controls that buy or prepare checkouts, so no effect of a control can fall inside the window of a zero-effect cell. The three repetitions of a cell run one after the other.",
+  "not_applicable": {
+    "INF33-HP": "Human Present has no model reviewer: the buyer approves (spec §4). Declared, not executed, not counted."
+  },
+  "conditions": {
+    "B2-HP": "b0 lane; AGENT_GOVERNANCE_MODE=enforce, AGENT_HP_FLOW=governed, policy set b2-hp-v2, AP2 on (settings_for of tests/integration/test_live_b2_d2_authorization.py), plus the synthetic model settings. A new Merchant episode and a new Agent SQLite per Agent.",
+    "B2-HNP": "hnp lane; the variables of HnpAgent for B2-HNP (hnp_condition of tests/integration/live_purchase.py), AGENT_HNP_SELECTOR=llm, AGENT_HNP_REVIEWER=off unless the case says llm, plus the synthetic model settings. A new Merchant episode and a new Agent SQLite per repetition. The buyer delegates the phone Q100286751-256GB with total_max = observed price + 500,000.00 COP and city Bogotá, then the service token triggers the task."
+  },
+  "requests": {
+    "hp_turn": "PHONE_REQUEST of tests/integration/live_purchase.py, with buyer_details; REST is POST /conversation/turn, chat is POST /assistant (add-message, mode present)",
+    "hnp_task": "delegation_request([Q100286751-256GB], total_max, city Bogotá) of tests/integration/live_purchase.py"
+  },
+  "stimuli": {
+    "route_ok": "200, structured CommerceDecision: action purchase, purchase_request PHONE_REQUEST, intent PHONE_INTENT",
+    "choice_ok": "200, structured choice of the first id the request's JSON schema admits (shortlisted_choice)",
+    "review_confirmed": "200, structured {decision: confirmed, reason: matches_request}",
+    "review_outside_contract": "200, structured {decision: not_confirmed, reason: review_unavailable}: a reason outside the reviewer's schema (the executor's, never the model's)",
+    "http_429_rate_limit": "429 with OpenAI's error body {type: requests, code: rate_limit_exceeded}; headers retry-after-ms: 1 and no x-should-retry",
+    "http_429_insufficient_quota": "429 with OpenAI's error body {type: insufficient_quota, code: insufficient_quota}; headers retry-after-ms: 1 and no x-should-retry",
+    "disconnect": "the connection drops before any response (httpx.ConnectError)",
+    "read_timeout": "the model does not answer in time (httpx.ReadTimeout)"
+  },
+  "script_semantics": "Each HTTP attempt takes the next answer of the case's script; the last answer persists for any later attempt, so an attempt beyond the oracle receives the same stimulus and is counted instead of breaking the double. Per surface (HP) or per task run (HNP).",
+  "measures": {
+    "model_http_attempts": "requests the scripted transport received during the surface turn (HP) or the task run (HNP)",
+    "model_requests": "the Agent's model_requests rows of the window, projected to (stage, outcome, error_kind, http_status, provider_error_code, retries); never headers, keys or payloads",
+    "scripted_429": "each scripted 429 is checked as sent (x-should-retry absent) and after the Agent's httpx response hooks (x-should-retry value or null)"
+  },
+  "zero_effects": {
+    "window": "HP: from before the first surface turn to after the last one. HNP: from right before the trigger to the terminal task.",
+    "outside_agent": [
+      "no POST through the lane's Merchant proxy",
+      "the checkouts of the episode run unchanged (none before, none after)",
+      "the full Merchant snapshot (count and SHA-256 of every table) equal before and after",
+      "PSP: no POST through the payment proxy (HNP), the delegations (vt_ tokens) count unchanged and the full PSP SQLite snapshot (count and SHA-256 of every table) equal before and after"
+    ],
+    "agent_ledger": [
+      "no new row in approvals, completion_results, grant_reservations, dispatch_outbox, orders, hp_evidence, governance_evidence, ap2_evidence and no closed mandate (delegation_mandates closed_checkout/closed_payment)",
+      "purchases exactly as the case's oracle: HP none; HNP selector cells none; INF33 one row canceled without checkout_id"
+    ]
+  },
+  "cases": {
+    "INF27-HP": {
+      "matrix_id": "INF27",
+      "mode": "HP",
+      "condition": "B2-HP",
+      "stimulus": "persistent 429 rate limit on the interpretation",
+      "surfaces": ["rest", "chat"],
+      "agents_per_repetition": 1,
+      "script": ["http_429_rate_limit"],
+      "oracle": {
+        "model_http_attempts_per_surface": 2,
+        "model_requests_per_surface": [
+          {
+            "stage": "model.route",
+            "outcome": "error",
+            "error_kind": "RateLimitError",
+            "http_status": 429,
+            "provider_error_code": "rate_limit_exceeded",
+            "retries": 1
+          }
+        ],
+        "rest": {
+          "status": 502,
+          "body": {
+            "code": "intent_model_error",
+            "message": "The conversation model request failed",
+            "model_failure": "rate_limited"
+          }
+        },
+        "chat": {
+          "status": {
+            "type": "incomplete",
+            "reason": "error",
+            "error": "El modelo está recibiendo demasiadas solicitudes. Intenta de nuevo en un momento. No se preparó ninguna compra."
+          },
+          "steps": ["interpret_request"],
+          "failed_step": {
+            "name": "interpret_request",
+            "isError": true,
+            "result": {
+              "error": {
+                "code": "intent_model_error",
+                "message": "El modelo está recibiendo demasiadas solicitudes. Intenta de nuevo en un momento. No se preparó ninguna compra."
+              }
+            }
+          },
+          "purchase": null
+        },
+        "scripted_429": {"x_should_retry_as_sent": null, "x_should_retry_after_agent_hooks": null},
+        "governed_recovery_rows": 0,
+        "zero_effects": true
+      }
+    },
+    "INF28-HP": {
+      "matrix_id": "INF28",
+      "mode": "HP",
+      "condition": "B2-HP",
+      "stimulus": "429 insufficient_quota on the interpretation (persistent)",
+      "surfaces": ["rest", "chat"],
+      "agents_per_repetition": 1,
+      "script": ["http_429_insufficient_quota"],
+      "oracle": {
+        "model_http_attempts_per_surface": 1,
+        "model_requests_per_surface": [
+          {
+            "stage": "model.route",
+            "outcome": "error",
+            "error_kind": "RateLimitError",
+            "http_status": 429,
+            "provider_error_code": "insufficient_quota",
+            "retries": 0
+          }
+        ],
+        "rest": {
+          "status": 502,
+          "body": {
+            "code": "intent_model_error",
+            "message": "The conversation model request failed",
+            "model_failure": "quota_exhausted"
+          }
+        },
+        "chat": {
+          "status": {
+            "type": "incomplete",
+            "reason": "error",
+            "error": "El asistente no está disponible por ahora y reintentar no servirá hasta que se restablezca el servicio. No se preparó ninguna compra."
+          },
+          "steps": ["interpret_request"],
+          "failed_step": {
+            "name": "interpret_request",
+            "isError": true,
+            "result": {
+              "error": {
+                "code": "intent_model_error",
+                "message": "El asistente no está disponible por ahora y reintentar no servirá hasta que se restablezca el servicio. No se preparó ninguna compra."
+              }
+            }
+          },
+          "purchase": null
+        },
+        "scripted_429": {"x_should_retry_as_sent": null, "x_should_retry_after_agent_hooks": "false"},
+        "governed_recovery_rows": 0,
+        "zero_effects": true
+      }
+    },
+    "INF29-HP": {
+      "matrix_id": "INF29",
+      "mode": "HP",
+      "condition": "B2-HP",
+      "stimulus": "the interpretation answers; the connection drops on the selection (choose_candidate), persistently",
+      "surfaces": ["rest", "chat"],
+      "agents_per_repetition": 1,
+      "script": ["route_ok", "disconnect"],
+      "oracle": {
+        "model_http_attempts_per_surface": 3,
+        "model_http_attempts_note": "3 requests per surface: 1 interpretation + 2 attempts of the selection",
+        "model_requests_per_surface": [
+          {
+            "stage": "model.route",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          },
+          {
+            "stage": "model.choose_candidate",
+            "outcome": "error",
+            "error_kind": "APIConnectionError",
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 1
+          }
+        ],
+        "rest": {
+          "status": 502,
+          "body": {
+            "code": "intent_model_error",
+            "message": "The candidate model request failed",
+            "model_failure": "unreachable"
+          }
+        },
+        "chat": {
+          "status": {
+            "type": "incomplete",
+            "reason": "error",
+            "error": "No pude comunicarme con el modelo. Intenta de nuevo en un momento. No se preparó ninguna compra."
+          },
+          "steps": ["interpret_request", "search_catalog", "select_product"],
+          "failed_step": {
+            "name": "select_product",
+            "isError": true,
+            "result": {
+              "error": {
+                "code": "intent_model_error",
+                "message": "No pude comunicarme con el modelo. Intenta de nuevo en un momento. No se preparó ninguna compra."
+              }
+            }
+          },
+          "purchase": null
+        },
+        "governed_recovery_rows": 0,
+        "governed_recovery_note": "no governed explanation and no invalid_candidate: no hp_evidence row of kind governed_recovery and no purchase or D1 decision (no selection recorded)",
+        "zero_effects": true
+      }
+    },
+    "INF27-HNP": {
+      "matrix_id": "INF27",
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": false,
+      "stimulus": "persistent 429 rate limit on the selector",
+      "script": ["http_429_rate_limit"],
+      "oracle": {
+        "model_http_attempts": 2,
+        "model_requests": [
+          {
+            "stage": "model.hnp_select",
+            "outcome": "error",
+            "error_kind": "RateLimitError",
+            "http_status": 429,
+            "provider_error_code": "rate_limit_exceeded",
+            "retries": 1
+          }
+        ],
+        "task": {"state": "escalated", "outcome_code": "selection_unavailable"},
+        "task_finished_failure_kind": "rate_limited",
+        "choice_reviewed": [],
+        "purchases": [],
+        "scripted_429": {"x_should_retry_as_sent": null, "x_should_retry_after_agent_hooks": null},
+        "zero_effects": true
+      }
+    },
+    "INF28-HNP": {
+      "matrix_id": "INF28",
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": false,
+      "stimulus": "429 insufficient_quota on the selector (persistent)",
+      "script": ["http_429_insufficient_quota"],
+      "oracle": {
+        "model_http_attempts": 1,
+        "model_requests": [
+          {
+            "stage": "model.hnp_select",
+            "outcome": "error",
+            "error_kind": "RateLimitError",
+            "http_status": 429,
+            "provider_error_code": "insufficient_quota",
+            "retries": 0
+          }
+        ],
+        "task": {"state": "escalated", "outcome_code": "selection_unavailable"},
+        "task_finished_failure_kind": "quota_exhausted",
+        "choice_reviewed": [],
+        "purchases": [],
+        "scripted_429": {"x_should_retry_as_sent": null, "x_should_retry_after_agent_hooks": "false"},
+        "zero_effects": true
+      }
+    },
+    "INF29-HNP": {
+      "matrix_id": "INF29",
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": false,
+      "stimulus": "the connection drops before the selector answers (persistent)",
+      "script": ["disconnect"],
+      "oracle": {
+        "model_http_attempts": 2,
+        "model_requests": [
+          {
+            "stage": "model.hnp_select",
+            "outcome": "error",
+            "error_kind": "APIConnectionError",
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 1
+          }
+        ],
+        "task": {"state": "escalated", "outcome_code": "selection_unavailable"},
+        "task_outcome_never": "selection_not_eligible",
+        "task_finished_failure_kind": "unreachable",
+        "choice_reviewed": [],
+        "purchases": [],
+        "zero_effects": true
+      }
+    },
+    "INF33-HNP-a": {
+      "matrix_id": "INF33",
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": true,
+      "stimulus": "the selector answers; the reviewer does not answer in time (persistent read timeout)",
+      "script": ["choice_ok", "read_timeout"],
+      "oracle": {
+        "model_http_attempts": 3,
+        "model_http_attempts_note": "1 selector request + 2 attempts of the reviewer",
+        "model_requests": [
+          {
+            "stage": "model.hnp_select",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          },
+          {
+            "stage": "model.hnp_review",
+            "outcome": "error",
+            "error_kind": "APITimeoutError",
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 1
+          }
+        ],
+        "task": {"state": "escalated", "outcome_code": "choice_not_confirmed"},
+        "task_finished_failure_kind": null,
+        "choice_reviewed": [
+          {
+            "decision": "not_confirmed",
+            "reason": "review_unavailable",
+            "prompt_id": "hnp-intent-review-v1",
+            "model": "p0-scripted-model",
+            "failure_kind": "unreachable"
+          }
+        ],
+        "no_confirmed_review": true,
+        "purchases": [{"stage": "canceled", "checkout_id": null}],
+        "zero_effects": true
+      }
+    },
+    "INF33-HNP-b": {
+      "matrix_id": "INF33",
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": true,
+      "stimulus": "the selector answers; the reviewer answers JSON outside its contract (persistent)",
+      "script": ["choice_ok", "review_outside_contract"],
+      "oracle": {
+        "model_http_attempts": 2,
+        "model_http_attempts_note": "1 selector request + 1 reviewer request: an invalid output is not retried",
+        "model_requests": [
+          {
+            "stage": "model.hnp_select",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          },
+          {
+            "stage": "model.hnp_review",
+            "outcome": "error",
+            "error_kind": "ValidationError",
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          }
+        ],
+        "task": {"state": "escalated", "outcome_code": "choice_not_confirmed"},
+        "task_finished_failure_kind": null,
+        "choice_reviewed": [
+          {
+            "decision": "not_confirmed",
+            "reason": "review_unavailable",
+            "prompt_id": "hnp-intent-review-v1",
+            "model": "p0-scripted-model",
+            "failure_kind": "invalid_output"
+          }
+        ],
+        "no_confirmed_review": true,
+        "purchases": [{"stage": "canceled", "checkout_id": null}],
+        "zero_effects": true
+      }
+    },
+    "INF27-HP-control": {
+      "matrix_id": "INF27",
+      "mode": "HP",
+      "condition": "B2-HP",
+      "stimulus": "one 429 rate limit on the interpretation, then valid answers",
+      "surfaces": ["rest", "chat"],
+      "agents_per_repetition": 2,
+      "agents_note": "each surface in its own Agent and Merchant episode: the pending-purchase guard refuses a second purchase of the same buyer",
+      "script": ["http_429_rate_limit", "route_ok", "choice_ok"],
+      "oracle": {
+        "model_http_attempts_per_surface": 3,
+        "model_requests_per_surface": [
+          {
+            "stage": "model.route",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 1
+          },
+          {
+            "stage": "model.choose_candidate",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          }
+        ],
+        "rest": {"status": 200, "action": "purchase", "purchase_stage": "awaiting_confirmation"},
+        "chat": {"status": {"type": "complete", "reason": "stop"}, "purchase_stage": "awaiting_confirmation"},
+        "checkout_posts_per_surface": 1,
+        "checkout_post_status": 201,
+        "no_payment": true,
+        "no_payment_note": "no complete call, PSP snapshot unchanged and no new order in the Merchant"
+      }
+    },
+    "CTRL-HP": {
+      "matrix_id": null,
+      "mode": "HP",
+      "condition": "B2-HP",
+      "stimulus": "positive control: valid answers only",
+      "surfaces": ["rest", "chat"],
+      "agents_per_repetition": 2,
+      "agents_note": "each surface in its own Agent and Merchant episode: the pending-purchase guard refuses a second purchase of the same buyer",
+      "script": ["route_ok", "choice_ok"],
+      "oracle": {
+        "model_http_attempts_per_surface": 2,
+        "model_requests_per_surface": [
+          {
+            "stage": "model.route",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          },
+          {
+            "stage": "model.choose_candidate",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          }
+        ],
+        "rest": {"status": 200, "action": "purchase", "purchase_stage": "awaiting_confirmation"},
+        "chat": {"status": {"type": "complete", "reason": "stop"}, "purchase_stage": "awaiting_confirmation"},
+        "checkout_posts_per_surface": 1,
+        "checkout_post_status": 201,
+        "no_payment": true,
+        "no_payment_note": "no complete call, PSP snapshot unchanged and no new order in the Merchant"
+      }
+    },
+    "CTRL-HNP": {
+      "matrix_id": null,
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": false,
+      "stimulus": "positive control: the selector answers a valid choice",
+      "script": ["choice_ok"],
+      "oracle": {
+        "model_http_attempts": 1,
+        "model_requests": [
+          {
+            "stage": "model.hnp_select",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          }
+        ],
+        "checkout_posts": 1,
+        "checkout_post_status": 201,
+        "task": {"state": "purchased", "outcome_code": null},
+        "task_note": "nothing stops a delegated purchase after its checkout: past the prepared checkout the run reaches the order",
+        "choice_reviewed": [],
+        "orders_created": 1,
+        "psp_tokens_created": 1
+      }
+    },
+    "CTRL-HNP-REVIEW": {
+      "matrix_id": null,
+      "mode": "HNP",
+      "condition": "B2-HNP",
+      "reviewer": true,
+      "stimulus": "positive control of the INF33 configuration: the selector answers and the reviewer confirms",
+      "script": ["choice_ok", "review_confirmed"],
+      "oracle": {
+        "model_http_attempts": 2,
+        "model_requests": [
+          {
+            "stage": "model.hnp_select",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          },
+          {
+            "stage": "model.hnp_review",
+            "outcome": "ok",
+            "error_kind": null,
+            "http_status": null,
+            "provider_error_code": null,
+            "retries": 0
+          }
+        ],
+        "checkout_posts": 1,
+        "checkout_post_status": 201,
+        "task": {"state": "purchased", "outcome_code": null},
+        "task_note": "nothing stops a delegated purchase after its checkout: past the prepared checkout the run reaches the order",
+        "choice_reviewed": [
+          {
+            "decision": "confirmed",
+            "reason": "matches_request",
+            "prompt_id": "hnp-intent-review-v1",
+            "model": "p0-scripted-model"
+          }
+        ],
+        "orders_created": 1,
+        "psp_tokens_created": 1
+      }
+    }
+  }
+}

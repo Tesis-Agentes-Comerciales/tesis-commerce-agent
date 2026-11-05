@@ -56,7 +56,13 @@ autorizado para afirmar interpretación LLM. Solo después, si se autoriza, reco
 clic real y compra sandbox para validar aprobación/frescura/completar. No sumar estas pruebas
 del protocolo como episodios UX03 ni como nuevas observaciones de la matriz.
 
-## Verificación de esta unidad documental
+## Verificación documental y evidencia posterior
+
+La tabla PV-01–10 especifica las pruebas propuestas en #158. El contrato Offer →
+Checkout se ejercitó en [#160](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/160)
+y la puerta del protocolo en [#176](https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/pull/176),
+con su evidencia y revisión independientes. El CI de #158 y su regresión `p0-catalog-bridge`
+corresponden a esta integración documental y a P2. UX03/UX05 siguen **BLOCKED**.
 
 Se revisan enlaces locales, referencias a símbolos y hashes de fuentes P2 en blobs fijados,
 integridad SHA256SUMS del cierre P2, JSON de matriz/oráculo, invariancia de archivos previos,

@@ -6,8 +6,10 @@ request's order in it, the model, the four token counters, the SDK's retries, th
 outcome, the input sent and the structured output or tool call received. `agent.db` is never
 versioned. It never holds the request headers, so no API key or Authorization header.
 
-`reasoning_summary` stays NULL: only a later flag fills it (§5, T5). A row that cannot be written
-is logged and dropped; it never fails the request it describes.
+`reasoning_summary` stays NULL: only a later flag fills it (§5, T5). A failed request also keeps
+the provider's HTTP status and error code (docs/design/p0-model-failures.md §3.3); `initialize`
+adds both columns to a table created before them. A row that cannot be written is logged and
+dropped; it never fails the request it describes.
 """
 
 import logging
@@ -41,7 +43,11 @@ _SCHEMA = """CREATE TABLE IF NOT EXISTS model_requests (
     catalog_vocabulary TEXT,
     input_json TEXT,
     output_json TEXT,
-    reasoning_summary TEXT)"""
+    reasoning_summary TEXT,
+    http_status INTEGER,
+    provider_error_code TEXT)"""
+# Added after the first version of the table, at its end: an older table gains them as they are.
+_ADDED_COLUMNS = (("http_status", "INTEGER"), ("provider_error_code", "TEXT"))
 _INDEX = "CREATE INDEX IF NOT EXISTS model_requests_by_run ON model_requests(run_id, sequence)"
 
 _log = logging.getLogger(__name__)
@@ -77,6 +83,10 @@ class ModelRequestRow:
     catalog_vocabulary: str | None
     input_json: str | None
     output_json: str | None
+    # A failed request's HTTP status and the provider's error code (`code`, or `type` without
+    # one), e.g. 429 and `insufficient_quota`. None on success and when no response came back.
+    http_status: int | None = None
+    provider_error_code: str | None = None
 
 
 class SqliteModelRequests:
@@ -84,10 +94,15 @@ class SqliteModelRequests:
         self._path = path
 
     def initialize(self) -> None:
-        """Create the table on a new or an existing database; running it again changes nothing."""
+        """Create the table on a new or an existing database, or add the columns an older table
+        lacks, keeping its rows; running it again changes nothing."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self._path)) as connection, connection:
             connection.execute(_SCHEMA)
+            present = {row[1] for row in connection.execute("PRAGMA table_info(model_requests)")}
+            for name, kind in _ADDED_COLUMNS:
+                if name not in present:
+                    connection.execute(f"ALTER TABLE model_requests ADD COLUMN {name} {kind}")
             connection.execute(_INDEX)
 
     def record(self, row: ModelRequestRow) -> None:

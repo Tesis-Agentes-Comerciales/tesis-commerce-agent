@@ -23,7 +23,7 @@ from .contract import (
     TaskView,
     escalation_message,
 )
-from .models import Execution, Revocation
+from .models import Execution, MerchantRefusal, Revocation
 
 Purchase = Mapping[str, str | None]  # the `purchases` row of the task's run (§4.6)
 _ESCALATION = TypeAdapter[EscalationCode](EscalationCode)
@@ -34,7 +34,13 @@ def scope_view(consent: ConsentScope) -> ScopeView:
     return ScopeView.model_validate_json(consent.display.model_dump_json())
 
 
-def delegation_view(ex: Execution, purchase: Purchase | None, now: str) -> DelegationView:
+def delegation_view(
+    ex: Execution,
+    purchase: Purchase | None,
+    now: str,
+    refusal: MerchantRefusal | None = None,
+) -> DelegationView:
+    """`refusal`: the merchant's refusal the task's `task_finished` recorded (CT13), if any."""
     grant, task = ex.grant, ex.task
     consent = parse_consent_scope(grant.scope_json.encode())
     escalation = None
@@ -58,15 +64,21 @@ def delegation_view(ex: Execution, purchase: Purchase | None, now: str) -> Deleg
             "scope": scope_view(consent),
             "consented_at": grant.consented_at,
             "expires_at": grant.expires_at,
-            "task": _task_view(ex, consent, purchase, now),
+            "task": _task_view(ex, consent, purchase, now, refusal),
             "escalation": escalation,
             "last_activity_at": max(grant.updated_at, task.updated_at),
         }
     )
 
 
-def task_view(ex: Execution, purchase: Purchase | None, now: str) -> TaskView:
-    return _task_view(ex, parse_consent_scope(ex.grant.scope_json.encode()), purchase, now)
+def task_view(
+    ex: Execution,
+    purchase: Purchase | None,
+    now: str,
+    refusal: MerchantRefusal | None = None,
+) -> TaskView:
+    consent = parse_consent_scope(ex.grant.scope_json.encode())
+    return _task_view(ex, consent, purchase, now, refusal)
 
 
 def revoke_receipt(revocation: Revocation) -> RevokeReceipt:
@@ -86,7 +98,11 @@ def revoke_receipt(revocation: Revocation) -> RevokeReceipt:
 
 
 def _task_view(
-    ex: Execution, consent: ConsentScope, purchase: Purchase | None, now: str
+    ex: Execution,
+    consent: ConsentScope,
+    purchase: Purchase | None,
+    now: str,
+    refusal: MerchantRefusal | None,
 ) -> TaskView:
     task = ex.task
     purchased = task.state == "purchased"
@@ -97,14 +113,18 @@ def _task_view(
             "outcome_code": task.outcome_code,
             "run_id": task.run_id,
             "order_id": _order_id(ex) if purchased else None,
-            "message": _task_message(ex, consent, purchase, now),
+            "message": _task_message(ex, consent, purchase, now, refusal),
             "updated_at": task.updated_at,
         }
     )
 
 
 def _task_message(
-    ex: Execution, consent: ConsentScope, purchase: Purchase | None, now: str
+    ex: Execution,
+    consent: ConsentScope,
+    purchase: Purchase | None,
+    now: str,
+    refusal: MerchantRefusal | None,
 ) -> str | None:
     task = ex.task
     match task.state:
@@ -122,6 +142,9 @@ def _task_message(
                 total=format_cop(ex.reservation.amount_minor),
                 order_id=_order_id(ex),
             )
+        case "failed" if task.outcome_code == "checkout_failed" and refusal is not None:
+            # CT13: the merchant refused the creation and nothing was created.
+            return HNP_MESSAGES[f"task.refused.{refusal}"]
         case _:
             # running, uncertain and failed; B0-HNP fails with escalation codes (§8.1).
             return HNP_MESSAGES[f"task.{task.state}"]

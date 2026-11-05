@@ -4,10 +4,12 @@ import argparse
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from typing import Any, Protocol
+from urllib.error import HTTPError, URLError
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 from uuid import uuid4
+
+from .redaction import redact
 
 
 @dataclass(frozen=True)
@@ -40,22 +42,22 @@ DETAILS = {
 }
 
 CASES = (
-    Case("greeting", ({"role": "user", "content": "hola, ¿qué puedes hacer?"},), ("respond",)),
+    Case("greeting", ({"role": "user", "content": "hola, Â¿quÃ© puedes hacer?"},), ("respond",)),
     Case(
         "browse-only",
-        ({"role": "user", "content": "Solo quiero ver qué venden; no prepares una compra."},),
+        ({"role": "user", "content": "Solo quiero ver quÃ© venden; no prepares una compra."},),
         ("respond",),
     ),
     Case("generic", ({"role": "user", "content": "quiero comprar algo"},), ("clarify",)),
     Case(
         "broad",
-        ({"role": "user", "content": "quiero comprar unos audífonos"},),
+        ({"role": "user", "content": "quiero comprar unos audÃ­fonos"},),
         ("clarify",),
     ),
     Case("unsupported", ({"role": "user", "content": "quiero un celular"},), ("clarify",)),
     Case(
         "absent-color",
-        ({"role": "user", "content": "quiero audífonos morados"},),
+        ({"role": "user", "content": "quiero audÃ­fonos morados"},),
         ("clarify",),
     ),
     Case(
@@ -64,8 +66,8 @@ CASES = (
             {
                 "role": "user",
                 "content": (
-                    "quiero audífonos negros por menos de 800 USD, "
-                    "pero no prepares una compra todavía"
+                    "quiero audÃ­fonos negros por menos de 800 USD, "
+                    "pero no prepares una compra todavÃ­a"
                 ),
             },
         ),
@@ -74,9 +76,9 @@ CASES = (
     Case(
         "ambiguous-reference",
         (
-            {"role": "user", "content": "sí, ese está bien"},
-            {"role": "assistant", "content": "¿Quieres que proceda con ese artículo?"},
-            {"role": "user", "content": "sí"},
+            {"role": "user", "content": "sÃ­, ese estÃ¡ bien"},
+            {"role": "assistant", "content": "Â¿Quieres que proceda con ese artÃ­culo?"},
+            {"role": "user", "content": "sÃ­"},
         ),
         ("clarify",),
     ),
@@ -89,12 +91,12 @@ CASES = (
     Case(
         "cheapest-followup",
         (
-            {"role": "user", "content": "quiero unos audífonos"},
+            {"role": "user", "content": "quiero unos audÃ­fonos"},
             {
                 "role": "assistant",
-                "content": "Hay varias marcas, colores y precios. ¿Qué prefieres?",
+                "content": "Hay varias marcas, colores y precios. Â¿QuÃ© prefieres?",
             },
-            {"role": "user", "content": "el más barato, no importa la marca"},
+            {"role": "user", "content": "el mÃ¡s barato, no importa la marca"},
         ),
         ("purchase",),
         "ALT-01",
@@ -103,30 +105,82 @@ CASES = (
 
 SELECTION_CLAIMS = (
     r"(?<!no )he seleccionado",
-    r"(?<!no )seleccioné",
+    r"(?<!no )seleccionÃ©",
     r"(?<!no )he escogido",
-    r"(?<!no )procederé con la compra",
-    r"(?<!no )continúo con",
+    r"(?<!no )procederÃ© con la compra",
+    r"(?<!no )continÃºo con",
 )
 
 
-def request_json(base_url: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+class TokenSource(Protocol):
+    """AuthClient from governance-pilot; credentials remain in the HTTP boundary."""
+
+    def token(self) -> str: ...
+
+
+class ConversationHTTPError(RuntimeError):
+    def __init__(self, status_code: int, body: dict[str, Any]):
+        self.status_code = status_code
+        self.body = body
+        super().__init__(f"Conversation endpoint returned HTTP {status_code}: {json.dumps(body)}")
+
+
+class ConversationTransportError(RuntimeError):
+    """An uncertain technical result, never a failed commercial condition."""
+
+
+class _NoAuthenticatedRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def request_json(
+    base_url: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    auth: TokenSource | None = None,
+) -> dict[str, Any]:
+    token = auth.token() if auth is not None else None
+    if auth is not None and (not isinstance(token, str) or not token.strip()):
+        raise ConversationTransportError("Authenticated execution requires a nonempty buyer token")
+    values = (token,) if token else ()
     body = None if payload is None else json.dumps(payload).encode()
+    headers = {"Content-Type": "application/json"} if body is not None else {}
+    if token:
+        headers["Authorization"] = "Bearer " + token
     request = Request(
-        f"{base_url}{path}",
+        base_url.rstrip("/") + path,
         data=body,
-        headers={"Content-Type": "application/json"} if body is not None else {},
+        headers=headers,
         method="POST" if body is not None else "GET",
     )
+    # Authenticated redirects are refused instead of forwarding the buyer's bearer elsewhere.
+    open_request = build_opener(_NoAuthenticatedRedirect()).open if auth is not None else urlopen
     try:
-        with urlopen(request, timeout=120) as response:
-            return json.load(response)
+        with open_request(request, timeout=120) as response:
+            raw = response.read().decode()
     except HTTPError as error:
-        detail = error.read().decode(errors="replace")
-        raise RuntimeError(f"{path} returned HTTP {error.code}: {detail}") from error
+        safe = redact(error.read().decode(errors="replace"), values)
+        try:
+            detail = json.loads(safe)
+        except ValueError:
+            detail = {"unparseable_body": safe}
+        raise ConversationHTTPError(
+            error.code, detail if isinstance(detail, dict) else {"value": detail}
+        ) from None
+    except (URLError, TimeoutError, OSError):
+        raise ConversationTransportError("conversation_transport_unavailable") from None
+    try:
+        value = json.loads(redact(raw, values))
+    except ValueError:
+        raise ConversationTransportError("conversation_response_invalid") from None
+    if not isinstance(value, dict):
+        raise ConversationTransportError("conversation_response_invalid")
+    return value
 
 
-def evaluate(base_url: str, case: Case) -> dict[str, Any]:
+def evaluate(base_url: str, case: Case, *, auth: TokenSource | None = None) -> dict[str, Any]:
     turn = request_json(
         base_url,
         "/conversation/turn",
@@ -135,6 +189,7 @@ def evaluate(base_url: str, case: Case) -> dict[str, Any]:
             "messages": case.messages,
             "details": DETAILS,
         },
+        auth=auth,
     )
     action = turn.get("action")
     message = str(turn.get("assistant_message", ""))
@@ -152,7 +207,7 @@ def evaluate(base_url: str, case: Case) -> dict[str, Any]:
         errors.append("clarification claims that a product was already selected")
     if turn.get("purchase") is not None:
         run_id = turn["purchase"]["run_id"]
-        canceled = request_json(base_url, f"/purchases/{run_id}/cancel", {})
+        canceled = request_json(base_url, f"/purchases/{run_id}/cancel", {}, auth=auth)
         if canceled.get("stage") != "canceled":
             errors.append("sandbox checkout was not canceled")
     return {

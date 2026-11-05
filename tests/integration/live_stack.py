@@ -412,6 +412,7 @@ class Call:
     request_body: bytes = field(repr=False)
     status: int | None = None
     response_body: bytes | None = field(default=None, repr=False)
+    response_request_id: str | None = None
     # Set once the Merchant answered, even when the Agent never sees that answer; never for
     # answers the proxy makes up (405, status_503).
     answered: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -552,6 +553,7 @@ class FaultProxy:
             self._abort(handler, reset=True)
             return
         call.status, call.response_body = response.status_code, raw
+        call.response_request_id = response.headers.get("Request-Id")
         call.answered.set()
         try:
             if hook := self.after_answer.get(path):

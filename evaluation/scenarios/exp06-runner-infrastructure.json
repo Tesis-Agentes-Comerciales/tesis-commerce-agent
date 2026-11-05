@@ -1,0 +1,38 @@
+{
+  "schema": "exp06-runner-infrastructure/1",
+  "agent_base": "8a73ace944f252d1467e5fef7cacbb3b9913a5f3",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "matrix_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "ux03_oracle_sha256": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+  "scope": "manual orchestration control only; no real provider, no semantic inference",
+  "cases": {
+    "EXP06:runner": {
+      "scenario": "EXP06-INFRA",
+      "mode": "HP",
+      "test": "test_protected_manual_orchestrator_without_provider",
+      "expected": "three frozen independent episodes before first mock attempt; real JWT/router/SDK; six mock 503 attempts and three error ledger rows; no commercial effects; cleanup; no semantic P0 attribution",
+      "required_observations": [
+        "runner_summary",
+        "attempt_journal",
+        "frozen_inputs",
+        "public_hashes"
+      ]
+    }
+  },
+  "effect_limits": {
+    "completed_orders": 0,
+    "payment_requests": 0,
+    "checkouts": 0,
+    "model_calls": "two mock HTTP attempts; zero real provider calls",
+    "auth_writes": "synthetic signup/session/JWKS allowed and observed"
+  },
+  "limitations": [
+    "UX01/UX11/UX12 remain not_executed semantically",
+    "HTTP 502 intent_model_error is technical, not commercial false",
+    "HP authenticated route only; HNP conversation not evaluated",
+    "auth database writes expected, no commercial effects",
+    "no scripted clarification responses or model credentials"
+  ],
+  "test_module": "tests/integration/test_exp06_runner_infrastructure.py::"
+}

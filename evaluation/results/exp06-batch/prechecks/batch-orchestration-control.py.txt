@@ -1,0 +1,129 @@
+"""EXP-06 batch control without a provider: the same run_stack, 15 episodes, ModelServer only.
+
+Run from the Agent checkout (it imports tests.integration), with MERCHANT_REPO/PAYMENT_REPO
+pointing to the pinned siblings and OPENAI_API_KEY unset:
+
+    uv run python <this file> <output directory>
+
+Every SDK attempt goes to the existing ModelServer through MockTransport (two 503 per
+episode: one request and its SDK retry). The budget is infrastructure-only: ReservedTransport
+refuses any transport that is not MockTransport, so no request can leave the machine.
+"""
+
+import hashlib
+import json
+import os
+import sys
+from decimal import Decimal
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+sys.path.insert(0, os.getcwd())
+
+import pytest  # noqa: E402
+
+from commerce_evaluation.exp06 import AttemptBudget  # noqa: E402
+from commerce_evaluation.exp06_execution import limits, run_stack, schedule  # noqa: E402
+from tests.support.model_server import ModelServer, failure  # noqa: E402
+
+SYNTHETIC = "synthetic-mock-only"
+
+
+def main(output: Path) -> None:
+    assert not os.environ.get("OPENAI_API_KEY"), "control must run without a provider key"
+    order = schedule("batch")
+    bounds = limits("batch")
+    model = ModelServer(*(failure(503) for _ in range(2 * len(order))))
+    budget = AttemptBudget(None, infrastructure_only=True)
+    # Same limits an authorized batch receives (AttemptBudget sets them from the receipt).
+    budget.stage, budget.max_attempts = "batch", bounds["http_attempts_max"]
+    budget.cap = Decimal(bounds["proposed_cap_usd"])
+    with pytest.MonkeyPatch.context() as patch:
+        model.install(patch)
+        summary = run_stack(output / "manual", budget, SYNTHETIC)
+    public = output / "manual/evidence"
+    journal = [json.loads(line) for line in (public / "attempts.jsonl").read_text().splitlines()]
+    frozen = {
+        key: json.loads((public / (key + "-frozen.json")).read_text()) for key, _ in order
+    }
+    seen: list[str] = []
+    for row in journal:
+        if row["case_id"] not in seen:
+            seen.append(row["case_id"])
+    checks = {
+        "episodes_in_preregistered_order": list(summary["cases"]) == [k for k, _ in order]
+        and seen == [k for k, _ in order],
+        "scenario_per_episode": all(
+            summary["cases"][k]["scenario"] == case for k, case in order
+        ),
+        "all_frozen_before_first_reservation": max(f["frozen_at_ns"] for f in frozen.values())
+        < min(r["at_ns"] for r in journal if r["phase"] == "reserved_before_send"),
+        "same_catalog_every_episode": len(
+            {hashlib.sha256(f["catalog"]["products.jsonl"].encode()).hexdigest()
+             for f in frozen.values()}
+        ) == 1,
+        "fresh_episode_per_case": len({f["run_id"] for f in frozen.values()}) == len(order)
+        and len({f["actor_id"] for f in frozen.values()}) == len(order),
+        "model_attempts": len(model.requests) == summary["attempts"] == 2 * len(order),
+        "standard_tier_every_body": all(b["service_tier"] == "default" for b in model.bodies()),
+        # The provider key passed to run_stack reaches the SDK unchanged in every episode.
+        "credential_unchanged_every_attempt": all(
+            r.headers.get("authorization") == "Bearer " + SYNTHETIC for r in model.requests
+        ),
+        "turn_input_is_the_preregistered_pair": all(
+            json.loads(r["input_json"]) == frozen[k]["messages"]
+            for k, _ in order
+            for r in summary["cases"][k]["model_requests"]
+        ),
+        "every_episode_simulated_not_graded": all(
+            c["status"] == "not_executed" and c["http_status"] == 502
+            for c in summary["cases"].values()
+        ),
+        "effects_zero_and_ledger_complete": all(
+            c["effects_verified_zero"] and c["ledger_complete"]
+            and c["psp_after_cleanup"] == c["psp_before"]
+            for c in summary["cases"].values()
+        ),
+        "review_templates_unfilled": all(
+            (lambda t: t["episode"] == k and t["scenario"] == case
+             and all(r["reviewer"] is None for r in t["reviewers"]))(
+                json.loads((public / (k + "-review.json")).read_text())
+            )
+            for k, case in order
+        ),
+        "accounting_reconciled": summary["accounting"]["reservation_reconciled"]
+        and summary["accounting"]["unknown_attempts"] == 2 * len(order)
+        and summary["reserved_or_spent_usd"] == str(Decimal("0.445") * 2 * len(order)),
+        "cleanup_verified": summary["cleanup_verified"] and summary["private_removed"],
+    }
+    suite = ET.parse(public / "semantic-status.xml").getroot()
+    checks["junit_15_skipped"] = (
+        suite.get("name") == "EXP06-batch-technical"
+        and suite.get("tests") == str(len(order))
+        and suite.get("errors") == "0"
+        and suite.get("failures") == "0"
+    )
+    hashes_ok = True
+    for line in (public / "SHA256SUMS").read_text().splitlines():
+        digest, name = line.split("  ", 1)
+        hashes_ok &= hashlib.sha256((public / name).read_bytes()).hexdigest() == digest
+    checks["evidence_hashes"] = hashes_ok
+    report = {
+        "control": "EXP06 batch orchestration, ModelServer only, real_provider_calls 0",
+        "plan": summary["plan"],
+        "sources": summary["sources"],
+        "attempts": summary["attempts"],
+        "simulated_reserved_usd": summary["reserved_or_spent_usd"],
+        "statuses": {k: c["status"] for k, c in summary["cases"].items()},
+        "checks": checks,
+        "passed": all(checks.values()),
+    }
+    (output / "batch-orchestration-control.json").write_text(
+        json.dumps(report, indent=2, ensure_ascii=True) + "\n"
+    )
+    print(json.dumps({"passed": report["passed"], "checks": checks}, indent=2))
+    raise SystemExit(0 if report["passed"] else 1)
+
+
+if __name__ == "__main__":
+    main(Path(sys.argv[1]))

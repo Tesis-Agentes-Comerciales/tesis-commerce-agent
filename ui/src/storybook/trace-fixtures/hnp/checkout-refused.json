@@ -48,7 +48,8 @@
       "actor": "agent",
       "state": "error",
       "kind": "failed",
-      "code": "checkout_failed"
+      "code": "checkout_failed",
+      "merchant_refusal": "out_of_stock"
     }
   ],
   "purchase_mode": "HNP"

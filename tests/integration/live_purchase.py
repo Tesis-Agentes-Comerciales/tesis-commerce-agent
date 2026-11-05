@@ -624,7 +624,9 @@ class HnpAgent:
     It runs in a process of its own (`hnp_app` under uvicorn, from this checkout), so a test can
     kill it mid-run, and keeps its SQLite in the run directory. The buyer proposes and consents
     with its token; the service token triggers the task; the selector is the deterministic one
-    and no model is configured (`clean_environment` drops every OPENAI_* variable).
+    and no model is configured (`clean_environment` drops every OPENAI_* variable). With a model
+    selector or reviewer the same Agent runs in the test process instead (`ModelHnpAgent` of
+    tests/integration/live_model.py), where the scripted model transport reaches it.
     """
 
     def __init__(
@@ -685,6 +687,9 @@ class HnpAgent:
 
     def start(self) -> None:
         self.server.start()
+        self.check_health()
+
+    def check_health(self) -> None:
         health = self.http.get(self.origin + "/health").json()
         assert health["hnp_enabled"] is True and health["hnp_kill_switch"] is False
         assert health["governance_mode"] == HNP_MODES[self.condition]

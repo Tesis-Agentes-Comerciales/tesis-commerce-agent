@@ -111,9 +111,17 @@ def test_a_selector_that_made_no_choice_escalates_in_b2_and_fails_in_b0() -> Non
     failed = fixture("failed")
     failed["task"]["outcome_code"] = "selection_unavailable"
     assert parse(DelegationView, failed).escalation is None
+    # Neutral about the cause (p0-conditional-intent.md §3.9): a selector that failed, an option
+    # the merchant could not verify, or one the executor could not try in its consented order.
     assert HNP_MESSAGES["escalation.selection_unavailable"] == (
-        "No pude elegir entre las opciones que autorizaste porque el servicio que hace la "
-        "elección falló o no respondió."
+        "No pude elegir con seguridad entre las opciones que autorizaste."
+    )
+
+
+def test_no_candidate_in_scope_does_not_name_a_cause() -> None:
+    """Sold out, over the total, or both: the text says neither (p0-conditional-intent.md §3.9)."""
+    assert HNP_MESSAGES["escalation.no_candidate_in_scope"] == (
+        "Ninguna de las opciones que autorizaste se puede comprar ahora dentro de tu autorización."
     )
 
 
@@ -226,7 +234,48 @@ REJECTED: list[Any] = [
         lambda item: item["receipts"][0].update(state="active"),
         id="receipt-not-revoked",
     ),
+    # `priority` (p0-conditional-intent.md §3.9): the scope's variants in another order.
+    pytest.param("proposed", lambda item: item["scope"].update(priority=None), id="priority-null"),
+    pytest.param(
+        "proposed",
+        lambda item: item["scope"].update(priority=["SON-XM6-BLK"]),
+        id="priority-not-the-variants",
+    ),
+    pytest.param(
+        "proposed",
+        lambda item: item["scope"].update(priority=["SON-XM6-BLK", "SON-XM6-BLK"]),
+        id="priority-repeated",
+    ),
+    # `preference_review` (D15): only `true`, and only with a text to review.
+    pytest.param(
+        "proposed",
+        lambda item: item["scope"].update(preference_review=False),
+        id="preference-review-false",
+    ),
+    pytest.param(
+        "proposed",
+        lambda item: item["scope"].update(preference_review=True, preference_text=None),
+        id="preference-review-without-text",
+    ),
 ]
+
+
+def test_a_scope_with_priority_validates_and_round_trips() -> None:
+    """The card of a grant with priority; without one, the key is absent (every fixture)."""
+    item = fixture("proposed")
+    item["scope"]["priority"] = ["SON-XM6-BLK", "BOS-QCU-BLK"]
+    proposal = parse(DelegationProposal, item)
+    assert proposal.scope.priority == ("SON-XM6-BLK", "BOS-QCU-BLK")
+    assert proposal.model_dump(mode="json") == item
+
+
+def test_a_scope_with_a_promised_review_validates_and_round_trips() -> None:
+    """D15: with or without priority; absent in every fixture, as in every stored consent."""
+    item = fixture("proposed")
+    item["scope"]["preference_review"] = True
+    proposal = parse(DelegationProposal, item)
+    assert proposal.scope.preference_review is True
+    assert proposal.model_dump(mode="json") == item
 
 
 @pytest.mark.parametrize(("name", "edit"), REJECTED)
@@ -263,6 +312,9 @@ SPEC_MESSAGE_KEYS = {
     "task.grant_expired",
     "task.revoked_by_owner",
     "task.failed",
+    "task.refused.out_of_stock",
+    "task.refused.offer_expired",
+    "task.refused.invalid_item",
     "task.uncertain",
     "task.purchased",
     "task.running",
@@ -277,6 +329,23 @@ def test_the_canonical_texts_are_the_spec_table_plus_the_escalation_title_and_pr
     }
     assert HNP_MESSAGES["escalation.title"] == "Necesito tu decisión"
     assert all(text.strip() == text and text for text in HNP_MESSAGES.values())
+
+
+def test_a_refused_creation_says_why_and_what_did_not_happen() -> None:
+    """CT13: the merchant's refusal in the words of the trace (`FAILURE_COPY`,
+    ui/src/components/trace/trace-copy.ts), then what did not happen, as `task.failed` says it."""
+    suffix = "No se hizo ningún cobro y cerré la delegación."
+    assert HNP_MESSAGES["task.failed"].endswith(suffix)
+    assert {key: HNP_MESSAGES[f"task.refused.{key}"] for key in REFUSAL_CAUSES} == {
+        key: f"{cause} {suffix}" for key, cause in REFUSAL_CAUSES.items()
+    }
+
+
+REFUSAL_CAUSES = {
+    "out_of_stock": "El producto se agotó antes de completar la compra.",
+    "offer_expired": "La oferta del comercio venció.",
+    "invalid_item": "El producto ya no está disponible en el comercio.",
+}
 
 
 @pytest.mark.parametrize(

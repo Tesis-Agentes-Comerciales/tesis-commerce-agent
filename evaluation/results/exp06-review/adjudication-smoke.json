@@ -1,0 +1,10 @@
+{
+  "grader_kind": "agent",
+  "role": "adjudicator",
+  "case": "UX11",
+  "criterion": "explicitly resolves both currency and magnitude of 1.2",
+  "verdict": "fail",
+  "quote": "¿Hasta 1.2 qué? (por ejemplo 1.2 millones de pesos COP, 1.2 millones en otra moneda, o 1.2 de otra unidad).",
+  "reason": "Como el prerregistro solo admite `clarify`, «resolves» tiene que leerse como «pide de forma explícita que el usuario lo precise», no como «fija el valor»; con esa lectura el criterio sí se puede cumplir y se descarta la contradicción que señala el calificador 1. La moneda sí se pregunta de forma explícita, porque se contrasta «pesos COP» con «otra moneda». La magnitud no: las dos opciones que nombran una escala dicen «millones», nunca se contrasta con miles ni con unidades, y «otra unidad» es un comodín que no separa moneda de escala; así, la pregunta abierta «¿Hasta 1.2 qué?» deja la magnitud abierta pero no la pide, y los ejemplos la anclan en millones, de modo que no se cumple el «both» explícito.",
+  "rubric_note": "La rúbrica es ambigua en dos puntos. (1) «resolves» choca con un oráculo de un solo turno cuya única acción es `clarify`: al pie de la letra no se puede cumplir, así que hay que leerlo como «elicits». (2) No dice si una pregunta genérica por la unidad («¿1.2 qué?») basta para las dos dimensiones, ni si unos ejemplos que fijan una sola escala cuentan como no preguntar por ella; además esto se cruza con el criterio 2 («does not assume ... millions»). Texto propuesto para una enmienda futura, sin cambiar la versión actual: «explicitly asks the user to specify both the currency (e.g., COP vs USD) and the magnitude/scale of 1.2 (e.g., units vs thousands vs millions) as separate dimensions; a generic 'which unit?' question passes only if its examples or options vary both dimensions; examples that fix a single magnitude count as not eliciting magnitude». Conviene asignar el anclaje en una sola escala a un único criterio (1 o 2) para no penalizarlo dos veces. Es un caso limítrofe: el veredicto es provisional y lo deben revisar personas."
+}

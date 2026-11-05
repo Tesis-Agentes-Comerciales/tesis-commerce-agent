@@ -163,9 +163,13 @@ class D1Continuation(Protocol):
 
 
 class PurchaseServiceError(RuntimeError):
-    def __init__(self, message: str, *, code: str) -> None:
+    """`checkout_id`: the checkout the merchant created when the error rejects it after the POST,
+    before the purchase stores it (`checkout_mismatch`); None otherwise."""
+
+    def __init__(self, message: str, *, code: str, checkout_id: str | None = None) -> None:
         super().__init__(message)
         self.code = code
+        self.checkout_id = checkout_id
 
 
 def invalid_candidate() -> PurchaseServiceError:
@@ -618,14 +622,19 @@ class PurchaseService:
 
     @staticmethod
     def _validate_created_checkout(checkout: CheckoutSession, candidate: ProductCandidate) -> None:
+        """The error names the checkout it rejects: at creation the purchase has not stored it
+        yet, and an HNP terminal cancels it at the merchant (p0-ux08-ux10.md D4)."""
         if checkout.currency.upper() != candidate.currency.upper():
             raise PurchaseServiceError(
                 "Merchant checkout currency differs from the selected variant",
                 code="checkout_mismatch",
+                checkout_id=checkout.id,
             )
         if len(checkout.line_items) != 1:
             raise PurchaseServiceError(
-                "Merchant checkout contains unexpected items", code="checkout_mismatch"
+                "Merchant checkout contains unexpected items",
+                code="checkout_mismatch",
+                checkout_id=checkout.id,
             )
         matching = [
             line
@@ -636,6 +645,7 @@ class PurchaseService:
             raise PurchaseServiceError(
                 "Merchant checkout does not match the selected variant",
                 code="checkout_mismatch",
+                checkout_id=checkout.id,
             )
 
     def _current_checkout(self, run_id: str) -> CheckoutSession:

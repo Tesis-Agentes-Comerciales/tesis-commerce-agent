@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="8" failures="0" skipped="0" tests="8" time="41.787" timestamp="2026-11-04T19:41:00.680099-05:00" hostname="MALDO-ASUS"><testcase classname="" name="tests.evaluation.test_demo_stack" time="0.000"><error message="collection failure">tests\evaluation\test_demo_stack.py:34: in &lt;module&gt;
+    from commerce_evaluation import demo_stack
+evaluation\src\commerce_evaluation\demo_stack.py:127: in &lt;module&gt;
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'</error></testcase><testcase classname="" name="tests.evaluation.test_verify_evidence" time="0.000"><error message="collection failure">tests\evaluation\test_verify_evidence.py:23: in &lt;module&gt;
+    from commerce_evaluation.demo_stack import OTHER_MERCHANT
+evaluation\src\commerce_evaluation\demo_stack.py:127: in &lt;module&gt;
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'</error></testcase><testcase classname="" name="tests.evaluation.test_verify_evidence_hnp" time="0.000"><error message="collection failure">tests\evaluation\test_verify_evidence_hnp.py:25: in &lt;module&gt;
+    from tests.evaluation.test_verify_evidence import body_edit, edit
+&lt;frozen importlib._bootstrap&gt;:1360: in _find_and_load
+    ???
+&lt;frozen importlib._bootstrap&gt;:1331: in _find_and_load_unlocked
+    ???
+&lt;frozen importlib._bootstrap&gt;:935: in _load_unlocked
+    ???
+.venv\Lib\site-packages\_pytest\assertion\rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+tests\evaluation\test_verify_evidence.py:23: in &lt;module&gt;
+    from commerce_evaluation.demo_stack import OTHER_MERCHANT
+evaluation\src\commerce_evaluation\demo_stack.py:127: in &lt;module&gt;
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'</error></testcase><testcase classname="" name="tests.evaluation.test_verify_evidence_hnp_status" time="0.000"><error message="collection failure">tests\evaluation\test_verify_evidence_hnp_status.py:17: in &lt;module&gt;
+    from tests.evaluation.test_verify_evidence_hnp import SCENARIOS, only_run, rechain
+&lt;frozen importlib._bootstrap&gt;:1360: in _find_and_load
+    ???
+&lt;frozen importlib._bootstrap&gt;:1331: in _find_and_load_unlocked
+    ???
+&lt;frozen importlib._bootstrap&gt;:935: in _load_unlocked
+    ???
+.venv\Lib\site-packages\_pytest\assertion\rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+tests\evaluation\test_verify_evidence_hnp.py:25: in &lt;module&gt;
+    from tests.evaluation.test_verify_evidence import body_edit, edit
+&lt;frozen importlib._bootstrap&gt;:1360: in _find_and_load
+    ???
+&lt;frozen importlib._bootstrap&gt;:1331: in _find_and_load_unlocked
+    ???
+&lt;frozen importlib._bootstrap&gt;:935: in _load_unlocked
+    ???
+.venv\Lib\site-packages\_pytest\assertion\rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+tests\evaluation\test_verify_evidence.py:23: in &lt;module&gt;
+    from commerce_evaluation.demo_stack import OTHER_MERCHANT
+evaluation\src\commerce_evaluation\demo_stack.py:127: in &lt;module&gt;
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'</error></testcase><testcase classname="" name="tests.integration.test_live_b2_d2_authorization" time="0.000"><error message="collection failure">tests\integration\test_live_b2_d2_authorization.py:32: in &lt;module&gt;
+    from commerce_evaluation.demo_stack import MODES, mode_environment
+evaluation\src\commerce_evaluation\demo_stack.py:127: in &lt;module&gt;
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'</error></testcase><testcase classname="" name="tests.integration.test_live_b2_pol02_allowlist" time="0.000"><error message="collection failure">tests\integration\test_live_b2_pol02_allowlist.py:31: in &lt;module&gt;
+    from commerce_evaluation.demo_stack import MODES, mode_environment
+evaluation\src\commerce_evaluation\demo_stack.py:127: in &lt;module&gt;
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'</error></testcase><testcase classname="" name="tests.integration.test_live_b2_pol11_budget" time="0.000"><error message="collection failure">tests\integration\test_live_b2_pol11_budget.py:22: in &lt;module&gt;
+    from commerce_evaluation.demo_stack import MODES, mode_environment
+evaluation\src\commerce_evaluation\demo_stack.py:127: in &lt;module&gt;
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'</error></testcase><testcase classname="" name="tests.integration.test_live_browser_journeys" time="0.000"><error message="collection failure">tests\integration\test_live_browser_journeys.py:44: in &lt;module&gt;
+    from commerce_evaluation.demo_stack import MODES, mode_environment
+evaluation\src\commerce_evaluation\demo_stack.py:127: in &lt;module&gt;
+    SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+                                        ^^^^^^^^^^^^^
+E   AttributeError: module 'signal' has no attribute 'SIGHUP'</error></testcase></testsuite></testsuites>

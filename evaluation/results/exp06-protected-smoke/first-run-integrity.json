@@ -1,0 +1,28 @@
+{
+  "run": 41948560226,
+  "artifact_id": 13379159313,
+  "zip_sha256": "a2d6ce798f12acc77da6acaf97edc377c900a1b9959bc252ba68d3608e62bb22",
+  "inner_hashes_verified": 26,
+  "executed_sha": "074f49ccf01823862812395aa0bc39ea0e6e9c18",
+  "junit": {
+    "failed": 0,
+    "skipped": 0,
+    "error": 0,
+    "passed": 1
+  },
+  "cleanup_verified": true,
+  "accounting": {
+    "settled_attempts": 0,
+    "unknown_attempts": 6,
+    "known_usage_upper_cost_usd": "0",
+    "unknown_reserved_usd": "2.670",
+    "reservation_reconciled": true,
+    "billing_dashboard_reconciled": false
+  },
+  "semantic_statuses": {
+    "UX01": "not_executed",
+    "UX11": "not_executed",
+    "UX12": "not_executed"
+  },
+  "secret_patterns": "none detected; pattern scan is not exhaustive"
+}
