@@ -17,8 +17,9 @@ installs its `ModelServer` before building the agent; no request leaves the proc
 from typing import NoReturn
 
 from commerce_agent.api import create_app
-from tests.integration.live_browser import AgentServer, agent_settings
+from tests.integration.live_browser import agent_settings
 from tests.integration.live_purchase import Episode, EpisodeBuyer, HnpAgent, PurchaseLane
+from tests.support.agent_server import AgentServer
 
 # Synthetic: only the scripted transport ever sees it.
 MODEL = "p0-scripted-model"

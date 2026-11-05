@@ -8,6 +8,7 @@ the transport changes.
 """
 
 import json
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -124,6 +125,30 @@ def disconnect() -> Answer:
         raise httpx.ConnectError("scripted disconnect")
 
     return respond
+
+
+class Held:
+    """An answer the test releases (p0-ux08-ux10.md §4.1): `entered` is set when its request
+    arrives, and the response waits for `release`. Meanwhile the test stops the chat, revokes or
+    turns the kill switch on, so the moment the answer lands is the test's, not the scheduler's."""
+
+    def __init__(self, answer: Answer, timeout: float) -> None:
+        self._answer, self._timeout = answer, timeout
+        self.entered = threading.Event()
+        self._released = threading.Event()
+
+    def __call__(self, body: dict[str, Any]) -> httpx.Response:
+        self.entered.set()
+        if not self._released.wait(self._timeout):
+            raise AssertionError("The held answer was never released")
+        return self._answer(body)
+
+    def release(self) -> None:
+        self._released.set()
+
+
+def held(answer: Answer, *, timeout: float = 10) -> Held:
+    return Held(answer, timeout)
 
 
 def shortlisted_choice(body: dict[str, Any]) -> dict[str, Any]:
