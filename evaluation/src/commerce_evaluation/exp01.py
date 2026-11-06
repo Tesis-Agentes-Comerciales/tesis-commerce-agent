@@ -14,12 +14,22 @@ from typing import Any
 from uuid import UUID
 from xml.etree import ElementTree as ET
 
+from .ct19_hnp import verify_control
 from .scenarios_p0 import count_plan, planned_cells
 
 ROOT = Path(__file__).resolve().parents[3]
 PLAN = ROOT / "evaluation/scenarios/exp01-first-batch.json"
 MODULE = "tests/integration/test_exp01_first_batch.py::"
-NON_SCENARIO_CONTROLS = frozenset({"AUTH-TRANSPORT", "EXP06-INFRA", "CT19-FIXTURE", "CT19-STOCK"})
+NON_SCENARIO_CONTROLS = frozenset(
+    {
+        "AUTH-TRANSPORT",
+        "EXP06-INFRA",
+        "CT19-FIXTURE",
+        "CT19-STOCK",
+        "CT19-PRESENT",
+        "CT19-HNP-STOCK",
+    }
+)
 
 
 def sha(path: Path) -> str:
@@ -72,6 +82,11 @@ def preflight(plan_path: Path = PLAN) -> dict[str, Any]:
             result["sources"][role] = source
             if source["sha"] != expected or not source["clean"]:
                 raise ValueError("Pinned clean checkout required: " + role)
+        if "agent_product_tree" in plan:
+            product_tree = git(ROOT, "rev-parse", "HEAD:src/commerce_agent")
+            result["sources"]["agent"]["product_tree"] = product_tree
+            if product_tree != plan["agent_product_tree"]:
+                raise ValueError("Pinned Agent product tree required")
         for name, expected in (
             ("evaluation/scenarios/p0/matrix.json", plan["matrix_sha256"]),
             ("evaluation/scenarios/p0/ux03-oracle.json", plan["ux03_oracle_sha256"]),
@@ -231,6 +246,12 @@ def report(
         required = set(cases[case_id].get("required_observations", required))
         if row.get("status") == "passed" and not required <= observations.keys():
             problems.append("independent_observations_missing:" + case_id)
+        if (
+            plan.get("schema") == "ct19-hnp-protocol/1"
+            and row.get("status") == "passed"
+            and not verify_control(case_id.rsplit(":", 1)[-1], observations)
+        ):
+            problems.append("ct19_hnp_control_not_verified:" + case_id)
         if (
             plan.get("schema") == "inf31-hp-reassessment/1"
             and case_id == "INF31:merchant_503"

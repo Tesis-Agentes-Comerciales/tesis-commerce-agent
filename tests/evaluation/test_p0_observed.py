@@ -58,21 +58,23 @@ def test_historical_register_preserves_denominators_and_gaps():
         "measurable_scenario_modes": 55,
         "preregistered_cells": 37,
     }
-    assert result["runs"] == 24 and result["internal_hashes"] == 484
+    assert result["runs"] == 25 and result["internal_hashes"] == 521
     assert result["local_runs"] == 3 and result["local_hashes"] == 28
     assert result["scenario_modes"] == {
-        "passed": 20,
+        "passed": 21,
         "partial": 3,
         "failed": 0,
         "blocked": 0,
         "harness_error": 0,
-        "not_executed": 32,
+        "not_executed": 31,
         "not_applicable": 1,
     }
     assert len(result["scenarios_without_execution"]) == 16
     pending = set(result["not_executed"])
-    assert {"CT19/HNP", "INF30/HNP", "UX01/HP", "UX11/HP", "UX12/HP"} <= pending
-    assert {"CT19/HP", "INF33/HP", "INF33/HNP", "UX08/HNP", "UX10/HNP"}.isdisjoint(pending)
+    assert {"INF30/HNP", "UX01/HP", "UX11/HP", "UX12/HP"} <= pending
+    assert {"CT19/HP", "CT19/HNP", "INF33/HP", "INF33/HNP", "UX08/HNP", "UX10/HNP"}.isdisjoint(
+        pending
+    )
 
 
 def test_measurable_denominator_changes_with_an_approved_exclusion():
@@ -81,7 +83,7 @@ def test_measurable_denominator_changes_with_an_approved_exclusion():
     result = validate(ROOT, data)
     assert result["denominators"]["measurable_scenario_modes"] == 56
     assert result["scenario_modes"]["not_applicable"] == 0
-    assert result["scenario_modes"]["not_executed"] == 34
+    assert result["scenario_modes"]["not_executed"] == 33
 
 
 def test_model_failure_cells_are_attributed_to_the_registered_local_run():

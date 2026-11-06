@@ -9,6 +9,7 @@ from typing import Any
 from xml.etree import ElementTree
 from zipfile import ZipFile
 
+from .ct19_hnp import verify_control
 from .exp01 import native_inf31_verified
 from .scenarios_p0 import planned_cells
 
@@ -155,6 +156,12 @@ def validate_run(
                 f"Invalid INF31 measurement provenance: {run_id}",
             )
             validate_inf31_archive(bundle, inner, protocol, manifest, report, run_id)
+        if protocol.get("schema") == "ct19-hnp-protocol/1":
+            require(
+                row["experiment"] == "EXP-09" and row["conclusion"] == "success",
+                f"Invalid CT19 HNP measurement provenance: {run_id}",
+            )
+            validate_ct19_hnp_archive(bundle, inner, protocol, manifest, report, run_id)
     require(
         junit == row["junit"] and report.get("validated") == row["gate"],
         f"JUnit or evidence gate mismatch: {run_id}",
@@ -184,6 +191,76 @@ def validate_run(
             f"Unverified sources: {run_id}",
         )
     return protocol, report, len(inner)
+
+
+def validate_ct19_hnp_archive(
+    bundle: ZipFile, hashes: dict[str, str], protocol: dict, manifest: dict, report: dict, run: str
+) -> None:
+    cases = protocol["cases"]
+    tests = list(ElementTree.fromstring(bundle.read("exp01-junit.xml")).iter("testcase"))
+    module = protocol["test_module"].removesuffix(".py::").replace("/", ".")
+    recorder = json.loads(bundle.read("exp01-outcomes.json"))
+    require(
+        len(tests) == len(cases) == 3
+        and {(test.get("classname"), test.get("name")) for test in tests}
+        == {(module, case["test"]) for case in cases.values()}
+        and all(len(test) == 0 for test in tests)
+        and recorder == report["recorder"]
+        and recorder["collected"] == recorder["counts"]["passed"] == len(tests)
+        and recorder["status"] == "completed"
+        and recorder["exit_code"] == recorder["deselected"] == recorder["collection_errors"] == 0
+        and report["manifest"] == manifest
+        and manifest["sources"]["agent"]["product_tree"] == protocol["agent_product_tree"]
+        and report["validated"] is True
+        and report["issues"] == []
+        and report["attributed_scenarios"] == {"CT19": "passed"}
+        and report["non_scenario_controls"]
+        == {"CT19-PRESENT": "passed", "CT19-HNP-STOCK": "passed"}
+        and set(report["controls"]) == set(cases)
+        and {"exp01-manifest.json", "exp01-junit.xml", "exp01-report.json", "exp01-outcomes.json"}
+        <= hashes.keys()
+        and len(bundle.namelist()) == len(set(bundle.namelist()))
+        and all(
+            name == "exp01-SHA256SUMS"
+            or name in hashes
+            or digest(bundle.read(name)) in hashes.values()
+            for name in bundle.namelist()
+        ),
+        f"CT19 HNP required evidence mismatch: {run}",
+    )
+    seen = set()
+    for name in hashes:
+        if not name.endswith("/exp01-frozen.json"):
+            continue
+        frozen = json.loads(bundle.read(name))
+        case_id = frozen["case_id"]
+        control = report["controls"][case_id]
+        observed = name.replace("exp01-frozen.json", "exp01-observed.json")
+        facts = control["observations"]
+        inputs = frozen["inputs"]
+        audit = facts["creates"][0]["audit"]
+        require(
+            case_id not in seen
+            and hashes[name] == control["input_sha256"]
+            and observed in hashes
+            and json.loads(bundle.read(observed)) == control
+            and frozen["oracle"] == cases[case_id]
+            and frozen["protocol_sha256"] == manifest["protocol_sha256"]
+            and frozen["frozen_at_ns"] < control["started_at_ns"] < facts["timeline"][0]
+            and frozen["semantic_evaluation"] is False
+            and inputs["condition"] == "B2-HNP"
+            and inputs["offer_id"] == facts["sku"]
+            and inputs["catalog_sha256"] == facts["restored_catalog_sha256"]
+            and all(inputs[key] == audit[key] for key in ("run_id", "actor_id"))
+            and control["status"] == "passed"
+            and control["stimulus_verified"] is True
+            and control["cleanup_verified"] is True
+            and verify_control(inputs["control"], facts)
+            and inputs["control"] == case_id.rsplit(":", 1)[-1],
+            f"CT19 HNP frozen input or control mismatch: {run}/{case_id}",
+        )
+        seen.add(case_id)
+    require(seen == cases.keys(), f"CT19 HNP frozen input missing: {run}")
 
 
 def validate_inf31_archive(

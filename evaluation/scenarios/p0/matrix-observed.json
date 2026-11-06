@@ -75,7 +75,12 @@
           "evidence": "../../results/ct19-hp/runs.json"
         },
         "HNP": {
-          "status": "not_executed"
+          "status": "passed",
+          "coverage": "bounded",
+          "scope": "B2-HNP con un único SKU autorizado, retirado tras el consentimiento. El Merchant devolvió 404 invalid_item; no hubo sustitución ni checkout aceptado.",
+          "limitation": "Medición hasta preparación delegada, con feed congelado y selector determinista. Sin LLM, despacho, pago ni compra. Stock agotado y oferta presente son controles, no celdas P0.",
+          "run_id": 42122901771,
+          "prior_attempts": []
         }
       }
     },
@@ -847,6 +852,31 @@
       },
       "gate": true,
       "note": "Seis controles HP, incluido el 503 nativo, con restauración verificada y cero efectos comerciales no autorizados. La medición histórica EXP-01 sigue bloqueada."
+    },
+    "42122901771": {
+      "experiment": "EXP-09",
+      "kind": "measurement",
+      "actions": "https://github.com/Tesis-Agentes-Comerciales/tesis-commerce-agent/actions/runs/42122901771",
+      "conclusion": "success",
+      "sources": {
+        "agent": "f9e60ce68cd706b177b4729772f60178c7be1b98",
+        "merchant": "abf30df3b6a611284dedcc26c00accac6a853329",
+        "payment": "e6ab67b5963434a9a3caae2012b70232a3cca65d"
+      },
+      "protocol": "evaluation/scenarios/ct19-hnp.json",
+      "protocol_sha256": "857eb123217d609d93c36a73e8ce452afb2b45b8bebd4f1e5e2be4db6b70db5c",
+      "archive": "evaluation/results/exp-09-ct19-hnp/runs/42122901771.zip",
+      "sha256": "29f80deeef6fec3c68399bfc2323ad08bf956a3a13c2b5930da57cff9a9fd786",
+      "checksum_index": "evaluation/results/exp-09-ct19-hnp/SHA256SUMS",
+      "preflight": "verified",
+      "junit": {
+        "failed": 0,
+        "skipped": 0,
+        "error": 0,
+        "passed": 3
+      },
+      "gate": true,
+      "note": "Tres controles B2-HNP con limpieza verificada. Solo la variante retirada se atribuye a CT19/HNP."
     }
   },
   "local_runs": {

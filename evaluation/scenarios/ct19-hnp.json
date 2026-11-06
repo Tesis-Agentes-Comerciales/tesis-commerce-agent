@@ -1,0 +1,103 @@
+{
+  "schema": "ct19-hnp-protocol/1",
+  "agent_base": "8ecf37409d8a9fadd1db348353f08a28c29fb7a0",
+  "agent_product_tree": "3316c4ce2a6f88f9222eeafd0a66bbf64148c2ce",
+  "merchant_sha": "abf30df3b6a611284dedcc26c00accac6a853329",
+  "payment_sha": "e6ab67b5963434a9a3caae2012b70232a3cca65d",
+  "matrix_sha256": "d5db03b6aeca2e74c6424b78f67114f06b44c8a4bcab709b546c122cbe522f6a",
+  "ux03_oracle_sha256": "697b04ac157a94c848a2f8db5228e2161b61b1e317f50d85ac3a31d66cb18621",
+  "test_module": "tests/integration/test_ct19_hnp.py::",
+  "scope": "CT19 HNP, B2-HNP, single explicitly authorized SKU; real Merchant and synthetic PSP; no LLM, dispatch or completion",
+  "stimulus": "Each run keeps the complete feed frozen at consent. After consent and before trigger, retain the row, retire only the scoped identity, or zero stock and advance its revision. Choose the least expensive available observed candidate, breaking ties by variant ID.",
+  "safety": "Allow no completion or PSP mutations across any control. In the positive control, after preparation revoke before forwarding the checkout-JWT request; assert owner cancellation, released reservation, and no outbox, closed mandate, delegation, order or payment.",
+  "limitations": [
+    "Coverage ends at delegated checkout preparation. A typed Merchant refusal requires an actual upstream answer. A stopped or uncertain operation cannot validate CT19.",
+    "Stock and positive cases are non-scenario controls. The feed is deliberately stale, so the native checkout boundary is exercised. This does not measure a refreshed feed, multi-SKU consent, or semantic interpretation."
+  ],
+  "cases": {
+    "CT19:HNP:present": {
+      "scenario": "CT19-PRESENT",
+      "mode": "HNP",
+      "test": "test_ct19_hnp[present]",
+      "expected": "201; authorized variant only; revocation before payment, reservation released",
+      "required_observations": [
+        "sku",
+        "grant_variants",
+        "agent_variant",
+        "timeline",
+        "merchant_before",
+        "merchant_after",
+        "after_cleanup",
+        "psp_before",
+        "psp_after",
+        "psp_after_cleanup",
+        "creates",
+        "task",
+        "reservations",
+        "mandate_kinds",
+        "agent_effect_counts",
+        "payment_calls",
+        "completion_calls",
+        "catalog_restored",
+        "feed_unchanged",
+        "safety_revoked"
+      ]
+    },
+    "CT19:HNP:removed": {
+      "scenario": "CT19",
+      "mode": "HNP",
+      "test": "test_ct19_hnp[removed]",
+      "expected": "native 404 invalid_item; failed/checkout_failed with typed refusal; no accepted checkout",
+      "required_observations": [
+        "sku",
+        "grant_variants",
+        "agent_variant",
+        "timeline",
+        "merchant_before",
+        "merchant_after",
+        "after_cleanup",
+        "psp_before",
+        "psp_after",
+        "psp_after_cleanup",
+        "creates",
+        "task",
+        "reservations",
+        "mandate_kinds",
+        "agent_effect_counts",
+        "payment_calls",
+        "completion_calls",
+        "catalog_restored",
+        "feed_unchanged",
+        "safety_revoked"
+      ]
+    },
+    "CT19:HNP:stock_zero": {
+      "scenario": "CT19-HNP-STOCK",
+      "mode": "HNP",
+      "test": "test_ct19_hnp[stock_zero]",
+      "expected": "native 409 out_of_stock; failed/checkout_failed with typed refusal; identity retained",
+      "required_observations": [
+        "sku",
+        "grant_variants",
+        "agent_variant",
+        "timeline",
+        "merchant_before",
+        "merchant_after",
+        "after_cleanup",
+        "psp_before",
+        "psp_after",
+        "psp_after_cleanup",
+        "creates",
+        "task",
+        "reservations",
+        "mandate_kinds",
+        "agent_effect_counts",
+        "payment_calls",
+        "completion_calls",
+        "catalog_restored",
+        "feed_unchanged",
+        "safety_revoked"
+      ]
+    }
+  }
+}
