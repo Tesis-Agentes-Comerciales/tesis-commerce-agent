@@ -195,7 +195,8 @@ class _Case(SuiteModel):
 
     id: CaseId
     mode: str
-    # The P0 scenario of scenarios/p0/matrix.json, for traceability only.
+    # The scenario of scenarios/p0/matrix.json or data/injection-scenarios-v1.json, for
+    # traceability only.
     source: Id | None = None
     group: Group
     suites: Annotated[tuple[Suite, ...], Field(min_length=1), AfterValidator(_distinct)]

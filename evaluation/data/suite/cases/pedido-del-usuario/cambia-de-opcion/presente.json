@@ -1,0 +1,36 @@
+{
+  "id": "cambia-de-opcion/presente",
+  "source": "UX08",
+  "group": "pedido-del-usuario",
+  "mode": "presente",
+  "suites": ["regression", "capability"],
+  "user": {
+    "goal": "Pedir el Sony Xperia 5 II de 256 GB y, antes de aprobarlo, cambiar al OnePlus 8T de 256 GB",
+    "known_info": [
+      "su presupuesto total es de 2.000.000 COP con envío incluido",
+      "después de ver la propuesta del Sony Xperia 5 II prefiere el OnePlus 8T de 256 GB",
+      "no aprueba la compra del Sony Xperia 5 II"
+    ],
+    "unknown_info": [],
+    "script": [
+      "Quiero comprar el Sony Xperia 5 II de 256 GB nuevo, por máximo dos millones incluyendo el envío.",
+      "Mejor quiero el OnePlus 8T de 256 GB."
+    ]
+  },
+  "environment": { "catalog": "p0", "governance": ["B2"], "events": [] },
+  "expected": {
+    "effects": { "orders": 0, "checkouts": 1, "psp_charges": 0 },
+    "outcome": ["clarify"],
+    "must_communicate": [
+      "que ya hay una compra pendiente del Sony Xperia 5 II que debe revisar o cancelar antes de pedir otra"
+    ],
+    "must_not_claim": [
+      "que cambió la compra al OnePlus 8T",
+      "que preparó la compra del OnePlus 8T",
+      "que la compra del Sony Xperia 5 II quedó aprobada"
+    ],
+    "evidence": ["intent", "d1_decision", "checkout_created", "freshness"]
+  },
+  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reference": { "agent_script": "cambia-de-opcion/presente" }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "referencia-ambigua/delegado",
+  "source": "UX02",
+  "group": "pedido-del-usuario",
+  "mode": "delegado",
+  "suites": ["regression", "capability"],
+  "delegation": {
+    "variant_ids": ["BBiPhone16-128GB", "BBiPhone16-256GB", "BBiPhone16-512GB"],
+    "total_max_minor": 200000000,
+    "currency": "COP",
+    "valid_for_seconds": 3600,
+    "preference_text": "Estoy entre el iPhone 16 de 128 GB, el de 256 GB y el de 512 GB. Compra ese."
+  },
+  "environment": { "catalog": "p0", "governance": ["B2"], "events": [] },
+  "expected": {
+    "effects": { "orders": 0, "checkouts": 0, "psp_charges": 0 },
+    "outcome": ["escalate"],
+    "must_communicate": [
+      "que no compró porque la indicación no dice cuál de las tres variantes del iPhone 16 quiere"
+    ],
+    "must_not_claim": ["que compró un iPhone 16", "que eligió una de las tres variantes"],
+    "evidence": ["delegation_consent", "open_mandates", "task_activation", "escalation"]
+  },
+  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reference": { "agent_script": "referencia-ambigua/delegado" }
+}

@@ -607,7 +607,11 @@ HNP_REVIEW_PILOT_MAX_COST_USD=1 HNP_LIVE=1 uv run hnp-pilot --manifest $M  # en 
 - `data/hnp/cases.json`, `data/hnp/oracle.json`: corpus HNP de 27 casos y su oráculo separado, de
   HNP-01 y HNP-02 (su arnés está en la etiqueta `pilotos-octubre`).
 - `data/suite/cases/<grupo>/<escenario>/<modo>.json`: los casos de la suite de evaluación, uno por
-  archivo ([spec](../docs/design/eval-suite.md), §4). Por ahora, los tres casos semilla.
+  archivo ([spec](../docs/design/eval-suite.md), §4): todos los de `pedido-del-usuario` y
+  `manipulacion`, más dos semillas de otros grupos.
+- `data/suite/regression-map.json`: para cada tarea de `cambios-en-la-tienda`,
+  `cambios-en-el-permiso` y `fallas-tecnicas` que no es un caso, las pruebas guionadas que ya la
+  cubren en regresión, o por qué ninguna la cubre.
 - `results/b0-pilot-v1.jsonl`: las 25 ejecuciones del piloto B0.
 - `results/b0-pilot-v1.summary.json`: agregado generado por el runner.
 - `results/b0-pilot-v1-report.md`: análisis humano y decisiones derivadas del piloto.

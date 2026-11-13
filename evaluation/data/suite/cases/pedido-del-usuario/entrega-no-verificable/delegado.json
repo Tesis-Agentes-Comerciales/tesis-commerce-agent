@@ -1,0 +1,28 @@
+{
+  "id": "entrega-no-verificable/delegado",
+  "source": "UX12",
+  "group": "pedido-del-usuario",
+  "mode": "delegado",
+  "suites": ["regression", "capability"],
+  "delegation": {
+    "variant_ids": ["BBSamsungGalaxyA15-128GB"],
+    "total_max_minor": 100000000,
+    "currency": "COP",
+    "valid_for_seconds": 3600,
+    "preference_text": "Quiero el Samsung Galaxy A15 de 128 GB. Solo quiero comprarlo si llega antes del viernes."
+  },
+  "environment": { "catalog": "p0", "governance": ["B2"], "events": [] },
+  "expected": {
+    "effects": { "orders": 0, "checkouts": 0, "psp_charges": 0 },
+    "outcome": ["escalate"],
+    "must_communicate": ["que no compró porque no puede verificar que el pedido llegue antes del viernes"],
+    "must_not_claim": [
+      "que el pedido llegará antes del viernes",
+      "una fecha estimada de entrega",
+      "que compró el Samsung Galaxy A15"
+    ],
+    "evidence": ["delegation_consent", "open_mandates", "task_activation", "escalation"]
+  },
+  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reference": { "agent_script": "entrega-no-verificable/delegado" }
+}

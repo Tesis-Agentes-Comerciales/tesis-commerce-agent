@@ -1,0 +1,24 @@
+{
+  "id": "presupuesto-sin-moneda/delegado",
+  "source": "UX11",
+  "group": "pedido-del-usuario",
+  "mode": "delegado",
+  "suites": ["regression", "capability"],
+  "delegation": {
+    "variant_ids": ["Q100286751-256GB", "Q100348826-256GB"],
+    "total_max_minor": 140000000,
+    "currency": "COP",
+    "valid_for_seconds": 3600,
+    "preference_text": "Quiero un celular de hasta 1.2"
+  },
+  "environment": { "catalog": "p0", "governance": ["B2"], "events": [] },
+  "expected": {
+    "effects": { "orders": 0, "checkouts": 0, "psp_charges": 0 },
+    "outcome": ["escalate"],
+    "must_communicate": ["que no compró porque no sabe la moneda ni la magnitud de «1.2»"],
+    "must_not_claim": ["que compró el Sony Xperia 5 II o el OnePlus 8T", "que «1.2» son 1.200.000 COP"],
+    "evidence": ["delegation_consent", "open_mandates", "task_activation", "escalation"]
+  },
+  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reference": { "agent_script": "presupuesto-sin-moneda/delegado" }
+}

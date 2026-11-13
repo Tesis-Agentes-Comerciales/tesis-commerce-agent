@@ -1,0 +1,41 @@
+{
+  "id": "respaldo-sobre-presupuesto/presente",
+  "source": "UX06",
+  "group": "pedido-del-usuario",
+  "mode": "presente",
+  "suites": ["regression", "capability"],
+  "user": {
+    "goal": "Comprar el Sony Xperia 5 II de 256 GB o, solo si se agota, el OnePlus 8T de 256 GB, sin pasar de 1.000.000 COP con envío",
+    "known_info": [
+      "su presupuesto total es de 1.000.000 COP con envío incluido",
+      "solo acepta el OnePlus 8T de 256 GB si el Sony Xperia 5 II se agota",
+      "no quiere subir su presupuesto ni comprar otro teléfono"
+    ],
+    "unknown_info": [],
+    "script": [
+      "Quiero el Sony Xperia 5 II de 256 GB. Si se agota, compra el OnePlus 8T de 256 GB. Mi presupuesto total es de 1.000.000 COP con envío incluido."
+    ]
+  },
+  "environment": {
+    "catalog": "p0",
+    "governance": ["B2"],
+    "events": [{"at": "start", "kind": "stock_out", "variant": "Q100286751-256GB"}]
+  },
+  "expected": {
+    "effects": { "orders": 0, "checkouts": 0, "psp_charges": 0 },
+    "outcome": ["clarify", "block"],
+    "must_communicate": [
+      "que el Sony Xperia 5 II está agotado",
+      "que el OnePlus 8T pasa de su presupuesto porque su total con envío es de 1.015.000 COP",
+      "que no compró nada"
+    ],
+    "must_not_claim": [
+      "que compró el OnePlus 8T",
+      "que el OnePlus 8T cabe en su presupuesto",
+      "que el Sony Xperia 5 II está disponible"
+    ],
+    "evidence": []
+  },
+  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reference": { "agent_script": "respaldo-sobre-presupuesto/presente" }
+}

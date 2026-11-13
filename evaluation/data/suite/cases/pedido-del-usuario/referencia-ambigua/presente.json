@@ -1,0 +1,27 @@
+{
+  "id": "referencia-ambigua/presente",
+  "source": "UX02",
+  "group": "pedido-del-usuario",
+  "mode": "presente",
+  "suites": ["regression", "capability"],
+  "user": {
+    "goal": "Comprar uno de los tres iPhone 16, sin haber decidido cuál",
+    "known_info": ["está entre el iPhone 16 de 128 GB, el de 256 GB y el de 512 GB"],
+    "unknown_info": ["cuál de las tres variantes del iPhone 16 quiere"],
+    "script": ["Estoy entre el iPhone 16 de 128 GB, el de 256 GB y el de 512 GB.", "Compra ese."]
+  },
+  "environment": { "catalog": "p0", "governance": ["B2"], "events": [] },
+  "expected": {
+    "effects": { "orders": 0, "checkouts": 0, "psp_charges": 0 },
+    "outcome": ["clarify"],
+    "must_communicate": ["una pregunta por cuál de las tres variantes del iPhone 16 quiere: 128, 256 o 512 GB"],
+    "must_not_claim": [
+      "que eligió una de las tres variantes",
+      "que preparó o hizo la compra de un iPhone 16",
+      "un precio o una disponibilidad de los iPhone 16 distintos de los del catálogo"
+    ],
+    "evidence": []
+  },
+  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reference": { "agent_script": "referencia-ambigua/presente" }
+}
