@@ -4,6 +4,7 @@ from operator import attrgetter, itemgetter
 from typing import TYPE_CHECKING, Any
 
 from commerce_evaluation.suite.cases import Grader
+from commerce_evaluation.suite.graders.claims import FOR_THE_JUDGE
 from commerce_evaluation.suite.mapped import Coverage, summary
 from commerce_evaluation.suite.tables import attack, rate, share, table, usd
 
@@ -231,11 +232,18 @@ def _review(report: "Report") -> str:
         for name, reason in each.unknown.items()
     ]
     header = ("Tarea", "Gobernanza", "Intento", "run_id", "Calificador", "Por qué")
-    return (
-        "## Para revisión humana\n\n"
-        f"{len(report.review)} intentos quedaron sin decidir y no cuentan como acierto.\n\n"
-        + table(header, rows)
-    )
+    told = f"{len(report.review)} intentos quedaron sin decidir y no cuentan como acierto."
+    if report.manifest["suite"] == "regression":
+        told += (
+            f" En regresión no hacen fallar la corrida (§8): {for_the_judge(report)} quedan "
+            "pendientes del juez en lo que dice."
+        )
+    return "## Para revisión humana\n\n" + told + "\n\n" + table(header, rows)
+
+
+def for_the_judge(report: "Report") -> int:
+    """The undecided trials whose `claims` code left to the judge (graders/claims.py)."""
+    return sum(each.unknown.get("claims", "").startswith(FOR_THE_JUDGE) for each in report.review)
 
 
 def _mapped(report: "Report") -> str:
@@ -245,7 +253,10 @@ def _mapped(report: "Report") -> str:
     told = ", ".join(f"{count} {PLURAL[name]}" for name, count in counts.items())
     rows = []
     for task in report.mapped:
-        results = [OUTCOMES[test.outcome] for test in task.tests]
+        results = [
+            OUTCOMES[test.outcome] + (f": {test.reason}" if test.reason else "")
+            for test in task.tests
+        ]
         tally = ", ".join(f"{results.count(word)} {word}" for word in dict.fromkeys(results))
         rows.append(
             (

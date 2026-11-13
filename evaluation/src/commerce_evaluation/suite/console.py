@@ -20,7 +20,7 @@ from commerce_evaluation.suite.estimate import estimate
 from commerce_evaluation.suite.judging import Pending
 from commerce_evaluation.suite.plan import Plan, pending
 from commerce_evaluation.suite.report import Report
-from commerce_evaluation.suite.report_md import SUITES
+from commerce_evaluation.suite.report_md import SUITES, for_the_judge
 from commerce_evaluation.suite.run import resume_problem
 
 ENV_FILE = ROOT / ".env"
@@ -96,16 +96,30 @@ def judge_preview(todo: Pending, cap: Decimal | None, say: Say = print) -> None:
 
 
 def failing(report: Report) -> str | None:
-    """Why a regression does not pass, or None: a trial or a mapped test that did not pass."""
-    trials = [task for task in report.reduction.tasks if task.passes != task.trials]
+    """Why a regression does not pass, or None (§8): a trial that code failed or that the
+    infrastructure left ungraded, or a mapped test that did not pass. An `unknown` trial does not
+    fail it: without the judge, what the agent says stays `unknown` (`undecided`)."""
+    tasks = [task for task in report.reduction.tasks if task.fails or task.infra_failures]
     tests = [
         test for task in report.mapped or () for test in task.tests if test.outcome in NOT_PASSED
     ]
-    if not trials and not tests:
+    if not tasks and not tests:
+        return None
+    reasons = sorted({test.reason for test in tests if test.reason})
+    return (
+        f"{len(tasks)} tareas con un intento que falla o que la infraestructura no dejó calificar "
+        f"y {len(tests)} pruebas del mapa que fallan o no corrieron"
+        + "".join(f"; {reason}" for reason in reasons)
+    )
+
+
+def undecided(report: Report) -> str | None:
+    """How many trials no grader failed but some left `unknown`, or None when there are none."""
+    if not report.review:
         return None
     return (
-        f"{len(trials)} tareas con intentos que no pasan y {len(tests)} pruebas del mapa que "
-        "fallan o no corrieron"
+        f"{len(report.review)} intentos quedan sin decidir ({for_the_judge(report)} pendientes "
+        "del juez en lo que dice)"
     )
 
 

@@ -1,7 +1,11 @@
 """The regression map: each mapped task's coverage, and the outcome of each of its tests as the
 plugin records it from a real pytest subprocess (eval-suite.md §4, §8)."""
 
+import json
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from commerce_evaluation.suite import mapped
 
@@ -66,3 +70,41 @@ def test_the_plugin_records_each_outcome_of_a_real_pytest_run(tmp_path: Path) ->
         "test_sample.py::test_param": "failed",
     }
     assert mapped.read_mapped(run_dir) == tasks
+
+
+BROWSER = "tests/integration/test_live_browser_journeys.py::test_revoke"
+
+
+@pytest.mark.parametrize(
+    ("installed", "reason"),
+    [
+        ((), "falta npm ci en auth/ y ui/"),
+        (("auth",), "falta npm ci en ui/"),
+        (("auth", "ui"), None),
+    ],
+)
+def test_a_browser_test_runs_only_after_npm_ci_and_otherwise_says_why(
+    tmp_path: Path, installed: tuple[str, ...], reason: str | None
+) -> None:
+    for name in installed:
+        (tmp_path / name / "node_modules").mkdir(parents=True)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    entries = {"a/delegado": {"source": "MA24", "tests": ["t.py::ok", BROWSER], "why": "Cubre."}}
+    sent: list[str] = []
+
+    def runner(command: list[str], **options: Any) -> None:
+        sent.extend(command)
+        rows = [{"id": test, "outcome": "passed"} for test in ("t.py::ok", BROWSER)]
+        lines = "".join(json.dumps(row) + "\n" for row in rows if row["id"] in command)
+        Path(options["env"][mapped.OUTCOMES_ENV]).write_text(lines)
+
+    [task] = mapped.run_mapped(entries, run_dir, runner=runner, cwd=tmp_path)
+
+    found = {test.id: (test.outcome, test.reason) for test in task.tests}
+    if reason is None:
+        assert found[BROWSER] == ("passed", None)
+    else:
+        assert found[BROWSER] == ("not_run", reason) and BROWSER not in sent
+    assert found["t.py::ok"] == ("passed", None)
+    assert mapped.read_mapped(run_dir) == [task]

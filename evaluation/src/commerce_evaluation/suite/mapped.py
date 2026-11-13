@@ -5,8 +5,9 @@
 and why, or why none does. A `why` that starts with «Parcial» covers it in part.
 
 Regression runs those ids in a subprocess with the live stack (`RUN_LIVE_STACK=1`) and never with
-a live model: the variables that would call one are removed from its environment. This module is
-also the pytest plugin (`-p`) that writes each test's outcome to the file `OUTCOMES_ENV` names.
+a live model: the variables that would call one are removed from its environment. A browser test
+needs `npm ci` in `auth/` and `ui/`; without it, it is not run and its outcome says so. This module
+is also the pytest plugin (`-p`) that writes each test's outcome to the file `OUTCOMES_ENV` names.
 """
 
 import json
@@ -29,6 +30,9 @@ OUTCOMES_ENV = "EVAL_SUITE_OUTCOMES"
 PARTIAL = "Parcial"
 # Never a live model from regression (AGENTS.md).
 LIVE_MODEL_SWITCHES = ("RUN_LIVE_LLM", "HNP_LIVE")
+# The browser tests run auth/ and ui/ from their node_modules (tests/integration/live_browser.py).
+BROWSER_TESTS = "tests/integration/test_live_browser"
+NODE_PROJECTS = ("auth", "ui")
 
 Coverage = Literal["covered", "partial", "uncovered"]
 # A test's result; `not_run` when pytest did not report it (deselected, or a collection error).
@@ -41,6 +45,8 @@ class MappedTest(BaseModel):
 
     id: str
     outcome: TestOutcome
+    # Why it did not run, when the runner knows.
+    reason: str | None = None
 
 
 class MappedTask(BaseModel):
@@ -80,7 +86,13 @@ def run_mapped(
     cwd: Path = ROOT,
 ) -> list[MappedTask]:
     """Runs every mapped test once and writes each task's coverage and results to the run."""
-    ids = mapped_ids(entries)
+    missing = [f"{name}/" for name in NODE_PROJECTS if not (cwd / name / "node_modules").is_dir()]
+    blocked = {
+        test: f"falta npm ci en {' y '.join(missing)}"
+        for test in mapped_ids(entries)
+        if missing and test.startswith(BROWSER_TESTS)
+    }
+    ids = [test for test in mapped_ids(entries) if test not in blocked]
     outcomes_path = run_dir / "regression-map.outcomes.jsonl"
     outcomes_path.unlink(missing_ok=True)
     if ids:
@@ -98,7 +110,9 @@ def run_mapped(
             coverage=coverage(entry),
             why=entry.get("why") or entry.get("uncovered", ""),
             tests=tuple(
-                MappedTest(id=test, outcome=_outcome(test, outcomes))
+                MappedTest(id=test, outcome="not_run", reason=blocked[test])
+                if test in blocked
+                else MappedTest(id=test, outcome=_outcome(test, outcomes))
                 for test in entry.get("tests", ())
             ),
         )
