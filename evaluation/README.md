@@ -80,7 +80,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | `src/commerce_evaluation/auth_client.py` | comprador de evaluación en el auth local, con la espera ante su límite de tasa |
 | `src/commerce_evaluation/llm/` | puerto para llamar a un LLM con salida estructurada, su tope de gasto y su doble sin red ([spec](../docs/design/eval-suite.md), §5) |
 | `src/commerce_evaluation/run_artifacts.py` | artefacto local de cada corrida de los pilotos ([spec](../docs/design/run-traceability.md), T1) |
-| `src/commerce_evaluation/suite/` | contrato de la suite de evaluación: el caso y su catálogo (`cases.py`), el registro del intento (`trial.py`) y la calificación (`graders/grade.py`) ([spec](../docs/design/eval-suite.md), §4) |
+| `src/commerce_evaluation/suite/` | contrato de la suite de evaluación: el caso y su catálogo (`cases.py`), los eventos que siembra (`events.py`), el registro del intento (`trial.py`) y la calificación (`graders/grade.py`) ([spec](../docs/design/eval-suite.md), §4) |
 | `src/commerce_evaluation/redaction.py` | redacción común de logs, errores y campos de fila (secretos conocidos y formas de secreto) |
 | `src/commerce_evaluation/flow_trace.py` | bloque `flow_trace` de cada fila de los pilotos HNP y HP: qué decidió y por qué, de `agent.db` y, en HP, `agent.graph.db` ([spec](../docs/design/run-traceability.md) §4.1, T3 y T4) |
 | `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto B0/B2 lo ejecutaba con el entorno del Merchant |
