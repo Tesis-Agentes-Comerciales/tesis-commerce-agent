@@ -17,6 +17,7 @@ STATUSES = {
     "complete": "completa",
     "budget_exhausted": "detenida al llegar al tope de gasto",
     "funds_exhausted": "detenida porque una llamada no encontró fondos",
+    "misconfigured": "detenida porque la configuración del modelo del agente falla",
     "interrupted": "interrumpida",
 }
 GRADERS: dict[Grader, str] = {
@@ -26,7 +27,12 @@ GRADERS: dict[Grader, str] = {
     "claims": "Lo que dice",
 }
 ROLES = {"agent": "Agente", "simulator": "Usuario simulado", "judge": "Juez"}
-CAUSES = {"simulator": "usuario simulado", "stack_not_started": "el stack no arrancó"}
+CAUSES = {
+    "simulator": "usuario simulado",
+    "stack_not_started": "el stack no arrancó",
+    "model_setup": "configuración del modelo",
+}
+AGAINST = {"agent": "el agente", "infrastructure": "la infraestructura"}
 COVERAGE: dict[Coverage, str] = {
     "covered": "cubierta",
     "partial": "parcial",
@@ -51,6 +57,7 @@ def markdown(report: "Report") -> str:
         _attacks(report),
         _cost(report),
         _infra(report),
+        _model_failures(report),
         _review(report),
         _mapped(report),
     ]
@@ -226,6 +233,60 @@ def _infra(report: "Report") -> str:
         rows = [cells(row) for row in report.excluded]
         text += "\n\nExcluidos:\n\n" + table(("Tarea", "Gobernanza", "Intento", "Motivo"), rows)
     return text
+
+
+def _model_failures(report: "Report") -> str:
+    if not report.model_failures:
+        return ""
+    rows = [
+        (
+            *itemgetter("case_id", "governance", "trial")(row),
+            _when(row),
+            f"`{row['kind']}`",
+            AGAINST[str(row["counts_against"])],
+            row["source"],
+            _requests(row["requests"]),
+        )
+        for row in report.model_failures
+    ]
+    header = (
+        "Tarea",
+        "Gobernanza",
+        "Intento",
+        "Vez",
+        "Tipo",
+        "Cuenta contra",
+        "Dónde",
+        "Solicitudes",
+    )
+    legend = (
+        "Cuenta el tipo que nombra el producto (`llm/model_failures.py`): `rejected` e "
+        "`invalid_output` son del agente, y el intento se califica sin repetirse; "
+        "`provider_error`, `unreachable`, `rate_limited` y `quota_exhausted` son de la "
+        "infraestructura. `quota_exhausted` detiene la corrida, y también un `rejected` con 401, "
+        "403 o 404, o el tercero seguido con la misma etapa y el mismo código; ese intento se "
+        "repite al retomar. Solicitudes: las que fallaron en `model_requests`, con su etapa, su "
+        "error, su estado HTTP, el código del proveedor y, si lo guardó, su mensaje."
+    )
+    return "## Fallas del modelo del agente\n\n" + legend + "\n\n" + table(header, rows)
+
+
+def _when(row: dict[str, Any]) -> object:
+    if row["kept"]:
+        return "guardado"
+    return "antes de retomar" if row["attempt"] is None else row["attempt"]
+
+
+def _requests(value: object) -> str:
+    rows = [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+    return "; ".join(map(_request, rows)) or "ninguna"
+
+
+def _request(row: dict[str, Any]) -> str:
+    cells = itemgetter("stage", "error_kind", "http_status", "provider_error_code")(row)
+    named = " ".join(str(each) for each in cells if each is not None)
+    message = row.get("provider_error_message")
+    return f"{named}: «{message}»" if message else named
 
 
 def _review(report: "Report") -> str:

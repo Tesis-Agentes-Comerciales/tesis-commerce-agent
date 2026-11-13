@@ -8,9 +8,10 @@ the user ends the conversation.
 A turn the API answers with an error ends the conversation where the chat shows that error. The
 error's message is what the user reads, so it is the turn's assistant text, and the turn ends
 in `respond`: the agent stopped without presenting a purchase. An error without a message ends
-it with no action. A 502, 503 or 504 is also kept for the record's `infra_failure`; a bare 500
-is an unhandled exception of the product, graded as the agent's and kept in the trace
-(observe.py).
+it with no action. A 502, 503 or 504 is also kept for the record's `infra_failure`, unless its
+body names a model failure of the agent's kind (`model_failure`, suite/live/failures.py); a
+bare 500 is an unhandled exception of the product. Both are graded as the agent's and kept in
+the trace (observe.py).
 
 Nobody else approves: when a turn presents a checkout, the runner rereads its terms, as the UI
 does right before the click, and approves and completes it exactly when its one line is the
@@ -30,7 +31,7 @@ from commerce_evaluation.stack.hnp_agent import EpisodeBuyer
 from commerce_evaluation.stack.purchase_agent import buyer_details
 from commerce_evaluation.stack.purchase_lane import PurchaseLane
 from commerce_evaluation.suite.cases import Governance, PresentCase
-from commerce_evaluation.suite.live import events
+from commerce_evaluation.suite.live import events, failures
 from commerce_evaluation.suite.live.observe import (
     INFRA_STATUSES,
     Played,
@@ -39,7 +40,7 @@ from commerce_evaluation.suite.live.observe import (
 )
 from commerce_evaluation.suite.live.reference import ReferenceRouter
 from commerce_evaluation.suite.live.settings import Model, presente_agent
-from commerce_evaluation.suite.trial import Ending, Turn, TurnAction
+from commerce_evaluation.suite.trial import AGENT_FAILURES, Ending, Turn, TurnAction
 from commerce_evaluation.suite.users import User
 
 MAX_TURNS = 6
@@ -68,18 +69,25 @@ class Talk:
     approvals: list[dict[str, Any]] = field(default_factory=list)
     api_5xx: list[str] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
+    model_failure: failures.Seen | None = None
 
     def call(self, response: Response, what: str) -> Any | None:
         """The answer's body, or None when the API answered an error, which is kept."""
         if response.status_code < 400:
             return response.json()
-        if response.status_code in INFRA_STATUSES:
-            self.api_5xx.append(f"{what} {response.status_code}")
         body = _json(response)
-        self.errors.append(
-            {"call": what, "status": response.status_code, "code": body.get("code")}
-            | {"message": body.get("message")}
-        )
+        error = {"call": what, "status": response.status_code, "code": body.get("code")}
+        error["message"] = body.get("message")
+        kind = failures.kind_of(body.get("model_failure"))
+        if kind is not None:
+            error["model_failure"] = kind
+        if response.status_code in INFRA_STATUSES:
+            answer = f"{what} {response.status_code}"
+            if kind is not None and self.model_failure is None:
+                self.model_failure = failures.Seen(kind, answer)
+            if kind not in AGENT_FAILURES:
+                self.api_5xx.append(answer)
+        self.errors.append(error)
         return None
 
 
@@ -189,6 +197,7 @@ def play_presente(
         final=Ending(action=talk.action),
         trace=trace,
         api_5xx=tuple(talk.api_5xx),
+        model_failure=talk.model_failure,
     )
 
 

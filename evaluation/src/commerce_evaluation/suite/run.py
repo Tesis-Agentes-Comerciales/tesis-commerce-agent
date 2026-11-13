@@ -9,6 +9,10 @@ It stops cleanly, keeping everything written, when:
 - the run's budget is spent (`budget_exhausted`), checked after keeping each trial: the agent's
   usage is charged without raising (llm/budget.py), so a paid trial is never lost;
 - a call finds no funds mid-trial (`FundsExhausted`, `funds_exhausted`): that trial runs again;
+- a record says no retry will help (suite/stops.py): the agent's model found its balance spent
+  (`quota_exhausted` with no model fault injected by the case, `funds_exhausted`), or the
+  provider refuses the model's setup (`misconfigured`). The attempt goes to `infra.jsonl`, so the
+  resumed run does that trial again;
 - the infrastructure broke `INFRA_STREAK` trials in a row, each after its retries
   (`interrupted`): the stack is down, and going on would only spend the plan.
 """
@@ -38,6 +42,7 @@ from commerce_evaluation.suite.rundir import (
     write_cases,
     write_manifest,
 )
+from commerce_evaluation.suite.stops import Misconfigured, Refusals, stop
 from commerce_evaluation.suite.trial import TrialRecord
 
 # §2: a trial the infrastructure broke is repeated up to twice more.
@@ -48,7 +53,9 @@ SIMULATOR_RETRIES = 1
 # Trials in a row the infrastructure broke, retries included, before the run stops.
 INFRA_STREAK = 3
 
-Status = Literal["running", "complete", "budget_exhausted", "funds_exhausted", "interrupted"]
+Status = Literal[
+    "running", "complete", "budget_exhausted", "funds_exhausted", "misconfigured", "interrupted"
+]
 Ending = Literal["kept", "infra", "excluded"]
 Say = Callable[[str], None]
 
@@ -86,6 +93,9 @@ def execute(
     except FundsExhausted:
         outcome.status = "funds_exhausted"
         say("Una llamada no encontró fondos: la corrida se detuvo y lo hecho quedó guardado.")
+    except Misconfigured:
+        outcome.status = "misconfigured"
+        say("La configuración del modelo falla: la corrida se detuvo y lo hecho quedó guardado.")
     finally:
         _finish(plan.settings.run_dir, outcome.status)
     return outcome
@@ -103,11 +113,11 @@ def _run(
         return "budget_exhausted"
     if not left:
         return "complete"
-    streak = 0
+    streak, refusals = 0, Refusals()
     with executor:
         for index, planned in enumerate(left, start=1):
             say(f"[{index}/{len(left)}] {planned}")
-            ending = _trial(plan.settings, planned, executor, outcome, say)
+            ending = _trial(plan.settings, planned, executor, outcome, say, refusals)
             streak = streak + 1 if ending == "infra" else 0
             if streak == INFRA_STREAK:
                 say(
@@ -134,6 +144,7 @@ def _trial(
     executor: TrialExecutor,
     outcome: Outcome,
     say: Say,
+    refusals: Refusals,
 ) -> Ending:
     """One trial, repeated while the infrastructure or the simulated user is to blame."""
     run_dir, case = settings.run_dir, planned.case
@@ -158,15 +169,18 @@ def _trial(
             return "excluded"
         _check(settings, planned, record)
         broken = record.infra_failure is not None and is_infra_failure(case, record)
-        if broken and infra_left:
-            infra_left -= 1
-            discarded = {
-                "kind": "infra",
-                "attempt": attempt,
-                "record": record.model_dump(mode="json"),
-            }
+        stopping = stop(record, broken, refusals)
+        if stopping is not None or (broken and infra_left):
+            discarded: dict[str, Any] = {"kind": "infra", "attempt": attempt}
+            if stopping is not None:
+                discarded["reason"] = stopping.reason
+            discarded["record"] = record.model_dump(mode="json")
             append_jsonl(run_dir / INFRA_FILE, _json(discarded))
             outcome.infra_retries += 1
+            if stopping is not None:
+                say(f"  Se detiene: {stopping.reason}.")
+                raise stopping.error
+            infra_left -= 1
             say("  Falla de infraestructura; se repite.")
             continue
         append_jsonl(run_dir / TRIALS_FILE, record.model_dump_json())

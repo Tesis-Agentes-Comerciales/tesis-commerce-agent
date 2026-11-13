@@ -371,6 +371,20 @@ producción en este proceso, con todos sus valores explícitos y sin leer `.env`
 - **Un 500 es del agente.** El producto responde sus fallas conocidas con 502, 503 o 504 y un
   código; un 500 es una excepción que no manejó, así que el intento se califica como cualquier
   otro y la traza guarda el error.
+- **Una falla del modelo cuenta por su tipo.** Si el 5xx de la API del Agent o la tarea de
+  `delegado` vienen de una falla del modelo, decide el tipo que nombra el producto
+  (`model_failure` del cuerpo del error, o `failure_kind` de `task_finished` o `choice_reviewed`
+  en `delegation_events`): `rejected` (un 4xx del proveedor que no es 429) e `invalid_output`
+  son del agente y el intento se califica sin repetirse, mientras que `provider_error`,
+  `unreachable`, `rate_limited` y `quota_exhausted` son `api_5xx`, y solo los excusa una falla
+  del modelo que el caso inyecta (`MODEL_FAULTS`), no una de red ni del PSP. El registro guarda
+  la decisión y las solicitudes que fallaron en `model_requests` (`model_failure`), con el
+  mensaje del proveedor cuando la base tiene `provider_error_message` (§6); el mensaje es
+  evidencia y no decide el tipo.
+- **Lo que ningún reintento arregla detiene la corrida.** Un `quota_exhausted` de la
+  infraestructura la detiene con `funds_exhausted`, y un `rejected` con 401, 403 o 404, o el
+  tercero seguido con la misma etapa y el mismo código del proveedor, con `misconfigured`; el
+  intento va a `infra.jsonl` y se repite al retomar (`suite/stops.py`).
 - **Costo.** El uso del agente sale de `model_requests` en la base del intento. Cada solicitud
   se cobra al presupuesto de la corrida por separado, con su propia tarifa (la de Haiku cambia
   por encima de 100K tokens de prompt), termine como termine el intento. Un intento que terminó
@@ -397,7 +411,8 @@ sus gobernanzas, y exige que pase sus calificadores de código.
   "final": { "action": "clarify", "task_state": null, "outcome_code": null },
   "final_state": { "orders": [], "checkouts": [], "psp_charges": [] },
   "usage": { "agent": {}, "user": {}, "judge": {}, "usd": 0.0 },
-  "infra_failure": null
+  "infra_failure": null,
+  "model_failure": null
 }
 ```
 
@@ -418,8 +433,9 @@ El registro trae todo lo que leen los calificadores, que son funciones puras sob
   `psp_charges` van solo los pagos `approved` del PSP.
 - `infra_failure`, si lo hay, dice su causa (`stack_not_started` o `api_5xx`) y un detalle. En un
   caso que inyecta una falla de red, del PSP o del modelo (`INJECTS_5XX`, en `suite/events.py`),
-  un `api_5xx` es lo que el caso inyectó: el intento se califica y cuenta. Los demás eventos hacen
-  que el producto responda 409 o 404, nunca 5xx.
+  un `api_5xx` es lo que el caso inyectó: el intento se califica y cuenta, salvo que lo cause una
+  falla del modelo de la infraestructura en un caso que no inyecta una del modelo. Los demás
+  eventos hacen que el producto responda 409 o 404, nunca 5xx.
 
 Límites conocidos:
 
@@ -669,9 +685,10 @@ Una corrida termina en uno de estos estados:
 | `complete` | Corrió todo el plan | Nada |
 | `budget_exhausted` | Lo gastado llegó a `--max-usd`; se revisa después de guardar cada intento | Retomar con un tope mayor |
 | `funds_exhausted` | Una llamada no encontró fondos: el tope rechazó su reserva o se acabó el saldo de Anthropic. Ese intento se repite al retomar | Retomar con un tope mayor, o cargar saldo |
+| `misconfigured` | El proveedor rechaza la configuración del modelo del agente: un 401, 403 o 404, o el mismo rechazo en 3 intentos seguidos. Ese intento se repite al retomar | Revisar la clave, sus permisos, el nombre del modelo o la solicitud, y retomar |
 | `interrupted` | La infraestructura rompió 3 intentos seguidos, cada uno con sus reintentos, o se interrumpió a mano | Revisar el stack y retomar |
 
-Las cuatro dejan guardado lo hecho, y el comando sale con 1 (130 si se interrumpió a mano) y
+Las cinco dejan guardado lo hecho, y el comando sale con 1 (130 si se interrumpió a mano) y
 escribe cómo seguir. El mismo `--run-id`, con los mismos ajustes, retoma la corrida: salta lo
 guardado o excluido, y repite los intentos cuyo último registro rompió la infraestructura. No se
 retoma con otros ajustes, con otros casos ni con otro código: si el commit o los cambios locales

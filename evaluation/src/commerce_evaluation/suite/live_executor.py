@@ -20,6 +20,10 @@ Failures:
   request the provider answered 5xx on every attempt, a delegado task still running when the
   wait ends, or a simulated user whose API failed, is `api_5xx` (observe.infra_failure);
   `suite/reduce.py` keeps it when the case injected it. A bare 500 is graded as the agent's.
+- A failure of the agent's model counts by the kind the product named (suite/live/failures.py):
+  `rejected` and `invalid_output` are graded as the agent's, even behind a 502; the other kinds
+  are `api_5xx`. The record keeps the decision and the ledger's failed requests
+  (`model_failure`), and a `quota_exhausted` one stops the run (suite/run.py).
 - A simulated user's unusable answer raises `SimulatorFailure`, and a simulator reservation
   the budget refuses raises `FundsExhausted`.
 
@@ -55,7 +59,7 @@ from commerce_evaluation.stack.purchase_lane import (
 )
 from commerce_evaluation.suite.cases import Case, Governance, PresentCase
 from commerce_evaluation.suite.executor import RunSettings, SimulatorFailure
-from commerce_evaluation.suite.live import events, observe, usage
+from commerce_evaluation.suite.live import events, failures, observe, usage
 from commerce_evaluation.suite.live.delegado import play_delegado
 from commerce_evaluation.suite.live.presente import play_presente
 from commerce_evaluation.suite.live.settings import (
@@ -253,6 +257,7 @@ class LiveExecutor:
     ) -> TrialRecord:
         spent = usage.agent_usage(played.agent.database)
         upstream = observe.upstream_failures((lane.proxy, lane.psp_proxy))
+        model_failure = failures.decided(played.model_failure, played.agent.database)
         user_usage = user.usage if isinstance(user, SimulatedUser) else None
         return TrialRecord(
             case_id=case.id,
@@ -277,8 +282,9 @@ class LiveExecutor:
                 ),
             ),
             infra_failure=observe.infra_failure(
-                played.api_5xx, upstream, spent.provider_5xx, played.unfinished
+                played.api_5xx, upstream, spent.provider_5xx, played.unfinished, model_failure
             ),
+            model_failure=model_failure,
         )
 
     def _charge(self, database: Path) -> None:

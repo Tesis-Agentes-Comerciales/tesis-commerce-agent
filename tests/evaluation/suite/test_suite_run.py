@@ -35,6 +35,7 @@ from tests.evaluation.suite.runs import (
     capability_case,
     lines,
     make_case,
+    model_failure,
     plan,
     regression_case,
     write_catalog,
@@ -150,6 +151,146 @@ def test_a_5xx_the_case_injects_is_the_agents_and_is_not_repeated(tmp_path: Path
     assert len(executor.calls) == 1
     assert not (run.settings.run_dir / INFRA_FILE).exists()
     assert ran(run.settings.run_dir) == [(down.id, "B2", 1)]
+
+
+def test_a_model_failure_of_the_agent_s_kind_is_kept_at_once(tmp_path: Path) -> None:
+    run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [CAPABILITY]), [CAPABILITY])
+    refused = {"model_failure": model_failure("rejected")}
+    executor = FakeExecutor(script={(CAPABILITY.id, "B2", 1): [refused]})
+
+    outcome = execute(run, executor, say=lambda _: None)
+
+    assert (outcome.status, outcome.infra_retries, len(executor.calls)) == ("complete", 0, 1)
+    [kept] = lines(run.settings.run_dir / TRIALS_FILE)
+    assert kept["infra_failure"] is None and kept["model_failure"] == model_failure("rejected")
+
+
+SPENT = {"infra_failure": API_5XX, "model_failure": model_failure("quota_exhausted")}
+
+
+def test_the_agent_s_spent_balance_stops_the_run_and_its_trial_runs_again(tmp_path: Path) -> None:
+    run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [CAPABILITY]), [CAPABILITY], k=3)
+    spent = FakeExecutor(script={(CAPABILITY.id, "B2", 2): [SPENT]})
+    said: list[str] = []
+
+    stopped = execute(run, spent, say=said.append)
+
+    run_dir = run.settings.run_dir
+    # No retry of trial 2, which no retry would pay for, and trial 3 never started.
+    assert [call[2] for call in spent.calls] == [1, 2]
+    assert (stopped.status, stopped.kept, stopped.infra_retries) == ("funds_exhausted", 1, 1)
+    assert json.loads((run_dir / MANIFEST_FILE).read_text())["status"] == "funds_exhausted"
+    assert any("quota_exhausted" in line for line in said)
+    assert ran(run_dir) == [(CAPABILITY.id, "B2", 1)]
+    [discarded] = lines(run_dir / INFRA_FILE)
+    assert (discarded["kind"], discarded["attempt"]) == ("infra", 1)
+    assert discarded["record"]["model_failure"]["kind"] == "quota_exhausted"
+
+    resumed = FakeExecutor()
+    finished = execute(run, resumed, say=lambda _: None)
+
+    assert [call[2] for call in resumed.calls] == [2, 3]
+    assert (finished.status, finished.resumed, finished.kept) == ("complete", 1, 2)
+
+
+def test_a_spent_balance_the_case_injects_is_graded_and_the_run_goes_on(tmp_path: Path) -> None:
+    run = plan(
+        tmp_path / "run",
+        write_catalog(tmp_path / "c", [REGRESSION, CAPABILITY]),
+        [REGRESSION, CAPABILITY],
+        suite="regression",
+    )
+    executor = FakeExecutor("regression", script={(REGRESSION.id, "B2", 1): [SPENT]})
+
+    outcome = execute(run, executor, say=lambda _: None)
+
+    assert (outcome.status, outcome.infra_retries, len(executor.calls)) == ("complete", 0, 2)
+    assert ran(run.settings.run_dir) == [(REGRESSION.id, "B2", 1), (CAPABILITY.id, "B2", 1)]
+
+
+STORE_DOWN = make_case(
+    "tienda-no-responde",
+    group="fallas-tecnicas",
+    events=({"at": "on_checkout_create", "kind": "merchant_unavailable"},),
+)
+
+
+@pytest.mark.parametrize(
+    ("kind", "status", "calls", "retries"),
+    [("quota_exhausted", "funds_exhausted", 1, 1), ("rate_limited", "complete", 3, 2)],
+)
+def test_a_network_fault_the_case_injects_does_not_excuse_the_model_s_infrastructure(
+    tmp_path: Path, kind: str, status: str, calls: int, retries: int
+) -> None:
+    """tienda-no-responde injects a Merchant 503, not the router's 429 or spent balance."""
+    run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [STORE_DOWN]), [STORE_DOWN])
+    broken = {"infra_failure": API_5XX, "model_failure": model_failure(kind)}
+    executor = FakeExecutor(script={(STORE_DOWN.id, "B2", 1): [broken]})
+
+    outcome = execute(run, executor, say=lambda _: None)
+
+    assert (outcome.status, len(executor.calls), outcome.infra_retries) == (status, calls, retries)
+    infra = lines(run.settings.run_dir / INFRA_FILE)
+    assert [row["record"]["model_failure"]["kind"] for row in infra] == [kind] * retries
+
+
+SETUP = {
+    "authentication_error": 401,
+    "permission_error": 403,
+    "not_found_error": 404,
+}
+
+
+@pytest.mark.parametrize("code", SETUP)
+def test_a_setup_the_provider_refuses_stops_the_run_and_its_trial_runs_again(
+    tmp_path: Path, code: str
+) -> None:
+    run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [CAPABILITY]), [CAPABILITY], k=2)
+    refused = model_failure("rejected", http_status=SETUP[code], provider_error_code=code)
+    executor = FakeExecutor(script={(CAPABILITY.id, "B2", 1): [{"model_failure": refused}]})
+    said: list[str] = []
+
+    stopped = execute(run, executor, say=said.append)
+
+    run_dir = run.settings.run_dir
+    assert (stopped.status, len(executor.calls), stopped.kept) == ("misconfigured", 1, 0)
+    assert json.loads((run_dir / MANIFEST_FILE).read_text())["status"] == "misconfigured"
+    reason = f"la configuración del modelo falla: {SETUP[code]} {code} en model.route"
+    assert any(reason in line for line in said)
+    [discarded] = lines(run_dir / INFRA_FILE)
+    assert (discarded["attempt"], discarded["reason"]) == (1, reason)
+    assert not (run_dir / TRIALS_FILE).exists() or ran(run_dir) == []
+
+    resumed = FakeExecutor()
+    assert execute(run, resumed, say=lambda _: None).status == "complete"
+    assert [call[2] for call in resumed.calls] == [1, 2]
+
+
+def test_the_third_refusal_in_a_row_the_same_way_stops_the_run(tmp_path: Path) -> None:
+    run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [CAPABILITY]), [CAPABILITY], k=6)
+    refused = {"model_failure": model_failure("rejected")}  # 400 invalid_request_error
+    elsewhere = {"model_failure": model_failure("rejected", stage="model.catalog")}
+    script = {
+        # Two in a row, then another stage: the streak starts over.
+        (CAPABILITY.id, "B2", 1): [refused],
+        (CAPABILITY.id, "B2", 2): [refused],
+        (CAPABILITY.id, "B2", 3): [elsewhere],
+        (CAPABILITY.id, "B2", 4): [refused],
+        (CAPABILITY.id, "B2", 5): [refused],
+        (CAPABILITY.id, "B2", 6): [refused],
+    }
+    executor = FakeExecutor(script=script)
+    said: list[str] = []
+
+    stopped = execute(run, executor, say=said.append)
+
+    run_dir = run.settings.run_dir
+    assert (stopped.status, len(executor.calls)) == ("misconfigured", 6)
+    # The first five are graded against the agent; the sixth runs again on resume.
+    assert [trial for _, _, trial in ran(run_dir)] == [1, 2, 3, 4, 5]
+    reason = "la configuración del modelo falla: 3 intentos seguidos con 400 invalid_request_error"
+    assert any(reason in line for line in said)
+    assert [row["record"]["trial"] for row in lines(run_dir / INFRA_FILE)] == [6]
 
 
 def test_a_simulator_failure_is_repeated_once_and_then_excluded(tmp_path: Path) -> None:

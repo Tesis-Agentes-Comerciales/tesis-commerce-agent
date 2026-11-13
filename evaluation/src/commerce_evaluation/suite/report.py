@@ -29,6 +29,7 @@ from commerce_evaluation.suite.rundir import (
     EXCLUDED_FILE,
     INFRA_FILE,
     JUDGE_BUDGET_DIR,
+    Trials,
     read_cases,
     read_jsonl,
     read_manifest,
@@ -89,6 +90,9 @@ class Report(SuiteModel):
     # again after a resume) or by the simulated user (`simulator`).
     retries: tuple[dict[str, JsonValue], ...]
     excluded: tuple[dict[str, JsonValue], ...]
+    # Every failure of the agent's model, in the attempts repeated and then in the trials kept:
+    # its kind, whom it counts against and the ledger's failed requests (trial.ModelFailure).
+    model_failures: tuple[dict[str, JsonValue], ...]
     review: tuple[Review, ...]
     # Regression only: the tasks the scripted tests cover, and how those tests ended.
     mapped: tuple[MappedTask, ...] | None
@@ -137,6 +141,7 @@ def build(run_dir: Path, grading: Grading | None = None) -> Report:
                 )
             )
     cost = _cost(run_dir)
+    infra = read_jsonl(run_dir / INFRA_FILE)
     return Report(
         manifest=manifest,
         judged=judging is not None,
@@ -149,13 +154,14 @@ def build(run_dir: Path, grading: Grading | None = None) -> Report:
         cost=cost,
         usd=float(sum((Decimal(str(role.usd)) for role in cost), Decimal(0))),
         retries=(
-            *(_retry(row) for row in read_jsonl(run_dir / INFRA_FILE)),
+            *(_retry(row) for row in infra),
             *(
                 _retry({"kind": "infra", "record": record.model_dump(mode="json")})
                 for record in trials.superseded
             ),
         ),
         excluded=tuple(read_jsonl(run_dir / EXCLUDED_FILE)),
+        model_failures=_model_failures(trials, infra),
         review=tuple(review),
         mapped=None if (mapped := read_mapped(run_dir)) is None else tuple(mapped),
     )
@@ -213,13 +219,38 @@ def _cost(run_dir: Path) -> tuple[RoleCost, ...]:
     )
 
 
+def _model_failures(
+    trials: Trials, infra: list[dict[str, Any]]
+) -> tuple[dict[str, JsonValue], ...]:
+    """Each record's model failure: `attempt` numbers a repeated one (None before a resume),
+    and `kept` tells the trial's last record."""
+    seen = [(row["record"], row.get("attempt"), False) for row in infra if row["kind"] == "infra"]
+    seen += [(record.model_dump(mode="json"), None, False) for record in trials.superseded]
+    seen += [
+        (record.model_dump(mode="json"), None, True)
+        for record in trials.kept
+        if record.model_failure is not None
+    ]
+    return tuple(
+        {
+            **{name: record[name] for name in ("case_id", "governance", "trial")},
+            "attempt": attempt,
+            "kept": kept,
+            **record["model_failure"],
+        }
+        for record, attempt, kept in seen
+        if record.get("model_failure")
+    )
+
+
 def _retry(row: dict[str, Any]) -> dict[str, JsonValue]:
     """One repeated attempt, the same for both kinds: who, which attempt, and why."""
     if row["kind"] == "simulator":
         named = {name: row[name] for name in ("case_id", "governance", "trial", "attempt")}
         return {"kind": "simulator", **named, "cause": "simulator", "detail": row["reason"]}
     record = row["record"]
-    failure = record.get("infra_failure") or {}
+    # An attempt that stopped the run for the model's setup broke nothing: its reason says why.
+    failure = record.get("infra_failure") or {"cause": "model_setup", "detail": row.get("reason")}
     return {
         "kind": "infra",
         "case_id": record["case_id"],

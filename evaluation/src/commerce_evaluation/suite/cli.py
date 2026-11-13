@@ -49,6 +49,10 @@ RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 STOPPED: dict[Status, str] = {
     "budget_exhausted": "La corrida llegó a su tope de gasto.",
     "funds_exhausted": "Una llamada no encontró fondos, por el tope o por el saldo de Anthropic.",
+    "misconfigured": (
+        "La configuración del modelo del agente falla: revisa la clave, sus permisos, el nombre "
+        "del modelo y la solicitud que rechaza el proveedor."
+    ),
     "interrupted": "La infraestructura falló varias veces seguidas: revisa el stack.",
 }
 

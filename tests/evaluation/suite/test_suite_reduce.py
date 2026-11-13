@@ -7,7 +7,7 @@ import pytest
 
 from commerce_evaluation.suite.cases import CASE, DelegatedCase, PresentCase
 from commerce_evaluation.suite.graders.grade import Verdict
-from commerce_evaluation.suite.reduce import Scored, pass_hat_k, reduce, wilson
+from commerce_evaluation.suite.reduce import Scored, is_infra_failure, pass_hat_k, reduce, wilson
 from tests.evaluation.suite.trials import A, B, case, record
 
 STACK_DOWN = {"cause": "stack_not_started", "detail": "postgres did not answer"}
@@ -88,6 +88,8 @@ def with_event(**event: Any) -> PresentCase | DelegatedCase:
     document = json.loads(case().model_dump_json())
     document["id"] = f"{event['kind'].replace('_', '-')}/presente"
     document["environment"]["events"] = [event]
+    if event["kind"].startswith("model_"):
+        document["suites"] = ["regression"]  # a scripted model fault runs only there
     return CASE.validate_json(json.dumps(document))
 
 
@@ -109,6 +111,40 @@ def test_an_injected_fault_is_never_an_infrastructure_failure() -> None:
     assert (faulted.infra_failures, faulted.fails) == (1, 1)
     # Without events, the API's 5xx is the infrastructure's.
     assert (unfaulted.infra_failures, unfaulted.fails, unfaulted.pass_k) == (1, 0, None)
+
+
+NETWORK = {"at": "on_checkout_create", "kind": "merchant_unavailable"}
+MODEL = {"at": "on_interpretation", "kind": "model_quota_exhausted"}
+
+
+def failed(kind: str) -> dict[str, Any]:
+    against = "agent" if kind in ("rejected", "invalid_output") else "infrastructure"
+    return {"kind": kind, "counts_against": against, "source": "x", "requests": []}
+
+
+@pytest.mark.parametrize(
+    ("event", "model", "left_out"),
+    [
+        (NETWORK, None, False),  # the case's own 5xx, as before
+        (NETWORK, "rate_limited", True),
+        (NETWORK, "quota_exhausted", True),
+        (NETWORK, "provider_error", True),
+        (MODEL, "quota_exhausted", False),
+        (MODEL, "unreachable", False),
+    ],
+    ids=["network", "network-429", "network-quota", "network-529", "model-quota", "model-down"],
+)
+def test_a_model_failure_of_the_infrastructure_is_excused_only_by_a_model_fault(
+    event: dict[str, Any], model: str | None, left_out: bool
+) -> None:
+    """tienda-no-responde injects a Merchant 503: a 529, 429 or spent balance of the router
+    there is no part of the case, so the trial is the infrastructure's."""
+    injected = with_event(**event)
+    broken = record(injected, infra_failure=API_5XX, model_failure=failed(model) if model else None)
+
+    assert is_infra_failure(injected, broken) is left_out
+    # An agent's failure breaks nothing, whatever the case injects.
+    assert not is_infra_failure(injected, record(injected, model_failure=failed("rejected")))
 
 
 @pytest.mark.parametrize(
