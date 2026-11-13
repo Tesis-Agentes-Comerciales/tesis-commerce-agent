@@ -317,6 +317,10 @@ El registro trae todo lo que leen los calificadores, que son funciones puras sob
   `clarify` o `purchase`), y el `state` y el `outcome_code` de `hnp_tasks` en `delegado`.
 - En `delegado`, el mensaje final de la tarea va en `transcript` como un turno del asistente, para
   que el calificador de lo que dice lo lea como cualquier otra respuesta.
+- En `final_state`, cada checkout y cada orden dicen su `variant_id`, y cada orden su
+  `total_minor`, con el envío incluido.
+- `infra_failure`, si lo hay, dice su causa (`stack_not_started` o `api_5xx`) y un detalle. En un
+  caso con eventos, un `api_5xx` es lo que el caso inyectó: el intento se califica y cuenta.
 
 ### Calificación
 

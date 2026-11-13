@@ -72,6 +72,10 @@ def test_a_delegado_trial_ends_with_its_task() -> None:
         ({"final": {"outcome_code": "checkout_failed"}}, "An outcome code belongs to a task state"),
         ({"final": {"action": "approve"}}, r"final\.action\s+Input should be"),
         ({"final": {"task_state": "done"}}, r"final\.task_state\s+Input should be"),
+        (
+            {"infra_failure": {"cause": "timeout", "detail": "x"}},
+            r"infra_failure\.cause\s+Input should be",
+        ),
     ],
     ids=[
         "extra",
@@ -81,6 +85,7 @@ def test_a_delegado_trial_ends_with_its_task() -> None:
         "code-without-task",
         "action",
         "state",
+        "infra-cause",
     ],
 )
 def test_a_trial_record_refuses_what_the_contract_does_not_name(

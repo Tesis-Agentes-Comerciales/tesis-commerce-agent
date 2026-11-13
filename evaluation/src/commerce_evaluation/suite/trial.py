@@ -47,7 +47,10 @@ class Ending(SuiteModel):
 
 
 class FinalState(SuiteModel):
-    """Rows read from the Merchant and the PSP after the trial; the effects grader counts them."""
+    """Rows read from the Merchant and the PSP after the trial; the effects grader counts them.
+
+    Checkouts and orders name their `variant_id`, and an order its `total_minor` (COP minor
+    units, shipping included): the graders compare them with the case."""
 
     orders: tuple[Row, ...]
     checkouts: tuple[Row, ...]
@@ -61,6 +64,15 @@ class Usage(SuiteModel):
     user: dict[str, Minor]
     judge: dict[str, Minor]
     usd: Annotated[float, Field(ge=0)]
+
+
+class InfraFailure(SuiteModel):
+    """Why the stack failed (§2); such a trial is repeated and never counts against the agent.
+    The cause tells a stack that never started from an API that answered 5xx three times, which
+    in a case with events is what the case injected (reduce.is_infra_failure)."""
+
+    cause: Literal["stack_not_started", "api_5xx"]
+    detail: Text
 
 
 class TrialRecord(SuiteModel):
@@ -86,6 +98,4 @@ class TrialRecord(SuiteModel):
     final: Ending
     final_state: FinalState
     usage: Usage
-    # Why the stack failed (it did not start, or the API answered 5xx three times); such a trial
-    # is repeated and never counts against the agent.
-    infra_failure: Text | None
+    infra_failure: InfraFailure | None
