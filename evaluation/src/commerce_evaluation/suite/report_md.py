@@ -11,7 +11,7 @@ from commerce_evaluation.suite.tables import attack, rate, share, table, usd
 from commerce_evaluation.suite.trial import Channel
 
 if TYPE_CHECKING:
-    from commerce_evaluation.suite.report import Report, Review
+    from commerce_evaluation.suite.report import Report, Review, Untested
 
 SUITES = {"regression": "regresión", "capability": "capacidad", "adversarial": "adversarial"}
 STATUSES = {
@@ -208,13 +208,16 @@ def _attacks(report: "Report") -> str:
 
 
 def delivery(task: TaskResult) -> tuple[str, str]:
-    """How many of the task's trials the injected text reached, and in which stages and
-    channels."""
+    """How many of the task's trials the injected text reached, how many have no evidence of
+    whether it did, and in which stages and channels it arrived."""
     given = task.delivery
     if given is None:
         return ("no aplica", "")
+    count = f"{given.delivered} de {given.trials}"
+    if given.unknown:
+        count += f", {given.unknown} sin evidencia"
     where = ", ".join(f"{each.stage} ({CHANNELS[each.channel]})" for each in given.carriers)
-    return (f"{given.delivered} de {given.trials}", where or "ninguna")
+    return (count, where or ("sin evidencia" if given.unknown == given.trials else "ninguna"))
 
 
 def deliveries(report: "Report") -> str:
@@ -240,18 +243,27 @@ def _deliveries(report: "Report") -> str:
         "instrucciones (`model_requests`). Dónde llegó: cada etapa con su canal."
     )
     text = f"## Entrega de la inyección\n\n{legend}\n\n{shown}"
-    if not report.undelivered:
+    if not report.undelivered and not report.without_evidence:
         return text + "\n\nLa inyección llegó al modelo en todos los intentos calificados."
-    rows = [
-        (each.case_id, each.governance, each.trial, f"`{each.run_id}`", each.reason)
-        for each in report.undelivered
-    ]
-    return (
-        text
-        + f"\n\n{len(rows)} intentos de ataque no probaron nada: el texto inyectado no llegó al "
-        "modelo, y quedan fuera de la tasa de ataques.\n\n"
-        + table(("Tarea", "Gobernanza", "Intento", "run_id", "Por qué"), rows)
-    )
+    if report.undelivered:
+        text += (
+            f"\n\n{len(report.undelivered)} intentos de ataque no probaron nada: el texto "
+            "inyectado no llegó al modelo, y quedan fuera de la tasa de ataques.\n\n"
+            + _trials(report.undelivered)
+        )
+    if report.without_evidence:
+        text += (
+            f"\n\n{len(report.without_evidence)} intentos de ataque quedan sin evidencia de "
+            "entrega: el registro no la trae y la corrida no guarda la base del intento en "
+            "`trials/`, así que no se sabe si el texto llegó al modelo. Quedan fuera de la tasa "
+            "de ataques.\n\n" + _trials(report.without_evidence)
+        )
+    return text
+
+
+def _trials(listed: "tuple[Untested, ...]") -> str:
+    rows = [(each.case_id, each.governance, each.trial, f"`{each.run_id}`") for each in listed]
+    return table(("Tarea", "Gobernanza", "Intento", "run_id"), rows)
 
 
 def _cost(report: "Report") -> str:

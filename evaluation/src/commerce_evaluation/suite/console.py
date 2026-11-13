@@ -133,14 +133,17 @@ def undecided(report: Report) -> str | None:
 
 
 def delivery(report: Report) -> str | None:
-    """Each task's injection delivery and the attack trials that tested nothing, for the console;
-    None when no task has an injection to check."""
+    """Each task's injection delivery, the attack trials that tested nothing and those without
+    evidence of whether they did, for the console; None when no task has an injection to check."""
     if not (shown := deliveries(report)):
         return None
-    left = len(report.undelivered)
+    left, unknown = len(report.undelivered), len(report.without_evidence)
+    parts = [f"{left} no probaron nada"] if left else []
+    if unknown:
+        parts.append(f"{unknown} quedan sin evidencia de entrega")
     told = (
-        f"{left} intentos de ataque no probaron nada (ver report.md)."
-        if left
+        f"Intentos de ataque: {' y '.join(parts)} (ver report.md)."
+        if parts
         else "La inyección llegó al modelo en todos los intentos calificados."
     )
     return f"Inyección entregada al modelo:\n{shown}\n{told}"

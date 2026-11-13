@@ -4,8 +4,10 @@ A `catalog_text` event tests its attack only when its text reaches a model reque
 the selection, the selector or the reviewer. The trial's `model_requests` ledger keeps each
 request's input (`input_json`) and the catalog vocabulary of its instructions
 (`catalog_vocabulary`), the one part of the instructions that comes from the feed; the rest is the
-product's own text. An event's `Injection` counts the requests that carried its whole text, case
-aside (`exposure.carries`), and names their stages and channels.
+product's own text. Only a request the provider processed counts, one with `input_tokens`: a
+request refused before the model read it (a 400, a timeout) never showed it the text. An event's
+`Injection` counts the requests that carried its whole text, case aside (`exposure.carries`), and
+names their stages and channels.
 
 The executor writes the record's `injections`. For a record written before the field, the report
 reads them from the trial's folder (`with_evidence`): when the trial was repeated, the folder
@@ -13,8 +15,10 @@ whose database names the record's run. The database is read from a copy with its
 never changes a run, not even one whose agent is still writing.
 
 A trial's injection is delivered when the text of at least one of its events reached the model
-under test: with the same text on two variants, the model needs to see only one. Without a model
-under test (the reference agent of regression) there is nothing to deliver to.
+under test: with the same text on two variants, the model needs to see only one. It is not when
+the trial's ledger shows no such request, and it is unknown when the run kept no evidence: a
+record without `injections` and no database to read them from. Without a model under test (the
+reference agent of regression) there is nothing to deliver to.
 """
 
 import shutil
@@ -22,7 +26,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import NamedTuple
+from typing import Any, Literal, NamedTuple
 
 from commerce_evaluation.suite.cases import Case, Event
 from commerce_evaluation.suite.exposure import carries
@@ -31,7 +35,9 @@ from commerce_evaluation.suite.trial import REFERENCE, Carrier, Channel, Injecti
 
 # A request whose scope named no stage.
 UNNAMED = "sin etapa"
-COLUMNS = ("stage", "input_json", "catalog_vocabulary", "run_id")
+COLUMNS = ("stage", "input_json", "catalog_vocabulary", "input_tokens", "run_id")
+# Whether a trial's injected text reached the model under test, as far as its evidence tells.
+Delivered = Literal["yes", "no", "unknown"]
 
 
 class Request(NamedTuple):
@@ -41,7 +47,8 @@ class Request(NamedTuple):
 
 
 class Ledger(NamedTuple):
-    """A trial's model requests, in order, and the runs its database names."""
+    """A trial's model requests the provider processed, in order, and the runs its database
+    names, in any of its requests or purchases."""
 
     requests: tuple[Request, ...]
     runs: frozenset[str]
@@ -51,22 +58,26 @@ def injected(case: Case) -> list[Event]:
     return [event for event in case.environment.events if event.kind == "catalog_text"]
 
 
-def observed(case: Case, database: Path) -> tuple[Injection, ...]:
-    """Each `catalog_text` event of the case, with the trial's requests that carried its text."""
+def observed(case: Case, database: Path) -> tuple[Injection, ...] | None:
+    """Each `catalog_text` event of the case, with the trial's requests that carried its text;
+    None, no evidence, without the trial's database."""
     events = injected(case)
     if not events:
         return ()
     ledger = read_ledger(database)
-    requests = ledger.requests if ledger is not None else ()
-    return tuple(_injection(event, requests) for event in events)
+    if ledger is None:
+        return None
+    return tuple(_injection(event, ledger.requests) for event in events)
 
 
-def delivered(case: Case, record: TrialRecord) -> bool | None:
+def delivered(case: Case, record: TrialRecord) -> Delivered | None:
     """Whether the trial's injected text reached the model under test; None when the case injects
     none or no model is under test."""
     if not injected(case) or record.agent.model == REFERENCE:
         return None
-    return any(injection.requests for injection in record.injections or ())
+    if record.injections is None:
+        return "unknown"
+    return "yes" if any(injection.requests for injection in record.injections) else "no"
 
 
 def with_evidence(run_dir: Path, case: Case, record: TrialRecord) -> TrialRecord:
@@ -98,10 +109,11 @@ def read_ledger(database: Path) -> Ledger | None:
             rows = _requests(db) if "model_requests" in tables else []
             purchases = db.execute("SELECT run_id FROM purchases") if "purchases" in tables else ()
             runs = {run for *_, run in rows} | {run for (run,) in purchases}
-    return Ledger(tuple(Request(*row[:3]) for row in rows), frozenset(run for run in runs if run))
+    processed = (Request(*row[:3]) for row in rows if row[3] is not None)
+    return Ledger(tuple(processed), frozenset(run for run in runs if run))
 
 
-def _requests(db: sqlite3.Connection) -> list[tuple[str | None, ...]]:
+def _requests(db: sqlite3.Connection) -> list[tuple[Any, ...]]:
     # A ledger from before a column holds NULL in its place.
     present = {row[1] for row in db.execute("PRAGMA table_info(model_requests)")}
     picked = ", ".join(name if name in present else "NULL" for name in COLUMNS)

@@ -360,7 +360,7 @@ def test_report_prints_how_many_attack_trials_the_injection_reached(
     assert "Inyección entregada al modelo:" in out
     assert f"| {attack.id} | B0 | 1 de 1 | model.choose_candidate (entrada) |" in out
     assert f"| {attack.id} | B2 | 0 de 1 | ninguna |" in out
-    assert "1 intentos de ataque no probaron nada" in out
+    assert "Intentos de ataque: 1 no probaron nada (ver report.md)." in out
 
 
 def test_a_run_id_with_other_settings_is_refused(
