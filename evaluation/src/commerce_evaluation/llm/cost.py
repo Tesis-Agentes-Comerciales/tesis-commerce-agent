@@ -39,6 +39,15 @@ class TokenUsage(BaseModel):
     def prompt_tokens(self) -> int:
         return self.input_tokens + self.cache_read_tokens + self.cache_write_tokens
 
+    def __add__(self, other: "TokenUsage") -> "TokenUsage":
+        fields = TokenUsage.model_fields
+        return TokenUsage(**{name: getattr(self, name) + getattr(other, name) for name in fields})
+
+
+NO_USAGE = TokenUsage(
+    input_tokens=0, output_tokens=0, cache_read_tokens=0, cache_write_tokens=0, reasoning_tokens=0
+)
+
 
 @dataclass(frozen=True)
 class TokenPrices:
