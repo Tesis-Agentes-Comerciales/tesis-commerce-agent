@@ -17,11 +17,13 @@ Failures:
 - An Agent API answer 5xx, a Merchant or PSP 5xx that no fault armed, a model request the
   provider answered 5xx on every attempt, or a simulated user whose API failed, is
   `api_5xx` (observe.infra_failure); `suite/reduce.py` keeps it when the case injected it.
-- A simulated user's unusable answer raises `SimulatorFailure`; a spent budget raises
-  `FundsExhausted`, after the trial's agent usage is charged.
+- A simulated user's unusable answer raises `SimulatorFailure`, and a simulator reservation
+  the budget refuses raises `FundsExhausted`.
 
-The agent's usage is charged to the run's budget after each trial (`RunBudget.charge`, role
-`agent`), from the trial database's `model_requests`.
+The agent's usage is charged to the run's budget whatever ended the trial, a raise included
+(`RunBudget.charge`, role `agent`), from the trial database's `model_requests`: it was spent.
+The charge never stops a trial that completed; the run reads `budget.exhausted` after saving
+its record.
 """
 
 import re
@@ -37,7 +39,7 @@ from anthropic import Anthropic
 
 from commerce_evaluation.llm.budget import BudgetedTransport, RunBudget
 from commerce_evaluation.llm.claude import AnthropicTransport
-from commerce_evaluation.llm.cost import CLAUDE_PRICES, TokenUsage
+from commerce_evaluation.llm.cost import CLAUDE_PRICES, NO_USAGE, TokenUsage
 from commerce_evaluation.llm.transport import (
     Effort,
     FundsExhausted,
@@ -56,7 +58,7 @@ from commerce_evaluation.suite.executor import RunSettings, SimulatorFailure
 from commerce_evaluation.suite.live import events, observe
 from commerce_evaluation.suite.live.delegado import play_delegado
 from commerce_evaluation.suite.live.presente import play_presente
-from commerce_evaluation.suite.live.settings import Model, claude_missing
+from commerce_evaluation.suite.live.settings import AGENT_DATABASE, Model, claude_missing
 from commerce_evaluation.suite.trial import (
     Agent,
     Ending,
@@ -142,22 +144,25 @@ class LiveExecutor:
         root.mkdir(parents=True)
         user = self._user(case) if isinstance(case, PresentCase) else None
         try:
-            if isinstance(case, PresentCase):
-                assert user is not None
-                played = play_presente(lane, case, governance, root, self.model, user, name)
-            else:
-                played = play_delegado(lane, case, governance, root, self.model, name)
-        except FundsExhausted:
-            raise
-        except (TransportError, TransportTimeout) as error:
-            # The simulated user's API failed: infrastructure, never the agent.
-            failure = InfraFailure(
-                cause="api_5xx", detail=f"usuario simulado: {type(error).__name__} {error}"
-            )
-            return self._unobserved(case, governance, trial, seed, failure)
-        if isinstance(user, SimulatedUser) and user.failure is not None:
-            raise SimulatorFailure(f"{case.id}: {user.failure}")
-        return self._record(case, governance, trial, seed, lane, played, user)
+            try:
+                if isinstance(case, PresentCase):
+                    assert user is not None
+                    played = play_presente(lane, case, governance, root, self.model, user, name)
+                else:
+                    played = play_delegado(lane, case, governance, root, self.model, name)
+            except FundsExhausted:
+                raise
+            except (TransportError, TransportTimeout) as error:
+                # The simulated user's API failed: infrastructure, never the agent.
+                failure = InfraFailure(
+                    cause="api_5xx", detail=f"usuario simulado: {type(error).__name__} {error}"
+                )
+                return self._unobserved(case, governance, trial, seed, failure)
+            if isinstance(user, SimulatedUser) and user.failure is not None:
+                raise SimulatorFailure(f"{case.id}: {user.failure}")
+            return self._record(case, governance, trial, seed, lane, played, user)
+        finally:
+            self._charge(root / AGENT_DATABASE)
 
     def _lane(self, profile: str) -> PurchaseLane | None:
         if self._stack is None:
@@ -205,7 +210,7 @@ class LiveExecutor:
         usage, models, provider_5xx = observe.agent_usage(played.agent.database)
         upstream = observe.upstream_failures((lane.proxy, lane.psp_proxy))
         user_usage = user.usage if isinstance(user, SimulatedUser) else None
-        record = TrialRecord(
+        return TrialRecord(
             case_id=case.id,
             suite=self.settings.suite,
             governance=governance,
@@ -226,16 +231,21 @@ class LiveExecutor:
             ),
             infra_failure=observe.infra_failure(played.api_5xx, upstream, provider_5xx),
         )
-        if self.model is not None and self.budget is not None:
-            # Last: past the cap it raises, and the run stops after this trial.
-            self.budget.charge(
-                role="agent",
-                model=self.model.name,
-                usage=usage,
-                model_returned=models[0] if len(models) == 1 else None,
-                effort=_effort(self.model.effort),
-            )
-        return record
+
+    def _charge(self, database: Path) -> None:
+        """The trial's agent usage, charged to the run's budget."""
+        if self.model is None or self.budget is None:
+            return
+        usage, models, _ = observe.agent_usage(database)
+        if usage == NO_USAGE:
+            return
+        self.budget.charge(
+            role="agent",
+            model=self.model.name,
+            usage=usage,
+            model_returned=models[0] if len(models) == 1 else None,
+            effort=_effort(self.model.effort),
+        )
 
     def _agent(self, models: tuple[str, ...]) -> Agent:
         if self.model is None:

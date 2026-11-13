@@ -16,7 +16,8 @@ from commerce_agent.acp import load_product_feed
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
 from commerce_agent.llm import ConversationMessage
 from commerce_evaluation.llm.budget import RunBudget
-from commerce_evaluation.llm.cost import TokenUsage
+from commerce_evaluation.llm.cost import CLAUDE_PRICES, TokenUsage
+from commerce_evaluation.llm.transport import FundsExhausted
 from commerce_evaluation.stack.fault_proxy import CREATE_PATH, Call
 from commerce_evaluation.stack.purchase_lane import Episode
 from commerce_evaluation.suite import live_executor
@@ -447,6 +448,30 @@ def test_a_model_under_test_needs_a_budget_and_the_key(tmp_path, monkeypatch):
     budget = RunBudget(max_usd=Decimal(1), run_dir=tmp_path)
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         LiveExecutor(settings(tmp_path, "claude-haiku-5-5"), budget)
+
+
+def test_the_agent_usage_is_charged_when_the_budget_stops_the_trial(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-only")
+    budget = RunBudget(max_usd=Decimal(1), run_dir=tmp_path)
+    executor = LiveExecutor(settings(tmp_path, "claude-haiku-5-5"), budget)
+    monkeypatch.setattr(executor, "_lane", lambda profile: object())
+
+    def refused(lane, case, governance, root, model, user, name):
+        # The agent spent before a simulator reservation was refused mid-trial.
+        ledger(root / "agent.db", (1000, 50, 0, 0, 0, "claude-haiku-5-5", "ok", 200))
+        raise FundsExhausted("BudgetExhausted", attempts=0)
+
+    monkeypatch.setattr(live_executor, "play_presente", refused)
+    with pytest.raises(FundsExhausted):
+        executor.run(case(), "B2", 1, 7)
+    spent = TokenUsage(
+        input_tokens=1000,
+        output_tokens=50,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        reasoning_tokens=0,
+    )
+    assert budget.spent_usd == CLAUDE_PRICES["claude-haiku-5-5"].cost(spent)
 
 
 def test_the_agent_settings_take_the_key_from_this_process_only(monkeypatch):

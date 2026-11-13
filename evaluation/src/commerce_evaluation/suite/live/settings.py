@@ -32,6 +32,8 @@ from commerce_evaluation.stack.purchase_lane import SANDBOX_CLOCK, Episode, Purc
 from commerce_evaluation.suite.cases import Governance
 
 API_KEY = "ANTHROPIC_API_KEY"
+# The trial's Agent database, in the trial's directory: its `model_requests` is the agent's usage.
+AGENT_DATABASE = "agent.db"
 # What the Agent needs to run on Claude (PR 8, docs/design/eval-suite.md §6).
 CLAUDE_SETTINGS = frozenset({"anthropic_api_key", "agent_model", "agent_model_effort"})
 # The Agent authenticates no buyer itself (`EpisodeBuyer`); jwt only satisfies AP2 and HNP.
@@ -137,7 +139,7 @@ def _base(lane: PurchaseLane, episode: Episode, root: Path, payment: str) -> dic
         "agent_approval_secret": lane.approval_secret.get_secret_value(),
         "payment_provider_url": payment,
         "payment_agent_bearer_token": lane.payment_token.get_secret_value(),
-        "agent_database_path": root / "agent.db",
+        "agent_database_path": root / AGENT_DATABASE,
         "agent_feed_source": "file",
         "agent_feed_path": episode.feed,
         # The episode's offers are observed on its synthetic clock.
