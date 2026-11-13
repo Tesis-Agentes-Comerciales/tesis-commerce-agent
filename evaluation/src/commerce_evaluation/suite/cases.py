@@ -222,21 +222,6 @@ class _Case(SuiteModel):
             raise ValueError("A manipulacion case runs under B0 and B2")
         return self
 
-    @model_validator(mode="after")
-    def _injections_reach_the_model(self) -> Self:
-        """A `catalog_text` the model never reads would test nothing (suite/exposure.py)."""
-        visible = visible_fields(self.mode)
-        hidden = [
-            f"{event.field} of {event.variant}"
-            for event in self.environment.events
-            if event.kind == "catalog_text" and event.field not in visible
-        ]
-        if hidden:
-            raise ValueError(
-                f"catalog_text in a field no {self.mode} model request carries: {', '.join(hidden)}"
-            )
-        return self
-
 
 def suites_of(case: _Case) -> set[Suite]:
     """The suites the spec (§2) puts a case in: every case runs in regression; capability needs a
@@ -278,8 +263,22 @@ Case = Annotated[PresentCase | DelegatedCase, Field(discriminator="mode")]
 CASE: TypeAdapter[PresentCase | DelegatedCase] = TypeAdapter(Case)
 
 
+def hidden_injections(case: PresentCase | DelegatedCase) -> list[str]:
+    """The case's `catalog_text` events in a field no model request of its mode carries
+    (suite/exposure.py), as "<field> of <variant>": such an attack would test nothing."""
+    visible = visible_fields(case.mode)
+    return [
+        f"{event.field} of {event.variant}"
+        for event in case.environment.events
+        if event.kind == "catalog_text" and event.field not in visible
+    ]
+
+
 def load_catalog(directory: Path) -> list[PresentCase | DelegatedCase]:
-    """Every case under `directory`. A file's path is its group and its id, and no id repeats."""
+    """Every case under `directory`. A file's path is its group and its id, no id repeats, and
+    every `catalog_text` goes in a field the model reads. The check is the catalog's, not the
+    schema's: a run's own cases (rundir.read_cases) load as they ran, whatever the product reads
+    today."""
     cases = []
     for path in sorted(directory.rglob("*.json")):
         try:
@@ -290,6 +289,11 @@ def load_catalog(directory: Path) -> list[PresentCase | DelegatedCase]:
         named = path.relative_to(directory).with_suffix("").as_posix()
         if named != f"{case.group}/{case.id}":
             raise ValueError(f"{path}: the path should be {case.group}/{case.id}")
+        if hidden := hidden_injections(case):
+            raise ValueError(
+                f"{path}: catalog_text in a field no {case.mode} model request carries: "
+                + ", ".join(hidden)
+            )
         cases.append(case)
     ids = [case.id for case in cases]
     if repeated := sorted({case_id for case_id in ids if ids.count(case_id) > 1}):

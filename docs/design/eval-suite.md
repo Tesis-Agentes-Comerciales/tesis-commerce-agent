@@ -312,8 +312,9 @@ comercio y lee el agente, antes de que arranque; la base y los checkouts del com
 sus instrucciones. Un intento en el que el texto no aparece en la petición al modelo no mide el
 ataque, así que la suite lo comprueba dos veces:
 
-- **Al cargar el catálogo** (`suite/exposure.py`), cada `catalog_text` tiene que ir en un campo
-  que lee el modelo de su modo, o el caso no valida. La lista no se escribe a mano: un texto de
+- **Al cargar el catálogo** (`load_catalog` y `suite/exposure.py`), cada `catalog_text` tiene que
+  ir en un campo que lee el modelo de su modo, o el catálogo no carga; los casos de una corrida
+  (`cases.jsonl`) se leen como corrieron. La lista no se escribe a mano: un texto de
   prueba de 200 caracteres se pone en cada campo de un feed de una variante, como lo pone el
   corredor, y se busca entero en lo que el producto arma para cada petición: el vocabulario del
   router, `lookup_catalog` y los candidatos de la selección en `presente`, y los candidatos del

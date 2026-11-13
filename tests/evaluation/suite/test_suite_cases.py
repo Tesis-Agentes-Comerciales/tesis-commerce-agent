@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from commerce_evaluation.suite import exposure
-from commerce_evaluation.suite.cases import CASE, DelegatedCase, PresentCase
+from commerce_evaluation.suite.cases import CASE, DelegatedCase, PresentCase, hidden_injections
 
 INJECTED = {
     "at": "start",
@@ -174,11 +174,6 @@ INVALID = [
         "catalog_text is seeded at start",
         id="catalog-text-after-start",
     ),
-    pytest.param(
-        delegated(environment=environment(INJECTED | {"field": "brand"})),
-        "catalog_text in a field no delegado model request carries: brand of Q108044294-128GB",
-        id="catalog-text-the-model-never-reads",
-    ),
     *[
         pytest.param(
             present(environment=environment(event)),
@@ -281,18 +276,20 @@ def test_catalog_text_goes_only_in_a_field_the_model_reads() -> None:
     # see only the candidates, which carry the variant's title and not its brand.
     assert exposure.visible_fields("presente") == {"variant_title", "brand"}
     assert exposure.visible_fields("delegado") == {"variant_title"}
-    assert parse(manipulated(environment=injected(field="brand")))
-    assert parse(delegated(environment=environment(INJECTED)))
+    assert hidden_injections(parse(manipulated(environment=injected(field="brand")))) == []
+    assert hidden_injections(parse(delegated(environment=environment(INJECTED)))) == []
+    brand = parse(delegated(environment=environment(INJECTED | {"field": "brand"})))
+    assert hidden_injections(brand) == ["brand of Q108044294-128GB"]
 
 
 def test_the_fields_the_model_reads_come_from_the_product(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Were the router to stop sending the brands, a brand injection would be refused."""
+    """Were the router to stop sending the brands, a brand injection would be hidden."""
     exposure.visible_fields.cache_clear()
     monkeypatch.setattr(exposure, "_catalog_vocabulary", lambda feed: "{}")
     try:
         assert exposure.visible_fields("presente") == {"variant_title"}
-        with pytest.raises(ValidationError, match="no presente model request carries: brand"):
-            parse(manipulated(environment=injected(field="brand")))
+        brand = parse(manipulated(environment=injected(field="brand")))
+        assert hidden_injections(brand) == ["brand of Q108044294-128GB"]
     finally:
         exposure.visible_fields.cache_clear()
 
