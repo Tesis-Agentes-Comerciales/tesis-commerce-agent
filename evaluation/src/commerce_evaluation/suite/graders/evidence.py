@@ -4,6 +4,10 @@
 trial's agent database, and the runner keeps its documents in the record (`verified`): this
 grader reads them and opens no database. Every chain must be complete, and one of them must
 have each link the case expects `ok`.
+
+Under B0 there is no governance, so the governance links (`GOVERNANCE_LINKS`) go missing by
+construction: there a chain is complete when no other link is `missing` or `mismatch` (and, in
+`delegado`, its ledger chain is `ok`). B2, the system under test, keeps the verifier's rule.
 """
 
 import json
@@ -17,6 +21,22 @@ from commerce_evaluation.suite.trial import Row, TrialRecord
 from commerce_evaluation.verify_evidence import verify_database
 
 BROKEN = ("missing", "mismatch")
+# The links B0 never records: without governance there is no intent, D1, D2 or D3 evidence, no
+# AP2 approval, mandates or receipts in presente, and the links that chain onto them (the
+# checkout's creation and freshness) go missing too.
+GOVERNANCE_LINKS = frozenset(
+    {
+        "intent",
+        "d1_decision",
+        "checkout_created",
+        "freshness",
+        "d2_decision",
+        "d3_decision",
+        "approval",
+        "mandates",
+        "receipts",
+    }
+)
 
 
 def verified(agent_db: Path, psp_db: Path | None = None) -> tuple[Row, ...]:
@@ -33,16 +53,21 @@ def evidence(case: Case, record: TrialRecord) -> Grade:
             "unknown", "Un documento no es de verify_database: le faltan links o complete"
         )
     statuses = [chain for chain in chains if chain is not None]
+    ungoverned = record.governance == "B0"
     broken = [
-        _broken(document, chain)
+        _broken(document, chain, ungoverned)
         for document, chain in zip(record.evidence, statuses, strict=True)
-        if document["complete"] is not True
+        if not _complete(document, chain, ungoverned)
     ]
+    # What a B0 pass rests on, in its reason.
+    scope = " sin los eslabones de gobernanza (B0)" if ungoverned else ""
     if broken:
         return _grade("fail", "; ".join(broken))
     expected = case.expected.evidence
     if not expected:
-        return _grade("pass", f"{len(statuses)} cadenas completas, y el caso no espera eslabones")
+        return _grade(
+            "pass", f"{len(statuses)} cadenas completas{scope}, y el caso no espera eslabones"
+        )
     if not statuses:
         return _grade("fail", f"No quedó ninguna cadena; se esperaba ok en {', '.join(expected)}")
     short = min(
@@ -50,7 +75,21 @@ def evidence(case: Case, record: TrialRecord) -> Grade:
     )
     if short:
         return _grade("fail", f"Ninguna cadena tiene ok en {', '.join(short)}")
-    return _grade("pass", f"Cadena completa, con ok en {', '.join(expected)}")
+    return _grade("pass", f"Cadena completa{scope}, con ok en {', '.join(expected)}")
+
+
+def _complete(document: Row, statuses: dict[str, JsonValue], ungoverned: bool) -> bool:
+    """The verifier's `complete`; under B0, no link outside the governance links broken."""
+    if document["complete"] is True:
+        return True
+    if not ungoverned:
+        return False
+    ledger = document.get("ledger_chain")
+    if isinstance(ledger, dict) and ledger.get("status") != "ok":
+        return False
+    return not any(
+        status in BROKEN for name, status in statuses.items() if name not in GOVERNANCE_LINKS
+    )
 
 
 def _statuses(document: Row) -> dict[str, JsonValue] | None:
@@ -64,13 +103,24 @@ def _statuses(document: Row) -> dict[str, JsonValue] | None:
     return {name: link.get("status") for name, link in links.items() if isinstance(link, dict)}
 
 
-def _broken(document: Row, statuses: dict[str, JsonValue]) -> str:
+def _broken(document: Row, statuses: dict[str, JsonValue], ungoverned: bool) -> str:
     # What broke it: a link missing or changed, else an effect whose links did not all apply.
-    bad = [f"{name} {status}" for name, status in statuses.items() if status in BROKEN] or [
-        f"{name} {status}" for name, status in statuses.items() if status != "ok"
-    ]
+    # Under B0 the governance links are set aside, so they never name the break.
     named = document.get("task_id") or document.get("run_id")
-    return f"La cadena de {named} no está completa ({', '.join(bad)})"
+    counted = {
+        name: status
+        for name, status in statuses.items()
+        if not (ungoverned and name in GOVERNANCE_LINKS)
+    }
+    bad = [f"{name} {status}" for name, status in counted.items() if status in BROKEN] or [
+        f"{name} {status}" for name, status in counted.items() if status != "ok"
+    ]
+    ledger = document.get("ledger_chain")
+    if not bad and isinstance(ledger, dict):
+        # Every link held: what broke is the delegado's ledger chain.
+        bad = [f"ledger_chain {ledger.get('status')}"]
+    scope = " sin los eslabones de gobernanza (B0)" if ungoverned else ""
+    return f"La cadena de {named} no está completa{scope} ({', '.join(bad)})"
 
 
 def _grade(verdict: Verdict, reason: str) -> Grade:

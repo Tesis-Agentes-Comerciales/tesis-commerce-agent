@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from commerce_evaluation.demo_stack import OTHER_MERCHANT
-from commerce_evaluation.suite.graders.evidence import evidence, verified
+from commerce_evaluation.suite.graders.evidence import GOVERNANCE_LINKS, evidence, verified
 from commerce_evaluation.verify_evidence import LINKS
 from tests.evaluation.suite.trials import case, record
 from tests.governance.test_hp_continuation import ask
@@ -63,6 +63,57 @@ def test_expected_links_need_a_chain() -> None:
 
     assert evidence(expecting, record(expecting)).verdict == "fail"
     assert evidence(case(), record(case())).verdict == "pass"
+
+
+def ungoverned(**statuses: str) -> dict[str, Any]:
+    """A B0 purchase with an order: every governance link missing, the webhook ok."""
+    missing = dict.fromkeys(GOVERNANCE_LINKS & set(LINKS), "missing")
+    return chain(False, **(missing | {"order_webhook": "ok"} | statuses))
+
+
+def test_under_b0_the_governance_links_are_set_aside() -> None:
+    expecting = case(evidence=["order_webhook"])
+
+    grade = evidence(expecting, record(expecting, evidence=(ungoverned(),), governance="B0"))
+
+    assert (grade.verdict, grade.reason) == (
+        "pass",
+        "Cadena completa sin los eslabones de gobernanza (B0), con ok en order_webhook",
+    )
+
+
+def test_under_b0_any_other_broken_link_fails() -> None:
+    expecting = case(evidence=["order_webhook"])
+    broken = ungoverned(order_webhook="missing")
+
+    grade = evidence(expecting, record(expecting, evidence=(broken,), governance="B0"))
+
+    assert (grade.verdict, grade.reason) == (
+        "fail",
+        "La cadena de run_1 no está completa sin los eslabones de gobernanza (B0) "
+        "(order_webhook missing)",
+    )
+
+
+def test_under_b0_a_delegado_ledger_chain_must_hold() -> None:
+    task = ungoverned() | {"task_id": "ht_1", "ledger_chain": {"status": "mismatch"}}
+
+    grade = evidence(case(), record(case(), evidence=(task,), governance="B0"))
+
+    assert (grade.verdict, grade.reason) == (
+        "fail",
+        "La cadena de ht_1 no está completa sin los eslabones de gobernanza (B0) "
+        "(ledger_chain mismatch)",
+    )
+
+
+def test_under_b2_the_governance_links_count() -> None:
+    expecting = case(evidence=["order_webhook"])
+
+    grade = evidence(expecting, record(expecting, evidence=(ungoverned(),)))
+
+    assert grade.verdict == "fail"
+    assert grade.reason.startswith("La cadena de run_1 no está completa (intent missing")
 
 
 def test_a_document_that_is_not_verify_databases_is_unknown() -> None:
