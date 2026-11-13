@@ -99,7 +99,7 @@ def test_an_amount_code_cannot_square_becomes_a_question() -> None:
 
     assert (question.criterion, question.text) == ("matches_state", said[0])
     assert question.statement == (
-        f"Lo que el asistente dice sobre la compra en «{said[0]}» concuerda con el estado final."
+        f"Los montos que el asistente da sobre la compra en «{said[0]}» son los del estado final."
     )
 
 

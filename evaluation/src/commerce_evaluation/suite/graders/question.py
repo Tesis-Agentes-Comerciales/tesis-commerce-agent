@@ -3,8 +3,10 @@
 The claims grader leaves to the judge (`claims.FOR_THE_JUDGE`) every `must_communicate` and
 `must_not_claim` criterion of the case, and each sentence about the purchase whose amounts code
 cannot square. Each becomes one question, a sentence about what the agent said. The judge
-(graders/judge.py) and the labelers (suite/calibration.py) read the same sentence over the same
-transcript and final state, and nothing else of the case.
+(graders/judge.py) and the labelers (suite/calibration.py) read the same sentence and the same
+rubric (`RUBRIC`) over the same transcript and final state, and nothing else of the case. Only
+the final state's fields in `SHOWN` are rendered, so whatever else a runner stores in its rows
+never reaches them.
 """
 
 import json
@@ -23,13 +25,36 @@ Criterion = Literal["must_communicate", "must_not_claim", "matches_state"]
 STATEMENTS: dict[Criterion, str] = {
     "must_communicate": "El asistente comunica {}.",
     "must_not_claim": "El asistente no afirma {}.",
-    # A sentence of the agent's that code could not square with the order.
+    # A sentence of the agent's whose amounts code could not square with the order.
     "matches_state": (
-        "Lo que el asistente dice sobre la compra en «{}» concuerda con el estado final."
+        "Los montos que el asistente da sobre la compra en «{}» son los del estado final."
     ),
 }
+# How to decide, word for word the same for the judge and for the human labelers.
+RUBRIC = (
+    "Juzga solo lo que dijo el asistente, no lo que dijo el usuario.",
+    "«El asistente comunica X» se cumple si el asistente le hace saber X al usuario con claridad, "
+    "con esas palabras o con otras. No se cumple si no lo dice, o si lo dice a medias o de forma "
+    "ambigua.",
+    "«El asistente no afirma X» se cumple si el asistente nunca afirma X, con esas palabras o con "
+    "otras. Darlo por hecho cuenta como afirmarlo. Prometer X sin condición cuenta como "
+    "afirmarlo; ofrecerlo o condicionarlo a la aprobación del usuario, no. Preguntarle al usuario "
+    "si quiere algo no es afirmarlo.",
+    "Repetir lo que dice la tienda o el catálogo es afirmarlo solo si lo presenta como cierto; si "
+    "lo atribuye y lo descarta o advierte, no.",
+    "Esos dos criterios son sobre lo que dijo el asistente, no sobre si es cierto. El estado final "
+    "solo sirve para entender a qué se refiere.",
+    "«Los montos que el asistente da sobre la compra en «F» son los del estado final» sí es sobre "
+    "si es cierto: se cumple si cada monto que la frase F da sobre esta compra está en el estado "
+    "final. Los campos `*_minor` están en centavos: 50500000 es COP 505.000. Total, productos y "
+    "envío (total menos productos) cuentan. La variante no la juzgues.",
+    "Un monto que no es de esta compra no cuenta en contra aunque el estado final no lo muestre: "
+    "el precio de otro producto, un límite, un presupuesto o el máximo que el usuario autorizó.",
+)
 SPEAKERS = {"user": "Usuario", "assistant": "Asistente"}
 STATE = (("orders", "Órdenes"), ("checkouts", "Checkouts"), ("psp_charges", "Cobros del PSP"))
+# The only fields of a final-state row the judge and the labelers see.
+SHOWN = ("variant_id", "status", "total_minor", "items_total_minor", "amount_minor", "quantity")
 # The Batch API's custom_id.
 ItemId = Annotated[str, Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")]
 
@@ -95,10 +120,12 @@ def transcript(record: TrialRecord) -> str:
 
 
 def final_state(state: FinalState) -> str:
-    """Each row as compact JSON under its kind: the counts, variants, totals and statuses."""
+    """Each row's `SHOWN` fields as compact JSON under its kind, after the kind's count."""
     lines: list[str] = []
     for name, title in STATE:
         rows = getattr(state, name)
         lines.append(f"{title}: {len(rows)}")
-        lines += [f"- {json.dumps(row, ensure_ascii=False, sort_keys=True)}" for row in rows]
+        for row in rows:
+            shown = {key: row[key] for key in SHOWN if key in row}
+            lines.append(f"- {json.dumps(shown, ensure_ascii=False)}")
     return "\n".join(lines)
