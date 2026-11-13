@@ -6,8 +6,8 @@
 
 - Es **una sola suite oficial**, que reemplaza los pilotos de octubre y el lote LLM 2. Esos
   quedan como exploratorios.
-- Hay **un catálogo de 56 tareas**, y **tres suites** lo recorren: regresión, capacidad y
-  adversarial.
+- Hay **un catálogo**: las 56 tareas de los escenarios P0, más 4 inyecciones. **Tres suites** lo
+  recorren: regresión, capacidad y adversarial.
 - **Cada intento corre en un entorno limpio** y deja un registro. **Cuatro calificadores** lo
   revisan por separado.
 - **El agente pasa a Claude.** El usuario simulado y el juez también son Claude.
@@ -23,6 +23,15 @@
 | No hay juez en código ni pass^k | Un juez calibrado contra etiquetas humanas, y pass^k con intervalos |
 | `governance_pilot.py` tiene 2.640 líneas, y hay guardas de costo y clientes HTTP repetidos | Módulos chicos que reusan lo que ya funciona |
 | `gpt-5-mini` se retira el 11-dic-2026 | El agente pasa a Claude Haiku 5.5 y Sonnet 5.5 |
+
+### Lo que queda fuera
+
+- **UI y Storybook:** la suite no tiene pantallas, y el reporte es Markdown y JSON. La UI del
+  agente no cambia.
+- **Usuario simulado en HNP:** en HNP no hay conversación, así que no hace falta.
+- **Rehacer los pilotos de octubre:** quedan como exploratorios, con sus resultados.
+- **Otros proveedores:** solo se evalúan modelos de Claude.
+- **CI:** no hay Actions, así que la compuerta es local. Ninguna prueba llama a un LLM real.
 
 ## 2. Cómo funciona
 
@@ -44,7 +53,8 @@ Cada falla nueva se arregla y queda como caso de regresión.
 | --- | --- | --- | --- |
 | **Pregunta** | ¿Se rompió algo? | ¿Qué tan bien lo hace? | ¿Se deja manipular? |
 | **Agente** | Guionado | LLM real | LLM real |
-| **Usuario** | Guionado | Simulado por un LLM | Simulado por un LLM |
+| **Usuario** | Guionado | Simulado por un LLM (en HNP no hay usuario) | Simulado por un LLM (en HNP no hay usuario) |
+| **Tareas** | Las 56, más las 4 inyecciones | 48: todas menos INF27, INF28, INF33 y CT21 | 6: CT21 en HP y HNP, más las 4 inyecciones |
 | **Intentos por caso** | 1 | 5 | 5 |
 | **Meta** | 100 % | Medir pass^k | Medir la tasa de ataques que logran su objetivo |
 | **Cuándo se corre** | Antes de fusionar cada PR que toque el agente o la suite | A mano, cuando el dueño lo decide | A mano, cuando el dueño lo decide |
@@ -75,7 +85,9 @@ En HNP no hay conversación: el corredor crea la delegación con su consentimien
 tarea.
 
 Si el intento falla por infraestructura (el stack no arrancó o la API devolvió 5xx tres
-veces), se repite hasta dos veces y nunca cuenta como falla del agente.
+veces), se repite hasta dos veces y nunca cuenta como falla del agente. Lo que el caso inyecta a
+propósito, sus eventos y las fallas de `FaultProxy`, como el 503 de INF31 o el 429 de INF27,
+nunca cuenta como falla de infraestructura: es justo lo que se está evaluando.
 
 ### Los calificadores
 
@@ -97,7 +109,7 @@ flowchart TD
 | --- | --- |
 | Efectos | Código sobre el estado final del comercio y del PSP: ninguna compra, cobro ni checkout indebido |
 | Resultado | Código: la acción final contra la esperada, y si compró, la variante y el total |
-| Evidencia | Código: la cadena de evidencia está completa (`verify_evidence`) |
+| Evidencia | Código: la cadena de evidencia está completa (`verify_evidence.verify_database`) |
 | Lo que dice | Primero código: precio, variante y estado de la compra se comparan con el estado final. Lo que el código no puede comparar va al juez |
 
 Cada calificador da `pass`, `fail` o `unknown`. Un `unknown` va a revisión humana y no cuenta
@@ -183,7 +195,11 @@ HNP, 3 solo en HP y 7 solo en HNP.
 | Comercio | CT13 a CT20 | 13 |
 | Mandato | MA22 a MA26 | 5 |
 | Falla | INF27 a INF33 | 14 |
-| Adversarial | CT21, más las inyecciones de `injection-scenarios-v1.json` | 2, más las inyecciones |
+| Adversarial | CT21 | 2 |
+
+Fuera de esas 56 hay 4 inyecciones más (C0, I1, I2 e I3), que vienen de
+`injection-scenarios-v1.json`. Ese archivo es un borrador pensado para B0′/B2 con 10
+repeticiones; se reescribe con el esquema del caso y con k = 5.
 
 INF27, INF28 e INF33 simulan fallas del proveedor del LLM, así que solo van en regresión.
 
@@ -224,7 +240,7 @@ flowchart LR
             report["report.py"]
         end
         stack["stack/<br/>LiveStack, FaultProxy,<br/>PurchaseLane"]
-        llm["hnp/llm/<br/>StructuredLLM,<br/>BudgetedTransport"]
+        llm["llm/<br/>StructuredLLM,<br/>BudgetedTransport"]
     end
     agent["src/commerce_agent<br/>el producto"]
     trial --> stack
@@ -237,6 +253,7 @@ flowchart LR
 | --- | --- | --- |
 | `cases.py` | Esquema del caso y carga del catálogo | los escenarios P0 |
 | `stack/` | Entorno limpio por intento. Hoy vive en `tests/integration`, y la evaluación lo importa desde ahí | `LiveStack`, `FaultProxy`, `PurchaseLane` |
+| `llm/` | Puerto para llamar a un LLM con salida estructurada y tope de gasto. Hoy vive en `hnp/llm/transport.py` | `StructuredLLM`, `BudgetedTransport`, `FakeTransport` |
 | `users.py` | Usuario guionado y usuario simulado | nada: no existe |
 | `trial.py` | Corre un intento y arma su registro | `build_flow_trace` y los lectores del comercio y del PSP |
 | `graders/` | Los cuatro calificadores y el juez | `verify_evidence`, `StructuredLLM` |
@@ -264,13 +281,22 @@ flowchart LR
   respuesta.
 - **Doble de prueba:** `tests/support/model_server.py` pasa a responder con la forma de la API
   de Messages.
-- **Corredores de los pilotos:** están amarrados a OpenAI (`exp06*`, `p0_llm_batch2*`,
-  `governance_pilot`, `hnp_pilot*`, `hnp_review*` y `hnp/llm/transport.py`). Salen de `main` y
-  quedan en la etiqueta `pilotos-octubre`, desde donde se reproducen. Sus resultados se quedan.
+- **Corredores de los pilotos:** están amarrados a OpenAI. Son `exp06*`, `p0_llm_batch2*`,
+  `governance_pilot`, `hnp_pilot*`, `hnp_review*` y HNP-02 (`hnp_matrix` y el coordinador de
+  `hnp/`). Salen de `main` y quedan en la etiqueta `pilotos-octubre`, desde donde se reproducen.
+  Sus resultados se quedan.
+- **Lo que se rescata de esos corredores:** `StructuredLLM`, `BudgetedTransport` y
+  `FakeTransport` se mudan a `commerce_evaluation/llm/`, y `wilson` se muda a
+  `suite/reduce.py`. Lo único que se borra de `hnp/llm/transport.py` es
+  `OpenAIResponsesTransport`.
+- **Documentación:** el mismo PR actualiza `AGENTS.md` y `docs/testing.md`, que hoy nombran
+  `hnp-matrix` y `governance-pilot`. También agrega a la lista «Never» que
+  `eval-suite run --suite capability` y `--suite adversarial` solo las lanza el dueño.
 
 ## 7. Costo
 
-Estimado con los tokens medidos en los pilotos, para 56 tareas × 5 intentos:
+Estimado con los tokens medidos en los pilotos, para las 54 tareas con LLM (48 de capacidad y
+6 adversariales) × 5 intentos:
 
 | Pasada | Típica | Peor caso |
 | --- | --- | --- |
@@ -327,12 +353,12 @@ Cada PR es de un tema, con la compuerta local en verde y un revisor independient
 | 1 | Esta spec. También marca el lote 2 como reemplazado en `evaluation/results/p0-cierre-yair/README.md` |
 | 2 | Contrato: `Case`, `TrialRecord` y `Grade`, con fixtures y 3 casos semilla (UX12-HP, CT13-HNP e INF31-HP) |
 | 3 | Calificadores de código (efectos, resultado y evidencia) y pass^k, sobre fixtures y sin stack |
-| 4 | Mover `LiveStack`, `FaultProxy` y `PurchaseLane` a `commerce_evaluation/stack/`, sin cambiar su comportamiento |
+| 4 | Mover `LiveStack`, `FaultProxy` y `PurchaseLane` a `commerce_evaluation/stack/`, sin cambiar su comportamiento. También sale de `tests/` lo que el stack importa de ahí (hoy, `FakeCheckoutGateway` de `tests/test_purchase_service.py`), para que el paquete no dependa de `tests/` |
 | 5 | Prueba chica de Inspect AI con un caso guionado. Se adopta si el adaptador cabe en unas 150 líneas, si la transcripción completa se ve en su visor y si `pass_k` da lo mismo que `reduce.py` |
 | 6 | Corredor, CLI y regresión de punta a punta con los 3 casos semilla |
 | 7 | Agente sobre Claude, parte 1: el doble de prueba de Messages y el registro de uso |
 | 8 | Agente sobre Claude, parte 2: los tres clientes y la configuración |
-| 9 | Retiro de los corredores de los pilotos, con la etiqueta `pilotos-octubre` |
+| 9 | Retiro de los corredores de los pilotos, con la etiqueta `pilotos-octubre`. Muda `StructuredLLM`, `BudgetedTransport` y `FakeTransport` a `llm/` y actualiza `AGENTS.md` y `docs/testing.md` |
 | 10 | Usuario simulado y transporte de Anthropic con tope de gasto |
 | 11 | Juez y calificador de lo que dice, por Batch |
 | 12 | Herramienta de calibración: etiquetado ciego y κ |
