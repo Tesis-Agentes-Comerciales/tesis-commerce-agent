@@ -5,6 +5,12 @@ transport to the two HTTP clients the SDK can use: the `DefaultHttpxClient` the 
 (llm/model_requests.py), with or without a ledger, and the one the SDK builds by itself if that
 fails. The model clients build theirs exactly as in production, with the same event hooks; only
 the transport changes. No client streams, so every answer is one JSON message.
+
+The router asks twice per turn (llm/conversation_router.py): first with `lookup_catalog` and no
+output schema, then for the decision. `routed` scripts a turn whose model calls no tool;
+`function_call` followed by `structured` scripts one that looks the catalog up. Like Haiku 5.5,
+the server rejects a request whose output schema goes with a tool the model may call
+(`grammar_too_large`), before it takes an answer from the script.
 """
 
 import json
@@ -86,13 +92,45 @@ def text(raw: str, *, stop_reason: str = "end_turn") -> Answer:
     return respond
 
 
-def function_call(name: str, arguments: dict[str, Any], *, preamble: str | None = None) -> Answer:
-    """A call of the client tool `name`, after the text `preamble` when there is one."""
+# What the router's first request says when it calls no tool: discarded, never validated.
+SAID_WITHOUT_LOOKUP = "Reviso tu pedido."
+
+
+def no_tool_call(said: str = SAID_WITHOUT_LOOKUP, *, thinking: Sequence[str] = ()) -> Answer:
+    """The router's first request answered with text, after the summaries `thinking`, and no
+    tool call."""
+
+    def respond(body: dict[str, Any]) -> httpx2.Response:
+        return _message([*map(thinking_block, thinking), {"type": "text", "text": said}], USAGE)
+
+    return respond
+
+
+def routed(
+    answer: BaseModel | Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    usage: dict[str, Any] = USAGE,
+    thinking: Sequence[str] = (),
+) -> tuple[Answer, Answer]:
+    """A router turn whose model calls no tool: the first answer, then the decision `answer`."""
+    return no_tool_call(), structured(answer, usage=usage, thinking=thinking)
+
+
+def function_call(
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    preamble: str | None = None,
+    thinking: Sequence[str] = (),
+) -> Answer:
+    """A call of the client tool `name`, after the text `preamble` when there is one, and after
+    the summaries `thinking` of the thinking blocks that come first."""
 
     def respond(body: dict[str, Any]) -> httpx2.Response:
         call = {"type": "tool_use", "id": "toolu_test", "name": name, "input": arguments}
         said = [] if preamble is None else [{"type": "text", "text": preamble}]
-        return _message([*said, call], USAGE, stop_reason="tool_use")
+        blocks = [*map(thinking_block, thinking), *said, call]
+        return _message(blocks, USAGE, stop_reason="tool_use")
 
     return respond
 
@@ -158,6 +196,26 @@ def held(answer: Answer, *, timeout: float = 10) -> Held:
     return Held(answer, timeout)
 
 
+# The provider's answer to an output schema next to a tool the model may call (llm/claude.py).
+GRAMMAR_TOO_LARGE = (
+    "The compiled grammar is too large, which would cause performance issues. Simplify your tool "
+    "schemas or reduce the number of strict tools."
+)
+
+
+def lets_a_tool_be_called_with_a_schema(body: dict[str, Any]) -> bool:
+    """Whether a request asks for an output schema and lets the model call a tool: a request
+    with tools and no `tool_choice` lets it, as `auto` does."""
+    choice = body.get("tool_choice") or {"type": "auto"}
+    has_format = (body.get("output_config") or {}).get("format") is not None
+    return bool(body.get("tools")) and choice["type"] != "none" and has_format
+
+
+def grammar_too_large() -> Answer:
+    """The 400 Haiku 5.5 answered the router's first request with on 13-nov-2026."""
+    return failure(400, error_type="invalid_request_error", message=GRAMMAR_TOO_LARGE)
+
+
 def output_schema(body: dict[str, Any]) -> dict[str, Any]:
     """The JSON schema the request asks the answer to follow."""
     return body["output_config"]["format"]["schema"]
@@ -181,9 +239,12 @@ class ModelServer:
 
     def handle(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
+        body = json.loads(request.content)
+        if lets_a_tool_be_called_with_a_schema(body):
+            return grammar_too_large()(body)
         if not self._answers:
             raise AssertionError("The model server has no answer left")
-        return self._answers.pop(0)(json.loads(request.content))
+        return self._answers.pop(0)(body)
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
         transport = httpx2.MockTransport(self.handle)

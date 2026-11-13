@@ -38,6 +38,8 @@ from tests.support.model_server import (
     disconnect,
     failure,
     function_call,
+    no_tool_call,
+    routed,
     shortlisted_choice,
     structured,
     text,
@@ -284,8 +286,9 @@ def test_only_a_model_failure_has_a_kind(error: BaseException, kind: str | None)
 Call = Callable[[], object]
 Build = Callable[[pytest.MonkeyPatch, ModelServer, Path, bool], Call]
 
-VALID = {
-    "router": structured(
+# The answers of one valid call. The router asks twice: its first answer calls no tool here.
+VALID: dict[str, tuple[Answer, ...]] = {
+    "router": routed(
         lambda body: {
             "action": "respond",
             "assistant_message": "Hola, ¿qué buscas?",
@@ -293,14 +296,15 @@ VALID = {
             "intent": None,
         }
     ),
-    "selector": structured(shortlisted_choice),
-    "reviewer": structured(lambda body: {"decision": "confirmed", "reason": "matches_request"}),
+    "selector": (structured(shortlisted_choice),),
+    "reviewer": (structured(lambda body: {"decision": "confirmed", "reason": "matches_request"}),),
 }
-# A structured output outside each client's schema: `parse` fails after the HTTP exchange.
-OUTSIDE_THE_SCHEMA = {
-    "router": structured(lambda body: {"action": "buy"}),
-    "selector": structured(lambda body: {"action": "purchase"}),
-    "reviewer": structured(lambda body: {"decision": "confirmed"}),
+# A structured output outside each client's schema: `parse` fails after the HTTP exchange. The
+# router's comes from its decision request, the only one that asks for the schema.
+OUTSIDE_THE_SCHEMA: dict[str, tuple[Answer, ...]] = {
+    "router": (no_tool_call(), structured(lambda body: {"action": "buy"})),
+    "selector": (structured(lambda body: {"action": "purchase"}),),
+    "reviewer": (structured(lambda body: {"decision": "confirmed"}),),
 }
 
 
@@ -398,7 +402,7 @@ def test_a_spent_monthly_cap_is_tried_once(
     # The provider does not say it: only the agent's hook stops the SDK's retry of a 429.
     assert "x-should-retry" not in quota({}).headers
 
-    error, server = failed(monkeypatch, tmp_path, client, recorded, quota, VALID[client])
+    error, server = failed(monkeypatch, tmp_path, client, recorded, quota, *VALID[client])
 
     assert len(server.requests) == 1
     assert error.failure_kind == "quota_exhausted"
@@ -412,7 +416,7 @@ def test_every_spent_balance_is_tried_once(
 ) -> None:
     quota, expected = SPENT[spent]
 
-    error, server = failed(monkeypatch, tmp_path, "selector", recorded, quota, VALID["selector"])
+    error, server = failed(monkeypatch, tmp_path, "selector", recorded, quota, *VALID["selector"])
 
     assert (len(server.requests), error.failure_kind) == (1, "quota_exhausted")
     assert classify_model_failure(error) == expected
@@ -422,7 +426,7 @@ def test_every_spent_balance_is_tried_once(
 def test_the_router_with_summaries_tries_a_spent_quota_once(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, recorded: bool
 ) -> None:
-    server = ModelServer(SPENT["spend-cap"][0], VALID["router"])
+    server = ModelServer(SPENT["spend-cap"][0], *VALID["router"])
     server.install(monkeypatch)
     router = ClaudeConversationRouter(
         api_key=SecretStr(API_KEY),
@@ -457,11 +461,12 @@ def test_a_rate_limit_keeps_the_sdk_retry(
 def test_a_rate_limit_that_clears_still_answers(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, client: str, recorded: bool
 ) -> None:
-    server = ModelServer(failure(429, error_type="rate_limit_error"), VALID[client])
+    server = ModelServer(failure(429, error_type="rate_limit_error"), *VALID[client])
 
     CLIENTS[client](monkeypatch, server, tmp_path / "agent.db", recorded)()
 
-    assert len(server.requests) == 2
+    # The SDK's retry of the first request, then the client's own requests.
+    assert len(server.requests) == 1 + len(VALID[client])
 
 
 @each_client
@@ -481,11 +486,56 @@ def test_a_dropped_connection_is_retried_and_unreachable(
 def test_a_structured_output_outside_the_schema_is_invalid_output(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, client: str, recorded: bool
 ) -> None:
-    error, server = failed(monkeypatch, tmp_path, client, recorded, OUTSIDE_THE_SCHEMA[client])
+    error, server = failed(monkeypatch, tmp_path, client, recorded, *OUTSIDE_THE_SCHEMA[client])
 
-    assert len(server.requests) == 1
+    assert len(server.requests) == len(OUTSIDE_THE_SCHEMA[client])
     assert error.failure_kind == "invalid_output"
     assert classify_model_failure(error) == ModelFailure("invalid_output")
+
+
+# A failure of the router's decision request, after a first answer with or without a lookup.
+DECISION_FAILURES: dict[str, tuple[tuple[Answer, ...], int, ModelFailure]] = {
+    "rate-limited": (
+        (failure(429, error_type="rate_limit_error"),) * 2,
+        2,
+        ModelFailure("rate_limited", 429, "rate_limit_error"),
+    ),
+    "spend-cap": (
+        (SPENT["spend-cap"][0],),
+        1,
+        ModelFailure("quota_exhausted", 429, "enforced_spend_limit_reached"),
+    ),
+    "unreachable": ((disconnect(), disconnect()), 2, ModelFailure("unreachable")),
+    "overloaded": (
+        (failure(529, error_type="overloaded_error"),) * 2,
+        2,
+        ModelFailure("provider_error", 529, "overloaded_error"),
+    ),
+    "rejected": (
+        (failure(400, error_type="invalid_request_error"),),
+        1,
+        ModelFailure("rejected", 400, "invalid_request_error"),
+    ),
+}
+
+
+@pytest.mark.parametrize("failing", list(DECISION_FAILURES))
+@pytest.mark.parametrize(
+    "first",
+    [no_tool_call(), function_call("lookup_catalog", {"query": "audífonos"})],
+    ids=["without-lookup", "after-lookup"],
+)
+def test_a_failed_decision_request_has_the_kind_of_a_failed_first_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failing: str, first: Answer
+) -> None:
+    answers, attempts, expected = DECISION_FAILURES[failing]
+
+    error, server = failed(monkeypatch, tmp_path, "router", True, first, *answers)
+
+    assert str(error) == "The conversation model request failed"
+    assert len(server.requests) == 1 + attempts
+    assert error.failure_kind == expected.kind
+    assert classify_model_failure(error) == expected
 
 
 def test_a_server_error_is_a_provider_error_after_the_sdk_retry(
@@ -564,10 +614,10 @@ def _empty(body: dict[str, Any]) -> httpx2.Response:
 @pytest.mark.parametrize(
     ("client", "answers"),
     [
-        ("router", (_empty,)),
+        ("router", (no_tool_call(), _empty)),
         # An answer cut at max_tokens, or a refusal, is no JSON of the schema.
-        ("router", (text('{"action": "respond", "assistant_mess'),)),
-        ("router", (text("No puedo ayudar con eso."),)),
+        ("router", (no_tool_call(), text('{"action": "respond", "assistant_mess'))),
+        ("router", (no_tool_call(), text("No puedo ayudar con eso."))),
         ("router", (function_call("delete_catalog", {}),)),
         ("router", (function_call("lookup_catalog", {"query": 7}),)),
         (

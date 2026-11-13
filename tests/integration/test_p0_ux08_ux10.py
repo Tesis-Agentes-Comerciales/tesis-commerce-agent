@@ -16,6 +16,10 @@ so a failed oracle stays failed in the evidence.
   operator turns the kill switch on, while the selector's or the reviewer's answer is held; in
   UX09-HNP-post the owner revokes inside the Merchant proxy, right after the checkout's POST.
 
+The protocol froze one request per router turn. The router now asks twice: its first answer
+goes before each routed answer of an HP script, and each routed turn counts one more attempt
+(`on_router_first`, tests/integration/live_model.py).
+
 When the module ends it writes `p0-ux08-ux10/summary.json` in the run directory.
 """
 
@@ -51,7 +55,12 @@ from commerce_evaluation.stack.purchase_lane import (
 )
 from tests.assistant_support import add_message, assistant_body, parse_sse, rebuild_state, sse_body
 from tests.integration.exp01_support import ROOT, recorded_case
-from tests.integration.live_model import ModelHnpAgent, ScriptedModel
+from tests.integration.live_model import (
+    ModelHnpAgent,
+    ScriptedModel,
+    router_first_answers,
+    with_router_first,
+)
 from tests.integration.test_exp02_commercial import observe
 from tests.integration.test_live_hnp import SHIPPING_ROOM_MINOR, catalog, effects
 from tests.integration.test_p0_model_failures import (
@@ -69,7 +78,31 @@ from tests.test_ux08_ux09_hp import choose, steps, texts
 
 PROTOCOL = ROOT / "evaluation/scenarios/p0-ux08-ux10.json"
 PLAN: dict[str, Any] = json.loads(PROTOCOL.read_text(encoding="utf-8"))
-CASES: dict[str, dict[str, Any]] = PLAN["cases"]
+# The HP oracle counts of the attempts of one routed turn.
+ROUTED_TURN_COUNTS = (
+    "model_http_attempts_stopped_turn",
+    "next_turn_model_http_attempts",
+    "model_http_attempts",
+)
+# A turn that routes and chooses: the router's two requests and the choice.
+ROUTE_AND_CHOOSE_ATTEMPTS = 3
+
+
+def on_router_first(cases: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The protocol's HP cases with the router's two requests per turn, amended in place: its
+    first answer before each routed answer, and one more attempt in each count of a routed
+    turn (every HP count of the protocol covers exactly one)."""
+    for case in cases.values():
+        if case["mode"] != "HP":
+            continue
+        case["script"] = with_router_first(case["script"])
+        for key in ROUTED_TURN_COUNTS:
+            if key in case["oracle"]:
+                case["oracle"][key] += 1
+    return cases
+
+
+CASES: dict[str, dict[str, Any]] = on_router_first(PLAN["cases"])
 REPETITIONS = range(1, PLAN["repetitions"] + 1)
 
 A, B = PHONE, OTHER_PHONE
@@ -120,7 +153,7 @@ def answers() -> dict[str, Answer]:
     }
     for name in ("route_a", "choose_a", "choice_ok", "review_confirmed"):
         named[f"held_{name}"] = held(named[name], timeout=HELD_SECONDS)
-    return named
+    return router_first_answers(named)
 
 
 def plan(*cells: str) -> list[Any]:
@@ -449,7 +482,7 @@ def a_to_b(
     rest_body = rest.json()
     by_id = {row["checkout_id"]: row for row in rows}
     checks = {
-        "turn_1.model_http_attempts": attempts_1 == 2,
+        "turn_1.model_http_attempts": attempts_1 == ROUTE_AND_CHOOSE_ATTEMPTS,
         "turn_1.checkout_posts": len(checkout_posts(t1)) == 1,
         "turn_1.stage": first["purchase"]["stage"] == "awaiting_confirmation",
         "turn_1.line_variant": lines["a"] == [A],
@@ -470,7 +503,7 @@ def a_to_b(
         "cancel_a.merchant_cancels": cancels(cancel_calls) == 1,
         "cancel_a.merchant_checkout_status": [row["status"] for row in after_cancel]
         == ["canceled"],
-        "turn_3.model_http_attempts": attempts_3 == 2,
+        "turn_3.model_http_attempts": attempts_3 == ROUTE_AND_CHOOSE_ATTEMPTS,
         "turn_3.checkout_posts": len(checkout_posts(t3)) == 1,
         "turn_3.stage": third["purchase"]["stage"] == "awaiting_confirmation",
         "turn_3.line_variant": lines["b"] == [B],
@@ -1109,6 +1142,17 @@ def summarize(cases: list[dict[str, Any]], stack: LiveStack) -> dict[str, Any]:
     return {
         "schema": "p0-ux08-ux10-summary/1",
         "protocol": {"path": str(PROTOCOL.relative_to(ROOT)), "sha256": sha256(PROTOCOL)},
+        # What this run sent and checked apart from the frozen protocol: the router's first
+        # answer in each HP script, and the attempt counts of a routed turn.
+        "oracle_amendment": {
+            "router_first": {
+                cell: {"script": case["script"]}
+                | {key: case["oracle"][key] for key in ROUTED_TURN_COUNTS if key in case["oracle"]}
+                for cell, case in CASES.items()
+                if case["mode"] == "HP"
+            },
+            "ux08_route_and_choose_attempts": ROUTE_AND_CHOOSE_ATTEMPTS,
+        },
         "spec": {
             "path": PLAN["spec"]["path"],
             "sha256": sha256(spec),

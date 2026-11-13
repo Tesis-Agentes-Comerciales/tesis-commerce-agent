@@ -7,9 +7,9 @@ outcome, the input sent and the structured output or tool call received. `agent.
 versioned. It never holds the request headers, so no API key or Authorization header.
 
 `reasoning_summary` stays NULL: only a later flag fills it (§5, T5). A failed request also keeps
-the provider's HTTP status and error code (docs/design/p0-model-failures.md §3.3); `initialize`
-adds both columns to a table created before them. A row that cannot be written is logged and
-dropped; it never fails the request it describes.
+the provider's HTTP status, error code and error message (docs/design/p0-model-failures.md §3.3);
+`initialize` adds those columns to a table created before them. A row that cannot be written is
+logged and dropped; it never fails the request it describes.
 """
 
 import logging
@@ -45,9 +45,14 @@ _SCHEMA = """CREATE TABLE IF NOT EXISTS model_requests (
     output_json TEXT,
     reasoning_summary TEXT,
     http_status INTEGER,
-    provider_error_code TEXT)"""
+    provider_error_code TEXT,
+    provider_error_message TEXT)"""
 # Added after the first version of the table, at its end: an older table gains them as they are.
-_ADDED_COLUMNS = (("http_status", "INTEGER"), ("provider_error_code", "TEXT"))
+_ADDED_COLUMNS = (
+    ("http_status", "INTEGER"),
+    ("provider_error_code", "TEXT"),
+    ("provider_error_message", "TEXT"),
+)
 _INDEX = "CREATE INDEX IF NOT EXISTS model_requests_by_run ON model_requests(run_id, sequence)"
 
 _log = logging.getLogger(__name__)
@@ -87,6 +92,9 @@ class ModelRequestRow:
     # one), e.g. 429 and `insufficient_quota`. None on success and when no response came back.
     http_status: int | None = None
     provider_error_code: str | None = None
+    # The provider's `error.message`, at most 500 characters: what a 400 says was wrong with the
+    # request. Read from the body, never from a header.
+    provider_error_message: str | None = None
 
 
 class SqliteModelRequests:

@@ -35,12 +35,16 @@ from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.model_requests_sqlite import ModelRequestRow, SqliteModelRequests
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 from tests.support.model_server import (
+    GRAMMAR_TOO_LARGE,
     MODEL,
+    SAID_WITHOUT_LOOKUP,
     ModelServer,
     SentRequest,
     disconnect,
     failure,
     function_call,
+    no_tool_call,
+    routed,
     shortlisted_choice,
     structured,
     text,
@@ -87,6 +91,7 @@ COLUMNS = [
     "reasoning_summary",
     "http_status",
     "provider_error_code",
+    "provider_error_message",
 ]
 # The table as it was before http_status and provider_error_code (p0-model-failures.md §3.3).
 FIRST_SCHEMA = """CREATE TABLE model_requests (
@@ -114,6 +119,10 @@ FIRST_SCHEMA = """CREATE TABLE model_requests (
     input_json TEXT,
     output_json TEXT,
     reasoning_summary TEXT)"""
+# The table as it was before provider_error_message.
+SECOND_SCHEMA = (
+    FIRST_SCHEMA.removesuffix(")") + ",\n    http_status INTEGER,\n    provider_error_code TEXT)"
+)
 
 
 def ledger(path: Path) -> SqliteModelRequests:
@@ -226,10 +235,13 @@ ROW = ModelRequestRow(
 )
 
 
-def test_an_older_table_gains_the_failure_columns_and_keeps_its_rows(tmp_path: Path) -> None:
+@pytest.mark.parametrize("schema", [FIRST_SCHEMA, SECOND_SCHEMA], ids=["first", "second"])
+def test_an_older_table_gains_the_failure_columns_and_keeps_its_rows(
+    tmp_path: Path, schema: str
+) -> None:
     path = tmp_path / "agent.db"
     with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute(FIRST_SCHEMA)
+        connection.execute(schema)
         connection.execute(
             "INSERT INTO model_requests (run_id, stage, request_index, started_at, latency_ms, "
             "outcome, error_kind, model, retries) VALUES (?, 'model.route', 1, "
@@ -246,6 +258,7 @@ def test_an_older_table_gains_the_failure_columns_and_keeps_its_rows(tmp_path: P
             error_kind="RateLimitError",
             http_status=429,
             provider_error_code="enforced_spend_limit_reached",
+            provider_error_message="You have reached your monthly spend limit for this tier.",
         )
     )
 
@@ -253,22 +266,29 @@ def test_an_older_table_gains_the_failure_columns_and_keeps_its_rows(tmp_path: P
         columns = [row[1] for row in connection.execute("PRAGMA table_info(model_requests)")]
     assert columns == COLUMNS
     kept, recorded = rows(path)
-    # The older row is intact; it never knew its status or code.
+    # The older row is intact; it never knew its status, code or message.
     assert (kept["sequence"], kept["run_id"], kept["error_kind"], kept["retries"]) == (
         1,
         RUN_ID,
         "RateLimitError",
         1,
     )
-    assert (kept["latency_ms"], kept["http_status"], kept["provider_error_code"]) == (
-        12.5,
-        None,
-        None,
-    )
-    assert (recorded["sequence"], recorded["http_status"], recorded["provider_error_code"]) == (
+    assert (
+        kept["latency_ms"],
+        kept["http_status"],
+        kept["provider_error_code"],
+        kept["provider_error_message"],
+    ) == (12.5, None, None, None)
+    assert (
+        recorded["sequence"],
+        recorded["http_status"],
+        recorded["provider_error_code"],
+        recorded["provider_error_message"],
+    ) == (
         2,
         429,
         "enforced_spend_limit_reached",
+        "You have reached your monthly spend limit for this tier.",
     )
 
 
@@ -304,11 +324,8 @@ def test_each_request_of_a_turn_is_one_row(
         (r["outcome"], r["error_kind"], r["model"], r["response_model"], r["reasoning_effort"])
         for r in recorded
     } == {("ok", None, "claude-haiku-5-5", MODEL, "low")}
-    assert [r["text_format"] for r in recorded] == [
-        "CommerceDecision",
-        "CommerceDecision",
-        "CandidateChoice",
-    ]
+    # The router's first request asks for no schema: it may call lookup_catalog (llm/claude.py).
+    assert [r["text_format"] for r in recorded] == [None, "CommerceDecision", "CandidateChoice"]
     # The counters of each request: all its input (801 uncached and 1024 read from the cache),
     # the read and the written parts, the output and the thinking within it.
     assert {
@@ -334,7 +351,9 @@ def test_each_request_of_a_turn_is_one_row(
     assert all(r["latency_ms"] >= 0 and r["started_at"] for r in recorded)
     assert all(r["reasoning_summary"] is None for r in recorded)
     # A request that ended well, even after a throttled attempt, has no failure to describe.
-    assert {(r["http_status"], r["provider_error_code"]) for r in recorded} == {(None, None)}
+    assert {
+        (r["http_status"], r["provider_error_code"], r["provider_error_message"]) for r in recorded
+    } == {(None, None, None)}
 
     # lookup_catalog, with its query: the first request's output and the second one's input.
     assert json.loads(lookup["output_json"]) == {
@@ -400,7 +419,7 @@ def test_the_request_digest_covers_the_instructions_and_the_input(
             "overloaded_error",
         ),
         (
-            (failure(400, error_type="invalid_request_error"),),
+            (failure(400, error_type="invalid_request_error", message=GRAMMAR_TOO_LARGE),),
             "BadRequestError",
             0,
             400,
@@ -450,6 +469,7 @@ def test_a_failed_request_is_an_error_row_and_the_same_error(
     with pytest.raises(IntentInterpretationError, match="The conversation model request failed"):
         router.route(MESSAGES)
 
+    # The router's first request failed, so it never sent the second.
     (row,) = rows(path)
     assert (row["stage"], row["outcome"], row["error_kind"], row["retries"]) == (
         "model.route",
@@ -458,6 +478,9 @@ def test_a_failed_request_is_an_error_row_and_the_same_error(
         retries,
     )
     assert (row["http_status"], row["provider_error_code"]) == (http_status, provider_error_code)
+    # What the provider said is kept for diagnosis; a dropped connection said nothing.
+    said = answers[-1]({}).json()["error"]["message"] if http_status else None
+    assert row["provider_error_message"] == said
     # No answer came back: nothing billed to count, nothing said to keep.
     assert (row["input_tokens"], row["output_json"]) == (None, None)
     assert json.loads(row["input_json"]) == [m.model_dump(mode="json") for m in MESSAGES]
@@ -480,14 +503,18 @@ def test_an_invalid_answer_keeps_its_usage_and_why_it_stopped(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, answer: Any, stop_reason: str, said: str
 ) -> None:
     path = tmp_path / "agent.db"
-    router = timed(build_router(monkeypatch, ModelServer(answer), ledger(path)), path)
+    server = ModelServer(no_tool_call(), answer)
+    router = timed(build_router(monkeypatch, server, ledger(path)), path)
 
     with pytest.raises(IntentInterpretationError, match="The conversation model request failed"):
         router.route(MESSAGES)
 
-    (row,) = rows(path)
+    # The decision request failed; the first one, which no schema bound, did not.
+    first, row = rows(path)
+    assert (first["outcome"], first["request_index"], row["request_index"]) == ("ok", 1, 2)
     assert (row["outcome"], row["error_kind"]) == ("error", "ValidationError")
     assert (row["http_status"], row["provider_error_code"]) == (None, None)
+    assert row["provider_error_message"] is None
     # The answer was billed: its tokens count like an ok row's.
     assert (row["input_tokens"], row["output_tokens"], row["response_model"]) == (1825, 786, MODEL)
     # What the model said and why it stopped: a refusal reads apart from a cut answer.
@@ -497,6 +524,55 @@ def test_an_invalid_answer_keeps_its_usage_and_why_it_stopped(
         "stop_reason": stop_reason,
         "text": said,
     }
+
+
+def test_a_turn_without_a_lookup_keeps_the_discarded_answer_and_the_decision(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "agent.db"
+    router = timed(build_router(monkeypatch, ModelServer(*routed(ROUTED)), ledger(path)), path)
+
+    with model_request_scope(run_id=RUN_ID):
+        router.route(MESSAGES)
+
+    offered, decided = rows(path)
+    assert [(r["stage"], r["request_index"], r["outcome"]) for r in (offered, decided)] == [
+        ("model.route", 1, "ok"),
+        ("model.route", 2, "ok"),
+    ]
+    # The first answer is discarded by the router, never by the ledger: what it said is kept.
+    assert offered["text_format"] is None
+    assert json.loads(offered["output_json"]) == {
+        "structured": None,
+        "function_calls": [],
+        "stop_reason": "end_turn",
+        "text": SAID_WITHOUT_LOOKUP,
+    }
+    assert decided["text_format"] == "CommerceDecision"
+    assert json.loads(decided["output_json"])["structured"] == ROUTED.model_dump(mode="json")
+    # The same instructions and input: the second asks again for the decision.
+    assert offered["input_json"] == decided["input_json"]
+    assert offered["request_sha256"] == decided["request_sha256"]
+    assert offered["catalog_vocabulary"] == decided["catalog_vocabulary"]
+
+
+def test_the_provider_message_is_cut_short_and_never_keeps_a_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "agent.db"
+    message = f"invalid x-api-key {API_KEY}: " + "x" * 600
+    server = ModelServer(failure(401, error_type="authentication_error", message=message))
+    router = timed(build_router(monkeypatch, server, ledger(path)), path)
+
+    with pytest.raises(IntentInterpretationError) as raised:
+        router.route(MESSAGES)
+
+    assert raised.value.failure_kind == "rejected"
+    (row,) = rows(path)
+    kept = row["provider_error_message"]
+    assert len(kept) == 500
+    assert kept.startswith("invalid x-api-key [redacted]: xxx")
+    assert API_KEY.encode() not in path.read_bytes()
 
 
 # Recording never changes the request -----------------------------------------------------------

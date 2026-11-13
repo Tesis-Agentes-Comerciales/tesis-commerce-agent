@@ -68,7 +68,7 @@ from commerce_agent.llm import (
 from commerce_agent.llm import conversation_router as router_module
 from commerce_agent.llm.reasoning import reasoning_listener
 from tests.support.agent_server import AgentServer
-from tests.support.model_server import ModelServer, held, output_schema, structured
+from tests.support.model_server import ModelServer, held, output_schema, routed, structured
 
 STEPS = (
     "interpret_request",
@@ -957,10 +957,12 @@ def test_display_fields_never_reach_model_payloads() -> None:
 def claude_router(
     monkeypatch: pytest.MonkeyPatch, *, summary: bool, effort: Any = "low", answers: int = 1
 ) -> tuple[ClaudeConversationRouter, ModelServer]:
-    """The router over the scripted Messages API; each answer carries two thinking summaries."""
+    """The router over the scripted Messages API: each of the `answers` turns calls no tool, and
+    its decision carries two thinking summaries."""
     decision = CommerceDecision(action="respond", assistant_message=GREETING_REPLY)
     thinking = ("Primero saludo.", "Luego ayudo.")
-    server = ModelServer(*(structured(decision, thinking=thinking) for _ in range(answers)))
+    turns = (routed(decision, thinking=thinking) for _ in range(answers))
+    server = ModelServer(*(answer for turn in turns for answer in turn))
     server.install(monkeypatch)
     router = ClaudeConversationRouter(
         api_key=SecretStr("sk-ant-test-key"),
@@ -988,23 +990,26 @@ def test_reasoning_parts_appear_only_when_summaries_are_enabled(
 
     assert texts(assistant_message(on), "reasoning") == ["Primero saludo.\n\nLuego ayudo."]
     assert texts(assistant_message(on)) == texts(assistant_message(off)) == [GREETING_REPLY]
-    (summarized,) = enabled_server.bodies()
-    assert summarized["thinking"] == {"type": "adaptive", "display": "summarized"}
-    assert summarized["output_config"]["effort"] == "low"
+    # Two requests per turn: the tool offered without a schema, then the decision.
+    offered, summarized = enabled_server.bodies()
+    for body in (offered, summarized):
+        assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
+        assert body["output_config"]["effort"] == "low"
+    assert "format" not in offered["output_config"]
     assert output_schema(summarized)["title"] == "CommerceDecision"
     # The answer the model thought about without summaries carries no thinking text to show.
     assert texts(assistant_message(off), "reasoning") == []
-    (plain,) = disabled_server.bodies()
-    assert set(plain) == {
-        "max_tokens",
-        "messages",
-        "model",
-        "output_config",
-        "system",
-        "tool_choice",
-        "tools",
-    }
-    assert plain["tools"][0]["name"] == "lookup_catalog"
+    for plain in disabled_server.bodies():
+        assert set(plain) == {
+            "max_tokens",
+            "messages",
+            "model",
+            "output_config",
+            "system",
+            "tool_choice",
+            "tools",
+        }
+        assert plain["tools"][0]["name"] == "lookup_catalog"
 
 
 def test_summaries_are_not_requested_without_a_listener(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1014,9 +1019,9 @@ def test_summaries_are_not_requested_without_a_listener(monkeypatch: pytest.Monk
     received: list[str] = []
     with reasoning_listener(received.append):
         router.route(message)
-    first, second = server.bodies()
-    assert "thinking" not in first
-    assert second["thinking"] == {"type": "adaptive", "display": "summarized"}
+    bodies = server.bodies()
+    assert ["thinking" in body for body in bodies] == [False, False, True, True]
+    assert bodies[3]["thinking"] == {"type": "adaptive", "display": "summarized"}
     # Not streamed: each summary arrives whole, with the answer.
     assert received == ["Primero saludo.", "\n\nLuego ayudo."]
 
@@ -1024,9 +1029,9 @@ def test_summaries_are_not_requested_without_a_listener(monkeypatch: pytest.Monk
 def test_effort_alone_is_forwarded_to_plain_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     router, server = claude_router(monkeypatch, summary=False, effort="high")
     router.route((ConversationMessage(role="user", content=GREETING_REQUEST),))
-    (call,) = server.bodies()
-    assert call["output_config"]["effort"] == "high"
-    assert "thinking" not in call
+    for call in server.bodies():
+        assert call["output_config"]["effort"] == "high"
+        assert "thinking" not in call
 
 
 def test_recorder_marks_cancellation_and_stops_before_new_steps() -> None:
@@ -1197,7 +1202,7 @@ def test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_discon
     monkeypatch.setattr(RunController, "_mark_cancelled", marking)
     monkeypatch.setattr(AssistantTransport, "_turn_worker", tracked)
     choice = held(choose("SON-XM6-BLK"))
-    model = ModelServer(structured(ROUTED_A), choice)
+    model = ModelServer(*routed(ROUTED_A), choice)
     model.install(monkeypatch)
     merchant = Merchant()
     agent = AgentServer(model_app(tmp_path / "agent.db", merchant))
@@ -1224,7 +1229,7 @@ def test_stopping_while_the_model_chooses_creates_no_checkout_over_a_real_discon
     finally:
         agent.stop()
 
-    assert len(model.requests) == 2
+    assert len(model.requests) == 3
     with sqlite3.connect(tmp_path / "agent.db") as connection:
         (turn,) = connection.execute(
             "SELECT response IS NULL FROM conversation_turns WHERE turn_id = 'turn-race'"

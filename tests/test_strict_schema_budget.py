@@ -19,7 +19,7 @@ from commerce_agent.llm.conversation_router import (
     CandidateDecision,
 )
 from commerce_agent.llm.intent_review import IntentVerdict
-from tests.support.model_server import ModelServer, structured
+from tests.support.model_server import ModelServer, routed
 from tests.test_conversation_router import make_router
 
 MAX_OPTIONAL = 24
@@ -48,20 +48,22 @@ def budget(*schemas: dict[str, Any]) -> tuple[int, int]:
     return optional, unions
 
 
-def test_the_route_request_stays_within_the_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_each_route_request_stays_within_the_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     decision = CommerceDecision(action="respond", assistant_message="Hola.")
-    server = ModelServer(structured(decision))
+    server = ModelServer(*routed(decision))
     server.install(monkeypatch)
 
     make_router().route((ConversationMessage(role="user", content="Hola"),))
 
-    (body,) = server.bodies()
-    schemas = [body["output_config"]["format"]["schema"]]
-    schemas += [tool["input_schema"] for tool in body["tools"] if tool.get("strict")]
-    optional, unions = budget(*schemas)
-    # Every property is required; the nullable ones are the unions.
-    assert optional == 0
-    assert unions < MAX_UNIONS
+    # The first request offers the strict tool alone; the second adds the decision's schema.
+    for body in server.bodies():
+        output = body["output_config"].get("format")
+        schemas = [] if output is None else [output["schema"]]
+        schemas += [tool["input_schema"] for tool in body["tools"] if tool.get("strict")]
+        optional, unions = budget(*schemas)
+        # Every property is required; the nullable ones are the unions.
+        assert optional == 0
+        assert unions < MAX_UNIONS
 
 
 @pytest.mark.parametrize(

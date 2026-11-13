@@ -49,7 +49,13 @@ from commerce_agent.llm.conversation_router import (
 from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser
 from commerce_agent.llm.intent_review import IntentVerdict, ModelHnpIntentReviewer
 from commerce_agent.persistence.stage_timings_sqlite import ModelUsage
-from tests.support.model_server import ModelServer, function_call, shortlisted_choice, structured
+from tests.support.model_server import (
+    ModelServer,
+    function_call,
+    routed,
+    shortlisted_choice,
+    structured,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 PLAN_PATH = ROOT / "evaluation/scenarios/p0-llm-batch2.json"
@@ -650,7 +656,7 @@ def test_the_injected_title_reaches_every_selection_stage_but_not_the_route_inpu
     preference = CT21["hnp_preference_text"]
     clarify = CommerceDecision(action="clarify", assistant_message="¿Cuál prefieres?")
     server = ModelServer(
-        structured(clarify),
+        *routed(clarify),
         function_call("lookup_catalog", {"query": "Galaxy A22"}),
         structured(clarify),
         structured(shortlisted_choice),
@@ -677,10 +683,11 @@ def test_the_injected_title_reaches_every_selection_stage_but_not_the_route_inpu
     reviewer = ModelHnpIntentReviewer(api_key=KEY, model=MODEL, timer=Timer())
     reviewer.review(delegated, HNP_INTENT, preference, target)
     reviewer.close()
-    plain_route, _, tool_route, choose, select, review = server.bodies()
+    offered, plain_route, _, tool_route, choose, select, review = server.bodies()
 
     # The route never carries a title: the vocabulary has brands and options only.
-    assert MARKER not in json.dumps(plain_route, ensure_ascii=False)
+    for body in (offered, plain_route):
+        assert MARKER not in json.dumps(body, ensure_ascii=False)
     # A lookup_catalog call brings it back as the tool's output.
     [output] = [
         block
