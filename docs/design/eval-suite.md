@@ -11,7 +11,8 @@
 - **Cada intento corre en un entorno limpio** y deja un registro. **Cuatro calificadores** lo
   revisan por separado.
 - **El agente pasa a Claude.** El usuario simulado y el juez también son Claude.
-- **Cuesta unos USD 8 por pasada con Haiku.** Ninguna prueba llama a un LLM real.
+- **Una pasada con Haiku cuesta unos USD 1,40, y hasta USD 16 en el peor caso**, con el
+  catálogo de hoy y sin el juez (§7). Ninguna prueba llama a un LLM real.
 
 ## 1. Por qué
 
@@ -475,6 +476,7 @@ flowchart LR
 | `trial.py` y `live_executor.py` | El registro del intento, y el ejecutor que corre cada intento en el stack y lo arma (`live/`) | `build_flow_trace`, `verify_database` y los lectores del comercio y del PSP |
 | `graders/` | Los cuatro calificadores y el juez | `verify_evidence`, `StructuredLLM` |
 | `reduce.py` | pass^1 y pass^k con el estimador C(c,k)/C(n,k), con intervalos de Wilson, por tarea y por gobernanza, y la tasa de ataques que logran su objetivo | `wilson` |
+| `run.py` | Corre los intentos de una suite: reintentos, exclusiones, parada por presupuesto y reanudación | nada |
 | `report.py` | Tabla y JSON del reporte | nada |
 | CLI `eval-suite` | `run` y `report` | el patrón `--dry-run` |
 
@@ -549,38 +551,124 @@ queda fuera del plazo del 16-nov.
 
 ## 7. Costo
 
-Estimado con los tokens medidos en los pilotos, para las 51 tareas con LLM (45 de capacidad y
-6 adversariales) × 5 intentos:
+`eval-suite run --dry-run` estima cada corrida con el catálogo de hoy: 20 casos de capacidad y 6
+adversariales, k = 5, y los adversariales en B0 y B2.
 
-| Pasada | Típica | Peor caso |
-| --- | --- | --- |
-| Agente Haiku 5.5 | unos USD 8 | unos USD 29 |
-| Agente Sonnet 5.5, con Opus como simulador | unos USD 18 | unos USD 49 |
-| Calibración del juez | unos USD 10 | unos USD 19 |
+| Corrida | Intentos | Típica | Peor caso |
+| --- | --- | --- | --- |
+| Capacidad, agente Haiku 5.5 y simulador Sonnet 5.5 | 100 | USD 0,76 | USD 8,84 |
+| Capacidad, agente Sonnet 5.5 y simulador Opus 5.5 | 100 | USD 2,21 | USD 25,64 |
+| Adversarial, agente Haiku 5.5 y simulador Sonnet 5.5 | 60 | USD 0,62 | USD 7,32 |
+| Adversarial, agente Sonnet 5.5 y simulador Opus 5.5 | 60 | USD 1,67 | USD 20,35 |
+| Juez, por pregunta (Opus 5.5 por Batch) | | | USD 0,035 a 0,04 |
+| Calibración del juez | | unos USD 10 | unos USD 19 |
 
-Las dos pasadas, la calibración y un piloto caben en los USD 200 de créditos.
+El peor caso no cuenta los reintentos: un intento que rompe la infraestructura se repite hasta 2
+veces más, y uno en que falla el usuario simulado, 1 vez más. Por eso el límite real es
+`--max-usd`, no la estimación. Las cuatro corridas, el juez, la calibración y un piloto caben en
+los USD 200 de créditos.
 
-Toda corrida paga exige `--max-usd`, y `BudgetedTransport` la corta al llegar al tope. La lanza
-el dueño a mano. El juez lleva su propio `--max-usd`: el lote reserva de una vez el peor caso de
-cada pregunta, unos USD 0,035 a 0,04 con Opus por Batch.
+Toda corrida paga exige `--max-usd`. Las llamadas del simulador y del juez reservan su peor caso
+antes de salir, y el tope rechaza la que no cabe (`FundsExhausted`). El uso del agente se cobra
+después de cada llamada con `RunBudget.charge`, que nunca lanza: lo gastado se registra siempre,
+y la corrida se detiene después de guardar el intento que llegó al tope. La lanza el dueño a mano.
+El juez lleva su propio `--max-usd`, aparte del de la corrida, y su lote reserva de una vez el
+peor caso de cada pregunta; `eval-suite judge --dry-run` da cuántas preguntas son y cuánto
+reserva.
+
+La estimación usa los tokens medidos por llamada del agente: el router, 1.746 de entrada (1.664
+en caché) y 90 de salida; la selección, 635 y 284; y la revisión de `delegado`, 819 y 186. Un
+intento típico en `presente` tiene 3 turnos, con 3 llamadas al router, una selección y 2
+respuestas del simulador de 1.500 y 300 tokens. El peor caso tiene 6 turnos, nada en caché,
+cuatro veces la salida medida y 5 respuestas del simulador con su tope de 2.000 tokens. El
+simulador todavía no está medido: el piloto da su cifra real.
 
 ## 8. Cómo se corre
 
 ```bash
-# Regresión: sin LLM. Necesita Docker u OrbStack encendido.
+# Regresión: sin LLM. Necesita Docker u OrbStack encendido. Corre además las pruebas del mapa de
+# regresión (evaluation/data/suite/regression-map.json) con RUN_LIVE_STACK=1, y sale con 1 si
+# un intento o una de esas pruebas no pasa.
 uv run eval-suite run --suite regression
 
-# Capacidad: LLM real. Necesita ANTHROPIC_API_KEY en .env.
-uv run eval-suite run --suite capability --agent claude-haiku-5-5 --k 5 --max-usd 15
+# El plan y su costo estimado, sin correr nada
+uv run eval-suite run --suite capability --dry-run
 
-# Reporte de una corrida
+# Capacidad y adversarial: LLM real, las lanza solo el dueño. Necesitan ANTHROPIC_API_KEY en el
+# entorno o en .env, y --max-usd.
+uv run eval-suite run --suite capability --agent claude-haiku-5-5 --k 5 --max-usd 15
+uv run eval-suite run --suite adversarial --max-usd 10
+
+# El juez sobre una corrida: LLM real, con su propio tope. --dry-run da las preguntas y la reserva.
+uv run eval-suite judge <run-id> --dry-run
+uv run eval-suite judge <run-id> --max-usd 5
+
+# Reporte de una corrida, por su id o su carpeta
 uv run eval-suite report <run-id>
 
 # Calibración del juez: páginas de etiquetado a ciegas en <run-dir>/calibration/labeling/
 # y κ contra las etiquetas. --by-verdict, después del juez, asegura fallas en la muestra.
-uv run python -m commerce_evaluation.suite.calibration export <run-dir> [--by-verdict]
-uv run python -m commerce_evaluation.suite.calibration score <run-dir> --labels etiquetas.json
+uv run eval-suite calibrate export <run-dir> [--by-verdict]
+uv run eval-suite calibrate score <run-dir> --labels etiquetas.json
 ```
+
+Opciones de `run`: `--agent` (por defecto `claude-haiku-5-5`), `--effort` (`low`), `--simulator`
+(`claude-sonnet-5-5`, u `claude-opus-5-5` si el agente es Sonnet), `--k` (1 en regresión y 5 en
+las otras), `--max-usd`, `--cases GLOB`, `--run-id`, `--seed` y `--dry-run`. La regresión es
+guionada y no recibe `--agent` ni `--simulator`. `--max-usd` tiene que ser un monto finito mayor
+que cero, también en `--dry-run`.
+
+Los intentos van por rondas: primero el intento 1 de cada caso en cada gobernanza, después el 2,
+y así. Una corrida cortada a la mitad no queda sesgada hacia los primeros grupos del catálogo, y
+la semilla de cada intento no cambia con el orden.
+
+Cada corrida queda en `evaluation/results/suite/<run-id>/`; el id por defecto es la hora UTC más
+la suite. La carpeta guarda:
+
+- `manifest.json`: commit, cambios locales, hash de cada caso, suite, k, modelos, esfuerzo,
+  `max_usd`, semilla y cada sesión con su inicio, su fin y su estado.
+- `cases.jsonl`: los casos tal como corrieron.
+- `trials.jsonl`: un registro por intento, escrito al terminar cada uno. Si un intento aparece dos
+  veces, cuenta el último; los anteriores se reportan con los repetidos.
+- `infra.jsonl`: los intentos que se repitieron, con su `kind`: `infra` (el registro del intento
+  que rompió la infraestructura) o `simulator` (el usuario simulado falló y tuvo otra
+  oportunidad).
+- `excluded.jsonl`: los intentos que el usuario simulado arruinó dos veces. No cuentan contra el
+  agente.
+- `llm-usage.jsonl` y `batches.jsonl`: las llamadas del agente y del simulador. El juez lleva las
+  suyas en `judge/`, con su tope, y sus respuestas en `judge.jsonl`.
+- `report.json` y `report.md`. Si la carpeta tiene `judge.jsonl`, el reporte usa los veredictos
+  del juez en lo que dice.
+
+Una corrida termina en uno de estos estados:
+
+| Estado | Cuándo | Qué hacer |
+| --- | --- | --- |
+| `complete` | Corrió todo el plan | Nada |
+| `budget_exhausted` | Lo gastado llegó a `--max-usd`; se revisa después de guardar cada intento | Retomar con un tope mayor |
+| `funds_exhausted` | Una llamada no encontró fondos: el tope rechazó su reserva o se acabó el saldo de Anthropic. Ese intento se repite al retomar | Retomar con un tope mayor, o cargar saldo |
+| `interrupted` | La infraestructura rompió 3 intentos seguidos, cada uno con sus reintentos, o se interrumpió a mano | Revisar el stack y retomar |
+
+Las cuatro dejan guardado lo hecho, y el comando sale con 1 (130 si se interrumpió a mano) y
+escribe cómo seguir. El mismo `--run-id`, con los mismos ajustes, retoma la corrida: salta lo
+guardado o excluido, y repite los intentos cuyo último registro rompió la infraestructura. No se
+retoma con otros ajustes, con otros casos ni con otro código: si el commit o los cambios locales
+difieren de los de la primera sesión, se niega y pide otro `--run-id`. `--dry-run` dice si la
+carpeta existe y si se puede retomar. Una línea que una caída dejó a medias en `trials.jsonl`,
+`infra.jsonl`, `excluded.jsonl` o `llm-usage.jsonl` se corta antes de seguir.
+
+**El ejecutor.** `suite/live_executor.py` cumple el contrato de `suite/executor.py`. Cobra cada
+llamada del agente con `RunBudget.charge` en un `finally`, también cuando una reserva del
+simulador lanza `FundsExhausted` a mitad del intento: ese uso ya se pagó, y si no se registra, el
+tope deja de ser un tope. Lanza `SimulatorFailure` cuando el simulador responde fuera del esquema
+o se niega, y deja que `FundsExhausted` suba.
+
+**El juez.** `eval-suite judge` pregunta lo que el código dejó al juez en los intentos guardados,
+en un lote. No repite lo ya respondido: una corrida juzgada a medias se retoma con el mismo
+comando. Una respuesta que el transporte perdió se vuelve a preguntar; una negativa, una
+respuesta truncada o fuera del esquema queda como está. Si se interrumpe mientras espera el lote,
+el lote sigue en Anthropic y se cobra, y correr el juez de nuevo envía otro: recoger un lote ya
+enviado queda pendiente.
 
 ## 9. Criterios de aceptación
 
@@ -639,5 +727,7 @@ Cada PR es de un tema, con la compuerta local en verde y un revisor independient
 
 ## 12. Pendiente del dueño
 
-- [ ] Confirmar que los dos autores etiquetan unas 2 horas de transcripciones (PR 12).
-- [ ] La fecha de entrega, para ordenar los PRs según el tiempo.
+- [x] Etiquetado: lo hace Yair solo, con la muestra de 40 intentos de §3 (unas 1,5 horas), y
+  repite 20 ítems para medir su propia consistencia. Que etiquete una sola persona queda como
+  limitación declarada.
+- [x] Fecha de entrega de la suite: lunes 16-nov-2026.

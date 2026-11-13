@@ -15,11 +15,12 @@ representative of the run: the report says so and gives κ on the sample.
 `score` reads the downloaded labels and the judge's verdicts on the same items, and writes the
 report of suite/agreement.py: Cohen's κ on the held-out tasks decides.
 
-The run directory holds `trials.jsonl` (one `TrialRecord` per line), `judge.jsonl`
-(graders/judge.py) and, after `export`, `calibration/`.
+The run directory holds `trials.jsonl` (one `TrialRecord` per line; when a trial appears twice,
+after a resume, its last record is the one sampled), `judge.jsonl` (graders/judge.py) and, after
+`export`, `calibration/`.
 
-    uv run python -m commerce_evaluation.suite.calibration export <run_dir> [--by-verdict]
-    uv run python -m commerce_evaluation.suite.calibration score <run_dir> --labels etiquetas.json
+    uv run eval-suite calibrate export <run_dir> [--by-verdict]
+    uv run eval-suite calibrate score <run_dir> --labels etiquetas.json
 """
 
 import argparse
@@ -37,9 +38,9 @@ from commerce_evaluation.suite.cases import Case, load_catalog
 from commerce_evaluation.suite.graders.judge import Judged, read_judged
 from commerce_evaluation.suite.graders.question import RUBRIC, final_state, questions
 from commerce_evaluation.suite.reduce import is_infra_failure
+from commerce_evaluation.suite.rundir import read_trials as read_records
 from commerce_evaluation.suite.trial import TrialRecord
 
-TRIALS_FILE = "trials.jsonl"
 DIRECTORY = "calibration"
 # The only folder the labeler opens.
 PAGES_DIRECTORY = "labeling"
@@ -58,9 +59,9 @@ Trial = tuple[Case, TrialRecord]
 
 
 def read_trials(run_dir: Path, cases: Sequence[Case]) -> list[Trial]:
+    """The last record of each trial: one run again after a resume is sampled once."""
     by_id = {case.id: case for case in cases}
-    lines = (run_dir / TRIALS_FILE).read_text("utf-8").splitlines()
-    records = [TrialRecord.model_validate_json(line) for line in lines if line]
+    records = read_records(run_dir).kept
     if unknown := sorted({record.case_id for record in records} - set(by_id)):
         raise ValueError(f"Trials of cases not in the catalog: {', '.join(unknown)}")
     return [(by_id[record.case_id], record) for record in records]

@@ -39,8 +39,8 @@ fixtures, Storybook-first UI, test-first backend, integration, one topic per PR.
 - Call a real LLM from tests, CI or your own checks: no `HNP_LIVE=1`, no `RUN_LIVE_LLM=1`, no
   `evaluate-conversation`, no pilot runner from the `pilotos-octubre` tag. Paid runs are started
   by hand by the user.
-- Launch `eval-suite run --suite capability` or `eval-suite run --suite adversarial`: they call a
-  real LLM, and only the owner launches them.
+- Launch `eval-suite run --suite capability`, `eval-suite run --suite adversarial` or
+  `eval-suite judge` without `--dry-run`: they call a real LLM, and only the owner launches them.
 - Add opt-in suites or switches to `ci.yml`: layer 4 runs only in `nightly.yml`, no workflow sets
   `RUN_LIVE_LLM` or `HNP_LIVE`, and live tests go in `tests/integration/`, not behind a new variable.
 
