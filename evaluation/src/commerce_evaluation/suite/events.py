@@ -59,6 +59,9 @@ OFFER_EVENTS = frozenset(get_args(OfferEvent))
 PRICED_EVENTS = frozenset({"price_change", "shipping_change"})
 OWNER_EVENTS = frozenset(get_args(OwnerEvent))
 MODEL_FAULTS = frozenset(get_args(ModelFault))
+# What can make the agent's API answer 5xx on purpose: offer, owner and catalog events make the
+# product answer 409 or 404, never 5xx.
+INJECTS_5XX = frozenset(get_args(Fault)) | MODEL_FAULTS
 PARAMETERS = ("variant", "amount_minor", "replacement", "field", "text")
 
 

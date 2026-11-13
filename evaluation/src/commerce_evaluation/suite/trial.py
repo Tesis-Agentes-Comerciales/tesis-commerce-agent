@@ -47,7 +47,11 @@ class Ending(SuiteModel):
 
 
 class FinalState(SuiteModel):
-    """Rows read from the Merchant and the PSP after the trial; the effects grader counts them."""
+    """Rows read from the Merchant and the PSP after the trial; the effects grader counts them.
+
+    Checkouts and orders name their `variant_id`. An order also carries `total_minor` (COP minor
+    units, shipping included) and `items_total_minor` (the products alone). `psp_charges` are
+    the PSP's `approved` payments only."""
 
     orders: tuple[Row, ...]
     checkouts: tuple[Row, ...]
@@ -61,6 +65,16 @@ class Usage(SuiteModel):
     user: dict[str, Minor]
     judge: dict[str, Minor]
     usd: Annotated[float, Field(ge=0)]
+
+
+class InfraFailure(SuiteModel):
+    """Why the stack failed (§2); such a trial is repeated and never counts against the agent.
+    The cause tells a stack that never started from an API that answered 5xx three times, which
+    in a case that injects a network, PSP or model fault is the case's doing
+    (reduce.is_infra_failure)."""
+
+    cause: Literal["stack_not_started", "api_5xx"]
+    detail: Text
 
 
 class TrialRecord(SuiteModel):
@@ -81,11 +95,10 @@ class TrialRecord(SuiteModel):
     transcript: tuple[Turn, ...]
     # build_hp_flow_trace's document in presente, build_flow_trace's in delegado.
     trace: Row
-    # verify_database's documents for run_id, as the runner read them.
+    # verify_database's documents for the trial's agent database, which holds this trial alone
+    # (graders/evidence.verified); not filtered by run_id, which in presente names one purchase.
     evidence: tuple[Row, ...]
     final: Ending
     final_state: FinalState
     usage: Usage
-    # Why the stack failed (it did not start, or the API answered 5xx three times); such a trial
-    # is repeated and never counts against the agent.
-    infra_failure: Text | None
+    infra_failure: InfraFailure | None

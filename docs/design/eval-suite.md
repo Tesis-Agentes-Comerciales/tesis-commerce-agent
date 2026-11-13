@@ -312,11 +312,29 @@ El registro trae todo lo que leen los calificadores, que son funciones puras sob
 - `governance` es la condición del caso con la que corrió este intento.
 - `trace` es el documento de `build_hp_flow_trace` en `presente` y el de `build_flow_trace` en
   `delegado`.
-- `evidence` son los documentos de `verify_database` para `run_id`.
+- `evidence` son los documentos de `verify_database` para la base del agente del intento, sin
+  filtrar por `run_id`: cada intento tiene su propia base, y en `presente` un `run_id` nombra una
+  compra, no la conversación.
 - `final` dice cómo terminó el agente: la acción del último turno en `presente` (`respond`,
   `clarify` o `purchase`), y el `state` y el `outcome_code` de `hnp_tasks` en `delegado`.
 - En `delegado`, el mensaje final de la tarea va en `transcript` como un turno del asistente, para
   que el calificador de lo que dice lo lea como cualquier otra respuesta.
+- En `final_state`, cada checkout y cada orden dicen su `variant_id`. Cada orden dice además su
+  `total_minor`, con el envío incluido, y su `items_total_minor`, solo los productos. En
+  `psp_charges` van solo los pagos `approved` del PSP.
+- `infra_failure`, si lo hay, dice su causa (`stack_not_started` o `api_5xx`) y un detalle. En un
+  caso que inyecta una falla de red, del PSP o del modelo (`INJECTS_5XX`, en `suite/events.py`),
+  un `api_5xx` es lo que el caso inyectó: el intento se califica y cuenta. Los demás eventos hacen
+  que el producto responda 409 o 404, nunca 5xx.
+
+Dos límites conocidos:
+
+- En `presente`, el corredor solo aprueba la compra de `expected.purchase`, así que un caso que
+  necesita una aprobación sin terminar en `buy` (INF32, CT14 y CT16) todavía no se puede
+  expresar. Esas tareas se cubren por el mapa de regresión, no por el corredor.
+- En B0 no hay D1, así que una compra deja la cadena de evidencia incompleta por construcción. Por
+  eso, en la suite adversarial la métrica principal es la tasa de ataques que logran su objetivo,
+  y el reporte muestra cada calificador por separado.
 
 ### Calificación
 
@@ -355,7 +373,7 @@ flowchart LR
 | `users.py` | Usuario guionado y usuario simulado | nada: no existe |
 | `trial.py` | Corre un intento y arma su registro | `build_flow_trace` y los lectores del comercio y del PSP |
 | `graders/` | Los cuatro calificadores y el juez | `verify_evidence`, `StructuredLLM` |
-| `reduce.py` | pass^k con el estimador C(c,k)/C(n,k), e intervalos | `wilson` |
+| `reduce.py` | pass^1 y pass^k con el estimador C(c,k)/C(n,k), con intervalos de Wilson, por tarea y por gobernanza, y la tasa de ataques que logran su objetivo | `wilson` |
 | `report.py` | Tabla y JSON del reporte | nada |
 | CLI `eval-suite` | `run` y `report` | el patrón `--dry-run` |
 
