@@ -32,6 +32,8 @@ from commerce_evaluation.stack.purchase_lane import SANDBOX_CLOCK, Episode, Purc
 from commerce_evaluation.suite.cases import Governance
 
 API_KEY = "ANTHROPIC_API_KEY"
+# What the Anthropic SDK reads from the environment besides the key.
+REDIRECTS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")
 # The trial's Agent database, in the trial's directory: its `model_requests` is the agent's usage.
 AGENT_DATABASE = "agent.db"
 # What the Agent needs to run on Claude (PR 8, docs/design/eval-suite.md §6).
@@ -93,7 +95,13 @@ def claude_missing() -> list[str]:
     problems = [f"the Agent on Claude (Settings lacks {', '.join(missing)})"] if missing else []
     if not os.environ.get(API_KEY):
         problems.append(API_KEY)
-    return problems
+    return problems + claude_redirected()
+
+
+def claude_redirected() -> list[str]:
+    """The variables set here that would send an Anthropic client elsewhere, or with other
+    credentials: the SDK reads them from the environment, past the explicit settings."""
+    return [f"{name} is set" for name in REDIRECTS if os.environ.get(name)]
 
 
 def presente_agent(

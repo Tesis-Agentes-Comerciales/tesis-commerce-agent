@@ -17,6 +17,7 @@ trial starts, naming it, rather than run without it:
 """
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -50,16 +51,25 @@ class EventRefused(ValueError):
     feed): the case is wrong, not the agent."""
 
 
+def unsupported_events(cases: Iterable[PresentCase | DelegatedCase]) -> list[str]:
+    """Each case of a plan with events the live executor does not apply, as
+    "<case>: <kind>@<at>, ..."; empty when it applies them all. Pure, so a run can refuse its
+    plan before the stack starts or anything is spent."""
+    found = []
+    for case in cases:
+        refused = [
+            f"{event.kind}@{event.at}"
+            for event in case.environment.events
+            if (event.at, event.kind) not in SUPPORTED
+        ]
+        if refused:
+            found.append(f"{case.id}: {', '.join(refused)}")
+    return found
+
+
 def check(case: PresentCase | DelegatedCase) -> None:
-    unsupported = [
-        f"{event.kind}@{event.at}"
-        for event in case.environment.events
-        if (event.at, event.kind) not in SUPPORTED
-    ]
-    if unsupported:
-        raise UnsupportedEvent(
-            f"{case.id}: the live executor does not apply {', '.join(unsupported)}"
-        )
+    if unsupported := unsupported_events([case]):
+        raise UnsupportedEvent(f"the live executor does not apply {unsupported[0]}")
 
 
 def at(case: PresentCase | DelegatedCase, trigger: Trigger) -> list[Event]:

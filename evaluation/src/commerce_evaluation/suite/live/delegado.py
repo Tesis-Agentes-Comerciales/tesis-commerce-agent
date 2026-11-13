@@ -29,7 +29,12 @@ from commerce_evaluation.stack.hnp_agent import (
 from commerce_evaluation.stack.purchase_lane import PurchaseLane
 from commerce_evaluation.suite.cases import DelegatedCase, Delegation, Governance
 from commerce_evaluation.suite.live import events
-from commerce_evaluation.suite.live.observe import Played, deliver_webhooks, flow_trace
+from commerce_evaluation.suite.live.observe import (
+    INFRA_STATUSES,
+    Played,
+    deliver_webhooks,
+    flow_trace,
+)
 from commerce_evaluation.suite.live.reference import ReferenceSelector
 from commerce_evaluation.suite.live.settings import Model, TrialAgent, delegado_agent
 from commerce_evaluation.suite.trial import Ending, Turn
@@ -39,7 +44,8 @@ TASK_SECONDS = 120
 
 
 class Stopped(Exception):
-    """The Agent API answered 5xx: the trial stops there."""
+    """The Agent API answered 5xx: the trial stops there. A 502, 503 or 504 is infrastructure;
+    a bare 500 is the product's unhandled exception, graded as the agent's (observe.py)."""
 
 
 class DelegationRefused(ValueError):
@@ -59,6 +65,10 @@ class Owner:
         self.grants: list[str] = []
         self.revocations: list[dict[str, Any]] = []
         self.api_5xx: list[str] = []
+        # Every other error answer, for the trace.
+        self.errors: list[dict[str, Any]] = []
+        # Why the task was still running when the wait ended, if it was.
+        self.unfinished: str | None = None
 
     def _call(self, route: str, path: str, token: str, body: Any = None) -> Any:
         """`route` is "METHOD template", the call's name in a failure's detail."""
@@ -67,10 +77,21 @@ class Owner:
         response = self.client.request(
             method, path, json=body, headers={"Authorization": f"Bearer {token}"}
         )
-        if response.status_code >= 500:
+        if response.status_code in INFRA_STATUSES:
             self.api_5xx.append(f"{route} {response.status_code}")
             raise Stopped
+        if response.status_code >= 500:
+            self._error(route, response)
+            raise Stopped
         return response
+
+    def _error(self, route: str, response: Any) -> None:
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        code = body.get("code") if isinstance(body, dict) else None
+        self.errors.append({"call": route, "status": response.status_code, "code": code})
 
     def delegate(self, scope: Delegation, name: str) -> None:
         """Proposal and consent, as the owner's two clicks."""
@@ -81,6 +102,11 @@ class Owner:
         if proposed.status_code != 201:
             raise DelegationRefused(f"{self.case_id}: the proposal answered {proposed.status_code}")
         proposal = proposed.json()
+        if differences := scope_differences(scope, proposal["scope"]):
+            raise DelegationRefused(
+                f"{self.case_id}: the proposal's scope differs from the case's in "
+                + ", ".join(differences)
+            )
         consent = {"proposal_id": proposal["proposal_id"], "scope_digest": proposal["scope_digest"]}
         consented = self._call("POST /delegations", "/delegations", token, consent)
         if consented.status_code != 201:
@@ -104,12 +130,21 @@ class Owner:
         """The scheduler's trigger, then the task once terminal."""
         token = self.agent.service_token
         task = f"/internal/hnp/tasks/{self.task_id}"
-        self._call("POST /internal/hnp/tasks/{task_id}/run", f"{task}/run", token)
+        route = "POST /internal/hnp/tasks/{task_id}/run"
+        triggered = self._call(route, f"{task}/run", token)
+        if triggered.status_code not in (200, 202):
+            # Not run (a task not runnable, for one): the trace says why, the task its state.
+            self._error(route, triggered)
+            self.task = self._call("GET /internal/hnp/tasks/{task_id}", task, token).json()
+            return
         deadline = time.monotonic() + TASK_SECONDS
         while True:
-            response = self._call("GET /internal/hnp/tasks/{task_id}", task, token)
-            self.task = response.json()
-            if self.task["state"] in HNP_TERMINAL_STATES or time.monotonic() > deadline:
+            self.task = self._call("GET /internal/hnp/tasks/{task_id}", task, token).json()
+            if self.task["state"] in HNP_TERMINAL_STATES:
+                return
+            if time.monotonic() > deadline:
+                state = self.task["state"]
+                self.unfinished = f"la tarea HNP seguía en {state} tras {TASK_SECONDS} s"
                 return
             time.sleep(0.2)
 
@@ -141,10 +176,35 @@ class AtSelection:
 def request(scope: Delegation, name: str) -> dict[str, Any]:
     """`POST /delegations/proposals` with the case's scope, for the lane's synthetic buyer."""
     body = delegation_request(list(scope.variant_ids), scope.total_max_minor, name=name)
-    body.update(valid_for_seconds=scope.valid_for_seconds, preference_text=scope.preference_text)
+    body.update(
+        currency=scope.currency,
+        valid_for_seconds=scope.valid_for_seconds,
+        preference_text=scope.preference_text,
+    )
     if scope.priority is not None:
         body["priority"] = list(scope.priority)
     return body
+
+
+def scope_differences(scope: Delegation, proposed: dict[str, Any]) -> list[str]:
+    """What of the case's scope the proposal's card does not show as asked, before the owner
+    consents to it: its variants, total, currency, preference text and priority."""
+    total = proposed["total_max"]
+    shown = {
+        "variant_ids": sorted(variant["variant_id"] for variant in proposed["variants"]),
+        "total_max_minor": total["minor"],
+        "currency": total["currency"].upper(),
+        "preference_text": proposed.get("preference_text"),
+        "priority": tuple(proposed["priority"]) if proposed.get("priority") else None,
+    }
+    asked = {
+        "variant_ids": sorted(scope.variant_ids),
+        "total_max_minor": scope.total_max_minor,
+        "currency": scope.currency.upper(),
+        "preference_text": scope.preference_text,
+        "priority": tuple(scope.priority) if scope.priority else None,
+    }
+    return [name for name in asked if asked[name] != shown[name]]
 
 
 def play_delegado(
@@ -195,7 +255,12 @@ def play_delegado(
             pass
     deliver_webhooks(lane, agent)
     trace = flow_trace("HNP", agent, episode.feed)
-    trace["suite"] = {"events": applied, "grants": owner.grants, "revocations": owner.revocations}
+    trace["suite"] = {
+        "events": applied,
+        "grants": owner.grants,
+        "revocations": owner.revocations,
+        "errors": owner.errors,
+    }
     task = owner.task
     return Played(
         agent=agent,
@@ -205,4 +270,5 @@ def play_delegado(
         final=Ending(task_state=task.get("state"), outcome_code=task.get("outcome_code")),
         trace=trace,
         api_5xx=tuple(owner.api_5xx),
+        unfinished=owner.unfinished,
     )

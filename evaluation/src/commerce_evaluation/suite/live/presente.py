@@ -8,7 +8,9 @@ the user ends the conversation.
 A turn the API answers with an error ends the conversation where the chat shows that error. The
 error's message is what the user reads, so it is the turn's assistant text, and the turn ends
 in `respond`: the agent stopped without presenting a purchase. An error without a message ends
-it with no action. A 5xx is also kept for the record's `infra_failure` (observe.py).
+it with no action. A 502, 503 or 504 is also kept for the record's `infra_failure`; a bare 500
+is an unhandled exception of the product, graded as the agent's and kept in the trace
+(observe.py).
 
 Nobody else approves: when a turn presents a checkout, the runner rereads its terms, as the UI
 does right before the click, and approves and completes it exactly when its one line is the
@@ -29,7 +31,12 @@ from commerce_evaluation.stack.purchase_agent import buyer_details
 from commerce_evaluation.stack.purchase_lane import PurchaseLane
 from commerce_evaluation.suite.cases import Governance, PresentCase
 from commerce_evaluation.suite.live import events
-from commerce_evaluation.suite.live.observe import Played, deliver_webhooks, flow_trace
+from commerce_evaluation.suite.live.observe import (
+    INFRA_STATUSES,
+    Played,
+    deliver_webhooks,
+    flow_trace,
+)
 from commerce_evaluation.suite.live.reference import ReferenceRouter
 from commerce_evaluation.suite.live.settings import Model, presente_agent
 from commerce_evaluation.suite.trial import Ending, Turn, TurnAction
@@ -66,7 +73,7 @@ class Talk:
         """The answer's body, or None when the API answered an error, which is kept."""
         if response.status_code < 400:
             return response.json()
-        if response.status_code >= 500:
+        if response.status_code in INFRA_STATUSES:
             self.api_5xx.append(f"{what} {response.status_code}")
         body = _json(response)
         self.errors.append(

@@ -23,8 +23,13 @@ from commerce_evaluation.stack.purchase_lane import Episode
 from commerce_evaluation.suite import live_executor
 from commerce_evaluation.suite.cases import CASE
 from commerce_evaluation.suite.executor import RunSettings
-from commerce_evaluation.suite.live import events, observe
-from commerce_evaluation.suite.live.delegado import AtSelection, request
+from commerce_evaluation.suite.live import events, observe, usage
+from commerce_evaluation.suite.live.delegado import (
+    AtSelection,
+    Owner,
+    request,
+    scope_differences,
+)
 from commerce_evaluation.suite.live.presente import approvable, converse
 from commerce_evaluation.suite.live.reference import (
     NoReferenceChoice,
@@ -34,6 +39,7 @@ from commerce_evaluation.suite.live.reference import (
     named_variant,
 )
 from commerce_evaluation.suite.live_executor import LiveExecutor
+from commerce_evaluation.suite.trial import InfraFailure
 from commerce_evaluation.suite.users import ScriptedUser
 
 PHONES = Path(__file__).parents[2] / "fixtures" / "phones_feed"
@@ -156,6 +162,21 @@ def test_the_reference_selector_follows_the_expected_end():
     assert blocked.choose(shortlist, intent, None) == PIXEL_8
 
 
+def test_with_an_offer_event_the_reference_leaves_the_escalation_to_the_product():
+    # The preferred variant sells out after consent: the product's guards must escalate.
+    sold_out = {"at": "after_consent", "kind": "stock_out", "variant": PIXEL_8}
+    seeded = case("delegado", seeded=(sold_out,), expected={"outcome": ["escalate"]})
+    shortlist = ranked(PIXEL_8, PIXEL_8A)
+    assert ReferenceSelector(seeded).choose(shortlist, PurchaseIntent(), None) == PIXEL_8
+    revoked = case(
+        "delegado",
+        seeded=({"at": "on_selection", "kind": "revoke"},),
+        expected={"outcome": ["escalate"]},
+    )
+    with pytest.raises(NoReferenceChoice):
+        ReferenceSelector(revoked).choose(shortlist, PurchaseIntent(), None)
+
+
 def test_the_selection_hook_runs_once_before_the_first_choice():
     seen: list[str] = []
 
@@ -178,6 +199,20 @@ def test_the_proposal_carries_the_case_scope():
     assert body["variant_ids"] == [PIXEL_8, PIXEL_8A] and body["total_max_minor"] == TOTAL
     assert body["priority"] == [PIXEL_8A, PIXEL_8] and body["preference_text"] == "el más barato"
     assert body["details"]["fulfillment"]["address"]["city"] == "Bogotá"
+    assert body["currency"] == "COP"
+
+
+def test_the_owner_consents_only_to_the_case_scope():
+    scope = case("delegado").delegation
+    card = {
+        "variants": [{"variant_id": PIXEL_8A, "title": "a"}, {"variant_id": PIXEL_8, "title": "b"}],
+        "total_max": {"minor": TOTAL, "currency": "cop"},
+        "preference_text": None,
+    }
+    assert scope_differences(scope, card) == []
+    lower = card | {"total_max": {"minor": TOTAL - 1, "currency": "cop"}}
+    assert scope_differences(scope, lower) == ["total_max_minor"]
+    assert scope_differences(scope, card | {"priority": [PIXEL_8]}) == ["priority"]
 
 
 # Events.
@@ -188,6 +223,16 @@ def test_an_event_the_executor_does_not_apply_is_refused_by_name():
     price = {"at": "before_checkout", "kind": "price_change", "variant": PIXEL_8}
     with pytest.raises(events.UnsupportedEvent, match="price_change@before_checkout"):
         events.check(case(seeded=(price | {"amount_minor": 1},)))
+
+
+def test_a_plan_s_unsupported_events_are_named_before_anything_starts():
+    price = {"at": "before_checkout", "kind": "price_change", "variant": PIXEL_8}
+    declined = {"at": "on_payment", "kind": "payment_declined"}
+    plan = [case(), case(seeded=(price | {"amount_minor": 1}, declined))]
+    assert events.unsupported_events(plan) == [
+        "caso/presente: price_change@before_checkout, payment_declined@on_payment"
+    ]
+    assert events.unsupported_events([case()]) == []
 
 
 def text(field: str, value: str, variant: str = PIXEL_8) -> dict[str, Any]:
@@ -328,8 +373,19 @@ def test_a_turn_the_api_refuses_ends_on_its_message():
     talk = converse(Agent([refused], {}), ScriptedUser(case()), case(), {})
     assert talk.action == "respond" and talk.transcript[-1].text == "No pude confirmar."
     assert talk.api_5xx == [] and talk.errors[0]["status"] == 409
-    failed = converse(Agent([Answer(500, {})], {}), ScriptedUser(case()), case(), {})
-    assert failed.action is None and failed.api_5xx == ["POST /conversation/turn 500"]
+    unavailable = Answer(503, {"code": "merchant_unavailable", "message": "No responde."})
+    down = converse(Agent([unavailable], {}), ScriptedUser(case()), case(), {})
+    assert down.api_5xx == ["POST /conversation/turn 503"]
+
+
+def test_a_bare_500_is_the_agent_s_and_stays_in_the_trace():
+    failed = converse(
+        Agent([Answer(500, "Internal Server Error")], {}), ScriptedUser(case()), case(), {}
+    )
+    assert failed.action is None and failed.api_5xx == []
+    assert failed.errors == [
+        {"call": "POST /conversation/turn", "status": 500, "code": None, "message": None}
+    ]
 
 
 # What a trial leaves behind.
@@ -352,6 +408,16 @@ def ledger(path: Path, *rows: tuple[Any, ...]) -> Path:
     return path
 
 
+def tokens(input_tokens: int, output_tokens: int, read: int = 0, write: int = 0) -> TokenUsage:
+    return TokenUsage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=read,
+        cache_write_tokens=write,
+        reasoning_tokens=0,
+    )
+
+
 def test_the_agent_usage_bills_the_uncached_input_apart(tmp_path):
     path = ledger(
         tmp_path / "agent.db",
@@ -359,16 +425,32 @@ def test_the_agent_usage_bills_the_uncached_input_apart(tmp_path):
         (200, 0, None, None, None, None, "error", 529),
         (300, 20, 0, 0, 0, "claude-haiku-5-5", "ok", 200),
     )
-    usage, models, failed = observe.agent_usage(path)
-    assert usage == TokenUsage(
-        input_tokens=300 + 200 + 300,
-        output_tokens=70,
-        cache_read_tokens=600,
-        cache_write_tokens=100,
-        reasoning_tokens=10,
+    spent = usage.agent_usage(path)
+    assert [item.usage for item in spent.requests] == [
+        tokens(300, 50, 600, 100).model_copy(update={"reasoning_tokens": 10}),
+        tokens(200, 0),
+        tokens(300, 20),
+    ]
+    assert spent.total.input_tokens == 800 and spent.total.cache_read_tokens == 600
+    assert spent.models == ("claude-haiku-5-5",) and spent.provider_5xx == 1
+    assert usage.agent_usage(tmp_path / "none.db") == usage.AgentUsage()
+
+
+def test_each_request_is_priced_and_charged_at_its_own_rate(tmp_path):
+    # Two Haiku requests of 60K prompt tokens: each under the 100K long-prompt card, their sum
+    # over it. Priced on the sum, the trial would cost five times as much.
+    path = ledger(
+        tmp_path / "agent.db",
+        *[(60_000, 1_000, 0, 0, 0, "claude-haiku-5-5", "ok", 200)] * 2,
     )
-    assert models == ("claude-haiku-5-5",) and failed == 1
-    assert observe.agent_usage(tmp_path / "none.db")[2] == 0
+    spent = usage.agent_usage(path)
+    haiku = CLAUDE_PRICES["claude-haiku-5-5"]
+    each = haiku.cost(tokens(60_000, 1_000))
+    assert usage.cost("claude-haiku-5-5", spent) == 2 * each
+    assert haiku.cost(spent.total) > 2 * each
+    budget = RunBudget(max_usd=Decimal(1), run_dir=tmp_path)
+    usage.charge(budget, "claude-haiku-5-5", "low", spent)
+    assert budget.spent_usd == 2 * each
 
 
 def test_only_the_episode_s_approved_payments_are_charges(tmp_path):
@@ -392,6 +474,8 @@ def test_only_faults_nobody_armed_are_infrastructure_failures():
         Call("GET", "/orders/o", "pass", b"", status=502),
         Call("POST", "/checkout_sessions/c/complete", "merchant_unreachable", b""),
         Call("GET", "/checkout_sessions/c", "pass", b"", status=200),
+        # A bare 500 is an unhandled exception, not the infrastructure's.
+        Call("GET", "/checkout_sessions/c", "pass", b"", status=500),
     ]
 
     class Proxy:
@@ -403,10 +487,59 @@ def test_only_faults_nobody_armed_are_infrastructure_failures():
         "GET /orders/o 502",
         "POST /checkout_sessions/c/complete merchant_unreachable",
     ]
-    failure = observe.infra_failure(["POST /conversation/turn 500"], upstream, 2)
+    failure = observe.infra_failure(["POST /conversation/turn 503"], upstream, 2)
     assert failure is not None and failure.cause == "api_5xx"
     assert "2 solicitudes con 5xx" in failure.detail
     assert observe.infra_failure([], [], 0) is None
+    unfinished = observe.infra_failure([], [], 0, "la tarea HNP seguía en running tras 120 s")
+    assert unfinished is not None and unfinished.detail.startswith("la tarea HNP")
+
+
+class Delegated:
+    """The Agent API as the delegado owner sees it: the trigger's status and the task's states."""
+
+    def __init__(self, trigger: int, states: list[str]):
+        self.trigger, self.states = trigger, states
+
+    def request(self, method: str, path: str, json: Any = None, headers: Any = None) -> Answer:
+        if path.endswith("/run"):
+            return Answer(self.trigger, {"code": "hnp_task_not_runnable"})
+        state = self.states.pop(0) if len(self.states) > 1 else self.states[0]
+        return Answer(200, {"task_id": "ht_1", "state": state, "outcome_code": None})
+
+
+def owner(client: Delegated) -> Owner:
+    from commerce_evaluation.suite.live.settings import TrialAgent
+
+    agent = TrialAgent(settings=None, buyer_token="b", service_token="s")  # type: ignore[arg-type]
+    owned = Owner(agent, "caso/delegado")
+    owned.client, owned.task_id = client, "ht_1"  # type: ignore[assignment]
+    return owned
+
+
+def test_a_task_the_trigger_refuses_is_read_once_and_kept_in_the_trace():
+    refused = owner(Delegated(409, ["escalated"]))
+    refused.run()
+    assert refused.task["state"] == "escalated" and refused.unfinished is None
+    assert refused.errors == [
+        {
+            "call": "POST /internal/hnp/tasks/{task_id}/run",
+            "status": 409,
+            "code": "hnp_task_not_runnable",
+        }
+    ]
+
+
+def test_a_task_still_running_when_the_wait_ends_is_infrastructure(monkeypatch):
+    from commerce_evaluation.suite.live import delegado
+
+    done = owner(Delegated(202, ["running", "purchased"]))
+    done.run()
+    assert done.task["state"] == "purchased" and done.unfinished is None
+    monkeypatch.setattr(delegado, "TASK_SECONDS", 0)
+    running = owner(Delegated(202, ["running"]))
+    running.run()
+    assert running.unfinished == "la tarea HNP seguía en running tras 0 s"
 
 
 # The executor's own failures.
@@ -452,6 +585,8 @@ def test_a_model_under_test_needs_a_budget_and_the_key(tmp_path, monkeypatch):
 
 def test_the_agent_usage_is_charged_when_the_budget_stops_the_trial(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-only")
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     budget = RunBudget(max_usd=Decimal(1), run_dir=tmp_path)
     executor = LiveExecutor(settings(tmp_path, "claude-haiku-5-5"), budget)
     monkeypatch.setattr(executor, "_lane", lambda profile: object())
@@ -474,10 +609,85 @@ def test_the_agent_usage_is_charged_when_the_budget_stops_the_trial(tmp_path, mo
     assert budget.spent_usd == CLAUDE_PRICES["claude-haiku-5-5"].cost(spent)
 
 
+def test_a_completed_trial_keeps_its_record_when_its_charge_passes_the_cap(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-only")
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    budget = RunBudget(max_usd=Decimal("0.0001"), run_dir=tmp_path)
+    executor = LiveExecutor(settings(tmp_path, "claude-haiku-5-5"), budget)
+    monkeypatch.setattr(executor, "_lane", lambda profile: object())
+    completed = executor._unobserved(case(), "B2", 1, 7, InfraFailure(cause="api_5xx", detail="x"))
+
+    def play(case, governance, trial, seed, lane, root, name):
+        ledger(root / "agent.db", (100_000, 5_000, 0, 0, 0, "claude-haiku-5-5", "ok", 200))
+        return completed
+
+    monkeypatch.setattr(executor, "_play", play)
+    assert executor.run(case(), "B2", 1, 7) is completed
+    assert budget.spent_usd > budget.max_usd
+    with pytest.raises(FundsExhausted):
+        executor.run(case(), "B2", 2, 8)
+
+
+def test_a_resumed_run_starts_a_new_session_in_the_same_run_dir(tmp_path, monkeypatch):
+    """#211 resumes a run in its own directory: each session's stack and trials are its own."""
+
+    class Stack:
+        def __init__(self, root: Path):
+            self.root, self.merchant = root, tmp_path
+
+        def start(self) -> None: ...
+
+        def close(self) -> None: ...
+
+    class Lane:
+        def __init__(self, stack: Stack, profile: str):
+            # As PurchaseLane does: its directory must not exist yet.
+            self.root = stack.root / profile
+            self.root.mkdir()
+
+        def start(self) -> None: ...
+
+        def close(self) -> None: ...
+
+    class Played(Exception):
+        pass
+
+    def play(lane, case, governance, root, model, user, name):
+        raise Played(root)
+
+    monkeypatch.setattr(live_executor, "missing_requirements", lambda: [])
+    monkeypatch.setattr(live_executor, "payment_requirements", lambda: [])
+    monkeypatch.setattr(live_executor, "LiveStack", Stack)
+    monkeypatch.setattr(live_executor, "PurchaseLane", Lane)
+    monkeypatch.setattr(live_executor, "play_presente", play)
+    trials = []
+    for _ in range(2):
+        with LiveExecutor(settings(tmp_path), None) as executor:
+            with pytest.raises(Played) as played:
+                executor.run(case(), "B2", 1, 7)
+            trials.append(played.value.args[0])
+    assert len(set(trials)) == 2 and all(trial.is_dir() for trial in trials)
+    assert len(list((tmp_path / "stack").iterdir())) == 2
+
+
+def test_the_anthropic_client_cannot_be_sent_elsewhere(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-only")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")
+    budget = RunBudget(max_usd=Decimal(1), run_dir=tmp_path)
+    with pytest.raises(RuntimeError, match="ANTHROPIC_BASE_URL is set"):
+        LiveExecutor(settings(tmp_path, "claude-haiku-5-5"), budget)
+    simulated = RunSettings("r", tmp_path, "capability", None, "low", "claude-sonnet-5-5")
+    with pytest.raises(RuntimeError, match="ANTHROPIC_BASE_URL is set"):
+        LiveExecutor(simulated, budget)
+
+
 def test_the_agent_settings_take_the_key_from_this_process_only(monkeypatch):
     from commerce_evaluation.suite.live import settings as agent_settings
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-only")
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     values = agent_settings._model(agent_settings.Model("claude-haiku-5-5", "low"))
     assert values == {
         "anthropic_api_key": "sk-ant-test-only",

@@ -18,8 +18,10 @@ Presente, `ReferenceRouter`, in the conversation router's place:
 Every later turn answers the same way, without a second purchase.
 
 Delegado, `ReferenceSelector`, in the HNP selector's place: the expected variant when the case
-expects a purchase; no choice (`selection_unavailable`) when it expects an escalation; otherwise
-the shortlist's first, as the deterministic selector picks, so the task meets what blocks it.
+expects a purchase. When it expects an escalation that is the model's judgment (a request the
+agent cannot verify, no option that meets it), no choice (`selection_unavailable`). Otherwise,
+and always when an event changes an offer, the shortlist's first, as the deterministic selector
+picks: the task meets what blocks it, so the product's guards decide, not the reference.
 """
 
 import re
@@ -125,7 +127,8 @@ class ReferenceSelector:
         expected = self._case.expected
         if expected.purchase is not None:
             return expected.purchase.variant
-        if "escalate" in expected.outcome and "block" not in expected.outcome:
+        offers_change = any(event.variant is not None for event in self._case.environment.events)
+        if "escalate" in expected.outcome and "block" not in expected.outcome and not offers_change:
             raise NoReferenceChoice(self._case.id)
         return shortlist[0].candidate.variant_id
 

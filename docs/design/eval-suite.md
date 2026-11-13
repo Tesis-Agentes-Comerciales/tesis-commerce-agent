@@ -327,17 +327,20 @@ respuesta guionada de su proveedor, así que solo van en regresión.
 ### El intento en el stack
 
 `LiveExecutor` (`suite/live_executor.py` y `suite/live/`) corre cada intento sobre el stack
-vivo. Arranca PostgreSQL y el Merchant una vez por corrida, y cada carril la primera vez que lo
-necesita un intento: `b0` para `presente` y `hnp` para `delegado`, los dos con el PSP real. Cada
-intento es un episodio nuevo del Merchant y un Agent nuevo con su propia base, en su carpeta de
-la corrida: el `create_app` de producción en este proceso, con todos sus valores explícitos y sin
-leer `.env`.
+vivo. Arranca PostgreSQL y el Merchant una vez por sesión, y cada carril la primera vez que lo
+necesita un intento: `b0` para `presente` y `hnp` para `delegado`, los dos con el PSP real. Una
+corrida retomada es otra sesión en la misma carpeta, así que cada sesión tiene su stack en
+`stack/<sesión>/` y la carpeta de cada intento nombra su sesión. Cada intento es un episodio nuevo
+del Merchant y un Agent nuevo con su propia base, en su carpeta de la corrida: el `create_app` de
+producción en este proceso, con todos sus valores explícitos y sin leer `.env`.
 
 - **Gobernanza.** En `presente`, B2 es la condición B2 con la política b2-hp-v2, y B0 es B0′
   (gobernanza apagada), como en los pilotos. En `delegado`, B2 es B2-HNP y B0 es B0-HNP.
 - **Modelo.** Con `--agent`, el Agent corre sobre Claude con ese modelo y ese esfuerzo; en
   `delegado` el selector es el modelo y, en B2, también el revisor. La clave sale de
-  `ANTHROPIC_API_KEY` de este proceso y va solo a los settings del Agent.
+  `ANTHROPIC_API_KEY` de este proceso y va solo a los settings del Agent. Si
+  `ANTHROPIC_BASE_URL` o `ANTHROPIC_AUTH_TOKEN` están en el entorno, el corredor no arranca: el
+  cliente del SDK los leería por encima de los settings.
 - **Agente de referencia** (`suite/live/reference.py`). Sin `--agent`, en la frontera del modelo
   está el agente de referencia, que no lee un guion: sale de `expected`, así que termina donde el
   caso espera, y todo lo demás (búsqueda, gobernanza, checkout, aprobación y evidencia) es del
@@ -345,23 +348,33 @@ leer `.env`.
   total de `expected.purchase`. Si no espera compra pero sí el eslabón `intent`, intenta la
   variante que nombra `script[0]`, para que el evento o el producto la detengan. Si no, pregunta
   (`clarify`) cuando el caso lo acepta, o responde con `must_communicate`. En `delegado`
-  reemplaza al selector: elige la variante esperada, no elige nada si el caso espera `escalate`,
-  y si no, elige la primera de la lista corta.
+  reemplaza al selector: elige la variante esperada si el caso espera `buy`, y no elige nada si
+  espera `escalate` por un juicio del modelo (`entrega-no-verificable`, `ninguna-opcion-cumple`).
+  Si no, y siempre que un evento cambia una oferta, elige la primera de la lista corta: así las
+  protecciones del producto deciden, no la referencia.
 - **Eventos.** El corredor aplica `catalog_text` y `stock_out` en `start`, `stock_out` y
   `delegation_replaced` en `after_consent`, `revoke` en `on_selection` y `merchant_unavailable`
   en `on_checkout_create`. Un caso con otro evento se rechaza antes de su intento, con su nombre,
   en vez de correr sin él; si el cambio de un evento no se puede hacer, el que está mal es el
-  caso.
+  caso. `unsupported_events` (`suite/live/events.py`) revisa un plan entero antes de arrancar.
+- **El consentimiento.** Antes de consentir, el corredor comprueba que la tarjeta de la propuesta
+  muestre el alcance del caso: variantes, total, moneda, texto de preferencia y prioridad.
 - **Una respuesta de error.** Si la API del Agent rechaza un turno de `presente`, la
   conversación termina donde el chat muestra el error: su mensaje es el turno del asistente, y la
   acción es `respond`.
 - **Infraestructura.** Si el stack o un carril no arrancan, cada intento que los necesita queda
   con `stack_not_started` y nada más observado, y no se reintenta dentro de la corrida. Es
-  `api_5xx` un 5xx de la API del Agent, un 5xx del Merchant o del PSP que ningún fallo armó, una
-  solicitud al modelo que el proveedor respondió 5xx en todos los intentos o una falla de la API
-  del usuario simulado.
-- **Costo.** El uso del agente sale de `model_requests` en la base del intento y se cobra al
-  presupuesto de la corrida termine como termine el intento.
+  `api_5xx` un 502, 503 o 504 de la API del Agent, uno del Merchant o del PSP que ningún fallo
+  armó, una solicitud al modelo que el proveedor respondió 5xx en todos los intentos, una tarea de
+  `delegado` que sigue corriendo a los 120 s o una falla de la API del usuario simulado.
+- **Un 500 es del agente.** El producto responde sus fallas conocidas con 502, 503 o 504 y un
+  código; un 500 es una excepción que no manejó, así que el intento se califica como cualquier
+  otro y la traza guarda el error.
+- **Costo.** El uso del agente sale de `model_requests` en la base del intento. Cada solicitud
+  se cobra al presupuesto de la corrida por separado, con su propia tarifa (la de Haiku cambia
+  por encima de 100K tokens de prompt), termine como termine el intento. Un intento que terminó
+  conserva su registro aunque su cobro pase el tope, y el siguiente se rechaza con
+  `FundsExhausted`.
 
 `tests/integration/test_suite_regression.py` corre así cada caso del catálogo con cada una de
 sus gobernanzas, y exige que pase sus calificadores de código.
