@@ -31,6 +31,8 @@ KINDS: tuple[ModelFailureKind, ...] = get_args(ModelFailureKind)
 TURN = "POST /conversation/turn 502"
 SELECTION = "task_finished selection_unavailable"
 FAILED = "The conversation model request failed"
+# What the provider said of the smoke run's 400 (#217).
+GRAMMAR = "The compiled grammar is too large"
 
 
 def present() -> PresentCase:
@@ -177,6 +179,22 @@ def test_a_delegado_reviewer_failure_counts_by_its_kind(tmp_path: Path, kind: Mo
     assert failures.task_failure(path) == Seen(kind, "choice_reviewed review_unavailable")
 
 
+def test_a_ledger_written_before_the_message_column_still_gives_its_evidence(tmp_path: Path):
+    path = tmp_path / "agent.db"
+    with closing(sqlite3.connect(path)) as db, db:
+        db.execute(
+            "CREATE TABLE model_requests (sequence INTEGER PRIMARY KEY, outcome TEXT, stage TEXT, "
+            "error_kind TEXT, http_status INTEGER, provider_error_code TEXT, retries INTEGER)"
+        )
+        db.execute(
+            "INSERT INTO model_requests (outcome, stage, error_kind, http_status, "
+            "provider_error_code, retries) VALUES "
+            "('error', 'model.route', 'BadRequestError', 400, 'invalid_request_error', 0)"
+        )
+
+    assert failures.failed_requests(path) == (REFUSED_REQUEST | {"provider_error_message": None},)
+
+
 def test_a_task_that_ended_without_a_model_failure_names_none(tmp_path: Path):
     # The reference selector chose nothing: the product's own escalation, no model involved.
     path = agent_db(tmp_path, finished("selection_unavailable"))
@@ -229,6 +247,7 @@ def test_the_smoke_run_s_400_is_the_agent_s_failure_with_its_evidence(tmp_path: 
             error_kind="BadRequestError",
             http_status=400,
             provider_error_code="invalid_request_error",
+            provider_error_message=GRAMMAR,
             retries=0,
         )
     )
@@ -236,8 +255,9 @@ def test_the_smoke_run_s_400_is_the_agent_s_failure_with_its_evidence(tmp_path: 
 
     decided = failures.decided(talk.model_failure, path)
 
+    evidence = REFUSED_REQUEST | {"provider_error_message": GRAMMAR}
     assert decided == ModelFailure(
-        kind="rejected", counts_against="agent", source=TURN, requests=(REFUSED_REQUEST,)
+        kind="rejected", counts_against="agent", source=TURN, requests=(evidence,)
     )
     assert observe.infra_failure(talk.api_5xx, [], 0, None, decided) is None
 

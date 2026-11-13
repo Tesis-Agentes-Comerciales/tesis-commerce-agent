@@ -378,7 +378,9 @@ producción en este proceso, con todos sus valores explícitos y sin leer `.env`
   son del agente y el intento se califica sin repetirse, mientras que `provider_error`,
   `unreachable`, `rate_limited` y `quota_exhausted` son `api_5xx`, y solo los excusa una falla
   del modelo que el caso inyecta (`MODEL_FAULTS`), no una de red ni del PSP. El registro guarda
-  la decisión y las solicitudes que fallaron en `model_requests` (`model_failure`).
+  la decisión y las solicitudes que fallaron en `model_requests` (`model_failure`), con el
+  mensaje del proveedor cuando la base tiene `provider_error_message` (§6); el mensaje es
+  evidencia y no decide el tipo.
 - **Lo que ningún reintento arregla detiene la corrida.** Un `quota_exhausted` de la
   infraestructura la detiene con `funds_exhausted`, y un `rejected` con 401, 403 o 404, o el
   tercero seguido con la misma etapa y el mismo código del proveedor, con `misconfigured`; el

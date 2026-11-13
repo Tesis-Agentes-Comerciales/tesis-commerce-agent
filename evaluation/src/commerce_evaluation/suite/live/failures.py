@@ -9,9 +9,9 @@ it, never deriving it again:
 - delegado: `failure_kind` in the task's chained `delegation_events`: `task_finished` for the
   selector (with `selection_unavailable`), `choice_reviewed` for the reviewer.
 
-Not from the `model_requests` ledger: it keeps the HTTP status and the provider's code, not the
-kind, so a spent balance's 400 reads there like any other 400, and an answer outside the contract
-can end a request the ledger calls `ok`. Its failed rows go into the record as the evidence.
+Not from the `model_requests` ledger: it keeps the HTTP status, the provider's code and (since
+#217) its message, not the kind, and an answer outside the contract can end a request the ledger
+calls `ok`. Its failed rows go into the record as the evidence.
 
 `rejected` and `invalid_output` count against the agent (trial.AGENT_FAILURES): the trial is
 graded, never repeated, and its trace keeps the error. Any other kind is the infrastructure's
@@ -29,6 +29,9 @@ from commerce_evaluation.suite.trial import AGENT_FAILURES, ModelFailure, Row
 
 # The ledger's columns that tell a failed request apart, all of them older than this module.
 EVIDENCE = ("stage", "error_kind", "http_status", "provider_error_code", "retries")
+# The provider's own words, redacted and cut by the product, when the ledger has the column: a
+# database written before it lacks it, and then the row says None.
+MESSAGE = "provider_error_message"
 
 
 @dataclass(frozen=True)
@@ -60,13 +63,15 @@ def task_failure(database: Path) -> Seen | None:
 
 def failed_requests(database: Path) -> tuple[Row, ...]:
     """The ledger's requests that failed, in order, with what tells them apart."""
+    columns = _columns(database, "model_requests")
+    message = MESSAGE if MESSAGE in columns else "NULL"
     rows = _rows(
         database,
         "model_requests",
-        f"SELECT {', '.join(EVIDENCE)} FROM model_requests WHERE outcome = 'error' "
+        f"SELECT {', '.join(EVIDENCE)}, {message} FROM model_requests WHERE outcome = 'error' "
         "ORDER BY sequence",
     )
-    return tuple(dict(zip(EVIDENCE, row, strict=True)) for row in rows)
+    return tuple(dict(zip((*EVIDENCE, MESSAGE), row, strict=True)) for row in rows)
 
 
 def decided(seen: Seen | None, database: Path) -> ModelFailure | None:
@@ -79,6 +84,10 @@ def decided(seen: Seen | None, database: Path) -> ModelFailure | None:
         source=seen.source,
         requests=failed_requests(database),
     )
+
+
+def _columns(database: Path, table: str) -> set[str]:
+    return {row[1] for row in _rows(database, table, f"PRAGMA table_info({table})")}
 
 
 def _rows(database: Path, table: str, query: str) -> list[tuple[Any, ...]]:

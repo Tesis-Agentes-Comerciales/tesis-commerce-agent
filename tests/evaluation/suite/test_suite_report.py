@@ -150,13 +150,19 @@ def test_a_run_the_model_s_setup_stopped_says_why(tmp_path: Path) -> None:
     assert f"| clave-revocada/presente | B2 | 1 | 1 | configuración del modelo | {reason} |" in text
 
 
+# What the provider said of the smoke run's 400, as the ledger keeps it since #217.
+GRAMMAR = "The compiled grammar is too large"
+
+
 def test_each_model_failure_is_reported_with_its_decision_and_evidence(tmp_path: Path) -> None:
     refused, limited = make_case("el-proveedor-rechaza"), make_case("limite-de-solicitudes")
     done = run(
         tmp_path,
         [refused, limited],
         {
-            (refused.id, "B2", 1): [{"model_failure": model_failure("rejected")}],
+            (refused.id, "B2", 1): [
+                {"model_failure": model_failure("rejected", provider_error_message=GRAMMAR)}
+            ],
             (limited.id, "B2", 1): [
                 {"infra_failure": API_5XX, "model_failure": model_failure("rate_limited")},
                 {},
@@ -182,7 +188,7 @@ def test_each_model_failure_is_reported_with_its_decision_and_evidence(tmp_path:
     evidence = "model.route BadRequestError 400 invalid_request_error"
     assert (
         f"| el-proveedor-rechaza/presente | B2 | 1 | guardado | `rejected` | el agente | "
-        f"POST /conversation/turn 502 | {evidence} |" in text
+        f"POST /conversation/turn 502 | {evidence}: «{GRAMMAR}» |" in text
     )
     assert (
         f"| limite-de-solicitudes/presente | B2 | 1 | 1 | `rate_limited` | la infraestructura | "

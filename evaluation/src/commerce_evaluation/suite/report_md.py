@@ -265,8 +265,8 @@ def _model_failures(report: "Report") -> str:
         "`provider_error`, `unreachable`, `rate_limited` y `quota_exhausted` son de la "
         "infraestructura. `quota_exhausted` detiene la corrida, y también un `rejected` con 401, "
         "403 o 404, o el tercero seguido con la misma etapa y el mismo código; ese intento se "
-        "repite al retomar. Solicitudes: las que fallaron "
-        "en `model_requests`, con su etapa, su error, su estado HTTP y el código del proveedor."
+        "repite al retomar. Solicitudes: las que fallaron en `model_requests`, con su etapa, su "
+        "error, su estado HTTP, el código del proveedor y, si lo guardó, su mensaje."
     )
     return "## Fallas del modelo del agente\n\n" + legend + "\n\n" + table(header, rows)
 
@@ -279,9 +279,14 @@ def _when(row: dict[str, Any]) -> object:
 
 def _requests(value: object) -> str:
     rows = [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
-    cells = itemgetter("stage", "error_kind", "http_status", "provider_error_code")
-    named = [" ".join(str(each) for each in cells(row) if each is not None) for row in rows]
-    return "; ".join(named) or "ninguna"
+    return "; ".join(map(_request, rows)) or "ninguna"
+
+
+def _request(row: dict[str, Any]) -> str:
+    cells = itemgetter("stage", "error_kind", "http_status", "provider_error_code")(row)
+    named = " ".join(str(each) for each in cells if each is not None)
+    message = row.get("provider_error_message")
+    return f"{named}: «{message}»" if message else named
 
 
 def _review(report: "Report") -> str:
