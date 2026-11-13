@@ -411,14 +411,44 @@ flowchart LR
 - **Datos y pruebas:** los casos van en `evaluation/data/suite/`, un archivo por caso. Las
   pruebas sin red van en `tests/evaluation/suite/`, y una prueba de punta a punta con el stack
   va en `tests/integration/`.
-- **Sin framework en el núcleo.** Los calificadores son funciones puras sobre el registro, y el
-  corredor es un ciclo simple. Inspect AI entra solo como adaptador del corredor, si pasa la
-  prueba del PR 5.
+- **Sin framework.** Los calificadores son funciones puras sobre el registro, y el corredor es
+  un ciclo simple. Inspect AI no entra: el PR 5 lo probó y no se puede instalar junto al
+  producto (ver abajo).
 - **Tamaño.** Ningún módulo nuevo pasa de unas 300 líneas, y no se repiten clientes HTTP ni
   guardas de costo.
 - **Salida estructurada en la evaluación.** El simulador y el juez usan `messages.create` con
   `output_config.format` y validan la respuesta con Pydantic, no `messages.parse`: `parse` lanza
   ante una respuesta fuera del esquema y se pierde su uso, y Batch no tiene `parse`.
+
+### Resultado del PR 5: Inspect AI no entra
+
+Se probó el 13-nov-2026 con `inspect-ai==0.3.289`, la última versión en PyPI, en un entorno
+aparte. El adaptador no corría el agente: convertía una corrida (`cases.jsonl` y `trials.jsonl`)
+en un log de Inspect con su API pública (`EvalLog`, `recompute_metrics` y `write_eval_log`), un
+log por gobernanza. Cada intento era una muestra, con el número de intento como época, la
+transcripción como mensajes y el éxito estricto de nuestros calificadores como puntaje: 1 si
+pasa, 0 si falla o queda en `unknown`, y NaN si la infraestructura lo rompió, que Inspect deja
+fuera del denominador como `reduce.py`.
+
+| Criterio | Resultado |
+| --- | --- |
+| El adaptador cabe en unas 150 líneas | Sí: 119 líneas |
+| La transcripción completa se ve en el visor | Sí: `inspect view` muestra cada turno, con el veredicto y el puntaje |
+| `pass_k` da lo mismo que `reduce.py` | Sí: el reductor `pass_k` de Inspect usa el mismo estimador C(c,k)/C(n,k). Con 4 tareas y 20 intentos guionados, con `pass`, `fail`, `unknown` y dos fallas de infraestructura, dio los mismos valores por tarea y por gobernanza para k de 1 a 5, también cuando hay menos intentos que k |
+
+**Por qué no se adopta.** Los tres criterios se cumplen, pero solo fuera del proyecto. AP2, del
+que depende el producto, fija `pydantic==2.12.5`, y Inspect exige `pydantic>=2.13.0` desde al
+menos la versión 0.3.219, de mayo de 2026. `uv` no puede resolver el lock con Inspect, ni siquiera
+como grupo opcional, y en un entorno aparte el adaptador choca con lo mismo, porque importa los
+calificadores, que importan el producto y AP2. La prueba solo corrió forzando pydantic 2.14 en
+un entorno desechable. Adoptarlo exigiría forzar otra versión de pydantic en el
+producto, en contra de AP2, solo para tener un visor. Además, `reduce.py` seguiría haciendo
+falta: Inspect no da intervalos de Wilson ni la tasa de ataques.
+
+**Decisión.** La suite sigue sin framework y no entra código. Se puede reconsiderar si AP2 libera
+pydantic, o con un puente en dos entornos: la suite exporta los intentos calificados a JSON y un
+script aparte escribe el log con `uv run --no-project --with inspect-ai==0.3.289`. Ese puente
+queda fuera del plazo del 16-nov.
 
 ## 6. El agente sobre Claude
 
@@ -526,7 +556,7 @@ Cada PR es de un tema, con la compuerta local en verde y un revisor independient
 | --- | --- |
 | El juez favorece a su propia familia: agente, simulador y juez son Claude | La calibración humana es obligatoria, y el código califica todo lo que puede |
 | El simulador revela información que no debía o da vueltas | Tope de 6 turnos, solución de referencia y revisión de las transcripciones del piloto |
-| Inspect publica versiones casi a diario | Versión fija, y el núcleo no depende de él |
+| Inspect publica versiones casi a diario | Ya no aplica: el PR 5 lo descartó (§5) |
 | No hay CI | La compuerta es local, y el stack necesita Docker u OrbStack encendido |
 | Escribir las 53 tareas es el trabajo más grande | Los autores revisan los casos en el PR 13 |
 | Los costos son estimados | El piloto del PR 14 da la cifra real |
