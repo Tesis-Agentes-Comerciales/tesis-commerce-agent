@@ -5,8 +5,8 @@ import hashlib
 import httpx
 
 from commerce_agent.acp import load_product_feed
+from commerce_evaluation.stack.fault_proxy import CREATE_PATH
 from tests.integration.exp01_support import ROOT, recorded_case, sqlite_snapshot
-from tests.integration.live_stack import CREATE_PATH
 from tests.integration.test_exp02_commercial import observe, offer
 
 PROTOCOL = ROOT / "evaluation/scenarios/ct19-fixture.json"

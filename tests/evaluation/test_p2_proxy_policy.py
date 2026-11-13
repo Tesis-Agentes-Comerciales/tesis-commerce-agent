@@ -34,7 +34,7 @@ def running_proxy(
 ) -> Iterator[tuple[Any, list[tuple[str, str]]]]:
     import httpx
 
-    from tests.integration.live_stack import FaultProxy
+    from commerce_evaluation.stack.fault_proxy import FaultProxy
 
     forwarded: list[tuple[str, str]] = []
 
@@ -64,7 +64,7 @@ class P2HTTPProxyControls(unittest.TestCase):
 
         from commerce_agent.acp import ACPClient, ACPClientError
         from commerce_agent.api import error_response
-        from tests.integration.live_purchase import PURCHASE_ROUTES
+        from commerce_evaluation.stack.purchase_lane import PURCHASE_ROUTES
 
         with running_proxy(PURCHASE_ROUTES) as (proxy, forwarded):
             with httpx.Client(trust_env=False) as client:
@@ -84,8 +84,8 @@ class P2HTTPProxyControls(unittest.TestCase):
     def test_p2_allows_exactly_the_required_additions_and_preserves_baseline(self) -> None:
         import httpx
 
-        from tests.integration.live_purchase import PURCHASE_ROUTES
-        from tests.integration.live_stack import route_allowed
+        from commerce_evaluation.stack.fault_proxy import route_allowed
+        from commerce_evaluation.stack.purchase_lane import PURCHASE_ROUTES
 
         before = frozenset(PURCHASE_ROUTES)
         configured = p2_routes(PURCHASE_ROUTES)
@@ -110,7 +110,7 @@ class P2HTTPProxyControls(unittest.TestCase):
     def test_p2_unauthorized_routes_still_return_http_405_without_forwarding(self) -> None:
         import httpx
 
-        from tests.integration.live_purchase import PURCHASE_ROUTES
+        from commerce_evaluation.stack.purchase_lane import PURCHASE_ROUTES
 
         foreign = [
             ("GET", "/admin"),

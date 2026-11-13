@@ -27,14 +27,9 @@ from commerce_agent.persistence.ap2_evidence_sqlite import SqliteAp2EvidenceStor
 from commerce_agent.runtime import build_runtime
 from commerce_agent.trace import PurchaseTraces
 from commerce_agent.trace.models import OrderEventStep
+from commerce_evaluation.stack.purchase_agent import APPROVED_AT, OTHER_PHONE, PHONE, buyer_details
+from commerce_evaluation.stack.purchase_lane import PurchaseLane
 from commerce_evaluation.verify_evidence import LINKS, verify_database
-from tests.integration.live_purchase import (
-    APPROVED_AT,
-    OTHER_PHONE,
-    PHONE,
-    PurchaseLane,
-    buyer_details,
-)
 
 
 def governed_settings(lane: PurchaseLane, database: Path, **changes: Any) -> Settings:

@@ -21,7 +21,7 @@ from commerce_agent.trace.assembler import PurchaseTraces
 from commerce_agent.trace.models import Money, PolicyDecisionStep
 from commerce_evaluation.agent_condition import D1RunKeys
 from commerce_evaluation.demo_stack import MODES, mode_environment
-from tests.integration.live_purchase import (
+from commerce_evaluation.stack.purchase_agent import (
     APPROVED_AT,
     PHONE_INTENT,
     PHONE_REQUEST,

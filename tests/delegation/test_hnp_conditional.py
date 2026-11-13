@@ -45,6 +45,7 @@ from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger,
 from commerce_agent.persistence.model_requests_sqlite import SqliteModelRequests
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 from commerce_agent.runtime import AgentRuntime, build_runtime
+from commerce_evaluation.stack.fake_checkout import details
 from tests.delegation.test_hnp_runtime import governed_hnp
 from tests.support.conditional import (
     PRICES,
@@ -72,7 +73,6 @@ from tests.support.hnp_executor import (
 )
 from tests.support.model_server import ModelServer, structured
 from tests.test_delegation_api import MERCHANT, hnp_settings, proposal_body
-from tests.test_purchase_service import details
 
 OWNER = "buyer-a"
 PREFERENCE = "Quiero el Xperia; si no hay, el OnePlus."

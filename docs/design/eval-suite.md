@@ -368,7 +368,7 @@ flowchart LR
 | Pieza | Qué hace | Reusa |
 | --- | --- | --- |
 | `cases.py` | Esquema del caso y carga del catálogo | los escenarios P0 |
-| `stack/` | Entorno limpio por intento. Hoy vive en `tests/integration`, y la evaluación lo importa desde ahí | `LiveStack`, `FaultProxy`, `PurchaseLane` |
+| `stack/` | Entorno limpio por intento. Vive en `commerce_evaluation/stack/` desde el PR 4, y `tests/integration` lo importa desde ahí | `LiveStack`, `FaultProxy`, `PurchaseLane` |
 | `llm/` | Puerto para llamar a un LLM con salida estructurada y tope de gasto. Hoy vive en `hnp/llm/transport.py` | `StructuredLLM`, `BudgetedTransport`, `FakeTransport` |
 | `users.py` | Usuario guionado y usuario simulado | nada: no existe |
 | `trial.py` | Corre un intento y arma su registro | `build_flow_trace` y los lectores del comercio y del PSP |

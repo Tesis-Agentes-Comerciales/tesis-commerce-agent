@@ -24,6 +24,7 @@ from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
 from commerce_agent.trace import PurchaseTrace, PurchaseTraces, TraceUnavailable
 from commerce_agent.trace.assembler import by_time, step, summarize
 from commerce_agent.trace.models import Money, PolicySummary
+from commerce_evaluation.stack.fake_checkout import details
 from tests.assistant_support import settings as bench_settings
 from tests.delegation.test_hnp_executor import started
 from tests.delegation.test_hnp_intent_review import CONFIRMED, CONTRADICTS, FakeReviewer
@@ -35,7 +36,6 @@ from tests.support import hnp_executor
 from tests.support.delegation import START, AuthorityClock
 from tests.support.hnp_dispatch import MerchantApi, Psp, dispatching
 from tests.support.hnp_executor import Bench, Merchant
-from tests.test_purchase_service import details
 
 HP_ONLY = {"request", "selection", "approval", "authorization_signed"}
 

@@ -62,13 +62,13 @@ from commerce_agent.governance.provenance import merchant_pseudonym, pseudonym
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger, utc_text
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.persistence.hp_evidence_sqlite import SqliteHpEvidenceStore
+from commerce_evaluation.stack.fake_checkout import details
 from tests.governance.test_d1_hnp_gate import hnp_service, settings_for
 from tests.governance.test_hp_continuation import StoreMerchant
 from tests.governance.test_runtime_dispatch import runtime
 from tests.governance.test_shadow_integration import OWNER
 from tests.support.ap2_hnp_fixtures import checkout_jwt, generate_keys
 from tests.support.delegation import AuthorityClock, Ids
-from tests.test_purchase_service import details
 
 RUN, GRANT, RESERVATION, OPERATION = "run_1", "dg_1", "rsv_1", "op_1"
 ITEMS = (AcceptableItem("SON-01", "Audifonos Sonora SON-01"),)

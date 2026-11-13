@@ -33,13 +33,10 @@ from commerce_agent.governance.remote_creation import (
     CreationFound,
     original_response_sha256,
 )
-from tests.integration.live_purchase import (
-    Episode,
-    PurchaseLane,
-    buyer_details,
-    payment_requirements,
-)
-from tests.integration.live_stack import AGENT, LiveStack, missing_requirements
+from commerce_evaluation.stack.environment import AGENT, missing_requirements
+from commerce_evaluation.stack.live_stack import LiveStack
+from commerce_evaluation.stack.purchase_agent import buyer_details
+from commerce_evaluation.stack.purchase_lane import Episode, PurchaseLane, payment_requirements
 from tests.support.p3_contract import (
     AGENT_BASE,
     CASES,

@@ -25,8 +25,9 @@ import httpx
 
 from commerce_agent.api import create_app
 from commerce_agent.llm.model_failures import NO_RETRY_HEADER
+from commerce_evaluation.stack.hnp_agent import EpisodeBuyer, HnpAgent
+from commerce_evaluation.stack.purchase_lane import Episode, PurchaseLane
 from tests.integration.live_browser import agent_settings
-from tests.integration.live_purchase import Episode, EpisodeBuyer, HnpAgent, PurchaseLane
 from tests.support.agent_server import AgentServer
 from tests.support.model_server import Answer, ModelServer
 

@@ -19,14 +19,9 @@ from commerce_agent.approval import ApprovalService
 from commerce_agent.domain import HardConstraints, PurchaseIntent
 from commerce_agent.governance.hnp_policy import HnpGrant
 from commerce_agent.persistence import SqliteAgentStore
+from commerce_evaluation.stack.fake_checkout import FakeCheckoutGateway, details
 from tests.test_completion_client import completed_checkout
-from tests.test_purchase_service import (
-    FIXTURE,
-    FakeCheckoutGateway,
-    details,
-    failure_code,
-    make_service,
-)
+from tests.test_purchase_service import FIXTURE, failure_code, make_service
 
 OWNER = "owner-1"
 GRANT = HnpGrant(grant_id="dg_0123456789abcdef", variant_ids=("SON-01",))

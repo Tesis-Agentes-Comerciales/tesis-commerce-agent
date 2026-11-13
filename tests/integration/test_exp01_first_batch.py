@@ -27,20 +27,16 @@ from commerce_agent.governance.runtime_dispatch import (
     SingleAttemptPostCreateDispatch,
 )
 from commerce_agent.persistence import SqliteAgentStore
+from commerce_evaluation.stack.environment import closed, connect, wait_until
+from commerce_evaluation.stack.fault_proxy import CREATE_PATH
+from commerce_evaluation.stack.hnp_agent import HnpAgent, delegation_request
+from commerce_evaluation.stack.joint_case import FIXED_CLOCK, JointCase
+from commerce_evaluation.stack.purchase_agent import PHONE
 from tests.integration.exp01_support import (
     INF31_REASSESSMENT,
     PROTOCOL,
     recorded_case,
     sqlite_snapshot,
-)
-from tests.integration.live_purchase import PHONE, HnpAgent, delegation_request
-from tests.integration.live_stack import (
-    CREATE_PATH,
-    FIXED_CLOCK,
-    JointCase,
-    closed,
-    connect,
-    wait_until,
 )
 from tests.integration.test_live_hnp import catalog
 

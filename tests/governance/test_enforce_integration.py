@@ -46,7 +46,7 @@ from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.d1_dispatch_sqlite import SqliteD1DispatchStore
 from commerce_agent.persistence.d1_uow_sqlite import SqliteD1UnitOfWork
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
-from tests.test_purchase_service import FakeCheckoutGateway, details
+from commerce_evaluation.stack.fake_checkout import FakeCheckoutGateway, details
 
 FEED = Path(__file__).parents[1] / "fixtures/feed"
 OWNER = "private-test-owner@example.test"

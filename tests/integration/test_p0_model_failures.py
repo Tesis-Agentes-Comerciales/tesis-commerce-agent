@@ -27,23 +27,22 @@ import pytest
 
 from commerce_agent.api import create_app
 from commerce_agent.llm import CommerceDecision
+from commerce_evaluation.stack.environment import AGENT, git_state
+from commerce_evaluation.stack.fault_proxy import CREATE_PATH
+from commerce_evaluation.stack.hnp_agent import EpisodeBuyer, delegation_request
+from commerce_evaluation.stack.live_stack import LiveStack
+from commerce_evaluation.stack.purchase_agent import (
+    PHONE,
+    PHONE_INTENT,
+    PHONE_REQUEST,
+    buyer_details,
+)
+from commerce_evaluation.stack.purchase_lane import PAYMENT_REPO, Episode, PurchaseLane
 from tests.assistant_support import add_message, assistant_body, parse_sse, rebuild_state, sse_body
 from tests.delegation.test_hnp_model_failure_kind import read_timeout
 from tests.integration.exp01_support import ROOT, recorded_case, sqlite_snapshot
 from tests.integration.live_browser import ExplicitSettings
 from tests.integration.live_model import MODEL_SETTINGS, ModelHnpAgent, ScriptedModel
-from tests.integration.live_purchase import (
-    PAYMENT_REPO,
-    PHONE,
-    PHONE_INTENT,
-    PHONE_REQUEST,
-    Episode,
-    EpisodeBuyer,
-    PurchaseLane,
-    buyer_details,
-    delegation_request,
-)
-from tests.integration.live_stack import AGENT, CREATE_PATH, LiveStack, git_state
 from tests.integration.test_exp02_commercial import local_effects, observe
 from tests.integration.test_live_b2_d2_authorization import settings_for
 from tests.integration.test_live_hnp import SHIPPING_ROOM_MINOR, catalog, effects

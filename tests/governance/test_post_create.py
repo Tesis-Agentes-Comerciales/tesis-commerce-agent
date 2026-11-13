@@ -19,6 +19,7 @@ from commerce_agent.governance.canonical import canonical_bytes, sha256_digest
 from commerce_agent.governance.evidence import EvidenceError
 from commerce_agent.governance.post_create import PostCreateEvent
 from commerce_agent.persistence.post_create_sqlite import SqlitePostCreateStore
+from commerce_evaluation.stack.fake_checkout import checkout
 from tests.governance.test_enforce_integration import (
     MARKER,
     OWNER,
@@ -27,7 +28,6 @@ from tests.governance.test_enforce_integration import (
     start,
 )
 from tests.test_completion import FakeGateway, FakePayments
-from tests.test_purchase_service import checkout
 
 
 def flow(case, **scope):

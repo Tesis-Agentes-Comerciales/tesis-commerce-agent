@@ -24,14 +24,10 @@ from commerce_agent.persistence.remote_creation_sqlite import (
     RemoteCreationVerifier,
     SqliteRemoteCreationStore,
 )
-from tests.integration.live_stack import (
-    CREATE_PATH,
-    POSTGRES_DATA,
-    JointCase,
-    clean_environment,
-    connect,
-    uv_run,
-)
+from commerce_evaluation.stack.environment import clean_environment, connect, uv_run
+from commerce_evaluation.stack.fault_proxy import CREATE_PATH
+from commerce_evaluation.stack.joint_case import JointCase
+from commerce_evaluation.stack.postgres import POSTGRES_DATA
 
 # The Merchant's own creation/lookup regressions, run on the cluster that served the Agent.
 MERCHANT_REGRESSIONS = (

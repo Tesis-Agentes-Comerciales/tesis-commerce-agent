@@ -18,7 +18,7 @@ import pytest
 from pydantic import SecretStr
 
 from commerce_agent.governance.guarded_creation import CREATE_PATH, LOOKUP_PATH
-from tests.integration.live_stack import AgentProcess
+from commerce_evaluation.stack.agent_process import AgentProcess
 
 # About a minute per scenario: each one selects anew over the Merchant's full catalog.
 pytestmark = pytest.mark.slow

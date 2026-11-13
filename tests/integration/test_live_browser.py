@@ -4,8 +4,8 @@ Sign-up through the auth service, the request in the chat, explicit approval on 
 card and the confirmed order, with both AP2 receipts kept by the Agent. The chat reads the
 purchase trace from the live Agent: the activity row ends completed, the card turns into a
 receipt and, with the policy off in this lane, the control shows as disabled. The model boundary is
-scripted (live_purchase.StaticConversationRouter) unless RUN_LIVE_LLM=1; the rest is the real
-UI and services.
+scripted (commerce_evaluation.stack.purchase_agent.StaticConversationRouter) unless
+RUN_LIVE_LLM=1; the rest is the real UI and services.
 """
 
 import os
@@ -16,6 +16,11 @@ from contextlib import closing
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
+from commerce_evaluation.stack.purchase_agent import (
+    PHONE_INTENT,
+    PHONE_REQUEST,
+    StaticConversationRouter,
+)
 from tests.integration.live_browser import (
     BuyerUi,
     agent_errors,
@@ -23,7 +28,6 @@ from tests.integration.live_browser import (
     journey,
     sign_up,
 )
-from tests.integration.live_purchase import PHONE_INTENT, PHONE_REQUEST, StaticConversationRouter
 
 
 def test_b0_purchase_from_the_browser_signs_up_approves_and_keeps_both_receipts(b0):

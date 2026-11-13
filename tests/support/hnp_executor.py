@@ -48,9 +48,10 @@ from commerce_agent.governance.hnp_ports import HnpGateDecision, HnpPolicyGate
 from commerce_agent.governance.models import PolicyDecision
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger, utc_text
+from commerce_evaluation.stack.fake_checkout import FakeCheckoutGateway, details
 from tests.support.ap2_hnp_fixtures import MERCHANT_ISSUER, checkout_jwt, private_key_pem
 from tests.support.delegation import START, AuthorityClock, Ids, consent_request
-from tests.test_purchase_service import FIXTURE, FakeCheckoutGateway, details
+from tests.test_purchase_service import FIXTURE
 
 OWNER = "buyer-a"
 SCOPE = Path(__file__).parents[1] / "governance" / "fixtures" / "consent-scope.json"

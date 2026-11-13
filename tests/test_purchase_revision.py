@@ -12,8 +12,9 @@ import pytest
 from commerce_agent.domain import PurchaseIntent
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.sqlite import PurchaseCASResult
+from commerce_evaluation.stack.fake_checkout import FakeCheckoutGateway, details
 from tests.test_completion import FakeGateway, approve, checkout, dependencies
-from tests.test_purchase_service import FakeCheckoutGateway, details, make_service
+from tests.test_purchase_service import make_service
 
 
 @pytest.fixture
