@@ -7,7 +7,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, get_args
+from typing import Any, Literal, get_args
 
 import pytest
 from pydantic import ValidationError
@@ -41,7 +41,7 @@ def present() -> PresentCase:
 CASE_ = present()
 
 
-def against(kind: str) -> str:
+def against(kind: str) -> Literal["agent", "infrastructure"]:
     return "agent" if kind in {"rejected", "invalid_output"} else "infrastructure"
 
 
@@ -176,14 +176,14 @@ def test_a_task_that_ended_without_a_model_failure_names_none(tmp_path: Path):
 # The decision, its evidence and the record.
 
 
-def ledger_row(outcome: str, **failed: Any) -> ModelRequestRow:
+def ledger_row(outcome: Literal["ok", "error"], **failed: Any) -> ModelRequestRow:
     return ModelRequestRow(
         run_id="run_1",
         stage=failed.pop("stage", "model.route"),
         request_index=1,
         started_at="t",
         latency_ms=1.0,
-        outcome=outcome,  # type: ignore[arg-type]
+        outcome=outcome,
         error_kind=failed.pop("error_kind", None),
         model="claude-haiku-5-5",
         response_model=None,
@@ -232,7 +232,7 @@ def test_the_smoke_run_s_400_is_the_agent_s_failure_with_its_evidence(tmp_path: 
 @pytest.mark.parametrize("kind", KINDS)
 def test_infra_failure_names_the_kind_it_counts_against_the_infrastructure(kind: ModelFailureKind):
     def decided(source: str) -> ModelFailure:
-        return ModelFailure(kind=kind, counts_against=against(kind), source=source, requests=())  # type: ignore[arg-type]
+        return ModelFailure(kind=kind, counts_against=against(kind), source=source, requests=())
 
     presente = observe.infra_failure(
         [TURN] if against(kind) != "agent" else [], [], 0, None, decided(TURN)
@@ -255,7 +255,9 @@ def test_a_record_s_decision_follows_its_kind():
 
 
 @pytest.mark.parametrize("kind", ["rejected", "provider_error"])
-def test_the_executor_s_record_keeps_the_decision(tmp_path: Path, monkeypatch, kind: str):
+def test_the_executor_s_record_keeps_the_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: ModelFailureKind
+):
     path = tmp_path / "agent.db"
     SqliteModelRequests(path).initialize()
     monkeypatch.setattr(
@@ -273,7 +275,7 @@ def test_the_executor_s_record_keeps_the_decision(tmp_path: Path, monkeypatch, k
         final=Ending(action="respond"),
         trace={},
         api_5xx=() if kind == "rejected" else (TURN,),
-        model_failure=Seen(kind, TURN),  # type: ignore[arg-type]
+        model_failure=Seen(kind, TURN),
     )
     lane = SimpleNamespace(proxy=SimpleNamespace(calls=[]), psp_proxy=None)
     record = executor._record(CASE_, "B2", 1, 7, lane, played, None)  # type: ignore[arg-type]
