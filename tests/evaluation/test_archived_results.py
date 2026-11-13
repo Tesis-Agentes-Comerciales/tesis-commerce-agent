@@ -21,3 +21,22 @@ def test_the_ledger_lists_every_file_but_itself_with_its_digest(name: str) -> No
     assert sorted(ledger) == files
     for file, digest in ledger.items():
         assert hashlib.sha256((directory / file).read_bytes()).hexdigest() == digest, file
+
+
+# B2-PILOT-v1 has no SHA256SUMS: b2-pilot-v1-report.md publishes these digests for its frozen files.
+B2_PILOT_V1 = {
+    "b0prime-b2-20261020T201055Z.jsonl": (
+        "bdcffae3a9bb82586d0a4be12edb5784e8508853e3f5fc107be3a3015169a21c"
+    ),
+    "b0prime-b2-20261020T201055Z.summary.json": (
+        "d2a4b0f4d3214530be799ea8870be7204542ed59c65d1110fd2d4a678bc7db18"
+    ),
+}
+
+
+def test_the_b2_pilot_v1_files_keep_their_published_digests() -> None:
+    digests = {
+        name: hashlib.sha256((RESULTS / name).read_bytes()).hexdigest() for name in B2_PILOT_V1
+    }
+
+    assert digests == B2_PILOT_V1
