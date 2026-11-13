@@ -293,7 +293,9 @@ En `tests/integration`:
   proveedor. No se puede matar ni reiniciar: los casos de caída siguen con `HnpAgent`.
   `test_p0_model_failures.py` lo usa para la evidencia P0 de fallos del modelo (INF27–INF29,
   INF33; `-k p0_`), con el protocolo congelado `evaluation/scenarios/p0-model-failures.json`, y
-  deja `p0-model-failures/summary.json` en el directorio de la ejecución. `ScriptedModel` sirve
+  deja `p0-model-failures/summary.json` en el directorio de la ejecución. El protocolo congeló los
+  cuerpos de error de OpenAI: sus dos 429 mandan los de Anthropic y los campos del proveedor de
+  sus oráculos se enmiendan en el módulo (`ON_CLAUDE`, que el resumen guarda). `ScriptedModel` sirve
   el guion de un caso con las respuestas que le pasa su módulo.
 - `test_p0_ux08_ux10.py`: la evidencia P0 de UX08, UX09 y UX10 en vivo
   (`docs/design/p0-ux08-ux10.md` §5.2), con el protocolo congelado
