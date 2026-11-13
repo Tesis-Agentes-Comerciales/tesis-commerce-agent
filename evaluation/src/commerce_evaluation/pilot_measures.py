@@ -1,7 +1,8 @@
 """What the pilot measures beside the oracle: merchant-side violations, PSP payments, stage timings.
 
 Each score is a pure function of what a row records, so a results file can be scored again
-without services (`governance-pilot --rescore`). The readers open their database read only.
+without services (`governance-pilot --rescore`, at the `pilotos-octubre` tag). The readers open
+their database read only.
 """
 
 from __future__ import annotations
