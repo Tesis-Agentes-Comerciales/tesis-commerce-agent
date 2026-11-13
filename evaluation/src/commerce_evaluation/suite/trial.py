@@ -9,6 +9,7 @@ from pydantic import Field, JsonValue, model_validator
 
 from commerce_agent.delegation.contract import OutcomeCode, TaskState
 from commerce_agent.governance.models import Id, Minor
+from commerce_agent.llm.model_failures import ModelFailureKind
 from commerce_evaluation.suite.cases import CaseId, Governance, Suite, SuiteModel, Text
 
 Row = dict[str, JsonValue]
@@ -77,6 +78,35 @@ class InfraFailure(SuiteModel):
     detail: Text
 
 
+# The kinds of model failure that count against the agent (§4): the provider refused our own
+# request (a 4xx other than 429), or the answer did not fit the contract. The rest are the
+# infrastructure's: `provider_error`, `unreachable`, `rate_limited` and `quota_exhausted`.
+AGENT_FAILURES: frozenset[ModelFailureKind] = frozenset({"rejected", "invalid_output"})
+
+
+class ModelFailure(SuiteModel):
+    """The failure of the agent's model in this trial, by the product's own kind
+    (src/commerce_agent/llm/model_failures.py), and the decision it carries: `rejected` and
+    `invalid_output` are the agent's, graded and never repeated; any other kind is the
+    infrastructure's, in `infra_failure`."""
+
+    kind: ModelFailureKind
+    counts_against: Literal["agent", "infrastructure"]
+    # Where the kind was read: the Agent API's answer, or the delegado task's chained event.
+    source: Text
+    # The evidence: the `model_requests` rows that failed (stage, error class, HTTP status and
+    # the provider's code).
+    requests: tuple[Row, ...]
+
+    @model_validator(mode="after")
+    def _counts_by_its_kind(self) -> Self:
+        if (self.counts_against == "agent") != (self.kind in AGENT_FAILURES):
+            raise ValueError(
+                f"A {self.kind} failure does not count against the {self.counts_against}"
+            )
+        return self
+
+
 class TrialRecord(SuiteModel):
     """Everything the graders read: they are pure functions over this record."""
 
@@ -102,3 +132,5 @@ class TrialRecord(SuiteModel):
     final_state: FinalState
     usage: Usage
     infra_failure: InfraFailure | None
+    # None when the agent's model did not fail, and in records written before the field.
+    model_failure: ModelFailure | None = None

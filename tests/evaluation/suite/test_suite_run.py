@@ -35,6 +35,7 @@ from tests.evaluation.suite.runs import (
     capability_case,
     lines,
     make_case,
+    model_failure,
     plan,
     regression_case,
     write_catalog,
@@ -150,6 +151,61 @@ def test_a_5xx_the_case_injects_is_the_agents_and_is_not_repeated(tmp_path: Path
     assert len(executor.calls) == 1
     assert not (run.settings.run_dir / INFRA_FILE).exists()
     assert ran(run.settings.run_dir) == [(down.id, "B2", 1)]
+
+
+def test_a_model_failure_of_the_agent_s_kind_is_kept_at_once(tmp_path: Path) -> None:
+    run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [CAPABILITY]), [CAPABILITY])
+    refused = {"model_failure": model_failure("rejected")}
+    executor = FakeExecutor(script={(CAPABILITY.id, "B2", 1): [refused]})
+
+    outcome = execute(run, executor, say=lambda _: None)
+
+    assert (outcome.status, outcome.infra_retries, len(executor.calls)) == ("complete", 0, 1)
+    [kept] = lines(run.settings.run_dir / TRIALS_FILE)
+    assert kept["infra_failure"] is None and kept["model_failure"] == model_failure("rejected")
+
+
+SPENT = {"infra_failure": API_5XX, "model_failure": model_failure("quota_exhausted")}
+
+
+def test_the_agent_s_spent_balance_stops_the_run_and_its_trial_runs_again(tmp_path: Path) -> None:
+    run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [CAPABILITY]), [CAPABILITY], k=3)
+    spent = FakeExecutor(script={(CAPABILITY.id, "B2", 2): [SPENT]})
+    said: list[str] = []
+
+    stopped = execute(run, spent, say=said.append)
+
+    run_dir = run.settings.run_dir
+    # No retry of trial 2, which no retry would pay for, and trial 3 never started.
+    assert [call[2] for call in spent.calls] == [1, 2]
+    assert (stopped.status, stopped.kept, stopped.infra_retries) == ("funds_exhausted", 1, 1)
+    assert json.loads((run_dir / MANIFEST_FILE).read_text())["status"] == "funds_exhausted"
+    assert any("quota_exhausted" in line for line in said)
+    assert ran(run_dir) == [(CAPABILITY.id, "B2", 1)]
+    [discarded] = lines(run_dir / INFRA_FILE)
+    assert (discarded["kind"], discarded["attempt"]) == ("infra", 1)
+    assert discarded["record"]["model_failure"]["kind"] == "quota_exhausted"
+
+    resumed = FakeExecutor()
+    finished = execute(run, resumed, say=lambda _: None)
+
+    assert [call[2] for call in resumed.calls] == [2, 3]
+    assert (finished.status, finished.resumed, finished.kept) == ("complete", 1, 2)
+
+
+def test_a_spent_balance_the_case_injects_is_graded_and_the_run_goes_on(tmp_path: Path) -> None:
+    run = plan(
+        tmp_path / "run",
+        write_catalog(tmp_path / "c", [REGRESSION, CAPABILITY]),
+        [REGRESSION, CAPABILITY],
+        suite="regression",
+    )
+    executor = FakeExecutor("regression", script={(REGRESSION.id, "B2", 1): [SPENT]})
+
+    outcome = execute(run, executor, say=lambda _: None)
+
+    assert (outcome.status, outcome.infra_retries, len(executor.calls)) == ("complete", 0, 2)
+    assert ran(run.settings.run_dir) == [(REGRESSION.id, "B2", 1), (CAPABILITY.id, "B2", 1)]
 
 
 def test_a_simulator_failure_is_repeated_once_and_then_excluded(tmp_path: Path) -> None:

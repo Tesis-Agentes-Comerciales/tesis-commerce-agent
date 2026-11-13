@@ -11,12 +11,31 @@ from commerce_evaluation.llm.cost import TokenUsage
 from commerce_evaluation.suite.cases import CASE, Case, Governance, Suite
 from commerce_evaluation.suite.executor import RunSettings
 from commerce_evaluation.suite.plan import Plan
-from commerce_evaluation.suite.trial import TrialRecord
+from commerce_evaluation.suite.trial import AGENT_FAILURES, TrialRecord
 from tests.evaluation.suite.trials import A, B, record
 
 STACK_DOWN = {"cause": "stack_not_started", "detail": "postgres no respondió"}
 API_5XX = {"cause": "api_5xx", "detail": "POST /conversation/turn respondió 502 tres veces"}
 NOTHING = {"effects": {"orders": 0, "checkouts": 0, "psp_charges": 0}, "outcome": ["block"]}
+# The smoke run's failed request: the provider refused the router's own request.
+REFUSED_REQUEST = {
+    "stage": "model.route",
+    "error_kind": "BadRequestError",
+    "http_status": 400,
+    "provider_error_code": "invalid_request_error",
+    "retries": 0,
+}
+
+
+def model_failure(kind: str, source: str = "POST /conversation/turn 502") -> dict[str, Any]:
+    """A record's `model_failure`, counted as its kind says (trial.AGENT_FAILURES)."""
+    against = "agent" if kind in AGENT_FAILURES else "infrastructure"
+    return {
+        "kind": kind,
+        "counts_against": against,
+        "source": source,
+        "requests": [REFUSED_REQUEST],
+    }
 
 
 def make_case(

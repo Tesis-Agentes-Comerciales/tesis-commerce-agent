@@ -371,6 +371,14 @@ producción en este proceso, con todos sus valores explícitos y sin leer `.env`
 - **Un 500 es del agente.** El producto responde sus fallas conocidas con 502, 503 o 504 y un
   código; un 500 es una excepción que no manejó, así que el intento se califica como cualquier
   otro y la traza guarda el error.
+- **Una falla del modelo cuenta por su tipo.** Si el 5xx de la API del Agent o la tarea de
+  `delegado` vienen de una falla del modelo, decide el tipo que nombra el producto
+  (`model_failure` del cuerpo del error, o `failure_kind` de `task_finished` o `choice_reviewed`
+  en `delegation_events`): `rejected` (un 4xx del proveedor que no es 429) e `invalid_output`
+  son del agente y el intento se califica sin repetirse, mientras que `provider_error`,
+  `unreachable`, `rate_limited` y `quota_exhausted` son `api_5xx`. `quota_exhausted` además
+  detiene la corrida con `funds_exhausted`, y el registro guarda la decisión y las solicitudes
+  que fallaron en `model_requests` (`model_failure`).
 - **Costo.** El uso del agente sale de `model_requests` en la base del intento. Cada solicitud
   se cobra al presupuesto de la corrida por separado, con su propia tarifa (la de Haiku cambia
   por encima de 100K tokens de prompt), termine como termine el intento. Un intento que terminó
@@ -397,7 +405,8 @@ sus gobernanzas, y exige que pase sus calificadores de código.
   "final": { "action": "clarify", "task_state": null, "outcome_code": null },
   "final_state": { "orders": [], "checkouts": [], "psp_charges": [] },
   "usage": { "agent": {}, "user": {}, "judge": {}, "usd": 0.0 },
-  "infra_failure": null
+  "infra_failure": null,
+  "model_failure": null
 }
 ```
 

@@ -4,9 +4,11 @@
   the PSP's `approved` payments of those checkouts.
 - The infrastructure failures that are no one's design: an Agent API answer 502, 503 or 504, a
   Merchant or PSP answer 502, 503 or 504 (or no answer) that FaultProxy did not inject, a model
-  request whose provider answered 5xx on every attempt, and a delegado task still running when
-  the wait ends. `suite/reduce.py` decides whether the case injected it. A bare 500 is an
-  unhandled exception, not the infrastructure's: the trial is graded and its trace keeps it.
+  request whose provider answered 5xx on every attempt, a model failure of an infrastructure
+  kind (suite/live/failures.py), and a delegado task still running when the wait ends.
+  `suite/reduce.py` decides whether the case injected it. A bare 500 is an unhandled exception,
+  not the infrastructure's, and so is a model failure of the agent's kind (`rejected`,
+  `invalid_output`), even behind a 502: the trial is graded and its trace keeps it.
 """
 
 import json
@@ -26,12 +28,14 @@ from commerce_evaluation.stack.fault_proxy import Call, FaultProxy
 from commerce_evaluation.stack.purchase_lane import Episode, PurchaseLane
 from commerce_evaluation.suite.cases import Governance, Suite
 from commerce_evaluation.suite.graders.evidence import verified
+from commerce_evaluation.suite.live.failures import Seen
 from commerce_evaluation.suite.live.settings import TrialAgent
 from commerce_evaluation.suite.trial import (
     Agent,
     Ending,
     FinalState,
     InfraFailure,
+    ModelFailure,
     Row,
     TrialRecord,
     Turn,
@@ -55,10 +59,13 @@ class Played:
     final: Ending
     # The flow trace, plus what the runner did (`suite`): JSON once in the record.
     trace: dict[str, Any]
-    # The Agent API's answers 502, 503 or 504, as "METHOD path status".
+    # The Agent API's answers 502, 503 or 504 that are the infrastructure's, as "METHOD path
+    # status": not those whose model failure is the agent's.
     api_5xx: tuple[str, ...]
     # A delegado task still running when the wait ended: infrastructure, never the agent.
     unfinished: str | None = None
+    # The kind of the agent's model failure, as the product named it (suite/live/failures.py).
+    model_failure: Seen | None = None
 
 
 def deliver_webhooks(lane: PurchaseLane, agent: TrialAgent) -> None:
@@ -133,9 +140,19 @@ def upstream_failures(proxies: Iterable[FaultProxy | None]) -> list[str]:
 
 
 def infra_failure(
-    api: Sequence[str], upstream: Sequence[str], provider_5xx: int, unfinished: str | None = None
+    api: Sequence[str],
+    upstream: Sequence[str],
+    provider_5xx: int,
+    unfinished: str | None = None,
+    model: ModelFailure | None = None,
 ) -> InfraFailure | None:
-    parts = [f"API del agente: {', '.join(api)}"] if api else []
+    """`model`, when its kind is the infrastructure's, names the answer it explains, or stands
+    on its own: a delegado task ends on it without any 5xx."""
+    down = model if model is not None and model.counts_against == "infrastructure" else None
+    named = [f"{each} ({down.kind})" if down and each == down.source else each for each in api]
+    parts = [f"API del agente: {', '.join(named)}"] if api else []
+    if down is not None and down.source not in api:
+        parts.append(f"modelo del agente: {down.kind} en {down.source}")
     if upstream:
         parts.append(f"comercio o PSP: {', '.join(upstream)}")
     if provider_5xx:

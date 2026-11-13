@@ -9,6 +9,10 @@ the escalation's) is the trial's one assistant turn.
 
 The selector is the reference's or the model's, behind `AtSelection`, which applies the case's
 `on_selection` events before the first choice: the owner revokes while the agent selects.
+
+A model that failed ends the task without any 5xx: `selection_unavailable` for the selector,
+`choice_not_confirmed` for the reviewer. The kind the task's chained events name decides whose
+failure it is, as in presente (suite/live/failures.py).
 """
 
 import time
@@ -28,7 +32,7 @@ from commerce_evaluation.stack.hnp_agent import (
 )
 from commerce_evaluation.stack.purchase_lane import PurchaseLane
 from commerce_evaluation.suite.cases import DelegatedCase, Delegation, Governance
-from commerce_evaluation.suite.live import events
+from commerce_evaluation.suite.live import events, failures
 from commerce_evaluation.suite.live.observe import (
     INFRA_STATUSES,
     Played,
@@ -271,4 +275,5 @@ def play_delegado(
         trace=trace,
         api_5xx=tuple(owner.api_5xx),
         unfinished=owner.unfinished,
+        model_failure=failures.task_failure(agent.database),
     )

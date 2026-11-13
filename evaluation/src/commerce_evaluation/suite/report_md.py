@@ -27,6 +27,7 @@ GRADERS: dict[Grader, str] = {
 }
 ROLES = {"agent": "Agente", "simulator": "Usuario simulado", "judge": "Juez"}
 CAUSES = {"simulator": "usuario simulado", "stack_not_started": "el stack no arrancó"}
+AGAINST = {"agent": "el agente", "infrastructure": "la infraestructura"}
 COVERAGE: dict[Coverage, str] = {
     "covered": "cubierta",
     "partial": "parcial",
@@ -51,6 +52,7 @@ def markdown(report: "Report") -> str:
         _attacks(report),
         _cost(report),
         _infra(report),
+        _model_failures(report),
         _review(report),
         _mapped(report),
     ]
@@ -226,6 +228,53 @@ def _infra(report: "Report") -> str:
         rows = [cells(row) for row in report.excluded]
         text += "\n\nExcluidos:\n\n" + table(("Tarea", "Gobernanza", "Intento", "Motivo"), rows)
     return text
+
+
+def _model_failures(report: "Report") -> str:
+    if not report.model_failures:
+        return ""
+    rows = [
+        (
+            *itemgetter("case_id", "governance", "trial")(row),
+            _when(row),
+            f"`{row['kind']}`",
+            AGAINST[str(row["counts_against"])],
+            row["source"],
+            _requests(row["requests"]),
+        )
+        for row in report.model_failures
+    ]
+    header = (
+        "Tarea",
+        "Gobernanza",
+        "Intento",
+        "Vez",
+        "Tipo",
+        "Cuenta contra",
+        "Dónde",
+        "Solicitudes",
+    )
+    legend = (
+        "Cuenta el tipo que nombra el producto (`llm/model_failures.py`): `rejected` e "
+        "`invalid_output` son del agente, y el intento se califica sin repetirse; "
+        "`provider_error`, `unreachable`, `rate_limited` y `quota_exhausted` son de la "
+        "infraestructura, y `quota_exhausted` detiene la corrida. Solicitudes: las que fallaron "
+        "en `model_requests`, con su etapa, su error, su estado HTTP y el código del proveedor."
+    )
+    return "## Fallas del modelo del agente\n\n" + legend + "\n\n" + table(header, rows)
+
+
+def _when(row: dict[str, Any]) -> object:
+    if row["kept"]:
+        return "guardado"
+    return "antes de retomar" if row["attempt"] is None else row["attempt"]
+
+
+def _requests(value: object) -> str:
+    rows = [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+    cells = itemgetter("stage", "error_kind", "http_status", "provider_error_code")
+    named = [" ".join(str(each) for each in cells(row) if each is not None) for row in rows]
+    return "; ".join(named) or "ninguna"
 
 
 def _review(report: "Report") -> str:

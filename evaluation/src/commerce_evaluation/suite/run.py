@@ -8,7 +8,9 @@ infrastructure broke runs again.
 It stops cleanly, keeping everything written, when:
 - the run's budget is spent (`budget_exhausted`), checked after keeping each trial: the agent's
   usage is charged without raising (llm/budget.py), so a paid trial is never lost;
-- a call finds no funds mid-trial (`FundsExhausted`, `funds_exhausted`): that trial runs again;
+- a call finds no funds mid-trial (`FundsExhausted`, `funds_exhausted`): that trial runs again.
+  So does a trial the agent's model could not pay for (`model_failure.kind` `quota_exhausted`,
+  not injected by the case): no retry pays for it, so it goes to `infra.jsonl` and the run stops;
 - the infrastructure broke `INFRA_STREAK` trials in a row, each after its retries
   (`interrupted`): the stack is down, and going on would only spend the plan.
 """
@@ -158,8 +160,8 @@ def _trial(
             return "excluded"
         _check(settings, planned, record)
         broken = record.infra_failure is not None and is_infra_failure(case, record)
-        if broken and infra_left:
-            infra_left -= 1
+        unpaid = broken and _unpaid(record)
+        if unpaid or (broken and infra_left):
             discarded = {
                 "kind": "infra",
                 "attempt": attempt,
@@ -167,11 +169,20 @@ def _trial(
             }
             append_jsonl(run_dir / INFRA_FILE, _json(discarded))
             outcome.infra_retries += 1
+            if unpaid:
+                say("  El modelo del agente se quedó sin saldo (quota_exhausted).")
+                raise FundsExhausted("CreditBalanceExhausted", attempts=0)
+            infra_left -= 1
             say("  Falla de infraestructura; se repite.")
             continue
         append_jsonl(run_dir / TRIALS_FILE, record.model_dump_json())
         outcome.kept += 1
         return "infra" if broken else "kept"
+
+
+def _unpaid(record: TrialRecord) -> bool:
+    """Whether the agent's model found its balance or spend cap exhausted."""
+    return record.model_failure is not None and record.model_failure.kind == "quota_exhausted"
 
 
 def _check(settings: RunSettings, planned: Planned, record: TrialRecord) -> None:

@@ -79,6 +79,7 @@ def record(
     governance: str = "B2",
     suite: str = "capability",
     infra_failure: dict[str, Any] | None = None,
+    model_failure: dict[str, Any] | None = None,
 ) -> TrialRecord:
     """A trial of `of`: the agent `said` each text as one turn, then ended as `final`."""
     turns = [{"role": "user", "text": "Quiero un celular"}] if of.mode == "presente" else []
@@ -100,5 +101,6 @@ def record(
         "final_state": state or {"orders": [], "checkouts": [], "psp_charges": []},
         "usage": {"agent": {}, "user": {}, "judge": {}, "usd": 0.0},
         "infra_failure": infra_failure,
+        "model_failure": model_failure,
     }
     return TrialRecord.model_validate_json(json.dumps(document))

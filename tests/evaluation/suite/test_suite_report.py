@@ -17,10 +17,12 @@ from commerce_evaluation.suite.plan import Plan
 from commerce_evaluation.suite.run import execute
 from commerce_evaluation.suite.rundir import read_cases, read_trials
 from tests.evaluation.suite.runs import (
+    API_5XX,
     STACK_DOWN,
     FakeExecutor,
     adversarial_case,
     make_case,
+    model_failure,
     plan,
     regression_case,
     usage,
@@ -130,6 +132,47 @@ def test_the_report_files_are_written_in_spanish(capability: Path) -> None:
     assert "| simulador-falla/presente | B2 | 1 | 1 | usuario simulado | refusal |" in text
     # The cost legend says what a refused call and a call without usage count.
     assert "cuenta como llamada, con USD 0" in text and "cuenta su peor caso" in text
+    assert "## Fallas del modelo del agente" not in text
+
+
+def test_each_model_failure_is_reported_with_its_decision_and_evidence(tmp_path: Path) -> None:
+    refused, limited = make_case("el-proveedor-rechaza"), make_case("limite-de-solicitudes")
+    done = run(
+        tmp_path,
+        [refused, limited],
+        {
+            (refused.id, "B2", 1): [{"model_failure": model_failure("rejected")}],
+            (limited.id, "B2", 1): [
+                {"infra_failure": API_5XX, "model_failure": model_failure("rate_limited")},
+                {},
+            ],
+        },
+    )
+    run_dir = done.settings.run_dir
+
+    built = report.write(run_dir)
+
+    assert [
+        (row["case_id"], row["attempt"], row["kept"], row["kind"], row["counts_against"])
+        for row in built.model_failures
+    ] == [
+        (limited.id, 1, False, "rate_limited", "infrastructure"),
+        (refused.id, None, True, "rejected", "agent"),
+    ]
+    # The refused request is graded: a trial of its task, none left out.
+    graded = {task.case_id: task for task in built.reduction.tasks}[refused.id]
+    assert (graded.trials, graded.infra_failures) == (1, 0)
+    text = (run_dir / "report.md").read_text()
+    assert "## Fallas del modelo del agente" in text
+    evidence = "model.route BadRequestError 400 invalid_request_error"
+    assert (
+        f"| el-proveedor-rechaza/presente | B2 | 1 | guardado | `rejected` | el agente | "
+        f"POST /conversation/turn 502 | {evidence} |" in text
+    )
+    assert (
+        f"| limite-de-solicitudes/presente | B2 | 1 | 1 | `rate_limited` | la infraestructura | "
+        f"POST /conversation/turn 502 | {evidence} |" in text
+    )
 
 
 def judge_unsure(run_dir: Path, verdict: Verdict = "pass", answered: int | None = None) -> None:
