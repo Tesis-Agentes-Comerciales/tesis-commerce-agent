@@ -3,7 +3,7 @@
 `uv run demo-stack` starts the merchant's PostgreSQL (docker compose, never `down`), migrates,
 imports the managed catalog, resets the scripted offer, issues the agent's merchant session and
 starts every service with secrets and AP2/D1 keys generated for this launch. The agent runs one of
-the pilot's conditions (governance_pilot.CONDITIONS); unlike the pilot, it buys from the managed
+the pilot's conditions (agent_condition.CONDITIONS); unlike the pilot, it buys from the managed
 catalog with the real clock. While the stack runs, the merchant's CLI delivers its signed order
 webhooks to the agent every few seconds: the merchant has no worker of its own. `uv run demo-stack
 s04` changes the scripted offer's price during the demo.
@@ -44,13 +44,14 @@ from jwcrypto.jwk import JWK
 
 from commerce_agent.llm.prices import format_minor_amount
 from commerce_agent.persistence.delegation_sqlite import utc_text
-from commerce_evaluation.governance_pilot import (
+from commerce_evaluation.agent_condition import (
     CONDITIONS,
     ConditionMismatchError,
     D1RunKeys,
     PilotCondition,
-    _ap2_private_key,
     agent_environment,
+    ap2_private_key,
+    startup_check,
     verify_agent_condition,
 )
 from commerce_evaluation.paths import LOCAL, ROOT
@@ -210,7 +211,7 @@ class Ports:
 
 def ap2_key_pair() -> tuple[str, str]:
     """(PKCS8 PEM, public JWK JSON) of a new ES256 key for this launch."""
-    pem = _ap2_private_key()
+    pem = ap2_private_key()
     return pem, JWK.from_pem(pem.encode()).export_public()
 
 
@@ -226,7 +227,7 @@ class HnpKeys:
     @classmethod
     def generate(cls) -> HnpKeys:
         # 43 characters each; the agent requires at least 32 and two different tokens.
-        return cls(_ap2_private_key(), secrets.token_urlsafe(32), secrets.token_urlsafe(32))
+        return cls(ap2_private_key(), secrets.token_urlsafe(32), secrets.token_urlsafe(32))
 
     def values(self) -> tuple[str, ...]:
         return (self.agent_key_pem, self.service_token, self.operator_token)
@@ -655,9 +656,6 @@ def hnp_problems(plan: DemoPlan) -> list[str]:
     configuration), checked like the HNP pilot's dry run: nothing starts and nothing is written."""
     if not plan.mode.hnp:
         return []
-    # Only b2-hnp needs the HNP pilot (it imports the whole Agent API).
-    from commerce_evaluation.hnp_pilot import startup_check
-
     check = startup_check(plan.agent_env(REDACTED), {})
     if check["ok"]:
         return []

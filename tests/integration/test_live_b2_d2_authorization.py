@@ -29,8 +29,8 @@ from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.runtime import build_runtime
 from commerce_agent.trace.assembler import PurchaseTraces
 from commerce_agent.trace.models import AuthorizationDecisionStep
+from commerce_evaluation.agent_condition import D1RunKeys
 from commerce_evaluation.demo_stack import MODES, mode_environment
-from commerce_evaluation.governance_pilot import D1RunKeys
 from commerce_evaluation.verify_evidence import LINKS, verify_database
 from tests.integration.live_purchase import (
     APPROVED_AT,

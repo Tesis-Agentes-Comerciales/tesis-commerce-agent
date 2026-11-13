@@ -113,7 +113,7 @@ SELECTION_CLAIMS = (
 
 
 class TokenSource(Protocol):
-    """AuthClient from governance-pilot; credentials remain in the HTTP boundary."""
+    """`auth_client.AuthClient`; credentials remain in the HTTP boundary."""
 
     def token(self) -> str: ...
 

@@ -23,20 +23,13 @@ from commerce_agent.delegation.contract import DelegationView
 from commerce_agent.delegation.service import DelegationConsentRequest, DelegationProposalRequest
 from commerce_agent.runtime import AgentRuntime
 from commerce_evaluation.flow_trace import SCHEMA, FlowTrace, build_flow_trace, with_flow_trace
-from commerce_evaluation.hnp_pilot import load_pilot
-from commerce_evaluation.hnp_pilot_episode import EpisodeRun, observe, token_occurrences
-from commerce_evaluation.hnp_pilot_live import finished_episode
-from commerce_evaluation.hnp_pilot_scoring import CostMeter, score_episode
+from commerce_evaluation.pilot_measures import read_only
 from commerce_evaluation.redaction import REDACTED
-from commerce_evaluation.run_artifacts import RunArtifacts
 from tests.delegation.test_hnp_runtime import OWNER, governed_hnp, runtime
-from tests.evaluation.test_hnp_pilot_episode import FakeMerchant
 from tests.support.hnp_dispatch import HNP_ORDER_ID, HnpMerchant, Psp
 from tests.support.model_server import ModelServer, shortlisted_choice, structured
 from tests.test_delegation_api import FEED, MERCHANT, hnp_settings, proposal_body
 
-MANIFEST, MATRIX = load_pilot()
-SCENARIOS = {scenario["id"]: scenario for scenario in MATRIX["scenarios"]}
 API_KEY = "sk-test-flow-trace-0123456789abcdef"
 REASON = "Elijo SON-01 porque es el más barato."
 JWT = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJidXllciJ9.c2lnbmF0dXJl"
@@ -430,52 +423,27 @@ def test_a_task_never_claimed_has_no_shortlist(run_dir: Callable[[str], Path]) -
     assert "feed" not in trace["unavailable"]
 
 
-def test_the_block_changes_no_measure_of_the_row(
-    run_dir: Callable[[str], Path], tmp_path: Path
+def test_the_block_only_adds_its_key_and_never_writes_to_the_run(
+    run_dir: Callable[[str], Path],
 ) -> None:
-    """`observed`, C8 and `score_episode` are the same before and after the block, which only adds
-    a key and never writes to the run's files."""
     directory = run_dir("b2_llm")
-    psp = tmp_path / "payments.db"
-    with closing(sqlite3.connect(psp)) as connection, connection:
-        connection.execute("CREATE TABLE delegations (checkout_id TEXT, result_json TEXT)")
-    with closing(sqlite3.connect(directory / "agent.db")) as connection:
-        grant_id, task_id = connection.execute("SELECT grant_id, task_id FROM hnp_tasks").fetchone()
-    episode = EpisodeRun(
-        merchant_run_id="run-1",
-        grant_id=grant_id,
-        task_id=task_id,
-        trigger=[{"status": 202, "code": None, "label": "202"}],
-        task_view={"task_id": task_id, "state": "purchased", "outcome_code": None},
-        delegation_view={"escalation": None},
-        token_probe="never-written",
-    )
+    row = {"scenario_id": "HN09", "condition": "B2-HNP", "observed": {"task": {}}}
 
-    def measured() -> tuple[dict[str, Any], dict[str, Any]]:
-        observed, errors = observe(
-            "B2-HNP",
-            episode,
-            run_dir=directory,
-            psp_database=psp,
-            merchant=FakeMerchant(),
-            verifier=None,
-        )
-        cost = CostMeter.from_manifest(MANIFEST).charge(observed["model_usage"])
-        score = score_episode(SCENARIOS["HN09"], "B2-HNP", observed, cost)
-        return {"observed": observed, "measurement_errors": errors, "cost": cost, **score}, {
+    def digests() -> dict[str, str]:
+        return {
             path.name: hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(directory.glob("agent*"))
         }
 
-    row, files = measured()
+    # A read-only reading leaves SQLite's sidecar files; after it, the block changes no byte.
+    with closing(read_only(directory / "agent.db")) as reading:
+        reading.execute("SELECT count(*) FROM hnp_tasks").fetchone()
+    before = digests()
     traced = with_flow_trace(row, directory, ())
 
     assert traced["flow_trace"] is not None
     assert {key: value for key, value in traced.items() if key != "flow_trace"} == row
-    assert measured() == (row, files)
-    assert token_occurrences(directory, episode.token_probe) == 0
-    rescored = score_episode(SCENARIOS["HN09"], "B2-HNP", traced["observed"], traced["cost"])
-    assert rescored == {key: row[key] for key in rescored}
+    assert digests() == before
 
 
 def test_a_block_that_cannot_be_built_is_null_and_the_row_stands(tmp_path: Path) -> None:
@@ -502,25 +470,3 @@ def test_a_row_whose_agent_never_started_has_no_block_and_no_failed_reading(
     traced = with_flow_trace(row, tmp_path / "never-started", ())
 
     assert traced == row | {"flow_trace": None}
-
-
-def test_the_runner_writes_the_block_its_kept_artifact_gives_again(
-    run_dir: Callable[[str], Path], tmp_path: Path
-) -> None:
-    directory = run_dir("b2_llm")
-    kept = RunArtifacts(
-        root=tmp_path / "runs", invocation_id="hnp-pilot-test", runner="hnp-pilot", provenance={}
-    )
-    row = {"scenario_id": "HN09", "condition": "B2-HNP", "observed": {"task": {}}}
-
-    finished = finished_episode(kept, directory, row)
-
-    assert finished["flow_trace"]["schema_version"] == SCHEMA
-    assert finished["run_artifact"]["dir"] == "hnp-pilot-test/b2_llm"
-    assert {key: finished[key] for key in row} == row
-    # A pure function of the run's files: the kept copy gives the same block.
-    assert trace_of(tmp_path / "runs" / "hnp-pilot-test" / "b2_llm") == finished["flow_trace"]
-
-    failed = finished_episode(kept, tmp_path / "never-started", row)
-    assert failed["flow_trace"] is None and failed["run_artifact"] is not None
-    assert "flow_trace" not in (failed.get("measurement_errors") or {})

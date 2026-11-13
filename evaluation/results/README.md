@@ -1,6 +1,11 @@
 # Resultados experimentales
 
-El runner (`uv run governance-pilot`) crea aquí un archivo JSONL y un resumen JSON por lote. Cada
+> Los corredores que escribieron estos resultados (pilotos B0/B2 y HNP, revisor de intención,
+> HNP-01, HNP-02, EXP-06 y el lote 2 de P0) salieron de `main`: su código, y los comandos que
+> nombran estos documentos, se reproducen desde la etiqueta `pilotos-octubre`. Los README de cada
+> corrida no se editan: son evidencia archivada, y varios están en su `SHA256SUMS`.
+
+El runner (`uv run governance-pilot`) creaba aquí un archivo JSONL y un resumen JSON por lote. Cada
 línea corresponde a una repetición y no contiene bearer tokens, claves privadas ni tokens de pago.
 
 El artefacto completo de cada corrida (bases del agente, feed, log redactado y `MANIFEST.json`)

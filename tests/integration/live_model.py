@@ -2,7 +2,7 @@
 
 `ModelServer` (tests/support/model_server.py) hands its scripted transport to the HTTP clients of
 the test process. The Human Present Agent already runs there (`AgentServer` with
-`ExplicitSettings`, as in live_browser.py and test_exp06_hp_infrastructure.py). `HnpAgent` does
+`ExplicitSettings`, as in live_browser.py and test_exp05_authenticated_ux.py). `HnpAgent` does
 not: it runs in a process of its own, refuses every OPENAI_* variable and picks with the
 deterministic selector, so the scripted transport never reaches it (p0-model-failures.md §5.3).
 

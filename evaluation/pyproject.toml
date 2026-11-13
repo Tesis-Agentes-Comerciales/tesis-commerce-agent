@@ -1,24 +1,19 @@
 [project]
 name = "tesis-commerce-evaluation"
 version = "0.1.0"
-description = "Experiments and evaluation harnesses for the buyer agent: B0/B2 pilot, HNP-01 and HNP-02"
+description = "Experiments and evaluation harnesses for the buyer agent"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "cryptography>=46,<47",
   "httpx>=0.28,<1",
   "jwcrypto>=1.5,<2",
-  "openai>=2,<3",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
   "tesis-commerce-agent",
 ]
 
 [project.scripts]
-hnp-matrix = "commerce_evaluation.hnp_matrix:main"
-hnp-review-demo = "commerce_evaluation.hnp_review_demo:main"
-hnp-pilot = "commerce_evaluation.hnp_pilot:main"
-governance-pilot = "commerce_evaluation.governance_pilot:main"
 evaluate-conversation = "commerce_evaluation.conversation:main"
 demo-stack = "commerce_evaluation.demo_stack:main"
 verify-evidence = "commerce_evaluation.verify_evidence:main"

@@ -34,10 +34,12 @@ clasificada por dónde se crea, sin `pytestmark` ni `skipif` propios:
 | 3. UI | Lint, build, historias de Storybook con interacción y axe en Chromium, y pruebas unitarias de Vitest en Node (`src/**/*.test.ts`, dentro de `test-storybook`) | `ui/` | Cada PR (`ui`) | `cd ui && npm ci && npm run lint && npm test && npm run build && npm run test-storybook` |
 | 4. Sistema | Agent ↔ Merchant ↔ proveedor de pagos con PostgreSQL desechable; gobernanza con fallos inyectados, compras B0 y ACP, compras Human Not Present (B0-HNP y B2-HNP), recorridos grabados de una persona en el navegador (compra B0, compra B2 gobernada, delegaciones HNP, también en teléfono) | `tests/integration/` | Cada noche y a pedido (`nightly.yml`) | [`tests/integration/README.md`](../tests/integration/README.md) |
 | 3. UI E2E | Recorridos de chat y de delegaciones en el navegador con Playwright, sobre el build y con backends simulados (las delegaciones reproducen secuencias reales de la API) | `ui/e2e/` | Cada PR (`ui`) | `cd ui && npm run e2e` |
-| 5. Evaluación | Experimento HNP y piloto de gobernanza sin red ni modelo (dry-run): forma de resultados, costos, trazas, guardas de gasto; `verify-evidence` HP y HNP sobre bases SQLite de corridas con el código del producto | `tests/evaluation/` y entrypoints | Cada PR, dentro de `python-tests` | `uv run pytest -m evaluation`, `uv run hnp-matrix --dry-run --env-file .env.example`, `uv run governance-pilot --dry-run`, `uv run hnp-pilot --dry-run` |
+| 5. Evaluación | Sin red ni modelo: `verify-evidence` HP y HNP sobre bases SQLite de corridas con el código del producto, el arranque de `demo-stack`, el bloque `flow_trace`, los escenarios P0 y P3, el puerto LLM con su tope de gasto y su doble, y los bytes de los resultados archivados | `tests/evaluation/` | Cada PR, dentro de `python-tests` | `uv run pytest -m evaluation` |
 
-Las corridas reales de evaluación (`HNP_LIVE=1`, modelo pagado) nunca corren en CI: se lanzan a
-mano con los entrypoints de `commerce_evaluation` y sus guardas de costo.
+Las corridas reales de evaluación (modelo pagado) nunca corren en CI: las lanza el dueño a mano,
+con su tope de gasto. Los corredores de los pilotos de octubre (B0/B2, HNP, HNP-01, HNP-02, EXP-06
+y el lote 2 de P0) salieron de `main`: se reproducen desde la etiqueta `pilotos-octubre`, y sus
+datos y resultados siguen en `evaluation/`.
 
 Selecciones útiles:
 
@@ -54,7 +56,7 @@ uv run pytest --cov --cov-report=term # con cobertura, como el CI
 | `RUN_LIVE_STACK` | `1` activa la capa 4. Si falta un requisito, la suite falla con la lista; no omite en silencio. |
 | `MERCHANT_REPO`, `PAYMENT_REPO` | Checkouts del Merchant y del proveedor de pagos para la capa 4. |
 | `RUN_LIVE_LLM` | Manual: pone el modelo de OpenAI del entorno detrás de la prueba conversacional y de la compra B0 en el navegador de la capa 4 (los demás recorridos siempre usan el router guionado). Gasta dinero. |
-| `HNP_LIVE` | Manual: habilita llamadas reales en la evaluación HNP; además exige tope de costo. |
+| `HNP_LIVE` | Manual, solo en los corredores HNP de la etiqueta `pilotos-octubre`: habilita sus llamadas reales. En `main`, EXP-01 y la evidencia nocturna se niegan a correr con él. |
 
 No hay otras activaciones: las del E2E conjunto de septiembre y las de las suites live por ticket
 se retiraron y su cobertura es ahora la capa 4 con `RUN_LIVE_STACK`. La correspondencia prueba por
@@ -67,8 +69,9 @@ prueba está en las secciones de equivalencia de [`tests/integration/README.md`]
 - `python-lint`: `ruff format --check`, `ruff check`, `pyright` y `uv build`; falla si
   `commerce_evaluation` aparece dentro del wheel.
 - `python-tests`: `uv run pytest --cov` (capas 1 y 5; la 4 se recoge y se omite), el umbral de
-  cobertura del producto, los dry-run de `hnp-matrix` y `governance-pilot` (sin red; escriben en
-  `.local/`) y un resumen de cobertura en la página del job.
+  cobertura del producto y un resumen de cobertura en la página del job. Su paso «Evaluation
+  dry-runs» todavía llama a `hnp-matrix` y `governance-pilot`, que salieron de `main`: falla hasta
+  que el dueño lo quite de `ci.yml`.
 - `auth`: `npm ci` y `npm test` en `auth/`.
 - `ui`: `npm ci`, lint, build, `build-storybook`, `test-storybook` (historias y el proyecto `unit`)
   y `npm run e2e` en Chromium.

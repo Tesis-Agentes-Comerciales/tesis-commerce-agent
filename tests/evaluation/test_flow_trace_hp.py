@@ -9,7 +9,6 @@ stopped run's databases alone.
 """
 
 import hashlib
-import io
 import json
 import shutil
 import sqlite3
@@ -29,27 +28,13 @@ from commerce_agent.config import Settings
 from commerce_agent.domain import HardConstraints, OptionConstraint, PurchaseIntent
 from commerce_agent.domain.intent import SoftPreferences
 from commerce_agent.llm import CandidateDecision, CommerceDecision, ConversationRouter
-from commerce_evaluation import governance_pilot
 from commerce_evaluation.flow_trace import (
     SCHEMA,
     HpFlowTrace,
     build_hp_flow_trace,
     token_metrics,
 )
-from commerce_evaluation.governance_pilot import (
-    CONDITIONS,
-    PILOT_V2_MANIFEST,
-    PilotError,
-    PlannedRun,
-    keeping,
-    load_manifest,
-    manifest_matrix,
-    rescore,
-    run_plan,
-)
-from commerce_evaluation.paths import RESULTS
 from commerce_evaluation.redaction import REDACTED
-from commerce_evaluation.run_artifacts import RunArtifacts
 from tests.governance.test_hp_continuation import StoreMerchant, approve
 from tests.governance.test_hp_continuation import router as sonora_router
 from tests.governance.test_runtime_dispatch import governed
@@ -108,7 +93,6 @@ PEM = (
     "-----END PRIVATE KEY-----"
 )
 OPENAI_KEY = "sk-proj-" + "k" * 32
-B2 = CONDITIONS["B2"]
 
 
 def checkpointed(directory: Path) -> Path:
@@ -563,96 +547,3 @@ def test_without_the_graph_database_the_turns_are_null_and_named(
 
     assert trace["turns"] is None and trace["unavailable"] == ["agent.graph.db"]
     assert trace["decisions"][0]["outcome"] == "deny"
-
-
-def test_a_v2_row_with_its_block_scores_as_without_it(
-    built: Callable[[str], Path], tmp_path: Path
-) -> None:
-    """`--rescore` never reads the block (§4.5): same summary, same metrics; only the two token
-    metrics come from its model requests."""
-    block = trace_of(built("lookup"))
-    frozen = RESULTS / "b2-pilot-v2" / "lote2-S05.jsonl"
-    rows = [json.loads(line) for line in frozen.read_text(encoding="utf-8").splitlines() if line]
-    traced = tmp_path / frozen.name
-    traced.write_text(
-        "".join(json.dumps(row | {"flow_trace": block}) + "\n" for row in rows), encoding="utf-8"
-    )
-    matrix = governance_pilot._load_matrix(manifest_matrix(load_manifest(PILOT_V2_MANIFEST)))
-
-    plain_records, plain = rescore(frozen, matrix)
-    traced_records, with_block = rescore(traced, matrix)
-
-    assert without(with_block, "created_at", "output") == without(plain, "created_at", "output")
-    tokens = ("model_input_tokens", "model_output_tokens")
-    evaluated = 0
-    for before, after in zip(plain_records, traced_records, strict=True):
-        assert after["flow_trace"] == block
-        assert without(after, "flow_trace", "metrics") == without(before, "metrics")
-        assert without(after["metrics"], *tokens) == without(before["metrics"], *tokens)
-        assert {name: before["metrics"][name] for name in tokens} == dict.fromkeys(tokens)
-        if "harness_error" not in before:
-            evaluated += 1
-            assert {name: after["metrics"][name] for name in tokens} == token_metrics(block)
-    assert evaluated > 0
-
-
-def frozen_row() -> dict[str, Any]:
-    """S05 rep. 8 of the v2 pilot, as the runner wrote it (run-traceability.md §1)."""
-    lines = (RESULTS / "b2-pilot-v2" / "lote2-S05.jsonl").read_text(encoding="utf-8").splitlines()
-    return json.loads(lines[14])
-
-
-def test_the_runner_adds_the_block_and_the_tokens_once_the_row_is_scored(
-    run_dir: Callable[..., Path], tmp_path: Path
-) -> None:
-    """A block that cannot be built is null with its cause, and the next row still runs; a row
-    whose agent never started has no block and no failed reading."""
-    temp = tmp_path / "temp"
-    row = frozen_row()
-    scenario = {"id": "S05", "name": row["scenario_name"]}
-    plan = [PlannedRun(scenario, repetition, B2) for repetition in (1, 2, 3)]
-    kept = RunArtifacts(
-        root=tmp_path / "runs",
-        invocation_id="governance-pilot-test",
-        runner="governance-pilot",
-        provenance={},
-    )
-
-    def execute_run(planned: PlannedRun) -> dict[str, Any]:
-        directory = governance_pilot.run_directory(temp, planned)
-        if planned.repetition == 1:
-            directory.mkdir(parents=True)
-            (directory / "agent.db").write_bytes(b"not a database")
-        elif planned.repetition == 2:
-            run_dir("lookup", directory)
-        else:
-            raise PilotError("The merchant seed failed")
-        return row | {"repetition": planned.repetition}
-
-    output = io.StringIO()
-    broken, traced, never_started = run_plan(
-        plan,
-        execute_run,
-        matrix={"matrix_id": row["matrix_id"], "baseline_id": row["baseline_id"]},
-        run_metadata={},
-        result_file=output,
-        finish=keeping(kept, temp),
-    )
-
-    assert broken["flow_trace"] is None
-    assert broken["measurement_errors"]["flow_trace"] == "DatabaseError: file is not a database"
-    assert broken["metrics"]["model_input_tokens"] is None
-    assert traced["flow_trace"]["schema_version"] == SCHEMA
-    assert traced["flow_trace"] == trace_of(tmp_path / "runs" / traced["run_artifact"]["dir"])
-    assert "flow_trace" not in traced["measurement_errors"]
-    assert traced["metrics"]["model_input_tokens"] == 3 * 1825
-    assert traced["metrics"]["model_output_tokens"] == 3 * 786
-    # Scoring is untouched: every other metric is the one the frozen row recorded.
-    assert without(traced["metrics"], "model_input_tokens", "model_output_tokens") == without(
-        row["metrics"], "model_input_tokens", "model_output_tokens"
-    )
-    assert never_started["flow_trace"] is None
-    assert "flow_trace" not in (never_started.get("measurement_errors") or {})
-    assert never_started["metrics"]["model_input_tokens"] is None
-    written = [json.loads(line) for line in output.getvalue().splitlines()]
-    assert [item["flow_trace"] is not None for item in written] == [False, True, False]
