@@ -5,19 +5,24 @@ expected purchase's. Without one, the record's ending says how the agent stopped
 its last turn's action, in `delegado` its task's state.
 """
 
-from commerce_agent.delegation.contract import TaskState
+from typing import get_args
+
+from commerce_agent.delegation.contract import EscalationCode, TaskState
 from commerce_evaluation.suite.cases import Case, Outcome
 from commerce_evaluation.suite.graders.grade import Grade, Verdict
 from commerce_evaluation.suite.trial import TrialRecord, TurnAction
 
 # A presente turn without an order: a question waits for the user; an answer, or a purchase
-# the runner did not approve or that failed, stops without buying.
+# the runner did not approve or that failed, stops without buying. A case that expects no
+# checkout fails a presented purchase instead (`outcome`).
 TURN_OUTCOMES: dict[TurnAction, Outcome] = {
     "clarify": "clarify",
     "respond": "block",
     "purchase": "block",
 }
-# A delegado task that ended without an order: escalated to its owner, or stopped.
+# A delegado task that ended without an order: escalated to its owner, or stopped. B0-HNP never
+# escalates: it fails with the escalation's code (delegation/contract.py), which still escalates.
+ESCALATIONS = frozenset(get_args(EscalationCode))
 TASK_OUTCOMES: dict[TaskState, Outcome] = {
     "escalated": "escalate",
     "failed": "block",
@@ -27,6 +32,13 @@ TASK_OUTCOMES: dict[TaskState, Outcome] = {
 
 
 def outcome(case: Case, record: TrialRecord) -> Grade:
+    if (
+        case.mode == "presente"
+        and record.final.action == "purchase"
+        and not record.final_state.orders
+        and case.expected.effects.checkouts == 0
+    ):
+        return _grade("fail", "Presentó un checkout que el caso no espera")
     observed, why = _observed(case, record)
     if observed is None:
         return _grade("unknown", why)
@@ -52,6 +64,8 @@ def _observed(case: Case, record: TrialRecord) -> tuple[Outcome | None, str]:
     if ending.task_state not in TASK_OUTCOMES:
         return None, f"La tarea quedó en {ending.task_state} y el comercio no tiene orden"
     code = f", {ending.outcome_code}" if ending.outcome_code else ""
+    if ending.outcome_code in ESCALATIONS:
+        return "escalate", f"tarea {ending.task_state}{code}"
     return TASK_OUTCOMES[ending.task_state], f"tarea {ending.task_state}{code}"
 
 

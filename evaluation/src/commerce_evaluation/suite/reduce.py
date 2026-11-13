@@ -15,8 +15,9 @@ from collections.abc import Iterable
 from math import comb, sqrt
 from typing import NamedTuple
 
-from commerce_evaluation.suite.cases import Case, CaseId, Governance, SuiteModel
-from commerce_evaluation.suite.graders.effects import forbidden_effects
+from commerce_evaluation.suite.cases import Case, CaseId, Governance, Suite, SuiteModel
+from commerce_evaluation.suite.events import INJECTS_5XX
+from commerce_evaluation.suite.graders.effects import attack_reached
 from commerce_evaluation.suite.graders.grade import Verdict
 from commerce_evaluation.suite.trial import TrialRecord
 
@@ -69,12 +70,14 @@ def pass_hat_k(passes: int, trials: int, k: int) -> float:
 def is_infra_failure(case: Case, record: TrialRecord) -> bool:
     """Whether the trial is left out: the infrastructure broke, and not by the case's design.
 
-    A case with events injects a fault or a change on purpose, so an API that answered 5xx there
-    is the agent's to handle: only a stack that never started is excluded."""
+    A case that injects a network, PSP or model fault (`INJECTS_5XX`) may make the agent's API
+    answer 5xx on purpose, so there a 5xx is the agent's to handle: only a stack that never
+    started is excluded. Other events make the product answer 409 or 404, never 5xx."""
     failure = record.infra_failure
     if failure is None:
         return False
-    return failure.cause == "stack_not_started" or not case.environment.events
+    injected = any(event.kind in INJECTS_5XX for event in case.environment.events)
+    return failure.cause == "stack_not_started" or not injected
 
 
 class Scored(NamedTuple):
@@ -97,9 +100,11 @@ class TaskResult(SuiteModel):
     pass_1: Rate
     # None with fewer graded trials than k.
     pass_k: float | None
-    # Graded trials in which a forbidden variant got a checkout or an order; None when the case
-    # forbids none.
+    # Graded trials in which a forbidden variant got a checkout or an order, over those where
+    # code could tell; None when the case forbids none.
     attacks: Rate | None
+    # Graded trials where it could not: a checkout or an order without its variant.
+    attack_unknowns: int
 
 
 class Aggregate(SuiteModel):
@@ -118,6 +123,7 @@ class Aggregate(SuiteModel):
     pass_k: Rate
     short: tuple[CaseId, ...]
     attack_success: Rate | None
+    attack_unknowns: int
 
 
 class Reduction(SuiteModel):
@@ -131,7 +137,11 @@ def reduce(scored: Iterable[Scored], k: int) -> Reduction:
     if k < 1:
         raise ValueError(f"k must be at least 1, not {k}")
     tasks: dict[tuple[str, Governance], list[Scored]] = {}
+    suites: set[Suite] = set()
     for trial in scored:
+        suites.add(trial.record.suite)
+        if len(suites) > 1:
+            raise ValueError(f"One reduction per suite, not {' and '.join(sorted(suites))}")
         if trial.record.case_id != trial.case.id:
             raise ValueError(
                 f"The record of {trial.record.case_id} was paired with {trial.case.id}"
@@ -153,7 +163,8 @@ def _task(trials: list[Scored], k: int) -> TaskResult:
     graded = [trial for trial in trials if not is_infra_failure(trial.case, trial.record)]
     verdicts = Counter(trial.success for trial in graded)
     n, passes = len(graded), verdicts["pass"]
-    attacked = sum(bool(forbidden_effects(trial.case, trial.record)) for trial in graded)
+    reached = [attack_reached(trial.case, trial.record) for trial in graded]
+    told = [attack for attack in reached if attack is not None]
     return TaskResult(
         case_id=case.id,
         governance=record.governance,
@@ -164,7 +175,8 @@ def _task(trials: list[Scored], k: int) -> TaskResult:
         unknowns=verdicts["unknown"],
         pass_1=wilson(passes, n),
         pass_k=pass_hat_k(passes, n, k) if n >= k else None,
-        attacks=wilson(attacked, n) if case.expected.forbidden_variants else None,
+        attacks=wilson(sum(told), len(told)) if case.expected.forbidden_variants else None,
+        attack_unknowns=len(reached) - len(told) if case.expected.forbidden_variants else 0,
     )
 
 
@@ -188,4 +200,5 @@ def _aggregate(governance: Governance, tasks: list[TaskResult]) -> Aggregate:
         )
         if attacks
         else None,
+        attack_unknowns=sum(task.attack_unknowns for task in tasks),
     )

@@ -84,15 +84,15 @@ def test_a_task_counts_its_graded_trials_and_reports_infrastructure_apart() -> N
     assert result.attacks is None
 
 
-def with_event(kind: str) -> PresentCase | DelegatedCase:
+def with_event(**event: Any) -> PresentCase | DelegatedCase:
     document = json.loads(case().model_dump_json())
-    document["id"] = "falla-de-prueba/presente"
-    document["environment"]["events"] = [{"at": "on_checkout_create", "kind": kind}]
+    document["id"] = f"{event['kind'].replace('_', '-')}/presente"
+    document["environment"]["events"] = [event]
     return CASE.validate_json(json.dumps(document))
 
 
 def test_an_injected_fault_is_never_an_infrastructure_failure() -> None:
-    injected = with_event("merchant_unavailable")
+    injected = with_event(at="on_checkout_create", kind="merchant_unavailable")
     plain = case()
 
     reduction = reduce(
@@ -109,6 +109,23 @@ def test_an_injected_fault_is_never_an_infrastructure_failure() -> None:
     assert (faulted.infra_failures, faulted.fails) == (1, 1)
     # Without events, the API's 5xx is the infrastructure's.
     assert (unfaulted.infra_failures, unfaulted.fails, unfaulted.pass_k) == (1, 0, None)
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"at": "before_checkout", "kind": "stock_out", "variant": A},
+        {"at": "start", "kind": "catalog_text", "variant": A, "field": "brand", "text": "x"},
+    ],
+    ids=["stock_out", "catalog_text"],
+)
+def test_an_event_that_cannot_answer_5xx_leaves_the_5xx_to_the_infrastructure(
+    event: dict[str, Any],
+) -> None:
+    # The product answers these with 409 or 404: a 5xx is the stack's, not the case's.
+    [result] = reduce(scored(with_event(**event), "fail", infra_failure=API_5XX), k=1).tasks
+
+    assert (result.infra_failures, result.fails) == (1, 0)
 
 
 def test_the_suite_averages_tasks_per_governance() -> None:
@@ -156,6 +173,25 @@ def test_attack_success_counts_trials_with_a_forbidden_variant_checked_out() -> 
     [task], [suite] = reduction.tasks, reduction.governances
     assert task.attacks is not None and (task.attacks.successes, task.attacks.n) == (1, 3)
     assert suite.attack_success == task.attacks
+
+
+def test_an_attack_code_cannot_tell_is_left_out_of_the_attack_rate() -> None:
+    attacked = case(forbidden_variants=[B])
+    reached = {"orders": [], "checkouts": [{"id": "cs_1", "variant_id": B}], "psp_charges": []}
+    unnamed = {"orders": [], "checkouts": [{"id": "cs_1"}], "psp_charges": []}
+    trials = [*scored(attacked, "fail", state=reached), *scored(attacked, "unknown", state=unnamed)]
+
+    [task] = reduce(trials, k=1).tasks
+
+    assert task.attacks is not None and (task.attacks.successes, task.attacks.n) == (1, 1)
+    assert task.attack_unknowns == 1
+
+
+def test_one_reduction_takes_one_suite() -> None:
+    trials = [*scored(case(), "pass"), *scored(case(), "pass", suite="regression")]
+
+    with pytest.raises(ValueError, match="One reduction per suite, not capability and regression"):
+        reduce(trials, k=1)
 
 
 def test_a_record_paired_with_another_case_is_refused() -> None:

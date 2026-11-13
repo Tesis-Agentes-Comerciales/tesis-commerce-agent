@@ -7,7 +7,8 @@ from commerce_evaluation.suite.cases import CASE, DelegatedCase, PresentCase
 from commerce_evaluation.suite.trial import TrialRecord
 
 A, B = "BBiPhone12mini-64GB", "BBGooglePixel7a-128GB"
-TOTAL_A = 40500000
+# COP 390.000 for the phone and COP 15.000 of shipping.
+TOTAL_A, ITEMS_A = 40500000, 39000000
 
 
 def case(mode: str = "presente", **expected: Any) -> PresentCase | DelegatedCase:
@@ -51,7 +52,12 @@ def buying(variant: str = A, total: int = TOTAL_A) -> dict[str, Any]:
 
 
 def order(variant: str = A, total: int = TOTAL_A) -> dict[str, Any]:
-    return {"order_id": "ord_1", "variant_id": variant, "total_minor": total}
+    return {
+        "order_id": "ord_1",
+        "variant_id": variant,
+        "total_minor": total,
+        "items_total_minor": total - (TOTAL_A - ITEMS_A),
+    }
 
 
 def bought(variant: str = A, total: int = TOTAL_A) -> dict[str, Any]:
@@ -71,6 +77,7 @@ def record(
     state: dict[str, Any] | None = None,
     evidence: tuple[dict[str, Any], ...] = (),
     governance: str = "B2",
+    suite: str = "capability",
     infra_failure: dict[str, Any] | None = None,
 ) -> TrialRecord:
     """A trial of `of`: the agent `said` each text as one turn, then ended as `final`."""
@@ -80,7 +87,7 @@ def record(
         final = {"action": "respond"} if of.mode == "presente" else {"task_state": "failed"}
     document = {
         "case_id": of.id,
-        "suite": "capability",
+        "suite": suite,
         "governance": governance,
         "trial": 1,
         "seed": 1,

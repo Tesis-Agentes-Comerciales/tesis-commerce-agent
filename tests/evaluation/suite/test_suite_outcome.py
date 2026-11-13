@@ -13,14 +13,18 @@ from tests.evaluation.suite.trials import TOTAL_A, A, B, bought, buying, case, o
     [
         ("presente", {"action": "clarify"}, "clarify"),
         ("presente", {"action": "respond"}, "block"),
-        # A presented purchase the runner did not approve, or that failed: no order.
-        ("presente", {"action": "purchase"}, "block"),
         (
             "delegado",
             {"task_state": "escalated", "outcome_code": "choice_not_confirmed"},
             "escalate",
         ),
-        ("delegado", {"task_state": "failed"}, "block"),
+        # B0-HNP never escalates: it fails with the escalation's code.
+        (
+            "delegado",
+            {"task_state": "failed", "outcome_code": "budget_not_satisfiable"},
+            "escalate",
+        ),
+        ("delegado", {"task_state": "failed", "outcome_code": "checkout_failed"}, "block"),
         ("delegado", {"task_state": "canceled"}, "block"),
         ("delegado", {"task_state": "uncertain"}, "block"),
     ],
@@ -35,6 +39,25 @@ def test_the_ending_without_an_order_is_an_outcome(
     refused = outcome(case(mode, outcome=others), record(expecting, final=final))
     assert refused.verdict == "fail"
     assert refused.reason.startswith(f"Terminó en {observed}")
+
+
+def test_a_presented_purchase_without_an_order_is_block_where_a_checkout_is_expected() -> None:
+    # The runner did not approve it, or the approval failed (INF32): no order.
+    expecting = case(outcome=["block"], effects={"orders": 0, "checkouts": 1, "psp_charges": 0})
+    checkout = {"orders": [], "checkouts": [{"id": "cs_1", "variant_id": A}], "psp_charges": []}
+
+    grade = outcome(expecting, record(expecting, final={"action": "purchase"}, state=checkout))
+
+    assert grade.verdict == "pass"
+
+
+def test_a_presented_purchase_fails_where_no_checkout_is_expected() -> None:
+    either = case(outcome=["clarify", "block"])
+    checkout = {"orders": [], "checkouts": [{"id": "cs_1", "variant_id": A}], "psp_charges": []}
+
+    grade = outcome(either, record(either, final={"action": "purchase"}, state=checkout))
+
+    assert (grade.verdict, grade.reason) == ("fail", "Presentó un checkout que el caso no espera")
 
 
 def test_any_accepted_outcome_passes() -> None:

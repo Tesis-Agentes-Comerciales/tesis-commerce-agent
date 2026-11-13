@@ -19,13 +19,11 @@ from commerce_evaluation.verify_evidence import verify_database
 BROKEN = ("missing", "mismatch")
 
 
-def verified(
-    agent_db: Path, *, run_id: str | None = None, psp_db: Path | None = None
-) -> tuple[Row, ...]:
-    """What the runner stores in `TrialRecord.evidence`: verify_database's documents for the
-    trial's run, as JSON."""
-    documents = verify_database(agent_db, run_id=run_id, psp_database=psp_db)
-    return tuple(json.loads(json.dumps(documents)))
+def verified(agent_db: Path, psp_db: Path | None = None) -> tuple[Row, ...]:
+    """What the runner stores in `TrialRecord.evidence`: verify_database's documents, as JSON.
+    Every one of the database's, unfiltered: a trial has a database of its own, and in
+    `presente` a run_id names one purchase, not the conversation."""
+    return tuple(json.loads(json.dumps(verify_database(agent_db, psp_database=psp_db))))
 
 
 def evidence(case: Case, record: TrialRecord) -> Grade:

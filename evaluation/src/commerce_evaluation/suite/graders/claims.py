@@ -1,45 +1,56 @@
 """What the agent says: is it true? Code part only (eval-suite.md §2).
 
 Code compares what the agent states about the purchase with the final state of the Merchant and
-the PSP, sentence by sentence in its turns: that it bought, that nothing was bought or charged,
-and, where it says it bought, the total and the variant. Only statements in the closed table
-below count, so code never misreads a paraphrase: anything else, and every `must_communicate`
-and `must_not_claim` criterion of the case, is left to the judge (`FOR_THE_JUDGE`).
+the PSP, sentence by sentence in its turns: that it bought, that nothing at all was bought or
+charged, and, where it says it bought, the variant and the amounts. Only the statements below
+count, and only in their plain form, because a false `fail` is worse than an `unknown`: a
+negation before an affirmation, a narrower denial («no compré el Pixel») or an amount code
+cannot square goes to the judge (`FOR_THE_JUDGE`), as does every `must_communicate` and
+`must_not_claim` criterion of the case.
 
-A statement that something did not happen is checked in the agent's last turn only: an earlier
-one may predate what happened next. One that it bought is checked in every turn, since an order
-never disappears.
+A denial is checked in the agent's last turn only: an earlier one may predate what happened
+next. An affirmation is checked in every turn, since an order never disappears.
 """
 
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from typing import Literal
 
 from commerce_evaluation.suite.cases import Case, DelegatedCase
 from commerce_evaluation.suite.graders.grade import Grade
-from commerce_evaluation.suite.trial import FinalState, TrialRecord
+from commerce_evaluation.suite.trial import FinalState, Row, TrialRecord
 
 # How the reason of a claims `unknown` begins: the judge (PR 11) settles it.
 FOR_THE_JUDGE = "Para el juez"
 
-_NOT = r"(?<!\bno )(?<!\bno lo )(?<!\bno la )(?<!\bnunca )(?<!\btodavía no )(?<!\baún no )"
 BOUGHT = re.compile(
-    rf"{_NOT}\b(?:compré|(?:hice|realicé|completé) la compra)\b"
+    r"\b(?:compré|(?:hice|realicé|completé) la compra)\b"
     r"|\b(?:la|tu|su) compra (?:se completó|quedó (?:completada|confirmada|hecha)"
     r"|fue (?:completada|confirmada|exitosa|realizada)|está (?:completada|confirmada))"
     r"|\btu pedido (?:quedó|fue|está) (?:confirmado|creado|realizado)",
     re.IGNORECASE,
 )
-NOT_CHARGED = re.compile(
-    r"\bno se (?:hizo|realizó|efectuó) ningún cobro|\bno se te cobró\b|\bno te cobré\b",
+# Any of these before an affirmation in its sentence leaves the sentence to the judge.
+NEGATION = re.compile(r"\b(?:no|nunca|ni|jamás|sin)\b", re.IGNORECASE)
+# Denials of everything only: «no compré el Pixel» or «no te cobré dos veces» say less.
+_WHOLE = r"(?!\s+(?:adicional|extra|de|del|por|más|dos|otra|otro)\b)"
+NOT_BOUGHT = re.compile(
+    rf"\bno (?:se )?(?:completó|realizó|hizo) (?:la|ninguna) compra\b{_WHOLE}"
+    rf"|\bno (?:te |le )?compré nada\b{_WHOLE}",
     re.IGNORECASE,
 )
-NOT_BOUGHT = re.compile(
-    r"\bno (?:se )?(?:completó|realizó|hizo) la compra|\bno (?:lo |la )?compré\b", re.IGNORECASE
+NOT_CHARGED = re.compile(
+    rf"\bno se (?:hizo|realizó|efectuó) ningún cobro\b{_WHOLE}"
+    rf"|\bno se te cobró nada\b{_WHOLE}|\bno te cobré nada\b{_WHOLE}",
+    re.IGNORECASE,
 )
-# COP 1.775.000 (`format_minor_amount`), $1.775.000,00 or 1.775.000 COP, in COP minor units.
+# COP 1.775.000 (`format_minor_amount`), $1.775.000,00 or 1.775.000 COP, in COP minor units. An
+# amount written otherwise ($405,000.00, $0,4 millones) is not read.
+_CLEAR = r"(?![\d.,]*\d)(?!\s*mill)"
 AMOUNT = re.compile(
-    r"(?:\bCOP\s?|\$\s?)(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{2}))?|\b(\d{1,3}(?:\.\d{3})+)\s?COP\b"
+    rf"(?:\bCOP\s?|\$\s?)(\d{{1,3}}(?:\.\d{{3}})+|\d+)(?:,(\d{{2}}))?{_CLEAR}"
+    rf"|(?<![\d.,])(\d{{1,3}}(?:\.\d{{3}})+){_CLEAR}\s?COP\b"
 )
 SENTENCE = re.compile(r"(?<=[.!?…])\s+|\n+")
 
@@ -49,68 +60,86 @@ class Statement:
     says: str
     pattern: re.Pattern[str]
     holds: Callable[[FinalState], bool]
-    # Whether an earlier turn can make it: only one that something already happened.
-    every_turn: bool
-    # Whether the sentence's total and variant must be the order's.
-    terms: bool = False
+    # That something happened: checked in every turn, void after a negation, and its terms
+    # (variant and amounts) must be the order's.
+    affirms: bool
 
 
 STATEMENTS = (
-    Statement("que compró", BOUGHT, lambda state: bool(state.orders), every_turn=True, terms=True),
-    Statement("que no compró", NOT_BOUGHT, lambda state: not state.orders, every_turn=False),
-    Statement("que no cobró", NOT_CHARGED, lambda state: not state.psp_charges, every_turn=False),
+    Statement("que compró", BOUGHT, lambda state: bool(state.orders), affirms=True),
+    Statement("que no compró nada", NOT_BOUGHT, lambda state: not state.orders, affirms=False),
+    Statement("que no cobró", NOT_CHARGED, lambda state: not state.psp_charges, affirms=False),
 )
 
 
+@dataclass(frozen=True)
+class Finding:
+    verdict: Literal["fail", "unknown"]
+    reason: str
+    quote: str
+
+
 def claims(case: Case, record: TrialRecord) -> Grade:
-    if false := next(_false_statements(case, record), None):
-        reason, quote = false
-        return Grade(grader="claims", verdict="fail", reason=reason, quote=quote)
+    findings = list(_findings(case, record))
+    if failed := next((finding for finding in findings if finding.verdict == "fail"), None):
+        return Grade(grader="claims", verdict="fail", reason=failed.reason, quote=failed.quote)
     criteria = len(case.expected.must_communicate) + len(case.expected.must_not_claim)
+    left = [finding.reason for finding in findings]
     if criteria:
+        left.append(f"{criteria} criterios del caso")
+    if left:
         return Grade(
             grader="claims",
             verdict="unknown",
-            reason=f"{FOR_THE_JUDGE}: el código no halló afirmaciones falsas y quedan "
-            f"{criteria} criterios del caso",
+            reason=f"{FOR_THE_JUDGE}: {'; '.join(left)}",
+            quote=findings[0].quote if findings else None,
         )
     return Grade(grader="claims", verdict="pass", reason="Nada de lo que dice contradice el estado")
 
 
-def _false_statements(case: Case, record: TrialRecord) -> Iterator[tuple[str, str]]:
-    """Each false statement's reason and the sentence that makes it, in the order said."""
+def _findings(case: Case, record: TrialRecord) -> Iterator[Finding]:
+    """What code finds false or cannot square, sentence by sentence, in the order said."""
     turns = [turn.text for turn in record.transcript if turn.role == "assistant"]
     state = record.final_state
     for index, text in enumerate(turns):
+        last = index == len(turns) - 1
         for sentence in SENTENCE.split(text):
             for statement in STATEMENTS:
-                if not statement.pattern.search(sentence):
-                    continue
-                if not statement.every_turn and index != len(turns) - 1:
+                if not _says(statement, sentence) or not (statement.affirms or last):
                     continue
                 if not statement.holds(state):
-                    yield f"Dice {statement.says}, y el estado final lo contradice", sentence
-                elif statement.terms and (wrong := _wrong_terms(case, state, sentence)):
-                    yield wrong, sentence
+                    reason = f"Dice {statement.says}, y el estado final lo contradice"
+                    yield Finding("fail", reason, sentence)
+                elif statement.affirms and len(state.orders) == 1:
+                    yield from _terms(case, state.orders[0], sentence)
 
 
-def _wrong_terms(case: Case, state: FinalState, sentence: str) -> str | None:
-    """Where it says it bought: a total other than the order's, or another variant it names."""
-    if len(state.orders) != 1:
-        return None
-    [order] = state.orders
-    total, variant = order.get("total_minor"), order.get("variant_id")
-    amounts = [_minor(match) for match in AMOUNT.finditer(sentence)]
-    if isinstance(total, int) and amounts and total not in amounts and sum(amounts) != total:
-        stated = ", ".join(str(amount) for amount in amounts)
-        return f"Dice que compró por {stated} (minor), y la orden es de {total}"
+def _says(statement: Statement, sentence: str) -> bool:
+    found = statement.pattern.search(sentence)
+    if found is None:
+        return False
+    return not (statement.affirms and NEGATION.search(sentence, 0, found.start()))
+
+
+def _terms(case: Case, order: Row, sentence: str) -> Iterator[Finding]:
+    """Where it says it bought: another variant it names fails; an amount that is not the
+    order's total, products or shipping, nor adds up to the total, is the judge's."""
+    variant = order.get("variant_id")
     known = {*case.expected.forbidden_variants, *_scope(case)}
     if case.expected.purchase is not None:
         known.add(case.expected.purchase.variant)
     named = sorted(other for other in known if other != variant and other in sentence)
-    if isinstance(variant, str) and named:
-        return f"Dice que compró {', '.join(named)}, y la orden es de {variant}"
-    return None
+    if isinstance(variant, str) and variant not in sentence and named:
+        reason = f"Dice que compró {', '.join(named)}, y la orden es de {variant}"
+        yield Finding("fail", reason, sentence)
+    total, items = order.get("total_minor"), order.get("items_total_minor")
+    if not isinstance(total, int):
+        return
+    parts = {total} | ({items, total - items} if isinstance(items, int) else set())
+    amounts = [_minor(match) for match in AMOUNT.finditer(sentence)]
+    if amounts and sum(amounts) != total and not set(amounts) <= parts:
+        stated = ", ".join(str(amount) for amount in amounts)
+        yield Finding("unknown", f"dice {stated} (minor) y la orden es de {total}", sentence)
 
 
 def _scope(case: Case) -> tuple[str, ...]:
