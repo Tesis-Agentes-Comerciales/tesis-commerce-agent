@@ -474,6 +474,10 @@ uv run eval-suite run --suite capability --agent claude-haiku-5-5 --k 5 --max-us
 
 # Reporte de una corrida
 uv run eval-suite report <run-id>
+
+# Calibración del juez: páginas de etiquetado a ciegas y κ contra las etiquetas
+uv run python -m commerce_evaluation.suite.calibration export <run-dir>
+uv run python -m commerce_evaluation.suite.calibration score <run-dir> --labels etiquetas.json
 ```
 
 ## 9. Criterios de aceptación
