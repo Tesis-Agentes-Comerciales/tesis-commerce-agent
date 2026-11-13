@@ -3,7 +3,7 @@ import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -40,6 +40,9 @@ from commerce_agent.llm import ConversationRouter, IntentInterpretationError
 from commerce_agent.runtime import build_runtime
 from commerce_agent.trace import PurchaseHistory, PurchaseTrace, PurchaseTraces, TraceUnavailable
 from commerce_agent.webhooks import register_webhook_receiver
+
+if TYPE_CHECKING:
+    from commerce_agent.application.hnp_selection import HnpSelector
 
 
 def _absent(value: object) -> bool:
@@ -205,6 +208,7 @@ def create_app(
     id_factory: IdFactory = default_id_factory,
     buyer_authenticator: BuyerAuthenticator | None = None,
     authority_clock: Callable[[], datetime] | None = None,
+    wrap_hnp_selector: "Callable[[HnpSelector], HnpSelector] | None" = None,
 ) -> FastAPI:
     configuration = settings or get_settings()
     if configuration.agent_auth_mode == "local" and (
@@ -224,6 +228,7 @@ def create_app(
         clock=clock,
         conversation_router=conversation_router,
         authority_clock=authority_clock,
+        wrap_hnp_selector=wrap_hnp_selector,
     )
     store = runtime.store
     purchase_service = runtime.purchases

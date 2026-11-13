@@ -33,6 +33,7 @@ from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 
 if TYPE_CHECKING:
     from commerce_agent.application.hnp_execution import HnpExecutionService
+    from commerce_agent.application.hnp_selection import HnpSelector
     from commerce_agent.delegation.service import DelegationService
     from commerce_agent.governance.authorization import SqliteD2AuthorizationGate
     from commerce_agent.governance.enforce import SqliteD1EnforceGate
@@ -87,7 +88,12 @@ def build_runtime(
     clock: Callable[[], datetime] | None = None,
     conversation_router: ConversationRouter | None = None,
     authority_clock: Callable[[], datetime] | None = None,
+    wrap_hnp_selector: "Callable[[HnpSelector], HnpSelector] | None" = None,
 ) -> AgentRuntime:
+    """`conversation_router` and `wrap_hnp_selector` are the harness's seams at the model
+    boundary: the router replaces the configured model, and the wrapper receives the HNP selector
+    `AGENT_HNP_SELECTOR` built and returns the one the executor uses (the evaluation suite's
+    reference selector, or the built one with its hook at selection)."""
     if configuration.merchant_bearer_token is None:
         raise RuntimeError("MERCHANT_BEARER_TOKEN is required")
     if configuration.merchant_webhook_secret is None:
@@ -280,6 +286,8 @@ def build_runtime(
             # After the ledger exists: D2-HNP and D3-HNP write their evidence inside its UoWs.
             hnp_gate = build_hnp_policy_gate(configuration, clock, trust=hnp_trust.mandates)
         selector, owned_hnp_chooser = build_hnp_selector(configuration, timings)
+        if wrap_hnp_selector is not None:
+            selector = wrap_hnp_selector(selector)
         owned_hnp_reviewer = build_hnp_reviewer(configuration, timings)
         hnp_executor = build_hnp_executor(
             configuration,

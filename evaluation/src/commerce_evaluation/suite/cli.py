@@ -27,7 +27,7 @@ from commerce_evaluation.llm.cost import CLAUDE_PRICES
 from commerce_evaluation.llm.transport import Effort, FundsExhausted
 from commerce_evaluation.paths import DATA, RESULTS
 from commerce_evaluation.suite import calibration, console, judging, mapped
-from commerce_evaluation.suite.cases import SUITES, Suite, load_catalog
+from commerce_evaluation.suite.cases import SUITES, Case, Suite, load_catalog
 from commerce_evaluation.suite.console import KEY, PAID, money, shown
 from commerce_evaluation.suite.executor import RunSettings, TrialExecutor
 from commerce_evaluation.suite.graders.judge import MODEL as JUDGE
@@ -131,6 +131,10 @@ def run_command(arguments: argparse.Namespace) -> int:
     if paid:
         _require_paid(plan.max_usd)
     factory, budget = load_executor(), None
+    # The executor names the plan's events it does not apply, before it starts or spends.
+    check: Callable[[Sequence[Case]], list[str]] = getattr(factory, "unsupported_events", _none)
+    if unsupported := check(plan.cases):
+        raise Refused("El ejecutor en vivo no aplica estos eventos: " + "; ".join(unsupported))
     if paid and plan.max_usd is not None:
         repair_jsonl(settings.run_dir / LEDGER_FILE)
         budget = RunBudget(max_usd=plan.max_usd, run_dir=settings.run_dir)
@@ -210,6 +214,10 @@ def report_command(arguments: argparse.Namespace) -> int:
     report = write(run_dir)
     print(f"Reporte: {shown(run_dir / 'report.md')} ({len(report.reduction.tasks)} tareas)")
     return 0
+
+
+def _none(cases: Sequence[Case]) -> list[str]:
+    return []
 
 
 def load_executor() -> Factory:

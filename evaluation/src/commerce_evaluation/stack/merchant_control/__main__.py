@@ -7,9 +7,10 @@ from commerce_evaluation.stack.merchant_control.core import bootstrap
 from commerce_evaluation.stack.merchant_control.ct19 import Ct19Control
 from commerce_evaluation.stack.merchant_control.offers import OfferControl
 from commerce_evaluation.stack.merchant_control.p3 import P3Control
+from commerce_evaluation.stack.merchant_control.suite import SuiteControl
 
 
-class Control(OfferControl, Ct19Control, P3Control):
+class Control(OfferControl, Ct19Control, P3Control, SuiteControl):
     """Every operation the harness may call."""
 
 
@@ -49,6 +50,8 @@ def main() -> None:
             "ct19_mutate",
             "p3_state",
             "p3_mutate",
+            "suite_offer",
+            "suite_state",
         )
     }
     try:

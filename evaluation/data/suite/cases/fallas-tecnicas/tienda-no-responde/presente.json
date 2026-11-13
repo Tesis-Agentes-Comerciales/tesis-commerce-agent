@@ -28,6 +28,6 @@
     ],
     "evidence": ["intent", "d1_decision"]
   },
-  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reward_basis": ["effects", "outcome", "claims"],
   "reference": { "agent_script": "tienda-no-responde/presente" }
 }
