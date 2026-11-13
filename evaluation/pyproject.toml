@@ -11,12 +11,14 @@ dependencies = [
   "jwcrypto>=1.5,<2",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
+  "python-dotenv>=1.2,<2",
   "tesis-commerce-agent",
 ]
 
 [project.scripts]
 evaluate-conversation = "commerce_evaluation.conversation:main"
 demo-stack = "commerce_evaluation.demo_stack:main"
+eval-suite = "commerce_evaluation.suite.cli:main"
 verify-evidence = "commerce_evaluation.verify_evidence:main"
 
 [tool.uv.sources]

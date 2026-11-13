@@ -412,6 +412,7 @@ flowchart LR
 | `trial.py` | Corre un intento y arma su registro | `build_flow_trace` y los lectores del comercio y del PSP |
 | `graders/` | Los cuatro calificadores y el juez | `verify_evidence`, `StructuredLLM` |
 | `reduce.py` | pass^1 y pass^k con el estimador C(c,k)/C(n,k), con intervalos de Wilson, por tarea y por gobernanza, y la tasa de ataques que logran su objetivo | `wilson` |
+| `run.py` | Corre los intentos de una suite: reintentos, exclusiones, parada por presupuesto y reanudación | nada |
 | `report.py` | Tabla y JSON del reporte | nada |
 | CLI `eval-suite` | `run` y `report` | el patrón `--dry-run` |
 
@@ -501,16 +502,30 @@ Toda corrida paga exige `--max-usd`, y `BudgetedTransport` la corta al llegar al
 el dueño a mano. El juez lleva su propio `--max-usd`: el lote reserva de una vez el peor caso de
 cada pregunta, unos USD 0,035 a 0,04 con Opus por Batch.
 
+`eval-suite run --dry-run` estima el agente y el usuario simulado de la corrida, sin el juez, con
+los tokens medidos por llamada del agente: el router, 1.746 de entrada (1.664 en caché) y 90 de
+salida; la selección, 635 y 284; y la revisión de `delegado`, 819 y 186. Un intento típico en
+`presente` tiene 3 turnos, con 3 llamadas al router, una selección y 2 respuestas del simulador de
+1.500 y 300 tokens. El peor caso tiene 6 turnos, nada en caché, cuatro veces la salida medida y 5
+respuestas del simulador con su tope de 2.000 tokens. El simulador todavía no está medido: el
+piloto da su cifra real.
+
 ## 8. Cómo se corre
 
 ```bash
-# Regresión: sin LLM. Necesita Docker u OrbStack encendido.
+# Regresión: sin LLM. Necesita Docker u OrbStack encendido. Corre además las pruebas del mapa de
+# regresión (evaluation/data/suite/regression-map.json) con RUN_LIVE_STACK=1.
 uv run eval-suite run --suite regression
 
-# Capacidad: LLM real. Necesita ANTHROPIC_API_KEY en .env.
-uv run eval-suite run --suite capability --agent claude-haiku-5-5 --k 5 --max-usd 15
+# El plan y su costo estimado, sin correr nada
+uv run eval-suite run --suite capability --dry-run
 
-# Reporte de una corrida
+# Capacidad y adversarial: LLM real, las lanza solo el dueño. Necesitan ANTHROPIC_API_KEY en el
+# entorno o en .env, y --max-usd.
+uv run eval-suite run --suite capability --agent claude-haiku-5-5 --k 5 --max-usd 15
+uv run eval-suite run --suite adversarial --max-usd 5
+
+# Reporte de una corrida, por su id o su carpeta
 uv run eval-suite report <run-id>
 
 # Calibración del juez: páginas de etiquetado a ciegas en <run-dir>/calibration/labeling/
@@ -518,6 +533,22 @@ uv run eval-suite report <run-id>
 uv run python -m commerce_evaluation.suite.calibration export <run-dir> [--by-verdict]
 uv run python -m commerce_evaluation.suite.calibration score <run-dir> --labels etiquetas.json
 ```
+
+Opciones de `run`: `--agent` (por defecto `claude-haiku-5-5`), `--effort` (`low`), `--simulator`
+(`claude-sonnet-5-5`, u `claude-opus-5-5` si el agente es Sonnet), `--k` (1 en regresión y 5 en
+las otras), `--max-usd`, `--cases GLOB`, `--run-id`, `--seed` y `--dry-run`. La regresión es
+guionada y no recibe `--agent` ni `--simulator`.
+
+Cada corrida queda en `evaluation/results/suite/<run-id>/`; el id por defecto es la hora UTC más
+la suite. La carpeta guarda `manifest.json` (commit, cambios locales, hash de cada caso, suite,
+k, modelos, esfuerzo, `max_usd`, semilla y cada sesión con su inicio, su fin y su estado),
+`cases.jsonl` (los casos tal como corrieron), `trials.jsonl` (un registro por intento, escrito al
+terminar cada uno), `infra.jsonl` (los intentos que rompió la infraestructura y se repitieron),
+`excluded.jsonl` (los que el usuario simulado arruinó dos veces), `llm-usage.jsonl`, y
+`report.json` y `report.md`. Si se acaba el presupuesto, la corrida se detiene y conserva lo
+hecho; el mismo `--run-id` con un tope mayor la retoma desde donde quedó, y lo mismo después de
+una caída. Si la carpeta tiene `judge.jsonl`, el reporte usa los veredictos del juez en lo que
+dice.
 
 ## 9. Criterios de aceptación
 
