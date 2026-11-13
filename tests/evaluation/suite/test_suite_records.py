@@ -39,6 +39,13 @@ RECORD = {
         "usd": 0.0042,
     },
     "infra_failure": None,
+    "model_failure": None,
+}
+REFUSED = {
+    "kind": "rejected",
+    "counts_against": "agent",
+    "source": "POST /conversation/turn 502",
+    "requests": [{"stage": "model.route", "error_kind": "BadRequestError", "http_status": 400}],
 }
 
 
@@ -47,6 +54,13 @@ def test_a_trial_record_round_trips_through_json() -> None:
 
     assert json.loads(record.model_dump_json()) == RECORD
     assert TrialRecord.model_validate_json(record.model_dump_json()) == record
+
+
+def test_a_record_keeps_its_model_failure_and_one_written_before_it_still_loads() -> None:
+    failed = TrialRecord.model_validate_json(json.dumps(RECORD | {"model_failure": REFUSED}))
+    assert json.loads(failed.model_dump_json())["model_failure"] == REFUSED
+    older = {name: value for name, value in RECORD.items() if name != "model_failure"}
+    assert TrialRecord.model_validate_json(json.dumps(older)).model_failure is None
 
 
 def test_a_delegado_trial_ends_with_its_task() -> None:
@@ -76,6 +90,14 @@ def test_a_delegado_trial_ends_with_its_task() -> None:
             {"infra_failure": {"cause": "timeout", "detail": "x"}},
             r"infra_failure\.cause\s+Input should be",
         ),
+        (
+            {"model_failure": REFUSED | {"kind": "timeout"}},
+            r"model_failure\.kind\s+Input should be",
+        ),
+        (
+            {"model_failure": REFUSED | {"counts_against": "infrastructure"}},
+            "A rejected failure does not count against the infrastructure",
+        ),
     ],
     ids=[
         "extra",
@@ -86,6 +108,8 @@ def test_a_delegado_trial_ends_with_its_task() -> None:
         "action",
         "state",
         "infra-cause",
+        "model-kind",
+        "model-counts-against",
     ],
 )
 def test_a_trial_record_refuses_what_the_contract_does_not_name(
