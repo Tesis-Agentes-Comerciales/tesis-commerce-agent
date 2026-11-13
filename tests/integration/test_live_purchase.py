@@ -19,19 +19,18 @@ from commerce_agent.api import create_app
 from commerce_agent.completion import CompletionError
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent
-from tests.integration.live_purchase import (
+from commerce_evaluation.stack.purchase_agent import (
     APPROVED_AT,
-    DECLINED_CARD,
     OTHER_PHONE,
     PHONE,
     PHONE_INTENT,
     PHONE_REQUEST,
-    PurchaseLane,
     StaticConversationRouter,
     agent,
     buyer_details,
     payments,
 )
+from commerce_evaluation.stack.purchase_lane import DECLINED_CARD, PurchaseLane
 
 
 def receipts(lane: PurchaseLane, run_id: str) -> tuple[str | None, str | None] | None:

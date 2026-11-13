@@ -7,9 +7,9 @@ import time
 import pytest
 
 from commerce_agent.acp import load_product_feed
+from commerce_evaluation.stack.fault_proxy import CREATE_PATH
+from commerce_evaluation.stack.hnp_agent import HnpAgent, delegation_request
 from tests.integration.exp01_support import ROOT, recorded_case, sqlite_snapshot
-from tests.integration.live_purchase import HnpAgent, delegation_request
-from tests.integration.live_stack import CREATE_PATH
 from tests.integration.test_exp02_commercial import (
     cleanup,
     hp_revalidation,

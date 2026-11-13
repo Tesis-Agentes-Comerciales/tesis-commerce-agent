@@ -43,6 +43,14 @@ from commerce_agent.trace.models import (
 )
 from commerce_evaluation.agent_condition import D1RunKeys
 from commerce_evaluation.demo_stack import MODES, mode_environment
+from commerce_evaluation.stack.hnp_agent import hnp_condition
+from commerce_evaluation.stack.purchase_agent import (
+    PHONE,
+    PHONE_INTENT,
+    PHONE_REQUEST,
+    StaticConversationRouter,
+)
+from commerce_evaluation.stack.purchase_lane import PurchaseLane, ap2_key
 from tests.integration.live_browser import (
     BuyerUi,
     Journey,
@@ -50,15 +58,6 @@ from tests.integration.live_browser import (
     browser_requirements,
     journey,
     sign_up,
-)
-from tests.integration.live_purchase import (
-    PHONE,
-    PHONE_INTENT,
-    PHONE_REQUEST,
-    PurchaseLane,
-    StaticConversationRouter,
-    ap2_key,
-    hnp_condition,
 )
 
 # What a person asks before delegating: the chat searches and shows the options, nothing more.

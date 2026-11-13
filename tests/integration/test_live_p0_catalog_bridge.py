@@ -17,14 +17,14 @@ from commerce_agent.api import create_app
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent
 from commerce_agent.domain.selection import rank_candidates
-from tests.integration.live_purchase import (
+from commerce_evaluation.stack.environment import AGENT, missing_requirements
+from commerce_evaluation.stack.live_stack import LiveStack
+from commerce_evaluation.stack.purchase_agent import (
     APPROVED_AT,
-    PurchaseLane,
     StaticConversationRouter,
     buyer_details,
-    payment_requirements,
 )
-from tests.integration.live_stack import AGENT, LiveStack, missing_requirements
+from commerce_evaluation.stack.purchase_lane import PurchaseLane, payment_requirements
 from tests.support.p2_case_evidence import InsufficientFixtureData, verified_case
 from tests.support.p2_proxy_policy import p2_routes
 

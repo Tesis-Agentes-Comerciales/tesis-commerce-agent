@@ -1,5 +1,14 @@
-"""The in-memory checkout double of the unit tests, with `checkout` and the `details` it checks."""
+"""Checkout doubles without a Merchant, and the fixtures they expect.
 
+`FakeCheckoutGateway` is the in-memory gateway of the unit tests, with `checkout` and the buyer
+`details` it checks. `NoEffectsGateway` and `single_offer_feed` serve the recovery fixture Agent
+of `JointCase`, which must never reach a Merchant.
+"""
+
+import json
+from typing import Any
+
+from commerce_agent.acp.feed import ProductFeed
 from commerce_agent.acp.models import Address, Buyer, CheckoutSession, FulfillmentDetails
 from commerce_agent.application import CheckoutDetails
 
@@ -94,4 +103,53 @@ def details() -> CheckoutDetails:
                 postal_code="110111",
             ),
         ),
+    )
+
+
+class NoEffectsGateway(FakeCheckoutGateway):
+    def create_checkout(self, *args, **kwargs):
+        raise AssertionError("Recovery fixture Agent must never create")
+
+    def get_checkout(self, *args, **kwargs):
+        raise AssertionError("Recovery fixture Agent must never GET commercial state")
+
+    def update_checkout(self, *args, **kwargs):
+        raise AssertionError("Recovery fixture Agent must never update")
+
+    def cancel_checkout(self, *args, **kwargs):
+        raise AssertionError("Recovery fixture Agent must never cancel")
+
+
+def single_offer_feed(offer: dict[str, Any], origin: str) -> ProductFeed:
+    # JSON mode is needed for the frozen tuple-bearing ProductFeed, not coercion.
+    return ProductFeed.model_validate_json(
+        json.dumps(
+            {
+                "metadata": {
+                    "id": "live-joint-feed",
+                    "target_country": "CO",
+                    "updated_at": "2026-09-10T14:00:00Z",
+                },
+                "products": [
+                    {
+                        "id": offer["product_id"],
+                        "title": offer["name"],
+                        "url": origin + "/fixture/product",
+                        "variants": [
+                            {
+                                "id": offer["id"],
+                                "title": offer["name"],
+                                "url": origin + "/fixture/variant",
+                                "price": {
+                                    "amount": offer["pricing"]["items_total_minor"],
+                                    "currency": "COP",
+                                },
+                                "availability": {"available": True, "status": "in_stock"},
+                                "condition": ["new"],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
     )

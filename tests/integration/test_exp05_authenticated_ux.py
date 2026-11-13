@@ -10,8 +10,8 @@ import pytest
 
 from commerce_agent.api import create_app
 from commerce_evaluation.conversation import DETAILS, ConversationHTTPError, request_json
+from commerce_evaluation.stack.environment import AGENT, clean_environment, free_port
 from tests.integration.exp01_support import ROOT, recorded_case, sqlite_snapshot
-from tests.integration.live_stack import AGENT, clean_environment, free_port
 from tests.integration.test_exp02_commercial import local_effects, observe
 
 PROTOCOL = ROOT / "evaluation/scenarios/exp05-authenticated-transport.json"

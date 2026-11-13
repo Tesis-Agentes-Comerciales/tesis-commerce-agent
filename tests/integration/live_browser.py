@@ -30,13 +30,15 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 from commerce_agent.api import create_app
 from commerce_agent.config import Settings
 from commerce_agent.llm import ConversationRouter
-from tests.integration.live_purchase import (
-    HNP_TERMINAL_STATES,
-    SANDBOX_CLOCK,
-    Episode,
-    PurchaseLane,
+from commerce_evaluation.stack.environment import (
+    AGENT,
+    clean_environment,
+    closed,
+    free_port,
+    wait_until,
 )
-from tests.integration.live_stack import AGENT, clean_environment, closed, free_port, wait_until
+from commerce_evaluation.stack.hnp_agent import HNP_TERMINAL_STATES
+from commerce_evaluation.stack.purchase_lane import SANDBOX_CLOCK, Episode, PurchaseLane
 from tests.support.agent_server import AgentServer
 from tests.support.browser_trace import sanitize_trace
 

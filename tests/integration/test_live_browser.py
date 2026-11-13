@@ -16,6 +16,11 @@ from contextlib import closing
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
+from commerce_evaluation.stack.purchase_agent import (
+    PHONE_INTENT,
+    PHONE_REQUEST,
+    StaticConversationRouter,
+)
 from tests.integration.live_browser import (
     BuyerUi,
     agent_errors,
@@ -23,7 +28,6 @@ from tests.integration.live_browser import (
     journey,
     sign_up,
 )
-from tests.integration.live_purchase import PHONE_INTENT, PHONE_REQUEST, StaticConversationRouter
 
 
 def test_b0_purchase_from_the_browser_signs_up_approves_and_keeps_both_receipts(b0):

@@ -32,13 +32,11 @@ from commerce_evaluation.p3_protocol import (
     equivalent_clones,
     verified_cleanup,
 )
+from commerce_evaluation.stack.environment import clean_environment, free_port
+from commerce_evaluation.stack.fault_proxy import FaultProxy
+from commerce_evaluation.stack.purchase_agent import StaticConversationRouter, buyer_details
+from commerce_evaluation.stack.purchase_lane import SANDBOX_CLOCK
 from tests.integration.live_browser import AUTH, NodeServer
-from tests.integration.live_purchase import (
-    SANDBOX_CLOCK,
-    StaticConversationRouter,
-    buyer_details,
-)
-from tests.integration.live_stack import FaultProxy, clean_environment, free_port
 from tests.integration.test_live_p3_offer_checkout import (
     CONTEXT,
     CREATE,

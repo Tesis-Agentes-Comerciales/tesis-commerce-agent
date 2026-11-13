@@ -62,23 +62,18 @@ from commerce_agent.domain import PurchaseIntent
 from commerce_agent.governance.evidence import DecisionRecord
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
-from commerce_evaluation.verify_evidence import verify_database
-from commerce_evaluation.verify_evidence_hnp import HNP_LINKS
-from tests.integration.live_purchase import (
-    DELEGATE_PAYMENT,
+from commerce_evaluation.stack.fault_proxy import await_call, on_checkout
+from commerce_evaluation.stack.hnp_agent import HnpAgent, delegation_request, hnp_agent
+from commerce_evaluation.stack.purchase_agent import (
     OTHER_PHONE,
     PHONE,
-    HnpAgent,
-    PurchaseLane,
     agent,
-    ap2_key,
-    await_call,
     buyer_details,
-    delegation_request,
-    hnp_agent,
-    on_checkout,
     payments,
 )
+from commerce_evaluation.stack.purchase_lane import DELEGATE_PAYMENT, PurchaseLane, ap2_key
+from commerce_evaluation.verify_evidence import verify_database
+from commerce_evaluation.verify_evidence_hnp import HNP_LINKS
 from tests.support.ap2_hnp_fixtures import (
     INSTRUMENT,
     OTHER_MERCHANT,

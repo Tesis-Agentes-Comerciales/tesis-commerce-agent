@@ -1,20 +1,9 @@
-"""Agent process of the live stack. JSON lines on stdin/stdout; real HTTP never uses the pipe.
-
-The pipe only provisions synthetic fixture secrets in memory and starts backend actions.
-Named cutpoints are test-only injection through ports the Agent already accepts (the
-verifier's connection factory, SqliteGuardedD1's transport): at a cutpoint the process
-announces it and parks until the harness kills it. Production code is not patched.
-"""
+"""07B-B: the guarded D1 dispatch, parked at its cutpoints."""
 
 import hashlib
-import json
 import os
-import re
 import sqlite3
-import sys
-import threading
 from contextlib import closing
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -22,7 +11,6 @@ from uuid import uuid4
 from pydantic import SecretBytes, SecretStr
 
 from commerce_agent.acp.authority_observation import AuthorityObservationClient, AuthoritySession
-from commerce_agent.acp.creation_lookup import BackendLookupSession, CreationLookupClient
 from commerce_agent.acp.guarded_creation import HttpGuardedCheckout
 from commerce_agent.acp.offer_snapshot import DeliveryContext
 from commerce_agent.domain import PurchaseIntent
@@ -39,100 +27,14 @@ from commerce_agent.governance.provenance import (
     ProvenanceKeys,
 )
 from commerce_agent.governance.provisioning import CatalogSource, EpisodeGrant
-from commerce_agent.governance.remote_creation import SessionScope, VerificationRequest
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.persistence.guarded_d1_sqlite import SqliteGuardedD1
 from commerce_agent.persistence.preselection_d1_sqlite import SqlitePreselectionD1
 from commerce_agent.persistence.preselection_sqlite import SqlitePreselectionStore
 from commerce_agent.persistence.provisioning_sqlite import SqliteTestProvisioningRegistry
-from commerce_agent.persistence.remote_creation_sqlite import RemoteCreationVerifier
+from commerce_evaluation.stack.agent_worker.runtime import ROOT, halt
 
-ROOT = Path(os.environ["LIVE_STACK_ROOT"]).resolve()
-# The proxy is the only peer: the Merchant's public origin for this run.
-PORT = int(os.environ["LIVE_STACK_PORT"])
-WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
 POLICY_SET = "b-live-policy"
-
-
-def confine(event: str, args: tuple[Any, ...]) -> None:
-    """Loopback to the proxy only; SQLite and file writes only inside this run's directory."""
-    if event == "socket.connect":
-        address = args[1]
-        if not isinstance(address, tuple) or address[:2] != ("127.0.0.1", PORT):
-            raise RuntimeError("LIVE_AGENT_SOCKET_REJECTED")
-    elif event == "sqlite3.connect":
-        if args[0] != ":memory:" and not Path(args[0]).resolve().is_relative_to(ROOT):
-            raise RuntimeError("LIVE_AGENT_SQLITE_REJECTED")
-    elif event == "open" and isinstance(args[0], (str, bytes, os.PathLike)):
-        path = Path(os.fsdecode(args[0])).resolve()
-        if path.name == ".env" or (
-            (args[2] or 0) & WRITE_FLAGS
-            and not path.is_relative_to(ROOT)
-            and str(path) != os.devnull
-        ):
-            raise RuntimeError("LIVE_AGENT_FILE_REJECTED")
-
-
-def halt(cutpoint: str) -> None:
-    """Announce the cutpoint and park; the harness SIGKILLs this process right here."""
-    print(json.dumps({"cutpoint": cutpoint}), flush=True)
-    threading.Event().wait()
-
-
-def keys_from(data: dict[str, Any]) -> ProvenanceKeys:
-    return ProvenanceKeys(
-        key_id=data["key_id"],
-        pseudonym_key=SecretBytes(bytes.fromhex(data["hmac"])),
-        encryption_key=SecretBytes(bytes.fromhex(data["aes"])),
-    )
-
-
-class Verifier:
-    """06D-C/07A restart probe: an independent process over the same Agent SQLite."""
-
-    def __init__(self, data: dict[str, Any]):
-        self.database, self.keys = data["database"], keys_from(data)
-        self.request = VerificationRequest.model_validate(data["request"])
-        self.client = CreationLookupClient(
-            BackendLookupSession(
-                data["origin"],
-                SessionScope.model_validate(data["scope"]),
-                SecretStr(data["bearer"]),
-            )
-        )
-
-    def _verifier(self, cutpoint: str | None) -> RemoteCreationVerifier:
-        class ParkedCommit(sqlite3.Connection):
-            def commit(self):
-                # Real lookup received and validated, provisional evidence inserted:
-                # dying here must not make it durable.
-                halt("verification_commit")
-
-        def factory():
-            connection = sqlite3.connect(
-                self.database,
-                factory=ParkedCommit if cutpoint == "verification_commit" else sqlite3.Connection,
-            )
-            connection.execute("PRAGMA foreign_keys=ON")
-            return connection
-
-        return RemoteCreationVerifier(
-            factory, self.keys, self.client, clock=lambda: datetime.now(UTC)
-        )
-
-    def verify(self, value: dict[str, Any]) -> dict[str, Any]:
-        result = self._verifier(value.get("cutpoint")).verify(self.request)
-        return {"outcome": result.verification.outcome, "durable": result.durable}
-
-    def inspect(self, _: dict[str, Any]) -> dict[str, Any]:
-        history = self._verifier(None).inspect(self.request)
-        return {
-            "count": len(history),
-            "digests": [sha256_digest(canonical_bytes(event)) for event in history],
-        }
-
-    def close(self) -> None:
-        self.client.close()
 
 
 class CutpointTransport(HttpGuardedCheckout):
@@ -308,48 +210,3 @@ class Guarded:
 
     def close(self) -> None:
         self.transport.close()
-
-
-def failure(error: Exception) -> dict[str, Any]:
-    # No traceback, exception text, credential, request or header export.
-    code = (
-        str(error)
-        if re.fullmatch(r"[A-Z][A-Z0-9_]{2,80}", str(error))
-        else getattr(error, "code", None)
-    )
-    if code is not None and not re.fullmatch(r"[a-zA-Z0-9_]{1,80}", code):
-        code = None
-    return {"ok": False, "error_type": type(error).__name__, "error_code": code}
-
-
-def main() -> None:
-    sys.addaudithook(confine)
-    case: Verifier | Guarded | None = None
-    for line in sys.stdin:
-        value = json.loads(line)
-        action = value["action"]
-        if action == "close":
-            break
-        try:
-            if action == "verifier":
-                case = Verifier(value)
-                result: Any = {"pid": os.getpid()}
-            elif action == "guarded":
-                case = Guarded(value["data"], fresh=value["fresh"])
-                result = case.opened(value)
-            else:
-                operation = getattr(case, action, None)
-                if action.startswith("_") or not callable(operation):
-                    raise RuntimeError("LIVE_AGENT_ACTION_REJECTED")
-                result = operation(value)
-            print(json.dumps({"ok": True, "result": result}), flush=True)
-        except Exception as error:
-            diagnostic = failure(error)
-            print(json.dumps(diagnostic), file=sys.stderr, flush=True)
-            print(json.dumps(diagnostic), flush=True)
-    if case is not None:
-        case.close()
-
-
-if __name__ == "__main__":
-    main()

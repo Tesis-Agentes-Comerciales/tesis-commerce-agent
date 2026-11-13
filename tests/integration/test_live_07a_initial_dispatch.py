@@ -17,12 +17,9 @@ from commerce_agent.governance.enforce import SqliteD1EnforceGate
 from commerce_agent.governance.provenance import ClockReader
 from commerce_agent.governance.remote_creation import LOOKUP_PATH, original_response_sha256
 from commerce_agent.persistence import SqliteAgentStore
-from tests.integration.live_stack import (
-    CREATE_PATH,
-    FIXED_CLOCK,
-    JointCase,
-    connect,
-)
+from commerce_evaluation.stack.environment import connect
+from commerce_evaluation.stack.fault_proxy import CREATE_PATH
+from commerce_evaluation.stack.joint_case import FIXED_CLOCK, JointCase
 
 UNCHANGED = ("orders", "checkout_mutations", "checkout_completion_attempts")
 

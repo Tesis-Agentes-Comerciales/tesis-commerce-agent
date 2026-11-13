@@ -10,9 +10,9 @@ from commerce_agent.acp import load_product_feed
 from commerce_agent.acp.creation import build_checkout_create
 from commerce_agent.acp.models import CheckoutSession
 from commerce_evaluation.ct19_hnp import CONTROLS, verify_control
+from commerce_evaluation.stack.fault_proxy import CREATE_PATH, on_checkout
+from commerce_evaluation.stack.hnp_agent import HnpAgent, delegation_request
 from tests.integration.exp01_support import ROOT, recorded_case, sqlite_snapshot
-from tests.integration.live_purchase import HnpAgent, delegation_request, on_checkout
-from tests.integration.live_stack import CREATE_PATH
 from tests.integration.test_ct19_fixture import export, feed_snapshot, scoped_read
 from tests.integration.test_ct19_hp import agent_state, audit_delta
 from tests.integration.test_exp02_commercial import observe, offer

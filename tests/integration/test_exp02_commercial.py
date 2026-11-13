@@ -13,9 +13,9 @@ from commerce_agent.application import PurchaseServiceError
 from commerce_agent.approval import ApprovalError
 from commerce_agent.domain import HardConstraints, PurchaseIntent
 from commerce_agent.runtime import build_runtime
+from commerce_evaluation.stack.fault_proxy import CREATE_PATH
+from commerce_evaluation.stack.purchase_agent import buyer_details
 from tests.integration.exp01_support import ROOT, recorded_case, sqlite_snapshot
-from tests.integration.live_purchase import buyer_details
-from tests.integration.live_stack import CREATE_PATH
 
 PROTOCOL = ROOT / "evaluation/scenarios/exp02-commercial.json"
 

@@ -5,8 +5,14 @@ from contextlib import contextmanager
 
 import pytest
 
-from tests.integration.live_purchase import PurchaseLane, hnp_requirements, payment_requirements
-from tests.integration.live_stack import FaultProxy, LiveStack, missing_requirements
+from commerce_evaluation.stack.environment import missing_requirements
+from commerce_evaluation.stack.fault_proxy import FaultProxy
+from commerce_evaluation.stack.live_stack import LiveStack
+from commerce_evaluation.stack.purchase_lane import (
+    PurchaseLane,
+    hnp_requirements,
+    payment_requirements,
+)
 
 
 @pytest.fixture(scope="session")
