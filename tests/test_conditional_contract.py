@@ -1,7 +1,8 @@
 """Contracts around the conditional intent (p0-conditional-intent.md §3.1, §3.10, §7 PR 2).
 
 - The router decision gains `conditional`, only for a purchase, and still converts to the strict
-  Structured Outputs schema; its prompt section is short and never lets the model pick a branch.
+  structured-output schema the router sends; its prompt section is short and never lets the model
+  pick a branch.
 - `select_product` will carry a `ConditionalView`. The UI reads the same JSON fixtures with
   `parseConditionalView` (ui/src/lib/agent-contract.test.ts); here they must equal what the
   evaluator produces for the UX03 cells, so neither side can drift from the other.
@@ -11,10 +12,9 @@ import copy
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from openai.lib._parsing._responses import type_to_text_format_param
 from pydantic import ValidationError
 
 from commerce_agent.application.conditional import (
@@ -27,6 +27,7 @@ from commerce_agent.application.conditional import (
 from commerce_agent.domain import PurchaseIntent
 from commerce_agent.llm import CommerceDecision
 from commerce_agent.llm import conversation_router as module
+from commerce_agent.llm.claude import strict_schema
 from tests.support.conditional import (
     SEARCH,
     T_A,
@@ -82,16 +83,15 @@ def test_a_conditional_purchase_still_requires_the_search_intent() -> None:
 
 
 def test_the_decision_still_converts_to_the_strict_wire_schema() -> None:
-    wire = cast(dict[str, Any], type_to_text_format_param(CommerceDecision))
-    assert wire["strict"] is True
-    schema = wire["schema"]
+    schema = strict_schema(CommerceDecision)
     assert "conditional" in schema["required"]
     definitions = schema["$defs"]
     for name in ("ConditionalIntent", "PurchaseBranch", "BranchMatch"):
         assert definitions[name]["additionalProperties"] is False
         assert set(definitions[name]["required"]) == set(definitions[name]["properties"])
     limit = definitions["PurchaseBranch"]["properties"]["max_total_amount_minor"]
-    assert {"minimum": 0, "type": "integer"} in limit["anyOf"]
+    # The API moves the bound into the description; the decision's own validation keeps it.
+    assert {"type": "integer", "description": "{minimum: 0}"} in limit["anyOf"]
 
 
 def test_the_router_prompt_has_a_short_conditional_section() -> None:

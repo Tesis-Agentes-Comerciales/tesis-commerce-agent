@@ -37,7 +37,7 @@ from commerce_agent.delegation.service import DelegationConsentRequest, Delegati
 from commerce_agent.domain import HardConstraints, PurchaseIntent
 from commerce_agent.governance.canonical import canonical_bytes, parse_model, sha256_digest
 from commerce_agent.governance.hnp_models import ConsentScope, consent_scope_bytes
-from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser
 from commerce_agent.llm.intent_review import ModelHnpIntentReviewer
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.conditional_sqlite import ConditionalRecord
@@ -659,7 +659,7 @@ def model(
     timings.initialize_model_tokens()
     requests = SqliteModelRequests(path)
     requests.initialize()
-    chooser = OpenAIDelegatedChooser(api_key=API_KEY, model="test-model", model_requests=requests)
+    chooser = ClaudeDelegatedChooser(api_key=API_KEY, model="test-model", model_requests=requests)
     reviewer = ModelHnpIntentReviewer(
         api_key=API_KEY, model="test-model", timer=timings, model_requests=requests
     )
@@ -697,7 +697,7 @@ def test_ux04_hnp_rev_buys_the_first_option_after_the_review_confirms(
     ]
     assert len(server.requests) == 1  # the reviewer's; the selector is never asked
     assert model_stages(bench.path) == [REVIEW_STAGE]
-    reviewed = json.loads(server.bodies()[0]["input"])
+    reviewed = json.loads(server.bodies()[0]["messages"][0]["content"])
     assert (reviewed["chosen_variant_id"], reviewed["preference_text"]) == (A, PREFERENCE)
     events = bench.events()
     assert events.index("choice_reviewed") < events.index("reservation_reserved")

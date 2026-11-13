@@ -2,7 +2,7 @@
 §4.4, T2), and recording it never changes the request.
 
 The router and the chooser build their real SDK client; only its transport is a scripted
-`httpx.MockTransport` (tests/support/model_server.py). No request leaves the process.
+`httpx2.MockTransport` (tests/support/model_server.py). No request leaves the process.
 """
 
 import hashlib
@@ -12,7 +12,6 @@ import sqlite3
 from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -23,21 +22,20 @@ from commerce_agent.application.stage_timing import TimedConversationRouter
 from commerce_agent.domain import HardConstraints, PurchaseIntent, rank_candidates
 from commerce_agent.llm import (
     CandidateDecision,
+    ClaudeConversationRouter,
     CommerceDecision,
     ConversationMessage,
     IntentInterpretationError,
-    OpenAIConversationRouter,
 )
-from commerce_agent.llm import delegated_choice as chooser_module
 from commerce_agent.llm import model_requests as recorder_module
-from commerce_agent.llm.conversation_router import CandidateChoice
-from commerce_agent.llm.delegated_choice import DelegatedChoice, OpenAIDelegatedChooser
+from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser, DelegatedChoice
 from commerce_agent.llm.model_requests import model_request_scope
 from commerce_agent.llm.reasoning import reasoning_listener
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.model_requests_sqlite import ModelRequestRow, SqliteModelRequests
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 from tests.support.model_server import (
+    MODEL,
     ModelServer,
     SentRequest,
     disconnect,
@@ -48,7 +46,7 @@ from tests.support.model_server import (
 )
 from tests.test_conversation_router import FEED
 
-API_KEY = "sk-test-model-requests-0123456789abcdef"
+API_KEY = "sk-ant-test-model-requests-0123456789abcdef"
 RUN_ID = "run_" + "a" * 32
 INTENT = PurchaseIntent(
     hard=HardConstraints(currency="COP", categories=("headphones",), max_total_amount_minor=150_000)
@@ -132,7 +130,7 @@ def rows(path: Path) -> list[dict[str, Any]]:
         ]
 
 
-def timed(router: OpenAIConversationRouter, path: Path) -> TimedConversationRouter:
+def timed(router: ClaudeConversationRouter, path: Path) -> TimedConversationRouter:
     timings = SqliteStageTimings(path)
     timings.initialize()
     return TimedConversationRouter(router, timings)
@@ -143,15 +141,14 @@ def build_router(
     server: ModelServer,
     sink: Any = None,
     *,
-    stream: bool = False,
-) -> OpenAIConversationRouter:
+    summaries: bool = False,
+) -> ClaudeConversationRouter:
     server.install(monkeypatch)
-    return OpenAIConversationRouter(
+    return ClaudeConversationRouter(
         api_key=SecretStr(API_KEY),
-        model="test-model",
         feed=FEED,
-        reasoning_effort="low",
-        reasoning_summary=stream,
+        effort="low",
+        reasoning_summary=summaries,
         model_requests=sink,
     )
 
@@ -161,17 +158,17 @@ def turn_answers() -> tuple[Any, ...]:
     return (
         function_call("lookup_catalog", {"query": "audífonos negros"}),
         structured(ROUTED),
-        failure(429),
+        failure(429, error_type="rate_limit_error"),
         structured(shortlisted_choice),
     )
 
 
 def run_turn(
-    monkeypatch: pytest.MonkeyPatch, path: Path, sink: Any, *, stream: bool = False
+    monkeypatch: pytest.MonkeyPatch, path: Path, sink: Any, *, summaries: bool = False
 ) -> tuple[list[SentRequest], CommerceDecision, CandidateDecision]:
     server = ModelServer(*turn_answers())
-    router = timed(build_router(monkeypatch, server, sink, stream=stream), path)
-    listener = (lambda delta: None) if stream else None
+    router = timed(build_router(monkeypatch, server, sink, summaries=summaries), path)
+    listener = (lambda delta: None) if summaries else None
     with reasoning_listener(listener), model_request_scope(run_id=RUN_ID):
         decision = router.route(MESSAGES)
         assert decision.intent is not None
@@ -247,7 +244,7 @@ def test_an_older_table_gains_the_failure_columns_and_keeps_its_rows(tmp_path: P
             outcome="error",
             error_kind="RateLimitError",
             http_status=429,
-            provider_error_code="insufficient_quota",
+            provider_error_code="enforced_spend_limit_reached",
         )
     )
 
@@ -270,7 +267,7 @@ def test_an_older_table_gains_the_failure_columns_and_keeps_its_rows(tmp_path: P
     assert (recorded["sequence"], recorded["http_status"], recorded["provider_error_code"]) == (
         2,
         429,
-        "insufficient_quota",
+        "enforced_spend_limit_reached",
     )
 
 
@@ -287,13 +284,13 @@ def test_a_row_that_cannot_be_written_is_logged_and_dropped(
 # The conversation router -----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("stream", [False, True], ids=["parse", "stream"])
+@pytest.mark.parametrize("summaries", [False, True], ids=["plain", "summaries"])
 def test_each_request_of_a_turn_is_one_row(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stream: bool
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, summaries: bool
 ) -> None:
     path = tmp_path / "agent.db"
 
-    sent, decision, choice = run_turn(monkeypatch, path, ledger(path), stream=stream)
+    sent, decision, choice = run_turn(monkeypatch, path, ledger(path), summaries=summaries)
 
     recorded = rows(path)
     lookup, routed, chosen = recorded
@@ -305,13 +302,14 @@ def test_each_request_of_a_turn_is_one_row(
     assert {
         (r["outcome"], r["error_kind"], r["model"], r["response_model"], r["reasoning_effort"])
         for r in recorded
-    } == {("ok", None, "test-model", "test-model-2026-08-07", "low")}
+    } == {("ok", None, "claude-haiku-5-5", MODEL, "low")}
     assert [r["text_format"] for r in recorded] == [
         "CommerceDecision",
         "CommerceDecision",
         "CandidateChoice",
     ]
-    # The counters of each request, as the API reports them.
+    # The counters of each request: all its input (801 uncached and 1024 read from the cache),
+    # the read and the written parts, the output and the thinking within it.
     assert {
         (
             r["input_tokens"],
@@ -327,7 +325,7 @@ def test_each_request_of_a_turn_is_one_row(
     assert len(sent) == 4
     # The router's instructions carry the feed's vocabulary, which a scenario may mutate.
     route_body = json.loads(sent[0][3])
-    assert route_body["instructions"].endswith(lookup["catalog_vocabulary"])
+    assert route_body["system"][0]["text"].endswith(lookup["catalog_vocabulary"])
     assert json.loads(lookup["catalog_vocabulary"])["product_count"] == 1
     assert lookup["instructions_sha256"] == routed["instructions_sha256"]
     assert chosen["catalog_vocabulary"] is None
@@ -345,9 +343,10 @@ def test_each_request_of_a_turn_is_one_row(
         ],
     }
     assert json.loads(lookup["input_json"]) == [m.model_dump(mode="json") for m in MESSAGES]
-    followup = json.loads(routed["input_json"])
-    assert [item.get("type") for item in followup[-2:]] == ["function_call", "function_call_output"]
-    assert "SON-01" in followup[-1]["output"]
+    asked, answered = json.loads(routed["input_json"])[-2:]
+    assert (asked["role"], asked["content"][0]["type"]) == ("assistant", "tool_use")
+    assert (answered["role"], answered["content"][0]["type"]) == ("user", "tool_result")
+    assert "SON-01" in answered["content"][0]["content"]
     # The model's own intent, before the router aligns it with the catalog.
     assert json.loads(routed["output_json"]) == {
         "structured": ROUTED.model_dump(mode="json"),
@@ -372,15 +371,16 @@ def test_the_request_digest_covers_the_instructions_and_the_input(
 
     (row,) = rows(path)
     (body,) = server.bodies()
+    (message,) = body["messages"]
     canonical = json.dumps(
-        {"instructions": body["instructions"], "input": body["input"]},
+        {"instructions": body["system"][0]["text"], "input": message["content"]},
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
     assert row["request_sha256"] == hashlib.sha256(canonical.encode()).hexdigest()
     # input_json is the variable part; the instructions are versioned in the code.
-    assert row["input_json"] == body["input"]
+    assert row["input_json"] == message["content"]
     # Outside a timed stage and a turn there is no stage or run to name.
     assert (row["run_id"], row["stage"], row["request_index"]) == (None, None, 1)
 
@@ -388,29 +388,52 @@ def test_the_request_digest_covers_the_instructions_and_the_input(
 @pytest.mark.parametrize(
     ("answers", "error_kind", "retries", "http_status", "provider_error_code"),
     [
-        ((failure(500), failure(500)), "InternalServerError", 1, 500, "test"),
-        ((failure(400),), "BadRequestError", 0, 400, "test"),
-        # The SDK's class is the same for both; the code tells them apart (§3.3).
+        ((failure(500), failure(500)), "InternalServerError", 1, 500, "api_error"),
         (
-            (failure(429, code="rate_limit_exceeded"),) * 2,
+            (failure(529, error_type="overloaded_error"),) * 2,
+            "OverloadedError",
+            1,
+            529,
+            "overloaded_error",
+        ),
+        (
+            (failure(400, error_type="invalid_request_error"),),
+            "BadRequestError",
+            0,
+            400,
+            "invalid_request_error",
+        ),
+        # Both are 429s; the code tells them apart (§3.3).
+        (
+            (failure(429, error_type="rate_limit_error"),) * 2,
             "RateLimitError",
             1,
             429,
-            "rate_limit_exceeded",
+            "rate_limit_error",
         ),
         (
-            (failure(429, code="insufficient_quota"),),
-            "RateLimitError",
+            (failure(429, code="enforced_spend_limit_reached", error_type="rate_limit_error"),),
+            "EnforcedSpendLimitReachedError",
             0,
             429,
-            "insufficient_quota",
+            "enforced_spend_limit_reached",
         ),
+        ((failure(402, error_type="billing_error"),), "APIStatusError", 0, 402, "billing_error"),
         # No response came back.
         ((disconnect(), disconnect()), "APIConnectionError", 1, None, None),
-        # An answer outside the schema fails inside `parse`, after the HTTP exchange.
+        # An answer outside the schema fails its validation, after the HTTP exchange.
         ((structured(lambda body: {"action": "buy"}),), "ValidationError", 0, None, None),
     ],
-    ids=["retried", "refused", "rate-limited", "quota", "unreachable", "invalid-output"],
+    ids=[
+        "retried",
+        "overloaded",
+        "refused",
+        "rate-limited",
+        "spend-cap",
+        "billing",
+        "unreachable",
+        "invalid-output",
+    ],
 )
 def test_a_failed_request_is_an_error_row_and_the_same_error(
     monkeypatch: pytest.MonkeyPatch,
@@ -442,13 +465,13 @@ def test_a_failed_request_is_an_error_row_and_the_same_error(
 # Recording never changes the request -----------------------------------------------------------
 
 
-@pytest.mark.parametrize("stream", [False, True], ids=["parse", "stream"])
+@pytest.mark.parametrize("summaries", [False, True], ids=["plain", "summaries"])
 def test_the_wire_is_identical_with_and_without_the_ledger(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stream: bool
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, summaries: bool
 ) -> None:
-    plain = run_turn(monkeypatch, tmp_path / "plain.db", None, stream=stream)
+    plain = run_turn(monkeypatch, tmp_path / "plain.db", None, summaries=summaries)
     path = tmp_path / "agent.db"
-    recorded = run_turn(monkeypatch, path, ledger(path), stream=stream)
+    recorded = run_turn(monkeypatch, path, ledger(path), summaries=summaries)
 
     # Method, URL, every header (the SDK's retry count included) and the body, byte for byte.
     assert recorded == plain
@@ -499,24 +522,16 @@ def test_no_secret_or_header_reaches_the_ledger(
 
     sent, _, _ = run_turn(monkeypatch, path, ledger(path))
 
-    # The key did travel, in the Authorization header of every attempt.
+    # The key did travel, in the Authorization header of every attempt (the SDK sends it so).
     assert all(("authorization", f"Bearer {API_KEY}") in headers for _, _, headers, _ in sent)
     assert API_KEY.encode() not in path.read_bytes()
     stored = json.dumps(rows(path), ensure_ascii=False).casefold()
     assert API_KEY.casefold() not in stored
-    for header in ("authorization", "bearer", "x-stainless", "openai-organization"):
+    for header in ("x-api-key", "authorization", "bearer", "x-stainless", "anthropic-version"):
         assert header not in stored
 
 
 # The delegated choice (HNP) --------------------------------------------------------------------
-
-
-class FakeResponses:
-    def __init__(self, response: Any) -> None:
-        self.response = response
-
-    def parse(self, **kwargs: Any) -> Any:
-        return self.response
 
 
 def test_the_delegated_choice_records_usage_reasoning_and_its_reason(
@@ -524,22 +539,18 @@ def test_the_delegated_choice_records_usage_reasoning_and_its_reason(
 ) -> None:
     path = tmp_path / "agent.db"
     reason = "Elijo los SON-01 porque son negros, como pediste."
-    parsed = CandidateChoice(
-        action="purchase", assistant_message=reason, selected_variant_id="SON-01"
-    )
-    usage = SimpleNamespace(
-        input_tokens=1825,
-        input_tokens_details=SimpleNamespace(cached_tokens=0),
-        output_tokens=786,
-        output_tokens_details=SimpleNamespace(reasoning_tokens=640),
-    )
-    fake = SimpleNamespace(
-        responses=FakeResponses(SimpleNamespace(output_parsed=parsed, usage=usage, output=[]))
-    )
-    monkeypatch.setattr(chooser_module, "OpenAI", lambda **_: fake)
-    chooser = OpenAIDelegatedChooser(
-        api_key=SecretStr(API_KEY), model="test-model", model_requests=ledger(path)
-    )
+    # A first request: 300 input tokens plus the 1525 of the prefix it writes to the cache.
+    usage = {
+        "input_tokens": 300,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 1525,
+        "output_tokens": 786,
+        "output_tokens_details": {"thinking_tokens": 640},
+    }
+    answer = {"action": "purchase", "assistant_message": reason, "selected_variant_id": "SON-01"}
+    server = ModelServer(structured(lambda body: answer, usage=usage))
+    server.install(monkeypatch)
+    chooser = ClaudeDelegatedChooser(api_key=SecretStr(API_KEY), model_requests=ledger(path))
 
     with model_request_scope(run_id=RUN_ID, stage=MODEL_STAGE):
         choice = chooser.choose(INTENT, SHORTLIST, "Prefiero los negros.")
@@ -553,23 +564,47 @@ def test_the_delegated_choice_records_usage_reasoning_and_its_reason(
         1,
         "ok",
     )
-    assert (row["cached_input_tokens"], row["reasoning_tokens"]) == (0, 640)
-    # A fake client sends no HTTP request, so no retry was observed.
-    assert row["retries"] is None
+    assert (row["input_tokens"], row["cached_input_tokens"], row["cache_write_tokens"]) == (
+        1825,
+        0,
+        1525,
+    )
+    assert (row["output_tokens"], row["reasoning_tokens"], row["retries"]) == (786, 640, 0)
+    assert row["response_model"] == MODEL
     # The reason the chooser itself discards.
     assert json.loads(row["output_json"])["structured"]["assistant_message"] == reason
     assert json.loads(row["input_json"])["preference_text"] == "Prefiero los negros."
+
+
+def test_a_usage_without_cache_counters_is_its_uncached_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "agent.db"
+    server = ModelServer(
+        structured(shortlisted_choice, usage={"input_tokens": 900, "output_tokens": 120})
+    )
+    server.install(monkeypatch)
+    chooser = ClaudeDelegatedChooser(api_key=SecretStr(API_KEY), model_requests=ledger(path))
+
+    assert chooser.choose(INTENT, SHORTLIST, None) == DelegatedChoice("SON-01", 900, 120)
+    (row,) = rows(path)
+    assert (row["input_tokens"], row["cached_input_tokens"], row["cache_write_tokens"]) == (
+        900,
+        None,
+        None,
+    )
+    assert (row["output_tokens"], row["reasoning_tokens"]) == (120, None)
 
 
 def test_the_delegated_choice_counts_the_sdk_retry(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     path = tmp_path / "agent.db"
-    server = ModelServer(failure(429), structured(shortlisted_choice))
-    server.install(monkeypatch)
-    chooser = OpenAIDelegatedChooser(
-        api_key=SecretStr(API_KEY), model="test-model", model_requests=ledger(path)
+    server = ModelServer(
+        failure(429, error_type="rate_limit_error"), structured(shortlisted_choice)
     )
+    server.install(monkeypatch)
+    chooser = ClaudeDelegatedChooser(api_key=SecretStr(API_KEY), model_requests=ledger(path))
 
     with model_request_scope(run_id=RUN_ID, stage=MODEL_STAGE):
         choice = chooser.choose(INTENT, SHORTLIST, None)

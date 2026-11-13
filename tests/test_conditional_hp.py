@@ -76,8 +76,8 @@ assert FEED_CANDIDATES[C].observed_unit_amount_minor + SHIPPING_MINOR < T_B
 REQUEST = "Compra A si el total es de hasta X; si no, B si es de hasta Y."
 TURN = "turn-conditional"
 RUN = turn_run_id(TURN)
-# Not an OpenAI key: the scripted transport answers before any credential is checked.
-MODEL = {"openai_api_key": SecretStr("scripted-conditional-model"), "openai_model": "test-model"}
+# Not an Anthropic key: the scripted transport answers before any credential is checked.
+MODEL = {"anthropic_api_key": SecretStr("scripted-conditional-model"), "agent_model": "test-model"}
 D1_KEYS: dict[str, Any] = {
     "agent_d1_key_id": "fixture-key",
     "agent_d1_policy_set_id": "test-backend-d1",
@@ -492,7 +492,7 @@ def ux07() -> CommerceDecision:
 
 
 def first_of_the_enum(body: dict[str, Any]) -> dict[str, Any]:
-    schema = body["text"]["format"]["schema"]["properties"]["selected_variant_id"]
+    schema = body["output_config"]["format"]["schema"]["properties"]["selected_variant_id"]
     return {
         "action": "purchase",
         "assistant_message": "Elijo la primera opción.",
@@ -501,7 +501,9 @@ def first_of_the_enum(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def selection_enum(server: ModelServer) -> list[str]:
-    schema = server.bodies()[1]["text"]["format"]["schema"]["properties"]["selected_variant_id"]
+    schema = server.bodies()[1]["output_config"]["format"]["schema"]["properties"][
+        "selected_variant_id"
+    ]
     return schema["enum"]
 
 

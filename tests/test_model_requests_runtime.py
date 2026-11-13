@@ -19,7 +19,7 @@ from commerce_agent.api import create_app
 from commerce_agent.application.conversation import turn_run_id
 from commerce_agent.application.hnp_selection import MODEL_STAGE, ModelHnpSelector
 from commerce_agent.llm import CommerceDecision
-from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser
 from commerce_agent.persistence.model_requests_sqlite import SqliteModelRequests
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 from tests.assistant_support import (
@@ -53,7 +53,7 @@ def requests(path: Path) -> list[tuple[Any, ...]]:
 def chosen(body: dict[str, Any]) -> dict[str, Any]:
     """The variant the merchant double sells, which the shortlist must offer."""
     choice = shortlisted_choice(body)
-    enum = body["text"]["format"]["schema"]["properties"]["selected_variant_id"]["enum"]
+    enum = body["output_config"]["format"]["schema"]["properties"]["selected_variant_id"]["enum"]
     assert "SON-XM6-BLK" in enum
     return {**choice, "assistant_message": PURCHASE_REPLY, "selected_variant_id": "SON-XM6-BLK"}
 
@@ -86,7 +86,7 @@ def test_a_human_present_turn_records_its_requests_under_the_turn_run(
     server.install(monkeypatch)
     app = create_app(
         settings=settings(database).model_copy(
-            update={"openai_api_key": SecretStr(API_KEY), "openai_model": "test-model"}
+            update={"anthropic_api_key": SecretStr(API_KEY), "agent_model": "test-model"}
         ),
         transport=Merchant().transport(),
         payment_transport=httpx.MockTransport(
@@ -119,7 +119,7 @@ def test_the_delegated_choice_is_recorded_under_the_task_run(
     timings.initialize_model_tokens()
     server = ModelServer(structured(shortlisted_choice))
     server.install(monkeypatch)
-    chooser = OpenAIDelegatedChooser(
+    chooser = ClaudeDelegatedChooser(
         api_key=SecretStr(API_KEY), model="test-model", model_requests=SqliteModelRequests(path)
     )
     bench = Bench(tmp_path, selector=ModelHnpSelector(chooser, timings))
@@ -145,8 +145,8 @@ def test_the_runtime_gives_the_llm_selector_the_agent_database(
     configured = hnp_settings(
         tmp_path,
         agent_hnp_selector="llm",
-        openai_api_key=SecretStr(API_KEY),
-        openai_model="test-model",
+        anthropic_api_key=SecretStr(API_KEY),
+        agent_model="test-model",
     )
     built = runtime(configured, HnpMerchant(MERCHANT), Psp())
     try:

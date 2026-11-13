@@ -1,128 +1,134 @@
-"""A scripted OpenAI Responses API behind `httpx.MockTransport`: the real SDK, no network.
+"""A scripted Anthropic Messages API behind `httpx2.MockTransport`: the real SDK, no network.
 
 Each answer is a function of the request body, served in order. `install` gives the scripted
 transport to the two HTTP clients the SDK can use: the `DefaultHttpxClient` the recorder hands it
 (llm/model_requests.py), with or without a ledger, and the one the SDK builds by itself if that
 fails. The model clients build theirs exactly as in production, with the same event hooks; only
-the transport changes.
+the transport changes. No client streams, so every answer is one JSON message.
 """
 
 import json
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
-from openai import DefaultHttpxClient, _base_client
+from anthropic import DefaultHttpxClient, _base_client
 from pydantic import BaseModel
 
 from commerce_agent.llm import model_requests
 
 _SDK_CLIENT = _base_client.SyncHttpxClientWrapper
 
-Answer = Callable[[dict[str, Any]], httpx.Response]
+Answer = Callable[[dict[str, Any]], httpx2.Response]
 SentRequest = tuple[str, str, list[tuple[str, str]], bytes]
 
-# The median HNP-02 call of gpt-5-mini (run-traceability.md §4.4).
+MODEL = "claude-haiku-5-5"
+# The median HNP-02 call (run-traceability.md §4.4), as the Messages API counts it: the 1825
+# input tokens are 801 uncached and 1024 read from the cache; 640 of the 786 output were thinking.
 USAGE: dict[str, Any] = {
-    "input_tokens": 1825,
-    "input_tokens_details": {"cached_tokens": 1024, "cache_write_tokens": 0},
+    "input_tokens": 801,
+    "cache_read_input_tokens": 1024,
+    "cache_creation_input_tokens": 0,
     "output_tokens": 786,
-    "output_tokens_details": {"reasoning_tokens": 640},
-    "total_tokens": 2611,
+    "output_tokens_details": {"thinking_tokens": 640},
 }
 
 
-def _response(output: list[dict[str, Any]], usage: dict[str, Any] | None) -> dict[str, Any]:
-    return {
-        "id": "resp_test",
-        "object": "response",
-        "created_at": 0,
-        "model": "test-model-2026-08-07",
-        "output": output,
-        "parallel_tool_calls": False,
-        "tool_choice": "auto",
-        "tools": [],
-        "status": "completed",
-        "usage": usage,
-    }
-
-
-def _message(text: str) -> dict[str, Any]:
-    return {
-        "type": "message",
-        "id": "msg_test",
-        "role": "assistant",
-        "status": "completed",
-        "content": [{"type": "output_text", "text": text, "annotations": []}],
-    }
-
-
-def _serve(completed: dict[str, Any], body: dict[str, Any]) -> httpx.Response:
-    """The response as JSON, or as server-sent events when the request asked for a stream."""
-    if not body.get("stream"):
-        return httpx.Response(200, json=completed)
-    created = {**completed, "output": [], "status": "in_progress", "usage": None}
-    events = (
-        {"type": "response.created", "sequence_number": 0, "response": created},
-        {"type": "response.completed", "sequence_number": 1, "response": completed},
+def _message(
+    content: list[dict[str, Any]], usage: dict[str, Any], stop_reason: str = "end_turn"
+) -> httpx2.Response:
+    return httpx2.Response(
+        200,
+        json={
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "model": MODEL,
+            "content": content,
+            "stop_reason": stop_reason,
+            "stop_sequence": None,
+            "usage": usage,
+        },
     )
-    sse = "".join(f"event: {item['type']}\ndata: {json.dumps(item)}\n\n" for item in events)
-    return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=sse)
+
+
+def thinking_block(summary: str) -> dict[str, Any]:
+    return {"type": "thinking", "thinking": summary, "signature": "sig_test"}
 
 
 def structured(
     answer: BaseModel | Callable[[dict[str, Any]], dict[str, Any]],
     *,
-    usage: dict[str, Any] | None = USAGE,
+    usage: dict[str, Any] = USAGE,
+    thinking: Sequence[str] = (),
 ) -> Answer:
-    """A structured output: a model, or a function of the request body that builds it."""
+    """A structured output: a model, or a function of the request body that builds it.
 
-    def respond(body: dict[str, Any]) -> httpx.Response:
+    `thinking` are the summaries of the thinking blocks that come before the answer.
+    """
+
+    def respond(body: dict[str, Any]) -> httpx2.Response:
         payload = answer(body) if callable(answer) else answer.model_dump(mode="json")
-        text = json.dumps(payload, ensure_ascii=False)
-        return _serve(_response([_message(text)], usage), body)
+        text = {"type": "text", "text": json.dumps(payload, ensure_ascii=False)}
+        return _message([*map(thinking_block, thinking), text], usage)
+
+    return respond
+
+
+def text(raw: str) -> Answer:
+    """A text block as it comes, valid JSON or not."""
+
+    def respond(body: dict[str, Any]) -> httpx2.Response:
+        return _message([{"type": "text", "text": raw}], USAGE)
 
     return respond
 
 
 def function_call(name: str, arguments: dict[str, Any]) -> Answer:
-    def respond(body: dict[str, Any]) -> httpx.Response:
-        call = {
-            "type": "function_call",
-            "id": "fc_test",
-            "call_id": "call_test",
-            "name": name,
-            "arguments": json.dumps(arguments, ensure_ascii=False),
-            "status": "completed",
-        }
-        return _serve(_response([call], USAGE), body)
+    """A call of the client tool `name`, the answer's only block."""
+
+    def respond(body: dict[str, Any]) -> httpx2.Response:
+        call = {"type": "tool_use", "id": "toolu_test", "name": name, "input": arguments}
+        return _message([call], USAGE, stop_reason="tool_use")
 
     return respond
 
 
-def failure(status_code: int, *, code: str | None = None, error_type: str = "test") -> Answer:
-    """An error response with OpenAI's error body; `code` is the provider's error code.
+def failure(
+    status_code: int,
+    *,
+    code: str | None = None,
+    error_type: str = "api_error",
+    message: str = "scripted failure",
+) -> Answer:
+    """An error response with Anthropic's error body; `code` is its `error.details.error_code`.
 
-    A spent quota is `failure(429, code="insufficient_quota")`; OpenAI also sends it as the type.
+    The tier's spent spend cap is `failure(429, code="enforced_spend_limit_reached",
+    error_type="rate_limit_error")`; a spent credit balance is `failure(402,
+    error_type="billing_error")`.
     """
 
-    def respond(body: dict[str, Any]) -> httpx.Response:
-        error: dict[str, Any] = {"message": "scripted failure", "type": error_type}
+    def respond(body: dict[str, Any]) -> httpx2.Response:
+        error: dict[str, Any] = {"type": error_type, "message": message}
         if code is not None:
-            error |= {"param": None, "code": code}
+            error["details"] = {"error_code": code}
         # retry-after-ms keeps the SDK's single retry fast.
-        return httpx.Response(status_code, headers={"retry-after-ms": "1"}, json={"error": error})
+        return httpx2.Response(
+            status_code,
+            headers={"retry-after-ms": "1", "request-id": "req_test"},
+            json={"type": "error", "error": error, "request_id": "req_test"},
+        )
 
     return respond
 
 
 def disconnect() -> Answer:
-    """The connection drops before any response: the SDK sees `httpx.ConnectError`."""
+    """The connection drops before any response: the SDK sees `httpx2.ConnectError`."""
 
-    def respond(body: dict[str, Any]) -> httpx.Response:
-        raise httpx.ConnectError("scripted disconnect")
+    def respond(body: dict[str, Any]) -> httpx2.Response:
+        raise httpx2.ConnectError("scripted disconnect")
 
     return respond
 
@@ -137,7 +143,7 @@ class Held:
         self.entered = threading.Event()
         self._released = threading.Event()
 
-    def __call__(self, body: dict[str, Any]) -> httpx.Response:
+    def __call__(self, body: dict[str, Any]) -> httpx2.Response:
         self.entered.set()
         if not self._released.wait(self._timeout):
             raise AssertionError("The held answer was never released")
@@ -151,9 +157,14 @@ def held(answer: Answer, *, timeout: float = 10) -> Held:
     return Held(answer, timeout)
 
 
+def output_schema(body: dict[str, Any]) -> dict[str, Any]:
+    """The JSON schema the request asks the answer to follow."""
+    return body["output_config"]["format"]["schema"]
+
+
 def shortlisted_choice(body: dict[str, Any]) -> dict[str, Any]:
     """The first variant the request's JSON schema admits, with its one-sentence reason."""
-    schema = body["text"]["format"]["schema"]["properties"]["selected_variant_id"]
+    schema = output_schema(body)["properties"]["selected_variant_id"]
     variant_id = schema["enum"][0] if "enum" in schema else schema["anyOf"][0]["enum"][0]
     return {
         "action": "purchase",
@@ -165,21 +176,21 @@ def shortlisted_choice(body: dict[str, Any]) -> dict[str, Any]:
 class ModelServer:
     def __init__(self, *answers: Answer) -> None:
         self._answers = list(answers)
-        self.requests: list[httpx.Request] = []
+        self.requests: list[httpx2.Request] = []
 
-    def handle(self, request: httpx.Request) -> httpx.Response:
+    def handle(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
         if not self._answers:
             raise AssertionError("The model server has no answer left")
         return self._answers.pop(0)(json.loads(request.content))
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        transport = httpx.MockTransport(self.handle)
+        transport = httpx2.MockTransport(self.handle)
 
-        def sdk_client(**options: Any) -> httpx.Client:
+        def sdk_client(**options: Any) -> httpx2.Client:
             return _SDK_CLIENT(**options, transport=transport)
 
-        def default_client(**options: Any) -> httpx.Client:
+        def default_client(**options: Any) -> httpx2.Client:
             return DefaultHttpxClient(**options, transport=transport)
 
         monkeypatch.setattr(_base_client, "SyncHttpxClientWrapper", sdk_client)

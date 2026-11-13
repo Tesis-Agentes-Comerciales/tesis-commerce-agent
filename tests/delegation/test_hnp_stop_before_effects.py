@@ -26,7 +26,7 @@ from pydantic import SecretStr
 from commerce_agent.acp.models import CheckoutSession
 from commerce_agent.application.hnp_selection import ModelHnpSelector
 from commerce_agent.delegation.models import CheckoutCancel, Step, TaskFinish
-from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser
 from commerce_agent.llm.intent_review import ModelHnpIntentReviewer
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 from tests.delegation.test_hnp_executor_d1 import bench as d1_bench
@@ -57,7 +57,7 @@ def timings(path: Path) -> SqliteStageTimings:
 
 
 def model_selector(path: Path) -> ModelHnpSelector:
-    chooser = OpenAIDelegatedChooser(api_key=SecretStr(API_KEY), model="test-model")
+    chooser = ClaudeDelegatedChooser(api_key=SecretStr(API_KEY), model="test-model")
     return ModelHnpSelector(chooser, timings(path))
 
 

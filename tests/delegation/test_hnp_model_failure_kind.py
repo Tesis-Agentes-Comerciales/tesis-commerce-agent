@@ -11,13 +11,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from pydantic import SecretStr
 
 from commerce_agent.application.hnp_selection import ModelHnpSelector
 from commerce_agent.delegation.models import TaskFinish
-from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser
 from commerce_agent.llm.intent_review import PROMPT_ID, ModelHnpIntentReviewer
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 from tests.delegation.test_hnp_intent_review import FakeReviewer, reviews
@@ -29,10 +29,10 @@ NOTHING = Effects(creates=0, signatures=0, commits=0, cancels=0)
 
 
 def read_timeout() -> Answer:
-    """The model does not answer in time: the SDK sees `httpx.ReadTimeout`."""
+    """The model does not answer in time: the SDK sees `httpx2.ReadTimeout`."""
 
-    def respond(body: dict[str, Any]) -> httpx.Response:
-        raise httpx.ReadTimeout("scripted timeout")
+    def respond(body: dict[str, Any]) -> httpx2.Response:
+        raise httpx2.ReadTimeout("scripted timeout")
 
     return respond
 
@@ -45,7 +45,7 @@ def timings(path: Path) -> SqliteStageTimings:
 
 
 def model_selector(path: Path) -> ModelHnpSelector:
-    chooser = OpenAIDelegatedChooser(api_key=SecretStr(API_KEY), model="test-model")
+    chooser = ClaudeDelegatedChooser(api_key=SecretStr(API_KEY), model="test-model")
     return ModelHnpSelector(chooser, timings(path))
 
 
@@ -68,7 +68,10 @@ def finished(bench: Bench) -> Mapping[str, Any]:
 
 SELECTOR_FAILURES: dict[str, tuple[tuple[Answer, ...], int]] = {
     "rate_limited": ((failure(429), failure(429)), 2),
-    "quota_exhausted": ((failure(429, code="insufficient_quota"),), 1),
+    "quota_exhausted": (
+        (failure(429, code="enforced_spend_limit_reached", error_type="rate_limit_error"),),
+        1,
+    ),
     "unreachable": ((disconnect(), disconnect()), 2),
 }
 
@@ -155,7 +158,10 @@ REVIEW_FAILURES: dict[str, tuple[tuple[Answer, ...], str]] = {
         (structured(lambda body: {"decision": "not_confirmed", "reason": "review_unavailable"}),),
         "invalid_output",
     ),
-    "quota": ((failure(429, code="insufficient_quota"),), "quota_exhausted"),
+    "quota": (
+        (failure(429, code="enforced_spend_limit_reached", error_type="rate_limit_error"),),
+        "quota_exhausted",
+    ),
 }
 
 

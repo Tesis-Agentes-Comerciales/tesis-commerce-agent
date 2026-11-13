@@ -2,15 +2,14 @@
 its strict structured output, its timing and its `model_requests` row.
 
 The reviewer builds its real SDK client; only the transport is the scripted
-`httpx.MockTransport` of tests/support/model_server.py, or the SDK client is a fake. No request
-leaves the process and no model is called.
+`httpx2.MockTransport` of tests/support/model_server.py. No request leaves the process and no
+model is called.
 """
 
 import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -22,18 +21,24 @@ from commerce_agent.application.hnp_intent_review import (
     IntentReview,
 )
 from commerce_agent.domain import HardConstraints, PurchaseIntent, rank_candidates
-from commerce_agent.llm import intent_review as module
 from commerce_agent.llm.conversation_router import IntentInterpretationError
-from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser
 from commerce_agent.llm.intent_review import PROMPT_ID, ModelHnpIntentReviewer
 from commerce_agent.llm.model_requests import model_request_scope
 from commerce_agent.persistence.model_requests_sqlite import SqliteModelRequests
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 from tests.support.hnp_executor import Bench
-from tests.support.model_server import ModelServer, failure, shortlisted_choice, structured
+from tests.support.model_server import (
+    ModelServer,
+    failure,
+    output_schema,
+    shortlisted_choice,
+    structured,
+    text,
+)
 from tests.test_conversation_router import FEED
 
-API_KEY = "sk-test-intent-review-0123456789abcdef"
+API_KEY = "sk-ant-test-intent-review-0123456789abcdef"
 RUN_ID = "run_" + "b" * 32
 INTENT = PurchaseIntent(
     hard=HardConstraints(currency="COP", categories=("headphones",), max_total_amount_minor=150_000)
@@ -63,7 +68,7 @@ def reviewer(path: Path, monkeypatch: pytest.MonkeyPatch, server: ModelServer | 
         api_key=SecretStr(API_KEY),
         model="test-model",
         timer=timings,
-        reasoning_effort="low",
+        effort="low",
         model_requests=requests,
     )
 
@@ -110,11 +115,9 @@ def test_the_request_is_strict_and_answers_one_of_four_reasons(
     assert review(model) == IntentReview("confirmed", "matches_request")
 
     (body,) = server.bodies()
-    assert (body["model"], body["store"]) == ("test-model", False)
-    assert body["reasoning"] == {"effort": "low"}
-    text_format = body["text"]["format"]
-    assert (text_format["type"], text_format["strict"]) == ("json_schema", True)
-    schema = text_format["schema"]
+    assert (body["model"], body["output_config"]["effort"]) == ("test-model", "low")
+    assert body["output_config"]["format"]["type"] == "json_schema"
+    schema = output_schema(body)
     assert schema["additionalProperties"] is False
     assert set(schema["required"]) == {"decision", "reason"}
     assert schema["properties"]["decision"]["enum"] == ["confirmed", "not_confirmed"]
@@ -134,11 +137,11 @@ def test_it_sees_what_the_selector_saw_plus_the_chosen_id(
     reasoned and no free catalog text."""
     server = ModelServer(structured(shortlisted_choice), verdict("confirmed", "matches_request"))
     server.install(monkeypatch)
-    chooser = OpenAIDelegatedChooser(api_key=SecretStr(API_KEY), model="test-model")
+    chooser = ClaudeDelegatedChooser(api_key=SecretStr(API_KEY), model="test-model")
     chooser.choose(INTENT, SHORTLIST, PREFERENCE)
     review(reviewer(tmp_path / "agent.db", monkeypatch))
 
-    selected, reviewed = (json.loads(body["input"]) for body in server.bodies())
+    selected, reviewed = (json.loads(body["messages"][0]["content"]) for body in server.bodies())
     assert set(reviewed) == {"intent", "preference_text", "candidates", "chosen_variant_id"}
     assert reviewed["chosen_variant_id"] == "SON-01"
     assert reviewed["preference_text"] == PREFERENCE
@@ -146,7 +149,7 @@ def test_it_sees_what_the_selector_saw_plus_the_chosen_id(
         selected["intent"],
         selected["candidates"],
     )
-    sent = server.bodies()[1]["input"]
+    sent = server.bodies()[1]["messages"][0]["content"]
     assert "description" not in sent
     assert "Elijo" not in sent  # the selector's own sentence never reaches the reviewer
 
@@ -232,11 +235,8 @@ def test_a_failed_or_invalid_answer_is_an_interpretation_error(
 def test_an_answer_without_output_is_an_interpretation_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fake = SimpleNamespace(
-        responses=SimpleNamespace(parse=lambda **_: SimpleNamespace(output_parsed=None))
-    )
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    model = reviewer(tmp_path / "agent.db", monkeypatch)
+    # A refusal, or any answer with no JSON of the schema.
+    model = reviewer(tmp_path / "agent.db", monkeypatch, ModelServer(text("No puedo revisar.")))
 
     with pytest.raises(IntentInterpretationError):
         review(model)
