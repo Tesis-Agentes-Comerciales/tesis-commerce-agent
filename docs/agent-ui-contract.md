@@ -163,8 +163,9 @@ validada del feed de solo lectura y no puede preparar checkout ni ejecutar pagos
 de `rank_candidates`. Si no hay candidatos, `search_catalog` devuelve `products: []` y el texto final
 es la recuperación conversacional actual.
 
-El razonamiento aparece como partes `reasoning` solo si `OPENAI_REASONING_SUMMARY=true` y el modelo
-lo soporta; son resúmenes de la Responses API, nunca razonamiento crudo.
+El razonamiento aparece como partes `reasoning` solo si `AGENT_MODEL_REASONING_SUMMARY=true`; son
+los resúmenes que la API de Messages devuelve del razonamiento, nunca el razonamiento crudo. Llegan
+completos con la respuesta del modelo, no por partes.
 
 ### ConditionalView
 
@@ -306,5 +307,5 @@ Detalles que el contrato no fijaba y que el backend implementa así (`src/commer
 - `ProductCard.product_url` es `null` si la URL del feed no es HTTP(S) sin credenciales.
 - Si un request trae varios `add-message`, el primero usa `turn_id` como clave idempotente y los
   siguientes `turn_id:1`, `turn_id:2`, …
-- `OPENAI_REASONING_EFFORT` también se aplica a los requests sin resumen; sin
-  `OPENAI_REASONING_SUMMARY` ni `OPENAI_REASONING_EFFORT` los requests al modelo no cambian.
+- `AGENT_MODEL_EFFORT` se aplica a todos los requests, con resumen o sin él; sin
+  `AGENT_MODEL_REASONING_SUMMARY` los requests al modelo no piden resúmenes.
