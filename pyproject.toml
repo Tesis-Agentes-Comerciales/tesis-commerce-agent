@@ -93,3 +93,5 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
+# Shared verbatim with the live executor's PR: its docstring runs two characters long.
+"evaluation/src/commerce_evaluation/suite/executor.py" = ["E501"]

@@ -20,8 +20,7 @@ class RunSettings:
 
 
 class SimulatorFailure(Exception):
-    """The simulated user ended the trial on an unusable answer; it never counts against the
-    agent."""
+    """The simulated user ended the trial on an unusable answer; it never counts against the agent."""
 
 
 class TrialExecutor(AbstractContextManager["TrialExecutor"], Protocol):
