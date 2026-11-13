@@ -5,6 +5,11 @@ a new Merchant episode, with its own database in the trial's directory. Each tur
 whole conversation, as the chat does without a `conversation_id`. Up to six user turns, or until
 the user ends the conversation.
 
+A turn the API answers with an error ends the conversation where the chat shows that error. The
+error's message is what the user reads, so it is the turn's assistant text, and the turn ends
+in `respond`: the agent stopped without presenting a purchase. An error without a message ends
+it with no action. A 5xx is also kept for the record's `infra_failure` (observe.py).
+
 Nobody else approves: when a turn presents a checkout, the runner rereads its terms, as the UI
 does right before the click, and approves and completes it exactly when its one line is the
 expected purchase's variant and its total the expected total; never otherwise, so a presented
@@ -55,17 +60,20 @@ class Talk:
     run_ids: list[str] = field(default_factory=list)
     approvals: list[dict[str, Any]] = field(default_factory=list)
     api_5xx: list[str] = field(default_factory=list)
-    refused: list[str] = field(default_factory=list)
+    errors: list[dict[str, Any]] = field(default_factory=list)
 
     def call(self, response: Response, what: str) -> Any | None:
-        """The answer's body, or None when the API failed (kept as a 5xx or a refusal)."""
+        """The answer's body, or None when the API answered an error, which is kept."""
+        if response.status_code < 400:
+            return response.json()
         if response.status_code >= 500:
             self.api_5xx.append(f"{what} {response.status_code}")
-            return None
-        if response.status_code >= 400:
-            self.refused.append(f"{what} {response.status_code}")
-            return None
-        return response.json()
+        body = _json(response)
+        self.errors.append(
+            {"call": what, "status": response.status_code, "code": body.get("code")}
+            | {"message": body.get("message")}
+        )
+        return None
 
 
 def converse(
@@ -89,8 +97,10 @@ def converse(
             f"POST {TURN}",
         )
         if body is None:
-            # The turn failed: the conversation stops where the chat would show an error.
-            talk.action = None
+            message = talk.errors[-1]["message"]
+            if isinstance(message, str) and message:
+                talk.transcript.append(Turn(role="assistant", text=message))
+            talk.action = "respond" if isinstance(message, str) and message else None
             break
         talk.transcript.append(Turn(role="assistant", text=body["assistant_message"]))
         talk.action = body["action"]
@@ -159,7 +169,7 @@ def play_presente(
     trace["suite"] = {
         "events": applied,
         "approvals": talk.approvals,
-        "refused": talk.refused,
+        "errors": talk.errors,
         "unsent": getattr(user, "unsent", None),
     }
     # The last purchase's run; without one, the last turn's run the trace names.
@@ -177,3 +187,11 @@ def play_presente(
 
 def _texts(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
+def _json(response: Response) -> dict[str, Any]:
+    try:
+        body = response.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
