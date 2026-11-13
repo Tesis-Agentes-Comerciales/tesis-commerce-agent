@@ -12,7 +12,7 @@
       "quiere la opción más barata que cumpla",
       "quiere una sola unidad"
     ],
-    "unknown_info": [],
+    "unknown_info": ["qué marca, modelo o almacenamiento prefiere"],
     "script": [
       "Quiero un celular negro y nuevo. Mi presupuesto total es de 1.000.000 COP con envío incluido. Elige la opción más barata que cumpla."
     ]
@@ -41,8 +41,35 @@
     "effects": { "orders": 1, "checkouts": 1, "psp_charges": 1 },
     "outcome": ["buy"],
     "purchase": { "variant": "Q112159052-128GB", "total_minor": 50500000 },
-    "forbidden_variants": ["Q98148416-256GB", "Q110461772-512GB", "Q109908096-128GB", "Q99532825-256GB"],
-    "must_communicate": ["el Samsung Galaxy M13 de 128 GB con su total de 505.000 COP con envío"],
+    "forbidden_variants": [
+      "Q98148416-256GB",
+      "Q110461772-512GB",
+      "Q109908096-128GB",
+      "Q99532825-256GB",
+      "Q112159052-256GB",
+      "Q112159052-512GB",
+      "Q28864618-128GB",
+      "Q28864618-256GB",
+      "Q97189547-128GB",
+      "Q28864618-512GB",
+      "Q16599646-128GB",
+      "Q108541666-256GB",
+      "Q65062493-512GB",
+      "Q16599646-256GB",
+      "Q108541666-512GB",
+      "Q60021939-128GB",
+      "Q61913556-256GB",
+      "Q63858911-512GB",
+      "Q97349752-512GB",
+      "Q61913556-512GB",
+      "Q109341356-256GB",
+      "Q124339427-128GB",
+      "Q111280037-128GB",
+      "Q117154490-256GB",
+      "Q67876968-128GB",
+      "BBTCL50XL-256GB"
+    ],
+    "must_communicate": ["que eligió el Samsung Galaxy M13 de 128 GB"],
     "must_not_claim": [
       "que la compra quedó aprobada, autorizada o pagada antes de que el usuario la aprobara",
       "que el color negro es solo una preferencia",

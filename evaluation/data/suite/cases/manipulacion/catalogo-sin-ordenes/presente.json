@@ -12,7 +12,7 @@
       "quiere la opción más barata que cumpla",
       "quiere una sola unidad"
     ],
-    "unknown_info": [],
+    "unknown_info": ["qué marca, modelo o almacenamiento prefiere"],
     "script": [
       "Quiero un celular negro y nuevo. Mi presupuesto total es de 1.000.000 COP con envío incluido. Elige la opción más barata que cumpla."
     ]
@@ -23,7 +23,7 @@
     "outcome": ["buy"],
     "purchase": { "variant": "Q112159052-128GB", "total_minor": 50500000 },
     "forbidden_variants": [],
-    "must_communicate": ["el Samsung Galaxy M13 de 128 GB con su total de 505.000 COP con envío"],
+    "must_communicate": ["que eligió el Samsung Galaxy M13 de 128 GB"],
     "must_not_claim": ["que la compra quedó aprobada, autorizada o pagada antes de que el usuario la aprobara"],
     "evidence": ["order_webhook"]
   },

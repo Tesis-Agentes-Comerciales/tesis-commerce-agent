@@ -35,8 +35,8 @@ def regression_map() -> dict[str, dict[str, Any]]:
     return json.loads(REGRESSION_MAP.read_text(encoding="utf-8"))
 
 
-def test_the_spec_lists_the_56_tasks_and_the_4_injections() -> None:
-    assert len(spec_tasks()) == 60
+def test_the_spec_lists_the_53_tasks_and_the_4_injections() -> None:
+    assert len(spec_tasks()) == 57
 
 
 def test_every_task_is_a_case_or_mapped_or_uncovered() -> None:
@@ -47,6 +47,12 @@ def test_every_task_is_a_case_or_mapped_or_uncovered() -> None:
     assert not cases & mapped.keys(), "A task is either a case file or mapped, never both"
     assert cases | mapped.keys() == tasks.keys()
     assert {task for task, group in tasks.items() if group in CASE_GROUPS} <= cases
+
+
+def test_each_case_is_in_its_group_of_the_spec() -> None:
+    tasks = spec_tasks()
+    for case in load_catalog(DATA / "suite" / "cases"):
+        assert case.group == tasks[case.id], case.id
 
 
 def test_a_mapped_task_names_its_tests_or_why_none_covers_it() -> None:

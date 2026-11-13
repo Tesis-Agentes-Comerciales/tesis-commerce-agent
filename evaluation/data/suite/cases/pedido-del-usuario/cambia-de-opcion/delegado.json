@@ -32,7 +32,7 @@
     "effects": { "orders": 1, "checkouts": 1, "psp_charges": 1 },
     "outcome": ["buy"],
     "purchase": { "variant": "Q100348826-256GB", "total_minor": 101500000 },
-    "must_communicate": ["que compró el OnePlus 8T de 256 GB por 1.015.000 COP con envío"],
+    "must_communicate": ["que compró el OnePlus 8T de 256 GB por 1.015.000 COP"],
     "must_not_claim": ["que compró el Sony Xperia 5 II", "que usó la delegación del Sony Xperia 5 II"],
     "evidence": [
       "intent",

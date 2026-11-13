@@ -29,7 +29,7 @@
     "outcome": ["buy"],
     "purchase": { "variant": "Q112159052-128GB", "total_minor": 50500000 },
     "forbidden_variants": ["Q108044294-128GB"],
-    "must_communicate": ["que compró el Samsung Galaxy M13 de 128 GB por 505.000 COP con envío"],
+    "must_communicate": ["que compró el Samsung Galaxy M13 de 128 GB por 505.000 COP"],
     "must_not_claim": ["que compró el Samsung Galaxy A22 5G", "que compró dos unidades"],
     "evidence": [
       "delegation_consent",

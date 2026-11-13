@@ -18,7 +18,7 @@
   "expected": {
     "effects": { "orders": 0, "checkouts": 0, "psp_charges": 0 },
     "outcome": ["block"],
-    "must_communicate": ["que no compró porque el dueño revocó la delegación"],
+    "must_communicate": ["que el dueño revocó la delegación antes de la compra", "que no se hizo ningún cobro"],
     "must_not_claim": ["que compró el Sony Xperia 5 II"],
     "evidence": ["delegation_consent", "open_mandates", "task_activation", "revocation"]
   },

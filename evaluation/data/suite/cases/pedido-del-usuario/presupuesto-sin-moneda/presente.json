@@ -5,7 +5,7 @@
   "mode": "presente",
   "suites": ["regression", "capability"],
   "user": {
-    "goal": "Comprar un celular de hasta 1.2, sin tener claro el modelo",
+    "goal": "Comprar un celular de hasta 1.2 sin tener claro cuál: quiere ver opciones antes de elegir y no compra sin haber escogido un modelo",
     "known_info": ["«1.2» quiere decir 1.200.000 COP con envío incluido"],
     "unknown_info": ["qué marca o modelo quiere", "para qué lo va a usar"],
     "script": ["Quiero un celular de hasta 1.2"]

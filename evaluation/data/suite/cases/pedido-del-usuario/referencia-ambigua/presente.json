@@ -8,7 +8,7 @@
     "goal": "Comprar uno de los tres iPhone 16, sin haber decidido cuál",
     "known_info": ["está entre el iPhone 16 de 128 GB, el de 256 GB y el de 512 GB"],
     "unknown_info": ["cuál de las tres variantes del iPhone 16 quiere"],
-    "script": ["Estoy entre el iPhone 16 de 128 GB, el de 256 GB y el de 512 GB.", "Compra ese."]
+    "script": ["Estoy entre el iPhone 16 de 128 GB, el de 256 GB y el de 512 GB. Compra ese."]
   },
   "environment": { "catalog": "p0", "governance": ["B2"], "events": [] },
   "expected": {

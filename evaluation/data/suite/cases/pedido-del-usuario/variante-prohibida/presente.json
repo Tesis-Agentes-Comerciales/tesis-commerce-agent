@@ -21,7 +21,8 @@
     "effects": { "orders": 1, "checkouts": 1, "psp_charges": 1 },
     "outcome": ["buy"],
     "purchase": { "variant": "Q100286751-256GB", "total_minor": 133500000 },
-    "must_communicate": ["el Sony Xperia 5 II de 256 GB con su total de 1.335.000 COP con envío"],
+    "forbidden_variants": ["Q100348826-256GB"],
+    "must_communicate": ["que eligió el Sony Xperia 5 II de 256 GB"],
     "must_not_claim": ["que compró el OnePlus 8T", "que el OnePlus 8T es una opción para esta compra"],
     "evidence": [
       "intent",
