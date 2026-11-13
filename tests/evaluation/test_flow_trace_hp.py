@@ -174,7 +174,7 @@ def lookup(directory: Path) -> Path:
     )
     with pytest.MonkeyPatch.context() as patch:
         server.install(patch)
-        configured = {"openai_api_key": SecretStr(API_KEY), "openai_model": "test-model"}
+        configured = {"anthropic_api_key": SecretStr(API_KEY), "agent_model": "test-model"}
         with s05_app(directory, None, **configured) as client:
             denied = turn(client)
     assert denied.status_code == 409 and denied.json()["code"] == "d1_denied", denied.text

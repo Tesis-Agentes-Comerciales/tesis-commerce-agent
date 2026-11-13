@@ -27,7 +27,7 @@ from commerce_evaluation.pilot_measures import read_only
 from commerce_evaluation.redaction import REDACTED
 from tests.delegation.test_hnp_runtime import OWNER, governed_hnp, runtime
 from tests.support.hnp_dispatch import HNP_ORDER_ID, HnpMerchant, Psp
-from tests.support.model_server import ModelServer, shortlisted_choice, structured
+from tests.support.model_server import ModelServer, disconnect, shortlisted_choice, structured
 from tests.test_delegation_api import FEED, MERCHANT, hnp_settings, proposal_body
 
 API_KEY = "sk-test-flow-trace-0123456789abcdef"
@@ -44,8 +44,8 @@ def llm(settings: Settings) -> Settings:
     return settings.model_copy(
         update={
             "agent_hnp_selector": "llm",
-            "openai_api_key": SecretStr(API_KEY),
-            "openai_model": "test-model",
+            "anthropic_api_key": SecretStr(API_KEY),
+            "agent_model": "test-model",
         }
     )
 
@@ -119,6 +119,9 @@ RUNS: dict[str, Callable[[Path], Path]] = {
         directory,
         lambda path: llm(governed_hnp(path)),
         structured(lambda body: {"action": "purchase", "assistant_message": "?"}),
+    ),
+    "b2_unreachable": lambda directory: run(
+        directory, lambda path: llm(governed_hnp(path)), disconnect(), disconnect()
     ),
     "b2_budget_deny": lambda directory: run(directory, governed_hnp, total_max_minor=71_999),
     "b0": lambda directory: run(directory, hnp_settings),
@@ -342,15 +345,21 @@ def test_without_model_requests_the_field_is_null_and_named(
     }
 
 
-def test_a_request_without_tokens_is_kept_and_marked(run_dir: Callable[[str], Path]) -> None:
-    """An invalid structured output fails the call: its row has no usage, and it stays. The task
-    ends `selection_unavailable`: the selector made no choice."""
+def test_an_invalid_output_keeps_its_usage_and_why_it_stopped(
+    run_dir: Callable[[str], Path],
+) -> None:
+    """An invalid structured output fails the call, but the answer came back and was billed: its
+    row keeps the usage and what the model said. The task ends `selection_unavailable`: the
+    selector made no choice."""
     trace = trace_of(run_dir("b2_invalid_output"))
 
     [request] = trace["model_requests"]
     assert (request["outcome"], request["error_kind"]) == ("error", "ValidationError")
-    assert (request["input_tokens"], request["output_tokens"]) == (None, None)
-    assert request["without_tokens"] is True
+    assert (request["input_tokens"], request["output_tokens"]) == (1825, 786)
+    assert request["without_tokens"] is False
+    assert request["output"]["structured"] is None
+    assert request["output"]["stop_reason"] == "end_turn"
+    assert json.loads(request["output"]["text"])["action"] == "purchase"
     assert trace["delegation"]["shortlist_source"] == "model_request"
     assert trace["delegation"]["choice"]["selected_variant_id"] is None
     assert trace["errors"] == [
@@ -358,6 +367,26 @@ def test_a_request_without_tokens_is_kept_and_marked(run_dir: Callable[[str], Pa
         {"stage": "model.hnp_select", "code": None, "source": "stage_timings"},
         {"stage": "model.hnp_select", "code": "ValidationError", "source": "model_requests"},
     ]
+
+
+def test_a_request_without_tokens_is_kept_and_marked(run_dir: Callable[[str], Path]) -> None:
+    """A call that got no answer has no usage: its row stays, marked."""
+    trace = trace_of(run_dir("b2_unreachable"))
+
+    [request] = trace["model_requests"]
+    assert (request["outcome"], request["error_kind"]) == ("error", "APIConnectionError")
+    assert (request["input_tokens"], request["output_tokens"], request["output"]) == (
+        None,
+        None,
+        None,
+    )
+    assert request["without_tokens"] is True
+    assert trace["delegation"]["choice"]["selected_variant_id"] is None
+    assert {
+        "stage": "model.hnp_select",
+        "code": "APIConnectionError",
+        "source": "model_requests",
+    } in (trace["errors"])
 
 
 def test_a_d1_budget_deny_shows_the_input_and_the_rule_that_failed(

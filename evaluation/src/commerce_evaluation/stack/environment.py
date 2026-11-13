@@ -52,12 +52,18 @@ def wait_until(call: Callable[[], Any], what: str, timeout: float = 60) -> Any:
             time.sleep(0.2)
 
 
+# The model providers' variables: no key or base URL of the developer's shell reaches a child.
+MODEL_PREFIXES = ("ANTHROPIC_", "OPENAI_")
+
+
 def clean_environment() -> dict[str, str]:
-    """Children get explicit settings only; no developer credentials or virtualenv leak in."""
+    """Children get explicit settings only; no developer credentials or virtualenv leak in.
+
+    `AGENT_` covers the model settings (`AGENT_MODEL*`) along with the rest of the Agent's."""
     result = dict(os.environ)
     for key in tuple(result):
         if key.startswith(
-            ("OPENAI_", "MERCHANT_", "PAYMENT_", "AGENT_", "LANG", "RUN_", "PG", "UV_PROJECT")
+            (*MODEL_PREFIXES, "MERCHANT_", "PAYMENT_", "AGENT_", "LANG", "RUN_", "PG", "UV_PROJECT")
         ) or key in {
             "DATABASE_URL",
             "WEBHOOK_RECEIVER_URL",

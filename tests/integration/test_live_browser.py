@@ -34,11 +34,12 @@ def test_b0_purchase_from_the_browser_signs_up_approves_and_keeps_both_receipts(
     if problems := browser_requirements():
         pytest.fail("The browser test also requires " + "; ".join(problems), pytrace=False)
     episode = b0.episode("browser")
-    # RUN_LIVE_LLM=1 puts the configured OpenAI model behind the boundary (manual runs only).
+    # RUN_LIVE_LLM=1 puts the configured Claude model behind the boundary (manual runs only).
     router, model = StaticConversationRouter(PHONE_REQUEST, PHONE_INTENT), {}
     if os.getenv("RUN_LIVE_LLM") == "1":
         router = None
-        model = {name: os.environ[name] for name in ("OPENAI_API_KEY", "OPENAI_MODEL")}
+        names = ("ANTHROPIC_API_KEY", "AGENT_MODEL", "AGENT_MODEL_EFFORT")
+        model = {name: os.environ[name] for name in names if name in os.environ}
     with (
         BuyerUi(b0, episode, router, model) as ui,
         sync_playwright() as playwright,

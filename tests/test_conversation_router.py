@@ -4,8 +4,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from openai.lib._parsing._responses import type_to_text_format_param
-from pydantic import BaseModel, SecretStr, ValidationError
+from pydantic import SecretStr, ValidationError
 
 from commerce_agent.acp import load_product_feed
 from commerce_agent.acp.feed import ProductFeed
@@ -19,13 +18,14 @@ from commerce_agent.domain import (
 from commerce_agent.llm import (
     CandidateDecision,
     CatalogRecovery,
+    ClaudeConversationRouter,
     CommerceDecision,
     ConversationMessage,
-    OpenAIConversationRouter,
     UnknownVariantSelection,
 )
 from commerce_agent.llm import conversation_router as module
 from commerce_agent.llm.catalog_tool import make_catalog_lookup
+from commerce_agent.llm.claude import strict_schema
 from commerce_agent.llm.conversation_router import (
     MAX_VOCABULARY_BRANDS,
     _candidate_payload,
@@ -33,34 +33,44 @@ from commerce_agent.llm.conversation_router import (
     format_minor_amount,
 )
 from commerce_agent.llm.reasoning import reasoning_listener
+from tests.support.model_server import (
+    ModelServer,
+    function_call,
+    output_schema,
+    structured,
+)
 
 FEED = load_product_feed(Path(__file__).parent / "fixtures" / "feed")
 
 
-class FakeResponses:
-    def __init__(self, decision: CommerceDecision | CandidateDecision | CatalogRecovery) -> None:
-        self.decision = decision
-        self.calls: list[dict[str, Any]] = []
-
-    def parse(self, **kwargs: Any) -> SimpleNamespace:
-        self.calls.append(kwargs)
-        return SimpleNamespace(output_parsed=self.decision)
-
-
-class FakeOpenAI:
-    def __init__(self, decision: CommerceDecision | CandidateDecision | CatalogRecovery) -> None:
-        self.responses = FakeResponses(decision)
-        self.closed = False
-
-    def close(self) -> None:
-        self.closed = True
+def serve(
+    monkeypatch: pytest.MonkeyPatch,
+    *decisions: CommerceDecision | CandidateDecision | CatalogRecovery,
+) -> ModelServer:
+    """One answer per decision, in order."""
+    server = ModelServer(*map(structured, decisions))
+    server.install(monkeypatch)
+    return server
 
 
-def wire_variant_schema(text_format: type[BaseModel]) -> dict[str, Any]:
-    """`selected_variant_id` as `responses.parse` sends it: the SDK's strict JSON schema."""
-    wire = cast(dict[str, Any], type_to_text_format_param(text_format))
-    assert wire["strict"] is True
-    return wire["schema"]["properties"]["selected_variant_id"]
+def make_router(**options: Any) -> ClaudeConversationRouter:
+    return ClaudeConversationRouter(api_key=SecretStr("sk-ant-test-key"), feed=FEED, **options)
+
+
+def instructions(body: dict[str, Any]) -> str:
+    return body["system"][0]["text"]
+
+
+def payload(body: dict[str, Any]) -> str:
+    """The JSON payload a selection or recovery request sends as its one user message."""
+    (message,) = body["messages"]
+    assert message["role"] == "user"
+    return message["content"]
+
+
+def variant_schema(body: dict[str, Any]) -> dict[str, Any]:
+    """`selected_variant_id` as the request sends it: every property required, API-ready."""
+    return output_schema(body)["properties"]["selected_variant_id"]
 
 
 def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> None:
@@ -76,13 +86,8 @@ def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> N
             )
         ),
     )
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"),
-        model="test-model",
-        feed=FEED,
-    )
+    server = serve(monkeypatch, decision)
+    router = make_router()
     messages = (
         ConversationMessage(role="user", content="Quiero comprar algo"),
         ConversationMessage(role="assistant", content="¿Qué producto buscas?"),
@@ -95,20 +100,41 @@ def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> N
     assert result.intent is not None
     assert result.intent.hard.currency == "USD"
     assert result.model_copy(update={"intent": decision.intent}) == decision
-    call = fake.responses.calls[0]
-    assert call["text_format"] is CommerceDecision
-    assert call["input"] == [message.model_dump(mode="json") for message in messages]
-    assert call["store"] is False
-    assert "clarify" in call["instructions"]
-    assert "headphones" in call["instructions"]
+    (call,) = server.bodies()
+    assert call["model"] == "claude-haiku-5-5"
+    assert call["output_config"]["effort"] == "low"
+    assert output_schema(call)["title"] == "CommerceDecision"
+    # Every property is required, so the schema stays within the API's optional limit.
+    assert output_schema(call)["required"] == list(output_schema(call)["properties"])
+    assert call["messages"] == [message.model_dump(mode="json") for message in messages]
+    # The instructions are the stable prefix, read from the cache on the next turn.
+    assert call["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "clarify" in instructions(call)
+    assert "headphones" in instructions(call)
     # El vocabulario publica marcas, no títulos: con miles de productos la lista completa
     # de títulos ocupaba casi todo el prompt y viajaba en cada turno.
-    assert '"brands"' in call["instructions"]
-    assert "Audifonos Sonora SON-01" not in call["instructions"]
-    assert "never authorizes" in call["instructions"].casefold()
+    assert '"brands"' in instructions(call)
+    assert "Audifonos Sonora SON-01" not in instructions(call)
+    assert "never authorizes" in instructions(call).casefold()
     assert call["tools"][0]["name"] == "lookup_catalog"
-    assert call["parallel_tool_calls"] is False
-    assert fake.closed
+    assert call["tools"][0]["strict"] is True
+    assert call["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+    # No summaries asked for: the model thinks, and the answer carries no thinking text.
+    assert "thinking" not in call
+
+
+def test_router_sends_a_leading_assistant_greeting_away(monkeypatch) -> None:
+    """The API's first message is the user's: an opening greeting of the agent stays out."""
+    decision = CommerceDecision(action="clarify", assistant_message="¿Qué producto buscas?")
+    server = serve(monkeypatch, decision)
+    messages = (
+        ConversationMessage(role="assistant", content="Hola, ¿en qué te ayudo?"),
+        ConversationMessage(role="user", content="Quiero comprar algo"),
+    )
+
+    make_router().route(messages)
+
+    assert server.bodies()[0]["messages"] == [{"role": "user", "content": "Quiero comprar algo"}]
 
 
 def test_catalog_tool_is_read_only_and_reports_observed_prices() -> None:
@@ -172,113 +198,97 @@ def test_catalog_summary_stays_bounded_for_large_feeds() -> None:
 
 def test_router_executes_one_model_requested_catalog_lookup(monkeypatch) -> None:
     decision = CommerceDecision(action="respond", assistant_message="Tengo audífonos Sonora.")
-    tool_call = SimpleNamespace(
-        type="function_call",
-        name="lookup_catalog",
-        arguments='{"query":"Sonora"}',
-        call_id="call_catalog_1",
-        to_dict=lambda: {
-            "type": "function_call",
-            "name": "lookup_catalog",
-            "arguments": '{"query":"Sonora"}',
-            "call_id": "call_catalog_1",
-            "parsed_arguments": {"query": "Sonora"},
-        },
-    )
+    server = ModelServer(function_call("lookup_catalog", {"query": "Sonora"}), structured(decision))
+    server.install(monkeypatch)
+    question = ConversationMessage(role="user", content="¿Qué Sonora tienes?")
 
-    class ToolResponses:
-        def __init__(self) -> None:
-            self.calls: list[dict[str, Any]] = []
-
-        def parse(self, **kwargs: Any) -> SimpleNamespace:
-            self.calls.append(kwargs)
-            if len(self.calls) == 1:
-                return SimpleNamespace(output_parsed=None, output=[tool_call])
-            return SimpleNamespace(output_parsed=decision, output=[])
-
-    responses = ToolResponses()
-    monkeypatch.setattr(
-        module, "OpenAI", lambda **_: SimpleNamespace(responses=responses, close=lambda: None)
-    )
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"), model="test-model", feed=FEED
-    )
-
-    result = router.route((ConversationMessage(role="user", content="¿Qué Sonora tienes?"),))
+    result = make_router().route((question,))
 
     assert result == decision
-    assert len(responses.calls) == 2
-    assert responses.calls[1]["tool_choice"] == "none"
-    output = responses.calls[1]["input"][-1]
-    assert output["type"] == "function_call_output"
-    assert output["call_id"] == "call_catalog_1"
-    assert "SON-01" in output["output"]
-    assert "checkout_id" not in output["output"]
-    assert "parsed_arguments" not in responses.calls[1]["input"][-2]
+    first, second = server.bodies()
+    assert second["tool_choice"] == {"type": "none"}
+    assert second["tools"] == first["tools"]
+    asked, answer = second["messages"][-2:]
+    assert second["messages"][0] == question.model_dump(mode="json")
+    # The model's answer goes back whole, then the tool's output.
+    assert asked == {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "tool_use",
+                "id": "toolu_test",
+                "name": "lookup_catalog",
+                "input": {"query": "Sonora"},
+            }
+        ],
+    }
+    (output,) = answer["content"]
+    assert answer["role"] == "user"
+    assert output["type"] == "tool_result"
+    assert output["tool_use_id"] == "toolu_test"
+    assert "SON-01" in output["content"]
+    assert "checkout_id" not in output["content"]
 
 
-def test_streamed_reasoning_keeps_catalog_tool_available(monkeypatch) -> None:
+def test_a_tool_call_after_some_text_still_runs_the_lookup(monkeypatch) -> None:
+    # Text before a tool call is not the structured output: it is never validated as one.
+    decision = CommerceDecision(action="respond", assistant_message="Tengo audífonos Sonora.")
+    call = function_call("lookup_catalog", {"query": "Sonora"}, preamble="Reviso el catálogo.")
+    server = ModelServer(call, structured(decision))
+    server.install(monkeypatch)
+
+    result = make_router().route((ConversationMessage(role="user", content="¿Qué Sonora tienes?"),))
+
+    assert result == decision
+    _, second = server.bodies()
+    asked, answer = second["messages"][-2:]
+    assert [block["type"] for block in asked["content"]] == ["text", "tool_use"]
+    assert "SON-01" in answer["content"][0]["content"]
+
+
+def test_reasoning_summaries_keep_the_catalog_tool_available(monkeypatch) -> None:
     decision = CommerceDecision(action="respond", assistant_message="Tengo Sonora SON-01.")
-    tool_call = SimpleNamespace(
-        type="function_call",
-        name="lookup_catalog",
-        arguments='{"query":"Sonora"}',
-        call_id="call_stream_catalog",
-        to_dict=lambda: {
-            "type": "function_call",
-            "name": "lookup_catalog",
-            "arguments": '{"query":"Sonora"}',
-            "call_id": "call_stream_catalog",
-        },
+    server = ModelServer(
+        function_call("lookup_catalog", {"query": "Sonora"}),
+        structured(decision, thinking=("Busco Sonora en el catálogo.", "SON-01 coincide.")),
     )
+    server.install(monkeypatch)
+    router = make_router(reasoning_summary=True)
+    summaries: list[str] = []
 
-    class ToolStreams:
-        def __init__(self) -> None:
-            self.calls: list[dict[str, Any]] = []
-
-        def stream(self, **kwargs: Any) -> Any:
-            self.calls.append(kwargs)
-            response = (
-                SimpleNamespace(output_parsed=None, output=[tool_call])
-                if len(self.calls) == 1
-                else SimpleNamespace(output_parsed=decision, output=[])
-            )
-
-            class Stream:
-                def __enter__(self) -> "Stream":
-                    return self
-
-                def __exit__(self, *_: object) -> None:
-                    return None
-
-                def __iter__(self) -> Any:
-                    return iter(())
-
-                def get_final_response(self) -> SimpleNamespace:
-                    return response
-
-            return Stream()
-
-    streams = ToolStreams()
-    monkeypatch.setattr(
-        module, "OpenAI", lambda **_: SimpleNamespace(responses=streams, close=lambda: None)
-    )
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"),
-        model="test-model",
-        feed=FEED,
-        reasoning_summary=True,
-    )
-
-    with reasoning_listener(lambda _: None):
+    with reasoning_listener(summaries.append):
         result = router.route((ConversationMessage(role="user", content="¿Qué Sonora tienes?"),))
 
     assert result == decision
-    assert len(streams.calls) == 2
-    assert streams.calls[0]["tools"][0]["name"] == "lookup_catalog"
-    assert streams.calls[0]["parallel_tool_calls"] is False
-    assert streams.calls[1]["tool_choice"] == "none"
-    assert "SON-01" in streams.calls[1]["input"][-1]["output"]
+    first, second = server.bodies()
+    assert first["thinking"] == second["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert first["tools"][0]["name"] == "lookup_catalog"
+    assert first["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+    assert second["tool_choice"] == {"type": "none"}
+    assert "SON-01" in second["messages"][-1]["content"][0]["content"]
+    assert summaries == ["Busco Sonora en el catálogo.", "\n\nSON-01 coincide."]
+
+
+def test_reasoning_summaries_need_a_listener(monkeypatch) -> None:
+    decision = CommerceDecision(action="respond", assistant_message="Hola.")
+    server = serve(monkeypatch, decision)
+
+    make_router(reasoning_summary=True).route((ConversationMessage(role="user", content="Hola"),))
+
+    assert "thinking" not in server.bodies()[0]
+
+
+def test_the_model_and_effort_are_configurable(monkeypatch) -> None:
+    decision = CommerceDecision(action="respond", assistant_message="Hola.")
+    server = serve(monkeypatch, decision)
+
+    make_router(model="claude-sonnet-5-5", effort="medium").route(
+        (ConversationMessage(role="user", content="Hola"),)
+    )
+
+    (call,) = server.bodies()
+    assert call["model"] == "claude-sonnet-5-5"
+    assert call["output_config"]["effort"] == "medium"
 
 
 def test_non_purchase_decision_rejects_purchase_payload() -> None:
@@ -313,13 +323,8 @@ def test_router_moves_unknown_catalog_attributes_to_preferences(monkeypatch) -> 
             )
         ),
     )
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"),
-        model="test-model",
-        feed=FEED,
-    )
+    serve(monkeypatch, decision)
+    router = make_router()
 
     result = router.route((ConversationMessage(role="user", content="Quiero audífonos"),))
 
@@ -337,13 +342,8 @@ def test_router_turns_ungrounded_purchase_into_clarification(monkeypatch) -> Non
         assistant_message="Procederé con ese artículo.",
         intent=PurchaseIntent(),
     )
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"),
-        model="test-model",
-        feed=FEED,
-    )
+    serve(monkeypatch, decision)
+    router = make_router()
 
     result = router.route((ConversationMessage(role="user", content="Sí, ese está bien"),))
 
@@ -370,13 +370,8 @@ def test_router_requires_product_identity_for_purchase(monkeypatch, intent) -> N
         assistant_message="Buscaré una opción.",
         intent=intent,
     )
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"),
-        model="test-model",
-        feed=FEED,
-    )
+    serve(monkeypatch, decision)
+    router = make_router()
 
     result = router.route((ConversationMessage(role="user", content="Sí"),))
 
@@ -390,13 +385,8 @@ def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) ->
         assistant_message="Elegí Sonora porque coincide con tu marca preferida.",
         selected_variant_id="SON-01",
     )
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"),
-        model="test-model",
-        feed=FEED,
-    )
+    server = serve(monkeypatch, decision)
+    router = make_router()
     messages = (ConversationMessage(role="user", content="Quiero audífonos Sonora"),)
     intent = PurchaseIntent(
         hard=HardConstraints(categories=("headphones",), required_terms=("sonora",))
@@ -406,12 +396,12 @@ def test_router_chooses_from_deterministically_ranked_candidates(monkeypatch) ->
     result = router.choose_candidate(messages, intent, candidates)
 
     assert result == decision
-    call = fake.responses.calls[0]
-    assert issubclass(call["text_format"], module.CandidateChoice)
-    assert "SON-01" in call["input"]
-    assert '"preference_score": 0' in call["input"]
-    assert "authoritative total is unknown" in call["instructions"]
-    assert "Human approval" in call["instructions"]
+    (call,) = server.bodies()
+    assert output_schema(call)["title"] == "CandidateChoice"
+    assert "SON-01" in payload(call)
+    assert '"preference_score": 0' in payload(call)
+    assert "authoritative total is unknown" in instructions(call)
+    assert "Human approval" in instructions(call)
 
 
 def test_router_names_the_variant_chosen_outside_the_shortlist(monkeypatch) -> None:
@@ -420,10 +410,8 @@ def test_router_names_the_variant_chosen_outside_the_shortlist(monkeypatch) -> N
         assistant_message="Elegí los Sonora blancos.",
         selected_variant_id="SON-07",
     )
-    monkeypatch.setattr(module, "OpenAI", lambda **_: FakeOpenAI(decision))
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"), model="test-model", feed=FEED
-    )
+    serve(monkeypatch, decision)
+    router = make_router()
     intent = PurchaseIntent(
         hard=HardConstraints(categories=("headphones",), required_terms=("sonora",))
     )
@@ -444,11 +432,8 @@ def test_a_single_candidate_choice_can_only_name_the_shortlisted_variant(monkeyp
     decision = CandidateDecision(
         action="purchase", assistant_message="Elegí Sonora.", selected_variant_id="SON-01"
     )
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"), model="test-model", feed=FEED
-    )
+    server = serve(monkeypatch, decision)
+    router = make_router()
     intent = PurchaseIntent(
         hard=HardConstraints(categories=("headphones",), required_terms=("sonora",))
     )
@@ -459,26 +444,20 @@ def test_a_single_candidate_choice_can_only_name_the_shortlisted_variant(monkeyp
         (ConversationMessage(role="user", content="Quiero audífonos Sonora"),), intent, candidates
     )
 
-    text_format = fake.responses.calls[0]["text_format"]
-    assert text_format.__name__ == "CandidateChoice"
-    assert wire_variant_schema(text_format) == {
-        "type": "string",
-        "enum": ["SON-01"],
-        "title": "Selected Variant Id",
-    }
+    (call,) = server.bodies()
+    assert output_schema(call)["title"] == "CandidateChoice"
+    assert variant_schema(call) == {"enum": ["SON-01"], "title": "Selected Variant Id"}
     # The enum shapes only what the model can decode; validation still reaches the router's
     # own check, so an outside id keeps raising UnknownVariantSelection.
+    restricted = module._restricted_to_shortlist(module.CandidateChoice, ("SON-01",))
     outside = {"action": "purchase", "assistant_message": "x", "selected_variant_id": "SON-07"}
-    assert text_format.model_validate(outside).selected_variant_id == "SON-07"
+    assert restricted.model_validate(outside).selected_variant_id == "SON-07"
 
 
 def test_a_decision_that_may_clarify_names_a_shortlisted_variant_or_none(monkeypatch) -> None:
     decision = CandidateDecision(action="clarify", assistant_message="¿Te sirve otra opción?")
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"), model="test-model", feed=FEED
-    )
+    server = serve(monkeypatch, decision)
+    router = make_router()
     # A budget is a selection signal, and the unmatched preference allows a clarification.
     intent = PurchaseIntent.model_validate(
         {
@@ -499,25 +478,20 @@ def test_a_decision_that_may_clarify_names_a_shortlisted_variant_or_none(monkeyp
         candidates,
     )
 
-    text_format = fake.responses.calls[0]["text_format"]
-    assert text_format.__name__ == "CandidateDecision"
-    assert wire_variant_schema(text_format)["anyOf"] == [
-        {"type": "string", "enum": shortlist},
-        {"type": "null"},
-    ]
+    (call,) = server.bodies()
+    assert output_schema(call)["title"] == "CandidateDecision"
+    assert variant_schema(call)["anyOf"] == [{"enum": shortlist}, {"type": "null"}]
+    restricted = module._restricted_to_shortlist(module.CandidateDecision, tuple(shortlist))
     with pytest.raises(ValidationError):
-        text_format.model_validate({"action": "purchase", "assistant_message": "x"})
+        restricted.model_validate({"action": "purchase", "assistant_message": "x"})
 
 
 def test_each_selection_restricts_the_schema_to_its_own_shortlist(monkeypatch) -> None:
     decision = CandidateDecision(
         action="purchase", assistant_message="Elegí.", selected_variant_id="SON-01"
     )
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"), model="test-model", feed=FEED
-    )
+    server = serve(monkeypatch, decision, decision)
+    router = make_router()
     intent = PurchaseIntent(
         hard=HardConstraints(categories=("headphones",)),
         preferences=SoftPreferences(selection_strategy="lowest_observed_price"),
@@ -528,11 +502,11 @@ def test_each_selection_restricts_the_schema_to_its_own_shortlist(monkeypatch) -
     router.choose_candidate(messages, intent, candidates)
     router.choose_candidate(messages, intent, candidates[:1])
 
-    first, second = (call["text_format"] for call in fake.responses.calls)
-    assert wire_variant_schema(first)["enum"] == [item.candidate.variant_id for item in candidates]
-    assert wire_variant_schema(second)["enum"] == [candidates[0].candidate.variant_id]
+    first, second = server.bodies()
+    assert variant_schema(first)["enum"] == [item.candidate.variant_id for item in candidates]
+    assert variant_schema(second)["enum"] == [candidates[0].candidate.variant_id]
     # The shared models stay unrestricted.
-    assert "enum" not in wire_variant_schema(module.CandidateChoice)
+    assert "enum" not in strict_schema(module.CandidateChoice)["properties"]["selected_variant_id"]
 
 
 def test_broad_category_requires_candidate_clarification(monkeypatch) -> None:
@@ -543,13 +517,8 @@ def test_broad_category_requires_candidate_clarification(monkeypatch) -> None:
             "¿Tienes alguna preferencia o presupuesto?"
         ),
     )
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"),
-        model="test-model",
-        feed=FEED,
-    )
+    server = serve(monkeypatch, decision)
+    router = make_router()
     messages = (ConversationMessage(role="user", content="Quiero comprar unos audífonos"),)
     intent = PurchaseIntent(
         hard=HardConstraints(categories=("headphones",)),
@@ -573,10 +542,10 @@ def test_broad_category_requires_candidate_clarification(monkeypatch) -> None:
     result = router.choose_candidate(messages, intent, candidates)
 
     assert result == decision
-    call = fake.responses.calls[0]
-    assert call["text_format"] is module.CandidateClarification
-    assert "ask one focused question" in call["instructions"]
-    assert "arbitrary color" in call["instructions"]
+    (call,) = server.bodies()
+    assert output_schema(call)["title"] == "CandidateClarification"
+    assert "ask one focused question" in instructions(call)
+    assert "arbitrary color" in instructions(call)
 
 
 def test_lowest_price_strategy_allows_candidate_choice(monkeypatch) -> None:
@@ -585,13 +554,8 @@ def test_lowest_price_strategy_allows_candidate_choice(monkeypatch) -> None:
         assistant_message="Elegí la opción de menor precio observado.",
         selected_variant_id="SON-01",
     )
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"),
-        model="test-model",
-        feed=FEED,
-    )
+    server = serve(monkeypatch, decision)
+    router = make_router()
     intent = PurchaseIntent(
         hard=HardConstraints(categories=("headphones",)),
         preferences=SoftPreferences(selection_strategy="lowest_observed_price"),
@@ -605,7 +569,7 @@ def test_lowest_price_strategy_allows_candidate_choice(monkeypatch) -> None:
     )
 
     assert result == decision
-    assert issubclass(fake.responses.calls[0]["text_format"], module.CandidateChoice)
+    assert output_schema(server.bodies()[0])["title"] == "CandidateChoice"
 
 
 def test_unmatched_preferences_allow_candidate_clarification(monkeypatch) -> None:
@@ -613,13 +577,8 @@ def test_unmatched_preferences_allow_candidate_clarification(monkeypatch) -> Non
         action="clarify",
         assistant_message="El catálogo no confirma cancelación de ruido.",
     )
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"),
-        model="test-model",
-        feed=FEED,
-    )
+    server = serve(monkeypatch, decision)
+    router = make_router()
     messages = (ConversationMessage(role="user", content="Quiero cancelación de ruido"),)
     intent = PurchaseIntent.model_validate({"preferences": {"terms": ["noise-cancelling"]}})
     candidates = rank_candidates(FEED, intent).ranked
@@ -627,7 +586,7 @@ def test_unmatched_preferences_allow_candidate_clarification(monkeypatch) -> Non
     result = router.choose_candidate(messages, intent, candidates)
 
     assert result == decision
-    assert issubclass(fake.responses.calls[0]["text_format"], CandidateDecision)
+    assert output_schema(server.bodies()[0])["title"] == "CandidateDecision"
 
 
 def test_router_explains_real_alternatives_when_no_candidate_matches(monkeypatch) -> None:
@@ -635,13 +594,8 @@ def test_router_explains_real_alternatives_when_no_candidate_matches(monkeypatch
         action="clarify",
         assistant_message="No hay opciones en ese presupuesto; tengo Sonora por 720 USD.",
     )
-    fake = FakeOpenAI(decision)
-    monkeypatch.setattr(module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"),
-        model="test-model",
-        feed=FEED,
-    )
+    server = serve(monkeypatch, decision)
+    router = make_router()
     messages = (ConversationMessage(role="user", content="Quiero audífonos por un centavo"),)
     intent = PurchaseIntent(hard=HardConstraints(max_unit_amount_minor=1))
     selection = rank_candidates(FEED, intent)
@@ -654,10 +608,10 @@ def test_router_explains_real_alternatives_when_no_candidate_matches(monkeypatch
     )
 
     assert result == decision
-    call = fake.responses.calls[0]
-    assert call["text_format"] is CatalogRecovery
-    assert '"budget": 1' in call["input"]
-    assert "SON-01" in call["input"]
+    (call,) = server.bodies()
+    assert output_schema(call)["title"] == "CatalogRecovery"
+    assert '"budget": 1' in payload(call)
+    assert "SON-01" in payload(call)
 
 
 @pytest.mark.parametrize(

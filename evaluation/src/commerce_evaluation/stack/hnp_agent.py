@@ -26,6 +26,7 @@ from commerce_agent.buyer_auth import BuyerPrincipal
 from commerce_agent.config import Settings
 from commerce_evaluation.stack.environment import (
     AGENT,
+    MODEL_PREFIXES,
     clean_environment,
 )
 from commerce_evaluation.stack.purchase_agent import buyer_details
@@ -131,7 +132,7 @@ class HnpAgent:
     It runs in a process of its own (`hnp_app` under uvicorn, from this checkout), so a test can
     kill it mid-run, and keeps its SQLite in the run directory. The buyer proposes and consents
     with its token; the service token triggers the task; the selector is the deterministic one
-    and no model is configured (`clean_environment` drops every OPENAI_* variable). With a model
+    and no model is configured (`clean_environment` drops every ANTHROPIC_* variable). With a model
     selector or reviewer the same Agent runs in the test process instead (`ModelHnpAgent` of
     tests/integration/live_model.py), where the scripted model transport reaches it.
     """
@@ -177,7 +178,7 @@ class HnpAgent:
             )
         )
         env.update({name.upper(): value for name, value in settings.items()})
-        assert not any(name.startswith("OPENAI_") for name in env)
+        assert not any(name.startswith(MODEL_PREFIXES) for name in env)
         self.server = ServiceServer(
             self.root,
             "agent",

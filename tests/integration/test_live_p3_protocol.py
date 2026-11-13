@@ -32,7 +32,7 @@ from commerce_evaluation.p3_protocol import (
     equivalent_clones,
     verified_cleanup,
 )
-from commerce_evaluation.stack.environment import clean_environment, free_port
+from commerce_evaluation.stack.environment import MODEL_PREFIXES, clean_environment, free_port
 from commerce_evaluation.stack.fault_proxy import FaultProxy
 from commerce_evaluation.stack.purchase_agent import StaticConversationRouter, buyer_details
 from commerce_evaluation.stack.purchase_lane import SANDBOX_CLOCK
@@ -86,8 +86,8 @@ def headers(episode):
 
 @contextmanager
 def protocol_case(lane, case_id):
-    assert not any(name.startswith("OPENAI_") for name in clean_environment())
-    assert not os.environ.get("OPENAI_API_KEY")
+    assert not any(name.startswith(MODEL_PREFIXES) for name in clean_environment())
+    assert not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("OPENAI_API_KEY")
     lane.proxy.reset()
     episodes = []
     facts: dict[str, Any] = {"cleanup_verified": False, "commercial": "unknown"}
@@ -462,8 +462,7 @@ def test_protocol_contract_pv10(p3_lane, tmp_path, monkeypatch):
                 agent_auth_issuer=auth.origin,
                 agent_ap2_required=False,
                 agent_hnp_enabled=False,
-                openai_api_key=None,
-                openai_model=None,
+                anthropic_api_key=None,
             )
             assert settings.agent_governance_mode == "enforce"
             intent = PurchaseIntent.model_validate(

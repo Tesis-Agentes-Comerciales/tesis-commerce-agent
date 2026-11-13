@@ -12,23 +12,20 @@ leaves out, go to `model_requests` (docs/design/run-traceability.md §4.4).
 
 import json
 from dataclasses import dataclass
-from typing import Any
 
-from openai import OpenAI, OpenAIError
-from openai.types.shared_params import Reasoning
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretStr
 
+from commerce_agent.config import DEFAULT_MODEL, ModelEffort
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
+from commerce_agent.llm.claude import ClaudeClient
 from commerce_agent.llm.conversation_router import (
     MAX_MODEL_CANDIDATES,
     CandidateChoice,
     IntentInterpretationError,
-    ReasoningEffort,
     _candidate_payload,
     _restricted_to_shortlist,
 )
-from commerce_agent.llm.model_failures import classify_model_failure
-from commerce_agent.llm.model_requests import ModelRequestRecorder, ModelRequestSink
+from commerce_agent.llm.model_requests import ModelRequestSink, total_input_tokens
 
 _DELEGATED_INSTRUCTIONS = """You choose one catalog candidate for a purchase the buyer delegated
 in advance. The buyer is not present and cannot answer questions, so always choose exactly one of
@@ -66,28 +63,22 @@ class DelegatedChoice:
     output_tokens: int | None
 
 
-class OpenAIDelegatedChooser:
+class ClaudeDelegatedChooser:
     def __init__(
         self,
         *,
         api_key: SecretStr,
-        model: str,
+        model: str = DEFAULT_MODEL,
+        effort: ModelEffort = "low",
         timeout_seconds: float = 20.0,
-        reasoning_effort: ReasoningEffort | None = None,
         model_requests: ModelRequestSink | None = None,
     ) -> None:
-        if not model.strip():
-            raise ValueError("OpenAI model must not be empty")
-        self._model = model
-        self._reasoning_effort: ReasoningEffort | None = reasoning_effort
-        self._recorder = ModelRequestRecorder(
-            model_requests, model=model, reasoning_effort=reasoning_effort
-        )
-        self._client = OpenAI(
-            api_key=api_key.get_secret_value(),
-            timeout=timeout_seconds,
-            max_retries=1,
-            http_client=self._recorder.http_client(),
+        self._claude = ClaudeClient(
+            api_key=api_key,
+            model=model,
+            effort=effort,
+            timeout_seconds=timeout_seconds,
+            model_requests=model_requests,
         )
 
     def choose(
@@ -105,43 +96,23 @@ class OpenAIDelegatedChooser:
             "preference_text": preference_text,
             "candidates": candidate_payloads(candidates),
         }
-        options: dict[str, Any] = {}
-        if self._reasoning_effort is not None:
-            options["reasoning"] = Reasoning(effort=self._reasoning_effort)
-        model_input = json.dumps(payload, ensure_ascii=False)
-        text_format = _restricted_to_shortlist(CandidateChoice, shortlist)
-        try:
-            with self._recorder.request(
-                instructions=_DELEGATED_INSTRUCTIONS,
-                model_input=model_input,
-                text_format=text_format,
-            ) as pending:
-                response = self._client.responses.parse(
-                    model=self._model,
-                    instructions=_DELEGATED_INSTRUCTIONS,
-                    input=model_input,
-                    text_format=text_format,
-                    store=False,
-                    **options,
-                )
-                pending.response = response
-        except (OpenAIError, ValidationError) as error:
-            raise IntentInterpretationError(
-                "The delegated choice request failed",
-                failure_kind=classify_model_failure(error).kind,
-            ) from error
-        parsed = response.output_parsed
+        reply = self._claude.parse(
+            instructions=_DELEGATED_INSTRUCTIONS,
+            model_input=json.dumps(payload, ensure_ascii=False),
+            output=_restricted_to_shortlist(CandidateChoice, shortlist),
+            failure="The delegated choice request failed",
+        )
+        parsed = reply.parsed
         if parsed is None:
             raise IntentInterpretationError(
                 "The delegated choice model returned no decision", failure_kind="invalid_output"
             )
-        usage = getattr(response, "usage", None)
         return DelegatedChoice(
             # An id from outside the shortlist still meets K12 (executor guard or D1's POL-01).
             variant_id=parsed.selected_variant_id,
-            input_tokens=getattr(usage, "input_tokens", None),
-            output_tokens=getattr(usage, "output_tokens", None),
+            input_tokens=total_input_tokens(reply.message.usage),
+            output_tokens=reply.message.usage.output_tokens,
         )
 
     def close(self) -> None:
-        self._client.close()
+        self._claude.close()

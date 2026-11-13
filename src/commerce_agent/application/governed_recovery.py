@@ -78,7 +78,7 @@ def governed_recovery_enabled(settings: Settings) -> bool:
 def outside_shortlist(
     decision: CandidateDecision, candidates: tuple[RankedCandidate, ...]
 ) -> str | None:
-    """A variant a router returned outside the shortlist (the OpenAI router raises instead)."""
+    """A variant a router returned outside the shortlist (the Claude router raises instead)."""
     selected = decision.selected_variant_id
     if selected is None or any(item.candidate.variant_id == selected for item in candidates):
         return None

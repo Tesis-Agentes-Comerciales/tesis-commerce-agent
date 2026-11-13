@@ -8,9 +8,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
-from openai import APIConnectionError
+from anthropic import APIConnectionError
 
 from commerce_agent.application import PurchaseServiceError, hnp_execution
 from commerce_agent.application.hnp_execution import (
@@ -277,10 +277,10 @@ SECRET = "catalog text the log must never carry"
 
 
 def unreachable_model() -> IntentInterpretationError:
-    """What `OpenAIDelegatedChooser` raises when the model cannot be reached: the SDK's error is
+    """What `ClaudeDelegatedChooser` raises when the model cannot be reached: the SDK's error is
     its cause (`raise ... from error`)."""
     error = IntentInterpretationError(SECRET)
-    request = httpx.Request("POST", "https://model.invalid/v1/responses")
+    request = httpx2.Request("POST", "https://model.invalid/v1/messages")
     error.__cause__ = APIConnectionError(message=SECRET, request=request)
     return error
 

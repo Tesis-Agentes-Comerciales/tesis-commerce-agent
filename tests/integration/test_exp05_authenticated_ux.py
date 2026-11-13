@@ -57,7 +57,7 @@ def test_real_auth_adapter_without_model(b0, tmp_path):
         agent_feed_path=episode.feed,
         agent_auth_mode="jwt",
         agent_auth_issuer=origin,
-        openai_api_key=None,
+        anthropic_api_key=None,
         payment_provider_url=b0.payment.origin,
         payment_agent_bearer_token=b0.payment_token,
     )
@@ -70,7 +70,7 @@ def test_real_auth_adapter_without_model(b0, tmp_path):
             "actor_id": episode.actor_id,
             "mode": "HP",
             "prompts": plan["prepared_prompts"],
-            "openai_api_key_configured": False,
+            "anthropic_api_key_configured": False,
             "router": "none; production model-unavailable path, not scripted clarification",
             "feed_sha256": hashlib.sha256(
                 (episode.feed / "products.jsonl").read_bytes()

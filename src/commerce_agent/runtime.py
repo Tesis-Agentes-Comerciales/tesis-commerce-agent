@@ -26,7 +26,7 @@ from commerce_agent.approval import ApprovalService
 from commerce_agent.completion import CompletionService
 from commerce_agent.config import Settings
 from commerce_agent.delegated_payment import DelegatedPaymentClient
-from commerce_agent.llm import ConversationRouter, OpenAIConversationRouter
+from commerce_agent.llm import ClaudeConversationRouter, ConversationRouter
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.model_requests_sqlite import SqliteModelRequests
 from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from commerce_agent.governance.authorization import SqliteD2AuthorizationGate
     from commerce_agent.governance.enforce import SqliteD1EnforceGate
     from commerce_agent.governance.shadow import ShadowD1Observer, UnavailableShadowObserver
-    from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+    from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser
     from commerce_agent.llm.intent_review import ModelHnpIntentReviewer
 
 
@@ -48,7 +48,7 @@ class AgentRuntime:
     payments: DelegatedPaymentClient
     purchases: PurchaseService
     conversation: ConversationService
-    owned_router: OpenAIConversationRouter | None
+    owned_router: ClaudeConversationRouter | None
     published_feed: PublishedFeedClient | None
     checkpoint_connection: sqlite3.Connection
     mandate_signer: AgentMandateSigner | None = None
@@ -59,7 +59,7 @@ class AgentRuntime:
     delegations: "DelegationService | None" = None
     # Its executor (§3.3) and, with AGENT_HNP_SELECTOR=llm, the model client it owns.
     hnp_executor: "HnpExecutionService | None" = None
-    owned_hnp_chooser: "OpenAIDelegatedChooser | None" = None
+    owned_hnp_chooser: "ClaudeDelegatedChooser | None" = None
     # With AGENT_HNP_REVIEWER=llm, the intent reviewer's model client (hnp-intent-review.md §9).
     owned_hnp_reviewer: "ModelHnpIntentReviewer | None" = None
     # Display name of each merchant origin, from the seller its feed declares at startup.
@@ -218,22 +218,17 @@ def build_runtime(
     )
     owned_router = None
     router_factory: Callable[[ProductFeed], ConversationRouter] | None = None
-    if (
-        configuration.openai_api_key is not None
-        and configuration.openai_model is not None
-        and conversation_router is None
-    ):
-        api_key = configuration.openai_api_key
-        model = configuration.openai_model
+    if configuration.anthropic_api_key is not None and conversation_router is None:
+        api_key = configuration.anthropic_api_key
 
-        def make_router(current_feed: ProductFeed) -> OpenAIConversationRouter:
-            return OpenAIConversationRouter(
+        def make_router(current_feed: ProductFeed) -> ClaudeConversationRouter:
+            return ClaudeConversationRouter(
                 api_key=api_key,
-                model=model,
+                model=configuration.agent_model,
                 feed=current_feed,
-                timeout_seconds=configuration.openai_timeout_seconds,
-                reasoning_summary=configuration.openai_reasoning_summary,
-                reasoning_effort=configuration.openai_reasoning_effort,
+                effort=configuration.agent_model_effort,
+                timeout_seconds=configuration.agent_model_timeout_seconds,
+                reasoning_summary=configuration.agent_model_reasoning_summary,
                 model_requests=model_requests,
             )
 

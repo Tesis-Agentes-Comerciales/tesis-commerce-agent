@@ -13,7 +13,7 @@ from commerce_agent.application.conversation import (
     GraphState,
 )
 from commerce_agent.config import get_settings
-from commerce_agent.llm import OpenAIConversationRouter
+from commerce_agent.llm import ClaudeConversationRouter
 from commerce_agent.persistence import SqliteAgentStore
 
 
@@ -33,7 +33,7 @@ async def make_graph() -> AsyncIterator[
 
 def _build_graph() -> tuple[
     CompiledStateGraph[GraphState, GraphContext, GraphInput, GraphState],
-    OpenAIConversationRouter | None,
+    ClaudeConversationRouter | None,
     PublishedFeedClient | None,
 ]:
     settings = get_settings()
@@ -53,15 +53,15 @@ def _build_graph() -> tuple[
             raise RuntimeError("AGENT_FEED_PATH is required for a local feed")
         feed = load_product_feed(settings.agent_feed_path)
     router = (
-        OpenAIConversationRouter(
-            api_key=settings.openai_api_key,
-            model=settings.openai_model,
+        ClaudeConversationRouter(
+            api_key=settings.anthropic_api_key,
+            model=settings.agent_model,
             feed=feed,
-            timeout_seconds=settings.openai_timeout_seconds,
-            reasoning_summary=settings.openai_reasoning_summary,
-            reasoning_effort=settings.openai_reasoning_effort,
+            effort=settings.agent_model_effort,
+            timeout_seconds=settings.agent_model_timeout_seconds,
+            reasoning_summary=settings.agent_model_reasoning_summary,
         )
-        if settings.openai_api_key is not None and settings.openai_model is not None
+        if settings.anthropic_api_key is not None
         else None
     )
     conversation = ConversationService(

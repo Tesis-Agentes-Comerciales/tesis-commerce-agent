@@ -156,7 +156,7 @@ class ModelRequest(_Block):
     output_tokens: int | None
     reasoning_tokens: int | None
     retries: int | None
-    # A failed call (an invalid structured output among them) has no usage: kept, never dropped.
+    # A call that got no answer (HTTP or connection failure) has no usage: kept, never dropped.
     without_tokens: bool
     error_kind: str | None
     request_sha256: str | None
@@ -757,21 +757,26 @@ def _choice(values: Mapping[str, Any], shortlisted: bool) -> dict[str, Any] | No
 
 def _lookup(requests: list[dict[str, Any]] | None, run_id: str) -> dict[str, Any] | None:
     """The router's `lookup_catalog` call: its query and the variants it returned, from the
-    follow-up request that carried both back to the model (`input_json`, never copied whole)."""
+    follow-up request that carried both back to the model (`input_json`, never copied whole):
+    the `tool_use` block of the model's answer and the `tool_result` block that follows it."""
     for row in requests or []:
         if (row["run_id"], row["stage"]) != (run_id, ROUTE_STAGE) or not row["input_json"]:
             continue
-        items = [item for item in json.loads(row["input_json"]) if isinstance(item, dict)]
-        call = next(
-            (item for item in items if item.get("type") == "function_call"),
-            None,
-        )
-        output = next((item for item in items if item.get("type") == "function_call_output"), None)
+        messages = json.loads(row["input_json"])
+        blocks = [
+            block
+            for message in (messages if isinstance(messages, list) else [])
+            if isinstance(message, dict) and isinstance(message.get("content"), list)
+            for block in message["content"]
+            if isinstance(block, dict)
+        ]
+        call = next((block for block in blocks if block.get("type") == "tool_use"), None)
+        output = next((block for block in blocks if block.get("type") == "tool_result"), None)
         if call is not None and output is not None and call.get("name") == CATALOG_TOOL:
             return {
-                "query": json.loads(call["arguments"])["query"],
+                "query": call["input"]["query"],
                 "result_variant_ids": [
-                    product["variant_id"] for product in json.loads(output["output"])["products"]
+                    product["variant_id"] for product in json.loads(output["content"])["products"]
                 ],
             }
     return None

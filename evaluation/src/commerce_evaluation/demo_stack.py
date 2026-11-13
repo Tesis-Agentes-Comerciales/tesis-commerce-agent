@@ -42,6 +42,7 @@ from urllib.parse import quote
 import httpx
 from jwcrypto.jwk import JWK
 
+from commerce_agent.config import DEFAULT_MODEL
 from commerce_agent.llm.prices import format_minor_amount
 from commerce_agent.persistence.delegation_sqlite import utc_text
 from commerce_evaluation.agent_condition import (
@@ -78,17 +79,19 @@ SESSION_TTL_SECONDS = 12 * 3600
 MERCHANT_CLI = ("uv", "run", "--frozen", "python", "-m")
 # Only these model settings leave the agent's .env, and only for the agent process.
 MODEL_SETTINGS = (
-    "OPENAI_API_KEY",
-    "OPENAI_MODEL",
-    "OPENAI_TIMEOUT_SECONDS",
-    "OPENAI_REASONING_SUMMARY",
-    "OPENAI_REASONING_EFFORT",
+    "ANTHROPIC_API_KEY",
+    "AGENT_MODEL",
+    "AGENT_MODEL_EFFORT",
+    "AGENT_MODEL_TIMEOUT_SECONDS",
+    "AGENT_MODEL_REASONING_SUMMARY",
+    "AGENT_HNP_REVIEWER_MODEL",
 )
-REQUIRED_MODEL_SETTINGS = ("OPENAI_API_KEY", "OPENAI_MODEL")
-# The pilot's model (pilot-scenarios.json): another one is announced, not refused.
-PILOT_MODEL = "gpt-5-mini"
+REQUIRED_MODEL_SETTINGS = ("ANTHROPIC_API_KEY",)
+# The agent's model in the evaluation (eval-suite.md §6): another one is announced, not refused.
+SUITE_MODEL = DEFAULT_MODEL
 # Variables a child never inherits from the presenter's shell: each service gets explicit ones.
 INHERITED_PREFIXES = (
+    "ANTHROPIC_",
     "OPENAI_",
     "MERCHANT_",
     "PAYMENT_",
@@ -401,7 +404,7 @@ class DemoPlan:
         return self.ports.origin("ui")
 
     def secret_values(self, *extra: str) -> tuple[str, ...]:
-        model_secret = self.model.get("OPENAI_API_KEY", "")
+        model_secret = self.model.get("ANTHROPIC_API_KEY", "")
         return (*self.secrets.values(), model_secret, *extra)
 
     def mode_environment(self) -> dict[str, str]:
@@ -420,11 +423,11 @@ class DemoPlan:
         )
 
     def warnings(self) -> list[str]:
-        """What differs from the pilot without stopping the demo."""
-        model = self.model.get("OPENAI_MODEL")
-        if model is None or model == PILOT_MODEL:
+        """What differs from the evaluation's setup without stopping the demo."""
+        model = self.model.get("AGENT_MODEL")
+        if model is None or model == SUITE_MODEL:
             return []
-        return [f"OPENAI_MODEL={model} no es el modelo del piloto ({PILOT_MODEL})"]
+        return [f"AGENT_MODEL={model} no es el modelo de la evaluación ({SUITE_MODEL})"]
 
     def setup_steps(self) -> list[tuple[str, tuple[str, ...]]]:
         steps: list[tuple[str, tuple[str, ...]]] = []
@@ -1221,7 +1224,10 @@ def _up_parser() -> argparse.ArgumentParser:
         "--env-file",
         type=Path,
         default=ROOT / ".env",
-        help="de aquí solo se leen las variables OPENAI_* del modelo, solo para el agente",
+        help=(
+            "de aquí solo se leen ANTHROPIC_API_KEY y las variables AGENT_MODEL* del modelo, "
+            "solo para el agente"
+        ),
     )
     parser.add_argument(
         "--skip-postgres-start",

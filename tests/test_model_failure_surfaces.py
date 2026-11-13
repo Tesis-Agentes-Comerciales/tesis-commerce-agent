@@ -51,7 +51,11 @@ UNREACHABLE_COPY = (
 # Each failure of the interpretation, the HTTP attempts it costs and the chat's copy.
 FAILURES: dict[str, tuple[tuple[Answer, ...], int, str]] = {
     "rate_limited": ((failure(429), failure(429)), 2, RATE_LIMITED_COPY),
-    "quota_exhausted": ((failure(429, code="insufficient_quota"),), 1, QUOTA_COPY),
+    "quota_exhausted": (
+        (failure(429, code="enforced_spend_limit_reached", error_type="rate_limit_error"),),
+        1,
+        QUOTA_COPY,
+    ),
     "unreachable": ((disconnect(), disconnect()), 2, UNREACHABLE_COPY),
     "provider_error": ((failure(500), failure(500)), 2, CURRENT_COPY),
 }
@@ -64,11 +68,11 @@ ROUTED = CommerceDecision(
 
 
 def app(database: Path, merchant: Merchant, *, model: bool = True) -> FastAPI:
-    """The runtime's own OpenAI router, or none at all without `model`."""
+    """The runtime's own Claude router, or none at all without `model`."""
     configured = settings(database)
     if model:
         configured = configured.model_copy(
-            update={"openai_api_key": SecretStr(API_KEY), "openai_model": "test-model"}
+            update={"anthropic_api_key": SecretStr(API_KEY), "agent_model": "test-model"}
         )
     return create_app(
         settings=configured,

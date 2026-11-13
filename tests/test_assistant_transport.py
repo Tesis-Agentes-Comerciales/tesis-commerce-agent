@@ -61,14 +61,14 @@ from commerce_agent.assistant_transport import (
     error_message,
 )
 from commerce_agent.llm import (
+    ClaudeConversationRouter,
     CommerceDecision,
     ConversationMessage,
-    OpenAIConversationRouter,
 )
 from commerce_agent.llm import conversation_router as router_module
 from commerce_agent.llm.reasoning import reasoning_listener
 from tests.support.agent_server import AgentServer
-from tests.support.model_server import ModelServer, held, structured
+from tests.support.model_server import ModelServer, held, output_schema, structured
 
 STEPS = (
     "interpret_request",
@@ -954,72 +954,33 @@ def test_display_fields_never_reach_model_payloads() -> None:
     assert "assets/products" not in vocabulary
 
 
-class StreamingResponses:
-    def __init__(self, decision: CommerceDecision) -> None:
-        self.decision = decision
-        self.parse_calls: list[dict[str, Any]] = []
-        self.stream_calls: list[dict[str, Any]] = []
-
-    def parse(self, **kwargs: Any) -> SimpleNamespace:
-        self.parse_calls.append(kwargs)
-        return SimpleNamespace(output_parsed=self.decision)
-
-    def stream(self, **kwargs: Any) -> Any:
-        self.stream_calls.append(kwargs)
-        decision = self.decision
-        events = [
-            SimpleNamespace(type="response.created"),
-            SimpleNamespace(type="response.reasoning_summary_part.added", summary_index=0),
-            SimpleNamespace(type="response.reasoning_summary_text.delta", delta="Primero "),
-            SimpleNamespace(type="response.reasoning_summary_text.delta", delta="saludo."),
-            SimpleNamespace(type="response.reasoning_summary_part.added", summary_index=1),
-            SimpleNamespace(type="response.reasoning_summary_text.delta", delta="Luego ayudo."),
-            SimpleNamespace(type="response.output_text.delta", delta='{"action"'),
-        ]
-
-        class Stream:
-            def __enter__(self) -> "Stream":
-                return self
-
-            def __exit__(self, *_: object) -> None:
-                return None
-
-            def __iter__(self) -> Any:
-                return iter(events)
-
-            def get_final_response(self) -> SimpleNamespace:
-                return SimpleNamespace(output_parsed=decision)
-
-        return Stream()
-
-
-def openai_router(
-    monkeypatch: pytest.MonkeyPatch, *, summary: bool, effort: Any = None
-) -> tuple[OpenAIConversationRouter, StreamingResponses]:
-    responses = StreamingResponses(
-        CommerceDecision(action="respond", assistant_message=GREETING_REPLY)
-    )
-    fake = SimpleNamespace(responses=responses, close=lambda: None)
-    monkeypatch.setattr(router_module, "OpenAI", lambda **_: fake)
-    router = OpenAIConversationRouter(
-        api_key=SecretStr("openai-test-key"),
+def claude_router(
+    monkeypatch: pytest.MonkeyPatch, *, summary: bool, effort: Any = "low", answers: int = 1
+) -> tuple[ClaudeConversationRouter, ModelServer]:
+    """The router over the scripted Messages API; each answer carries two thinking summaries."""
+    decision = CommerceDecision(action="respond", assistant_message=GREETING_REPLY)
+    thinking = ("Primero saludo.", "Luego ayudo.")
+    server = ModelServer(*(structured(decision, thinking=thinking) for _ in range(answers)))
+    server.install(monkeypatch)
+    router = ClaudeConversationRouter(
+        api_key=SecretStr("sk-ant-test-key"),
         model="test-model",
         feed=load_product_feed(Path(__file__).parent / "fixtures" / "assistant_feed"),
         reasoning_summary=summary,
-        reasoning_effort=effort,
+        effort=effort,
     )
-    return router, responses
+    return router, server
 
 
 def test_reasoning_parts_appear_only_when_summaries_are_enabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    enabled, enabled_calls = openai_router(monkeypatch, summary=True, effort="low")
+    enabled, enabled_server = claude_router(monkeypatch, summary=True)
     with assistant_client(tmp_path / "on.db", router=enabled) as client:
         _, on = post_assistant(
             client, assistant_body([add_message(GREETING_REQUEST)], turn_id="turn-on")
         )
-    disabled, disabled_calls = openai_router(monkeypatch, summary=False)
+    disabled, disabled_server = claude_router(monkeypatch, summary=False)
     with assistant_client(tmp_path / "off.db", router=disabled) as client:
         _, off = post_assistant(
             client, assistant_body([add_message(GREETING_REQUEST)], turn_id="turn-off")
@@ -1027,42 +988,45 @@ def test_reasoning_parts_appear_only_when_summaries_are_enabled(
 
     assert texts(assistant_message(on), "reasoning") == ["Primero saludo.\n\nLuego ayudo."]
     assert texts(assistant_message(on)) == texts(assistant_message(off)) == [GREETING_REPLY]
-    assert enabled_calls.parse_calls == []
-    (stream_call,) = enabled_calls.stream_calls
-    assert stream_call["reasoning"] == {"summary": "auto", "effort": "low"}
-    assert stream_call["text_format"] is CommerceDecision
-    assert stream_call["store"] is False
+    (summarized,) = enabled_server.bodies()
+    assert summarized["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert summarized["output_config"]["effort"] == "low"
+    assert output_schema(summarized)["title"] == "CommerceDecision"
+    # The answer the model thought about without summaries carries no thinking text to show.
     assert texts(assistant_message(off), "reasoning") == []
-    assert disabled_calls.stream_calls == []
-    (parse_call,) = disabled_calls.parse_calls
-    assert set(parse_call) == {
+    (plain,) = disabled_server.bodies()
+    assert set(plain) == {
+        "max_tokens",
+        "messages",
         "model",
-        "instructions",
-        "input",
-        "text_format",
-        "store",
+        "output_config",
+        "system",
+        "tool_choice",
         "tools",
-        "parallel_tool_calls",
     }
-    assert parse_call["tools"][0]["name"] == "lookup_catalog"
+    assert plain["tools"][0]["name"] == "lookup_catalog"
 
 
 def test_summaries_are_not_requested_without_a_listener(monkeypatch: pytest.MonkeyPatch) -> None:
-    router, calls = openai_router(monkeypatch, summary=True)
+    router, server = claude_router(monkeypatch, summary=True, answers=2)
     message = (ConversationMessage(role="user", content=GREETING_REQUEST),)
     router.route(message)
-    assert calls.stream_calls == []
-    assert len(calls.parse_calls) == 1
     received: list[str] = []
     with reasoning_listener(received.append):
         router.route(message)
-    assert received == ["Primero ", "saludo.", "\n\n", "Luego ayudo."]
+    first, second = server.bodies()
+    assert "thinking" not in first
+    assert second["thinking"] == {"type": "adaptive", "display": "summarized"}
+    # Not streamed: each summary arrives whole, with the answer.
+    assert received == ["Primero saludo.", "\n\nLuego ayudo."]
 
 
 def test_effort_alone_is_forwarded_to_plain_requests(monkeypatch: pytest.MonkeyPatch) -> None:
-    router, calls = openai_router(monkeypatch, summary=False, effort="minimal")
+    router, server = claude_router(monkeypatch, summary=False, effort="high")
     router.route((ConversationMessage(role="user", content=GREETING_REQUEST),))
-    assert calls.parse_calls[0]["reasoning"] == {"effort": "minimal"}
+    (call,) = server.bodies()
+    assert call["output_config"]["effort"] == "high"
+    assert "thinking" not in call
 
 
 def test_recorder_marks_cancellation_and_stops_before_new_steps() -> None:
@@ -1182,7 +1146,7 @@ def choose(variant_id: str) -> Any:
     """`choose_a` (§4.1): the variant, which the request's schema must admit."""
 
     def answer(body: dict[str, Any]) -> dict[str, Any]:
-        schema = body["text"]["format"]["schema"]["properties"]["selected_variant_id"]
+        schema = body["output_config"]["format"]["schema"]["properties"]["selected_variant_id"]
         assert variant_id in (schema.get("enum") or schema["anyOf"][0]["enum"])
         return {
             "action": "purchase",
@@ -1194,9 +1158,9 @@ def choose(variant_id: str) -> Any:
 
 
 def model_app(database: Path, merchant: Merchant) -> Any:
-    """The runtime's own OpenAI router over the scripted transport, as in production."""
+    """The runtime's own Claude router over the scripted transport, as in production."""
     configured = settings(database).model_copy(
-        update={"openai_api_key": SecretStr(MODEL_KEY), "openai_model": "test-model"}
+        update={"anthropic_api_key": SecretStr(MODEL_KEY), "agent_model": "test-model"}
     )
     return create_app(
         settings=configured,

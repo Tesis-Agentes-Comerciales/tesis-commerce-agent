@@ -58,7 +58,7 @@ que contienen las bases SQLite: Railway no conserva archivos del contenedor entr
 - `PAYMENT_AGENT_BEARER_TOKEN` coincide entre agente y proveedor;
   `PAYMENT_MERCHANT_BEARER_TOKEN`, entre merchant y proveedor. `PAYMENT_TOKEN_SECRET` solo existe
   en el proveedor. `PAYMENT_MERCHANT_ID` debe ser igual en los tres servicios.
-- `OPENAI_API_KEY`, `OPENAI_MODEL` y `AGENT_APPROVAL_SECRET` viven únicamente en el agente.
+- `ANTHROPIC_API_KEY`, `AGENT_MODEL` y `AGENT_APPROVAL_SECRET` viven únicamente en el agente.
 
 Use una instancia PostgreSQL dedicada y privada. `DATABASE_URL` del merchant debe apuntar a
 `/tesis_lab` en el host privado `*.railway.internal`; configúrela mediante una referencia de

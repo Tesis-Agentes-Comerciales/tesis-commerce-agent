@@ -45,7 +45,7 @@ from commerce_agent.persistence.stage_timings_sqlite import SqliteStageTimings
 from .service import DelegationService, HnpTrust
 
 if TYPE_CHECKING:
-    from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+    from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser
     from commerce_agent.llm.intent_review import ModelHnpIntentReviewer
 
 TOKEN_MIN_LENGTH = 32
@@ -115,7 +115,7 @@ def build_delegation_service(
 
 def build_hnp_selector(
     settings: Settings, timings: SqliteStageTimings
-) -> "tuple[HnpSelector, OpenAIDelegatedChooser | None]":
+) -> "tuple[HnpSelector, ClaudeDelegatedChooser | None]":
     """`AGENT_HNP_SELECTOR`: the selector, and the model client the runtime must close. After
     `build_delegation_service`: a model selector can fail, and a ledger created before
     `selection_unavailable` lacks it in its CHECK, so startup refuses it rather than failing a run
@@ -127,15 +127,15 @@ def build_hnp_selector(
             "AGENT_HNP_SELECTOR=llm needs a delegation ledger that admits selection_unavailable; "
             "point AGENT_DATABASE_PATH to a new database"
         )
-    from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+    from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser
 
-    if settings.openai_api_key is None or settings.openai_model is None:
-        raise RuntimeError("AGENT_HNP_SELECTOR=llm requires OPENAI_API_KEY and OPENAI_MODEL")
-    chooser = OpenAIDelegatedChooser(
-        api_key=settings.openai_api_key,
-        model=settings.openai_model,
-        timeout_seconds=settings.openai_timeout_seconds,
-        reasoning_effort=settings.openai_reasoning_effort,
+    if settings.anthropic_api_key is None:
+        raise RuntimeError("AGENT_HNP_SELECTOR=llm requires ANTHROPIC_API_KEY")
+    chooser = ClaudeDelegatedChooser(
+        api_key=settings.anthropic_api_key,
+        model=settings.agent_model,
+        effort=settings.agent_model_effort,
+        timeout_seconds=settings.agent_model_timeout_seconds,
         # The runtime created the table in this same database.
         model_requests=SqliteModelRequests(settings.agent_database_path),
     )
@@ -158,14 +158,14 @@ def build_hnp_reviewer(
         )
     from commerce_agent.llm.intent_review import ModelHnpIntentReviewer
 
-    if settings.openai_api_key is None or settings.openai_model is None:
-        raise RuntimeError("AGENT_HNP_REVIEWER=llm requires OPENAI_API_KEY and OPENAI_MODEL")
+    if settings.anthropic_api_key is None:
+        raise RuntimeError("AGENT_HNP_REVIEWER=llm requires ANTHROPIC_API_KEY")
     return ModelHnpIntentReviewer(
-        api_key=settings.openai_api_key,
-        model=settings.openai_model,
+        api_key=settings.anthropic_api_key,
+        model=settings.agent_hnp_reviewer_model or settings.agent_model,
         timer=timings,
-        timeout_seconds=settings.openai_timeout_seconds,
-        reasoning_effort=settings.openai_reasoning_effort,
+        effort=settings.agent_model_effort,
+        timeout_seconds=settings.agent_model_timeout_seconds,
         model_requests=SqliteModelRequests(settings.agent_database_path),
     )
 
@@ -246,17 +246,13 @@ def _check_condition(settings: Settings) -> None:
             "AGENT_HNP_ENABLED runs with AGENT_GOVERNANCE_MODE=off, or enforce with "
             "AGENT_HP_FLOW=governed"
         )
-    if settings.agent_hnp_selector == "llm" and (
-        settings.openai_api_key is None or settings.openai_model is None
-    ):
-        raise RuntimeError("AGENT_HNP_SELECTOR=llm requires OPENAI_API_KEY and OPENAI_MODEL")
+    if settings.agent_hnp_selector == "llm" and settings.anthropic_api_key is None:
+        raise RuntimeError("AGENT_HNP_SELECTOR=llm requires ANTHROPIC_API_KEY")
     if settings.agent_hnp_reviewer == "llm" and mode != "enforce":
         # B0-HNP has no escalation to stop a choice with (hnp-intent-review.md §2).
         raise RuntimeError("AGENT_HNP_REVIEWER=llm requires AGENT_GOVERNANCE_MODE=enforce")
-    if settings.agent_hnp_reviewer == "llm" and (
-        settings.openai_api_key is None or settings.openai_model is None
-    ):
-        raise RuntimeError("AGENT_HNP_REVIEWER=llm requires OPENAI_API_KEY and OPENAI_MODEL")
+    if settings.agent_hnp_reviewer == "llm" and settings.anthropic_api_key is None:
+        raise RuntimeError("AGENT_HNP_REVIEWER=llm requires ANTHROPIC_API_KEY")
     service = _secret(settings.agent_hnp_service_token).encode()
     operator = _secret(settings.agent_hnp_operator_token).encode()
     if min(len(service), len(operator)) < TOKEN_MIN_LENGTH or hmac.compare_digest(

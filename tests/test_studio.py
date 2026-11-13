@@ -18,8 +18,8 @@ def test_studio_uses_same_graph_without_opening_checkout(monkeypatch, tmp_path: 
         agent_database_path=tmp_path / "agent.db",
         agent_feed_source="file",
         agent_feed_path=FEED,
-        openai_api_key=SecretStr("test-key"),
-        openai_model="test-model",
+        anthropic_api_key=SecretStr("test-key"),
+        agent_model="test-model",
     )
 
     class Router:
@@ -43,7 +43,7 @@ def test_studio_uses_same_graph_without_opening_checkout(monkeypatch, tmp_path: 
             pass
 
     monkeypatch.setattr(studio, "get_settings", lambda: settings)
-    monkeypatch.setattr(studio, "OpenAIConversationRouter", lambda **_: Router())
+    monkeypatch.setattr(studio, "ClaudeConversationRouter", lambda **_: Router())
 
     async def run() -> dict:
         async with studio.make_graph() as graph:

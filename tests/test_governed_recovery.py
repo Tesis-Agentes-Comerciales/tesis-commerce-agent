@@ -352,7 +352,7 @@ def sha256(text: str) -> str:
 @pytest.mark.parametrize(
     "selection",
     [pick_pixel_8(), UnknownVariantSelection(PIXEL_8)],
-    ids=["router-returns-it", "openai-router-raises"],
+    ids=["router-returns-it", "claude-router-raises"],
 )
 def test_governed_s02_explains_a_choice_outside_the_shortlist_without_checkout(
     tmp_path: Path, selection: CandidateDecision | Exception
@@ -418,7 +418,7 @@ def test_governed_s02_records_only_the_digest_of_a_variant_the_catalog_does_not_
         (pick_pixel_8(), B0_INVALID_CANDIDATE),
         (UnknownVariantSelection(PIXEL_8), B0_UNKNOWN_VARIANT),
     ],
-    ids=["router-returns-it", "openai-router-raises"],
+    ids=["router-returns-it", "claude-router-raises"],
 )
 def test_without_evidence_a_choice_outside_the_shortlist_answers_as_b0(
     tmp_path: Path,

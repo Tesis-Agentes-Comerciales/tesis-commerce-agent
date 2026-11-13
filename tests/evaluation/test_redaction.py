@@ -11,8 +11,9 @@ import pytest
 from commerce_evaluation.agent_condition import ap2_private_key
 from commerce_evaluation.redaction import REDACTED, redact, sweep_fields
 
-# Shaped like the real ones: a three-part JWT, an OpenAI project key and an opaque bearer token.
+# Shaped like the real ones: a three-part JWT, model API keys and an opaque bearer token.
 JWT = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.c2lnbmF0dXJlLXNpZ25hdHVyZQ"
+ANTHROPIC_KEY = "sk-ant-api03-" + "A1b2C3d4_-" * 9
 OPENAI_KEY = "sk-proj-" + "A1b2C3d4" * 6
 BEARER = secrets.token_urlsafe(32)
 
@@ -42,6 +43,7 @@ def test_every_known_secret_is_removed_also_json_escaped_and_line_by_line() -> N
     [
         (f"Authorization: Bearer {BEARER}", f"Authorization: Bearer {REDACTED}"),
         (f"token={JWT} rest", f"token={REDACTED} rest"),
+        (f"ANTHROPIC_API_KEY={ANTHROPIC_KEY}", f"ANTHROPIC_API_KEY={REDACTED}"),
         (f"OPENAI_API_KEY={OPENAI_KEY}", f"OPENAI_API_KEY={REDACTED}"),
         (
             "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMG\n-----END PRIVATE KEY-----\nnext",
@@ -53,7 +55,15 @@ def test_every_known_secret_is_removed_also_json_escaped_and_line_by_line() -> N
             f"connection to {REDACTED} failed",
         ),
     ],
-    ids=["bearer", "jwt", "openai-key", "pem", "pem-json-escaped-and-cut", "postgres-url"],
+    ids=[
+        "bearer",
+        "jwt",
+        "anthropic-key",
+        "openai-key",
+        "pem",
+        "pem-json-escaped-and-cut",
+        "postgres-url",
+    ],
 )
 def test_secret_shapes_are_removed_without_knowing_their_value(leak: str, redacted: str) -> None:
     assert redact(leak) == redacted

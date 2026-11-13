@@ -158,8 +158,8 @@ La evidencia histórica HP/HNP del 17 al 20 de octubre de 2026, con sus hashes, 
 `uv run demo-stack` levanta en un comando lo necesario para comprar por chat en la UI: PostgreSQL
 del Merchant (sin apagarlo ni borrar volúmenes), migraciones, catálogo administrado, proveedor de
 pagos, Merchant, `auth/`, agente y UI. Los secretos y las claves AP2 y D1 son nuevos en cada
-arranque y no se imprimen ni se escriben; del `.env` solo lee las variables `OPENAI_*`, y solo para
-el agente. Arranca en B2; `--mode b0` y `--mode pol02-deny` cambian la condición, y `--mode b2-hnp`
+arranque y no se imprimen ni se escriben; del `.env` solo lee `ANTHROPIC_API_KEY` y las variables
+`AGENT_MODEL*`, y solo para el agente. Arranca en B2; `--mode b0` y `--mode pol02-deny` cambian la condición, y `--mode b2-hnp`
 agrega Human Not Present (compras delegadas con la política `b2-hnp-v1`); `--dry-run` revisa
 requisitos y puertos, y `uv run demo-stack s04` cambia el precio del escenario S04. Requisitos,
 pedidos y plan B en el [guion del 23 de octubre](docs/demo/guion-2026-10-23.md).
@@ -235,13 +235,16 @@ Configure en `.env`:
   snapshot ACP fijado.
 - `AGENT_PRINCIPAL_ID`: identidad humana resuelta por el backend local.
 - `AGENT_UI_ORIGIN`: origen exacto autorizado para la interfaz web local.
-- `OPENAI_API_KEY`, `OPENAI_MODEL` y `OPENAI_TIMEOUT_SECONDS`: modelo conversacional que enruta la
-  solicitud y elige o explica entre candidatos elegibles.
-- `OPENAI_REASONING_SUMMARY` (por defecto `false`): si es `true`, `POST /assistant` pide a la
-  Responses API resúmenes de razonamiento y los muestra como partes `reasoning`; nunca vuelven al
-  prompt. `/conversation/turn` no los solicita.
-- `OPENAI_REASONING_EFFORT` (opcional: `minimal`, `low`, `medium` o `high`): esfuerzo de
-  razonamiento para modelos que lo soportan. Sin estas dos variables los requests no cambian.
+- `ANTHROPIC_API_KEY`: la clave del modelo conversacional (Claude, por la API de Messages) que
+  enruta la solicitud y elige o explica entre candidatos elegibles. Sin ella no hay modelo.
+- `AGENT_MODEL` (por defecto `claude-haiku-5-5`) y `AGENT_MODEL_TIMEOUT_SECONDS` (por defecto 30):
+  el modelo y el tiempo máximo de cada request. El mismo código corre `claude-sonnet-5-5`.
+- `AGENT_MODEL_EFFORT` (por defecto `low`; también `medium`, `high`, `xhigh` o `max`): esfuerzo de
+  cada request al modelo.
+- `AGENT_MODEL_REASONING_SUMMARY` (por defecto `false`): si es `true`, `POST /assistant` pide
+  resúmenes del razonamiento y los muestra como partes `reasoning`; nunca vuelven al prompt.
+  `/conversation/turn` no los solicita.
+- `AGENT_HNP_REVIEWER_MODEL` (opcional): el modelo del revisor HNP, si no es `AGENT_MODEL`.
 
 Use valores aleatorios de al menos 32 caracteres para los secretos. No copie valores reales a
 Git, logs, prompts, fixtures o artefactos.
@@ -311,7 +314,7 @@ propuesta, pero nunca prepara un checkout ni completa una compra. Para probar la
 checkout se usa la UI/API del agente. Studio carga el feed al iniciar; reinícielo para ver cambios
 posteriores del merchant. La UI/API sí consulta una instantánea nueva antes de cada turno.
 
-Con `OPENAI_API_KEY`, `OPENAI_MODEL` y el merchant disponibles en `.env`:
+Con `ANTHROPIC_API_KEY` y el merchant disponibles en `.env`:
 
 ```sh
 LANGSMITH_TRACING=false uv run langgraph dev --no-browser --host 127.0.0.1 --port 2024

@@ -30,7 +30,7 @@ from commerce_agent.delegation.service import DelegationConsentRequest, Delegati
 from commerce_agent.governance.enforce import SqliteD1EnforceGate
 from commerce_agent.governance.evidence import DecisionRecord
 from commerce_agent.governance.hnp_gate import SqliteHnpPolicyGate
-from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser
 from commerce_agent.llm.intent_review import ModelHnpIntentReviewer
 from commerce_agent.persistence import delegation_sqlite
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
@@ -188,21 +188,21 @@ def test_b2_hnp_runs_a_consented_task_to_its_purchase(tmp_path: Path) -> None:
 
 
 def test_the_llm_selector_needs_the_model_settings(tmp_path: Path) -> None:
-    unset = hnp_settings(tmp_path, agent_hnp_selector="llm", openai_api_key=None, openai_model=None)
+    unset = hnp_settings(tmp_path, agent_hnp_selector="llm", anthropic_api_key=None)
     with pytest.raises(RuntimeError, match="AGENT_HNP_SELECTOR=llm"):
         runtime(unset, Ap2Merchant(MERCHANT))
 
     settings = hnp_settings(
         tmp_path,
         agent_hnp_selector="llm",
-        openai_api_key=SecretStr("test-key-never-sent"),
-        openai_model="test-model",
+        anthropic_api_key=SecretStr("test-key-never-sent"),
+        agent_model="test-model",
     )
     built = runtime(settings, Ap2Merchant(MERCHANT))
     try:
         assert built.hnp_executor is not None
         assert isinstance(built.hnp_executor._selector, ModelHnpSelector)
-        assert isinstance(built.owned_hnp_chooser, OpenAIDelegatedChooser)
+        assert isinstance(built.owned_hnp_chooser, ClaudeDelegatedChooser)
     finally:
         built.close()
 
@@ -282,8 +282,8 @@ def test_a_choice_outside_the_grant_is_never_bought(tmp_path: Path, mode: str) -
 
 # The intent reviewer (docs/design/hnp-intent-review.md §9)
 
-MODEL = {"openai_api_key": SecretStr("test-key-never-sent"), "openai_model": "test-model"}
-NO_MODEL = {"openai_api_key": None, "openai_model": None}
+MODEL = {"anthropic_api_key": SecretStr("test-key-never-sent"), "agent_model": "test-model"}
+NO_MODEL = {"anthropic_api_key": None}
 
 
 def test_the_reviewer_is_off_by_default(tmp_path: Path) -> None:
@@ -324,7 +324,7 @@ def test_the_llm_reviewer_is_assembled_in_b2_hnp(tmp_path: Path) -> None:
         ),
         (
             lambda path: governed_hnp(path, agent_hnp_reviewer="llm", **NO_MODEL),
-            "AGENT_HNP_REVIEWER=llm requires OPENAI_API_KEY and OPENAI_MODEL",
+            "AGENT_HNP_REVIEWER=llm requires ANTHROPIC_API_KEY",
         ),
     ],
     ids=["hnp-off", "b0-hnp", "no-model"],

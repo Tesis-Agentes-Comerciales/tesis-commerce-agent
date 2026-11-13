@@ -1,6 +1,6 @@
 """UX08-HP and UX09-HP in CI, in B0 and B2-HP (docs/design/p0-ux08-ux10.md §4.2 and §5.1).
 
-The runtime's own OpenAI router and candidate chooser over the scripted transport of
+The runtime's own Claude router and candidate chooser over the scripted transport of
 tests/support/model_server.py: the real SDK, no model. B0 is the assistant harness of
 tests/assistant_support.py, whose Merchant prepares the variant the creation asks for. B2-HP is
 enforce with the governed flow, the built-in `b2-hp-v2` and AP2 Human Present, over the AP2
@@ -85,7 +85,7 @@ def choose(variant_id: str) -> Answer:
     """`choose_a` / `choose_b`: the variant, which the request's schema must admit."""
 
     def answer(body: dict[str, Any]) -> dict[str, Any]:
-        schema = body["text"]["format"]["schema"]["properties"]["selected_variant_id"]
+        schema = body["output_config"]["format"]["schema"]["properties"]["selected_variant_id"]
         assert variant_id in (schema.get("enum") or schema["anyOf"][0]["enum"])
         return {
             "action": "purchase",
@@ -182,7 +182,7 @@ def two_variant_feed(directory: Path) -> Path:
 @contextmanager
 def shop(tmp_path: Path, condition: str) -> Iterator[Shop]:
     database = tmp_path / "agent.db"
-    model = {"openai_api_key": SecretStr(MODEL_KEY), "openai_model": "test-model"}
+    model = {"anthropic_api_key": SecretStr(MODEL_KEY), "agent_model": "test-model"}
     if condition == "B0":
         merchant: Any = Merchant()
         payments: list[str] = []

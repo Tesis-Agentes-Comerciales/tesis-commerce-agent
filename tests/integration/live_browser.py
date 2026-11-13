@@ -32,6 +32,7 @@ from commerce_agent.config import Settings
 from commerce_agent.llm import ConversationRouter
 from commerce_evaluation.stack.environment import (
     AGENT,
+    MODEL_PREFIXES,
     clean_environment,
     closed,
     free_port,
@@ -63,7 +64,8 @@ def browser_requirements() -> list[str]:
 
 class ExplicitSettings(Settings):
     """The Agent's settings from the values given and nothing else: no developer .env and no
-    variable of this process (OPENAI_* included), as `clean_environment` does for the children."""
+    variable of this process (ANTHROPIC_* included), as `clean_environment` does for the
+    children."""
 
     @classmethod
     def settings_customise_sources(
@@ -167,7 +169,7 @@ class BuyerUi:
         ui_port, auth_port = free_port(), free_port()
         self.origin = f"http://127.0.0.1:{ui_port}"
         env = clean_environment()
-        assert not any(name.startswith("OPENAI_") for name in env)
+        assert not any(name.startswith(MODEL_PREFIXES) for name in env)
         self.auth = NodeServer(
             self.root,
             "auth",
@@ -204,7 +206,7 @@ class BuyerUi:
         self.settings = agent_settings(agent | dict(variables or {}))
         if router is not None:
             # A scripted boundary: no model configured anywhere behind it.
-            assert self.settings.openai_api_key is None and self.settings.openai_model is None
+            assert self.settings.anthropic_api_key is None
         self.agent = AgentServer(self._app())
         vite = ("node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--strictPort")
         self.ui = NodeServer(

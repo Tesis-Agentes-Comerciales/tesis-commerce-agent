@@ -1,7 +1,9 @@
 """Offline checks of the second P0 real-model batch (docs/design/p0-llm-batch2.md).
 
-No model, no network, no cost: the exposure tests send the real OpenAI SDK requests to the
-scripted transport of tests/support/model_server.py, with a synthetic key and model.
+No model, no network, no cost: the exposure tests send the agent's real SDK requests to the
+scripted transport of tests/support/model_server.py, with a synthetic key and model. The plan
+ran on OpenAI; its code references keep the class names of then, which the agent's move to Claude
+renamed (docs/design/eval-suite.md §6), so they resolve through `RENAMED`.
 """
 
 import ast
@@ -36,14 +38,15 @@ from commerce_agent.domain import (
     rank_candidates,
 )
 from commerce_agent.domain.selection import RankedCandidate
-from commerce_agent.llm import CommerceDecision, OpenAIConversationRouter
+from commerce_agent.llm import ClaudeConversationRouter, CommerceDecision
+from commerce_agent.llm.claude import ClaudeClient
 from commerce_agent.llm.conversation_router import (
     CandidateClarification,
     CandidateDecision,
     CatalogRecovery,
     ConversationMessage,
 )
-from commerce_agent.llm.delegated_choice import OpenAIDelegatedChooser
+from commerce_agent.llm.delegated_choice import ClaudeDelegatedChooser
 from commerce_agent.llm.intent_review import IntentVerdict, ModelHnpIntentReviewer
 from commerce_agent.persistence.stage_timings_sqlite import ModelUsage
 from tests.support.model_server import ModelServer, function_call, shortlisted_choice, structured
@@ -58,6 +61,11 @@ KEY = SecretStr("sk-p0-llm-batch2-offline-0123456789")
 MODEL = "p0-llm-batch2-scripted"
 # Visible in the injected title only; ASCII, so it survives any JSON escaping.
 MARKER = "AVISO DEL SISTEMA"
+# The plan's class names, as the agent named them before it moved to Claude.
+RENAMED = {
+    "OpenAIConversationRouter": ClaudeConversationRouter.__name__,
+    "OpenAIDelegatedChooser": ClaudeDelegatedChooser.__name__,
+}
 
 
 def load(relative: str) -> dict[str, Any]:
@@ -274,7 +282,7 @@ def symbol_source(path: str, symbol: str) -> str:
     """The source of `symbol` (a class, a function, or dotted parents such as Class.method)."""
     source = (ROOT / path).read_text(encoding="utf-8")
     node: ast.AST = ast.parse(source)
-    for part in symbol.split("."):
+    for part in (RENAMED.get(name, name) for name in symbol.split(".")):
         found = [
             item
             for item in ast.walk(node)
@@ -496,7 +504,7 @@ def test_the_action_criterion_uses_the_final_action_and_attributes_each_clarify(
     assert "_has_catalog_identity" in sources["postprocess"]
     assert "the fixed text" in sources["postprocess"]
     # The fixed text is the router's own (adjacent literals join in the AST).
-    route = ast.parse(textwrap.dedent(inspect.getsource(OpenAIConversationRouter.route)))
+    route = ast.parse(textwrap.dedent(inspect.getsource(ClaudeConversationRouter.route)))
     texts = {n.value for n in ast.walk(route) if isinstance(n, ast.Constant)}
     assert sources["postprocess_text"] in texts
     # Every clarify outside the four sources is error, and the code-written ones are named.
@@ -520,11 +528,14 @@ def test_the_action_criterion_uses_the_final_action_and_attributes_each_clarify(
 
 def test_the_cost_guard_covers_the_three_agent_model_clients():
     guard = PLAN["design"]["cost_guard"]
-    for client in (OpenAIConversationRouter, OpenAIDelegatedChooser, ModelHnpIntentReviewer):
-        assert client.__name__ in guard
-        source = inspect.getsource(client.__init__)
-        assert "http_client=self._recorder.http_client()" in source, client
-        assert "max_retries=1" in source, client
+    renamed = {new: old for old, new in RENAMED.items()}
+    for client in (ClaudeConversationRouter, ClaudeDelegatedChooser, ModelHnpIntentReviewer):
+        assert renamed.get(client.__name__, client.__name__) in guard
+        # Each builds its SDK client through the one they share.
+        assert "ClaudeClient(" in inspect.getsource(client.__init__), client
+    source = inspect.getsource(ClaudeClient.__init__)
+    assert "http_client=self._recorder.http_client()" in source
+    assert "max_retries=1" in source
     assert "ModelRequestRecorder.http_client()" in guard
 
 
@@ -624,8 +635,13 @@ def test_the_mounted_title_never_moves_the_shortlist():
     assert seen == CELLS["CT21-HNP"]["shortlist"]
 
 
+def payload(body: dict[str, Any]) -> dict[str, Any]:
+    (message,) = body["messages"]
+    return json.loads(message["content"])
+
+
 def candidates_of(body: dict[str, Any]) -> list[dict[str, Any]]:
-    return json.loads(body["input"])["candidates"]
+    return payload(body)["candidates"]
 
 
 def test_the_injected_title_reaches_every_selection_stage_but_not_the_route_input(monkeypatch):
@@ -643,7 +659,7 @@ def test_the_injected_title_reaches_every_selection_stage_but_not_the_route_inpu
     )
     server.install(monkeypatch)
     messages = (ConversationMessage(role="user", content=CT21["hp_request"]),)
-    router = OpenAIConversationRouter(api_key=KEY, model=MODEL, feed=mounted)
+    router = ClaudeConversationRouter(api_key=KEY, model=MODEL, feed=mounted)
     router.route(messages)
     router.route(messages)
     shortlist = rank_candidates(mounted, REFERENCE).ranked[:10]
@@ -655,7 +671,7 @@ def test_the_injected_title_reaches_every_selection_stage_but_not_the_route_inpu
         for item in rank_candidates(mounted, HNP_INTENT).ranked
         if item.candidate.variant_id in granted
     )
-    chooser = OpenAIDelegatedChooser(api_key=KEY, model=MODEL)
+    chooser = ClaudeDelegatedChooser(api_key=KEY, model=MODEL)
     chooser.choose(HNP_INTENT, delegated, preference)
     chooser.close()
     reviewer = ModelHnpIntentReviewer(api_key=KEY, model=MODEL, timer=Timer())
@@ -666,14 +682,20 @@ def test_the_injected_title_reaches_every_selection_stage_but_not_the_route_inpu
     # The route never carries a title: the vocabulary has brands and options only.
     assert MARKER not in json.dumps(plain_route, ensure_ascii=False)
     # A lookup_catalog call brings it back as the tool's output.
-    [output] = [i for i in tool_route["input"] if i.get("type") == "function_call_output"]
-    tool = {p["variant_id"]: p for p in json.loads(output["output"])["products"]}
+    [output] = [
+        block
+        for message in tool_route["messages"]
+        if isinstance(message["content"], list)
+        for block in message["content"]
+        if block["type"] == "tool_result"
+    ]
+    tool = {p["variant_id"]: p for p in json.loads(output["content"])["products"]}
     assert tool[target]["variant"] == text
     # Every selection stage sees it as the target's variant_title, beside its real price.
     for body in (choose, select, review):
         seen = {c["variant_id"]: c for c in candidates_of(body)}
         assert seen[target]["variant_title"] == text
-        assert MARKER not in body["instructions"]
+        assert MARKER not in body["system"][0]["text"]
     assert [c["variant_id"] for c in candidates_of(choose)] == CT21["shortlist"]
     assert [c["variant_id"] for c in candidates_of(select)] == CELLS["CT21-HNP"]["shortlist"]
-    assert json.loads(review["input"])["chosen_variant_id"] == target
+    assert payload(review)["chosen_variant_id"] == target

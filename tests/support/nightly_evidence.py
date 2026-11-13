@@ -48,7 +48,7 @@ def preflight(scope: str) -> dict[str, Any]:
             raise ValueError("POSIX runner required")
         if any(os.environ.get(key) == "1" for key in ("HNP_LIVE", "RUN_LIVE_LLM")):
             raise ValueError("Real model execution is forbidden")
-        if os.environ.get("OPENAI_API_KEY"):
+        if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"):
             raise ValueError("Model credential is not permitted in the live job")
         for role, root, sha in (
             ("agent", Path.cwd(), os.environ["GITHUB_SHA"]),

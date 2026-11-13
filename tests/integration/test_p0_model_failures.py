@@ -1,7 +1,8 @@
 """P0 evidence of model failures on the live stack (docs/design/p0-model-failures.md §4 and §5).
 
 Every cell of §4, three times, against the live stack's real Merchant, payment provider and
-PostgreSQL, with the real OpenAI SDK over the scripted transport of tests/support/model_server.py:
+PostgreSQL, with the real Anthropic SDK over the scripted transport of
+tests/support/model_server.py:
 no model, no request to a provider, no cost. The protocol, frozen before the first run, is
 evaluation/scenarios/p0-model-failures.json: cases, stimuli, scripts, oracles and repetitions.
 This module reads the oracles from it, records each case's inputs before the Agent runs
@@ -27,7 +28,7 @@ import pytest
 
 from commerce_agent.api import create_app
 from commerce_agent.llm import CommerceDecision
-from commerce_evaluation.stack.environment import AGENT, git_state
+from commerce_evaluation.stack.environment import AGENT, MODEL_PREFIXES, git_state
 from commerce_evaluation.stack.fault_proxy import CREATE_PATH
 from commerce_evaluation.stack.hnp_agent import EpisodeBuyer, delegation_request
 from commerce_evaluation.stack.live_stack import LiveStack
@@ -114,9 +115,9 @@ def sha256(path: Path) -> str:
 
 @pytest.fixture(autouse=True)
 def no_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No OPENAI_* variable of the developer's shell reaches the SDK (a base URL included)."""
+    """No ANTHROPIC_* variable of the developer's shell reaches the SDK (a base URL included)."""
     for name in list(os.environ):
-        if name.startswith("OPENAI_"):
+        if name.startswith(MODEL_PREFIXES):
             monkeypatch.delenv(name)
 
 
@@ -317,7 +318,9 @@ class HpAgent:
         values: dict[str, Any] = settings_for(lane, episode, root, monkeypatch).model_dump()
         values.update({name.lower(): value for name, value in MODEL_SETTINGS.items()})
         values.update(
-            openai_reasoning_effort=None, openai_reasoning_summary=False, openai_timeout_seconds=30
+            agent_model_effort="low",
+            agent_model_reasoning_summary=False,
+            agent_model_timeout_seconds=30,
         )
         self.settings = ExplicitSettings(**values)
         condition = (

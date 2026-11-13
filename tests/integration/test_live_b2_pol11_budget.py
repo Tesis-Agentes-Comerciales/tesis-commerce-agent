@@ -55,7 +55,7 @@ def test_b2_hp_v2_denies_a_total_budget_below_the_catalog_price(b0, tmp_path, mo
         # build_runtime never authenticates buyers; jwt only satisfies the AP2 settings rule.
         agent_auth_mode="jwt",
         agent_auth_issuer="http://127.0.0.1:9",
-        openai_api_key=None,
+        anthropic_api_key=None,
     )
     intent = PHONE_INTENT.model_copy(
         update={

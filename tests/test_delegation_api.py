@@ -491,8 +491,8 @@ def governed(tmp_path: Path, clock: AuthorityClock, **overrides: Any) -> FastAPI
 # Assembled, never called: the scripted tests of the reviewer are in tests/delegation.
 REVIEWER = {
     "agent_hnp_reviewer": "llm",
-    "openai_api_key": SecretStr("test-key-never-sent"),
-    "openai_model": "test-model",
+    "anthropic_api_key": SecretStr("test-key-never-sent"),
+    "agent_model": "test-model",
 }
 
 
