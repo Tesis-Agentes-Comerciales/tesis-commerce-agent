@@ -12,6 +12,8 @@ without a ledger. With a ledger, a request hook also counts the attempts by read
 `x-stainless-retry-count` header. That hook only reads, and it never raises: httpx would turn an
 exception there into a failed attempt that the SDK retries. A failed call's row keeps the HTTP
 status and the provider's error code next to the SDK's error class (p0-model-failures.md §3.3).
+An answer that came back but failed its validation (`invalid_output`) keeps its usage and what
+the model said: it was billed, and its `stop_reason` tells a refusal from a cut answer.
 Recording is fail-open throughout: an error is logged and the row dropped, never the request.
 
 Usage, from the Messages API's `usage`: `input_tokens` is every input token of the request, the
@@ -125,14 +127,26 @@ def _input_json(model_input: object) -> str:
 
 
 def _output_json(response: object, parsed: BaseModel | None) -> str:
-    """The structured output and the tool calls of a response."""
+    """The structured output and the tool calls of a response. Without a structured output, also
+    why the answer stopped and its text as it came: a refusal, a cut answer, one outside the
+    schema, or a tool call."""
+    blocks = getattr(response, "content", None) or ()
     calls = [
         {"name": block.name, "arguments": json.dumps(block.input, ensure_ascii=False)}
-        for block in getattr(response, "content", None) or ()
+        for block in blocks
         if getattr(block, "type", None) == "tool_use"
     ]
-    structured = None if parsed is None else parsed.model_dump(mode="json")
-    return json.dumps({"structured": structured, "function_calls": calls}, ensure_ascii=False)
+    if parsed is not None:
+        output = {"structured": parsed.model_dump(mode="json"), "function_calls": calls}
+        return json.dumps(output, ensure_ascii=False)
+    texts = [block.text for block in blocks if getattr(block, "type", None) == "text"]
+    output = {
+        "structured": None,
+        "function_calls": calls,
+        "stop_reason": _text(getattr(response, "stop_reason", None)),
+        "text": "".join(texts) if texts else None,
+    }
+    return json.dumps(output, ensure_ascii=False)
 
 
 def _text(value: object) -> str | None:
@@ -228,7 +242,8 @@ class ModelRequestRecorder:
         """Write the row after the call; the input is serialized only now, off the request path."""
         latency_ms = (perf_counter_ns() - pending.started_ns) / 1e6
         try:
-            response = pending.response if error is None else None
+            # Set only once the answer arrived: an HTTP or connection failure has none.
+            response = pending.response
             failure = None if error is None else classify_model_failure(error)
             usage = getattr(response, "usage", None)
             output_details = getattr(usage, "output_tokens_details", None)

@@ -43,6 +43,7 @@ from tests.support.model_server import (
     function_call,
     shortlisted_choice,
     structured,
+    text,
 )
 from tests.test_conversation_router import FEED
 
@@ -341,6 +342,8 @@ def test_each_request_of_a_turn_is_one_row(
         "function_calls": [
             {"name": "lookup_catalog", "arguments": '{"query": "audífonos negros"}'}
         ],
+        "stop_reason": "tool_use",
+        "text": None,
     }
     assert json.loads(lookup["input_json"]) == [m.model_dump(mode="json") for m in MESSAGES]
     asked, answered = json.loads(routed["input_json"])[-2:]
@@ -421,8 +424,6 @@ def test_the_request_digest_covers_the_instructions_and_the_input(
         ((failure(402, error_type="billing_error"),), "APIStatusError", 0, 402, "billing_error"),
         # No response came back.
         ((disconnect(), disconnect()), "APIConnectionError", 1, None, None),
-        # An answer outside the schema fails its validation, after the HTTP exchange.
-        ((structured(lambda body: {"action": "buy"}),), "ValidationError", 0, None, None),
     ],
     ids=[
         "retried",
@@ -432,7 +433,6 @@ def test_the_request_digest_covers_the_instructions_and_the_input(
         "spend-cap",
         "billing",
         "unreachable",
-        "invalid-output",
     ],
 )
 def test_a_failed_request_is_an_error_row_and_the_same_error(
@@ -458,8 +458,45 @@ def test_a_failed_request_is_an_error_row_and_the_same_error(
         retries,
     )
     assert (row["http_status"], row["provider_error_code"]) == (http_status, provider_error_code)
+    # No answer came back: nothing billed to count, nothing said to keep.
     assert (row["input_tokens"], row["output_json"]) == (None, None)
     assert json.loads(row["input_json"]) == [m.model_dump(mode="json") for m in MESSAGES]
+
+
+CUT = '{"action": "respond", "assistant_mess'
+REFUSAL = "No puedo ayudar con eso."
+
+
+@pytest.mark.parametrize(
+    ("answer", "stop_reason", "said"),
+    [
+        (structured(lambda body: {"action": "buy"}), "end_turn", '{"action": "buy"}'),
+        (text(CUT, stop_reason="max_tokens"), "max_tokens", CUT),
+        (text(REFUSAL, stop_reason="refusal"), "refusal", REFUSAL),
+    ],
+    ids=["outside-the-schema", "cut", "refused"],
+)
+def test_an_invalid_answer_keeps_its_usage_and_why_it_stopped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, answer: Any, stop_reason: str, said: str
+) -> None:
+    path = tmp_path / "agent.db"
+    router = timed(build_router(monkeypatch, ModelServer(answer), ledger(path)), path)
+
+    with pytest.raises(IntentInterpretationError, match="The conversation model request failed"):
+        router.route(MESSAGES)
+
+    (row,) = rows(path)
+    assert (row["outcome"], row["error_kind"]) == ("error", "ValidationError")
+    assert (row["http_status"], row["provider_error_code"]) == (None, None)
+    # The answer was billed: its tokens count like an ok row's.
+    assert (row["input_tokens"], row["output_tokens"], row["response_model"]) == (1825, 786, MODEL)
+    # What the model said and why it stopped: a refusal reads apart from a cut answer.
+    assert json.loads(row["output_json"]) == {
+        "structured": None,
+        "function_calls": [],
+        "stop_reason": stop_reason,
+        "text": said,
+    }
 
 
 # Recording never changes the request -----------------------------------------------------------

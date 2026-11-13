@@ -156,7 +156,7 @@ class ModelRequest(_Block):
     output_tokens: int | None
     reasoning_tokens: int | None
     retries: int | None
-    # A failed call (an invalid structured output among them) has no usage: kept, never dropped.
+    # A call that got no answer (HTTP or connection failure) has no usage: kept, never dropped.
     without_tokens: bool
     error_kind: str | None
     request_sha256: str | None

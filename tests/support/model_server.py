@@ -77,11 +77,11 @@ def structured(
     return respond
 
 
-def text(raw: str) -> Answer:
-    """A text block as it comes, valid JSON or not."""
+def text(raw: str, *, stop_reason: str = "end_turn") -> Answer:
+    """A text block as it comes, valid JSON or not; `max_tokens` cuts it, `refusal` refuses."""
 
     def respond(body: dict[str, Any]) -> httpx2.Response:
-        return _message([{"type": "text", "text": raw}], USAGE)
+        return _message([{"type": "text", "text": raw}], USAGE, stop_reason=stop_reason)
 
     return respond
 
