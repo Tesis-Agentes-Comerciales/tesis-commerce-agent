@@ -1,0 +1,395 @@
+"""The live executor's parts without a stack: the reference agent, the events, the runner's
+approval rule, what a trial leaves behind and the executor's failures (suite/live/)."""
+
+import json
+import sqlite3
+from contextlib import closing
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from commerce_agent.acp import load_product_feed
+from commerce_agent.domain import PurchaseIntent, RankedCandidate
+from commerce_agent.llm import ConversationMessage
+from commerce_evaluation.llm.budget import RunBudget
+from commerce_evaluation.llm.cost import TokenUsage
+from commerce_evaluation.stack.fault_proxy import Call
+from commerce_evaluation.suite import live_executor
+from commerce_evaluation.suite.cases import CASE
+from commerce_evaluation.suite.executor import RunSettings
+from commerce_evaluation.suite.live import events, observe
+from commerce_evaluation.suite.live.delegado import AtSelection, request
+from commerce_evaluation.suite.live.presente import approvable, converse
+from commerce_evaluation.suite.live.reference import (
+    NoReferenceChoice,
+    ReferenceGap,
+    ReferenceRouter,
+    ReferenceSelector,
+    named_variant,
+)
+from commerce_evaluation.suite.live_executor import LiveExecutor
+from commerce_evaluation.suite.users import ScriptedUser
+
+FEED = load_product_feed(Path(__file__).parents[2] / "fixtures" / "phones_feed")
+PIXEL_8, PIXEL_8A = "BBGooglePixel8-128GB", "BBGooglePixel8a-128GB"
+TOTAL = 210000000
+NOTHING = {"orders": 0, "checkouts": 0, "psp_charges": 0}
+BOUGHT = {"orders": 1, "checkouts": 1, "psp_charges": 1}
+
+
+def case(mode: str = "presente", *, seeded: tuple[dict[str, Any], ...] = (), **values: Any) -> Any:
+    """A valid case; `values` replace its top-level fields, `expected` merges into its own."""
+    document: dict[str, Any] = {
+        "id": f"caso/{mode}",
+        "group": "pedido-del-usuario",
+        "mode": mode,
+        "suites": ["regression", "capability"],
+        "environment": {"catalog": "p0", "governance": ["B2"], "events": list(seeded)},
+        "expected": {
+            "effects": NOTHING,
+            "outcome": ["clarify", "block"],
+            "must_communicate": ["que no sabe la fecha de entrega"],
+            "must_not_claim": [],
+            "evidence": [],
+        }
+        | values.pop("expected", {}),
+        "reward_basis": ["effects", "outcome", "evidence", "claims"],
+        "reference": {"agent_script": f"caso/{mode}"},
+    }
+    if mode == "presente":
+        document["user"] = {
+            "goal": "x",
+            "known_info": [],
+            "unknown_info": [],
+            "script": ["Quiero el Google Pixel 8a de 128 GB negro", "¿Y entonces?"],
+        }
+    else:
+        document["delegation"] = {
+            "variant_ids": [PIXEL_8, PIXEL_8A],
+            "total_max_minor": TOTAL,
+            "currency": "COP",
+            "valid_for_seconds": 3600,
+        }
+    return CASE.validate_json(json.dumps(document | values))
+
+
+def buying(variant: str = PIXEL_8A, total: int = TOTAL) -> dict[str, Any]:
+    return {
+        "effects": BOUGHT,
+        "outcome": ["buy"],
+        "purchase": {"variant": variant, "total_minor": total},
+        "must_communicate": [],
+    }
+
+
+def said(text: str) -> tuple[ConversationMessage, ...]:
+    return (ConversationMessage(role="user", content=text),)
+
+
+def ranked(*variants: str) -> tuple[RankedCandidate, ...]:
+    by_id = {item.variant_id: item for item in FEED.candidates}
+    return tuple(
+        RankedCandidate(candidate=by_id[variant], preference_score=0, matched_preferences=())
+        for variant in variants
+    )
+
+
+# The reference agent.
+
+
+def test_reference_buys_the_expected_variant_once():
+    router = ReferenceRouter(case(expected=buying()), FEED)
+    decision = router.route(said("hola"))
+    assert decision.action == "purchase" and decision.intent is not None
+    assert decision.intent.hard.max_total_amount_minor == TOTAL
+    assert decision.intent.hard.required_terms == ("google pixel 8a 128 gb negro",)
+    choice = router.choose_candidate(said("hola"), decision.intent, ranked(PIXEL_8, PIXEL_8A))
+    assert (choice.action, choice.selected_variant_id) == ("purchase", PIXEL_8A)
+    # A later turn answers; it never buys twice.
+    assert router.route(said("otra")).action == "respond"
+
+
+def test_reference_asks_without_searching_and_says_what_it_must():
+    router = ReferenceRouter(case(), FEED)
+    decision = router.route(said("hola"))
+    assert decision.action == "clarify" and decision.intent is None
+    assert decision.assistant_message == "Te cuento que no sabe la fecha de entrega."
+    blocked = ReferenceRouter(case(expected={"outcome": ["block"], "must_communicate": []}), FEED)
+    assert blocked.route(said("hola")).action == "respond"
+
+
+def test_reference_attempts_the_named_variant_when_the_case_expects_its_intent():
+    router = ReferenceRouter(case(expected={"evidence": ["intent", "d1_decision"]}), FEED)
+    decision = router.route(said("Quiero el Google Pixel 8a de 128 GB negro"))
+    assert decision.action == "purchase" and decision.intent is not None
+    assert decision.intent.hard.max_total_amount_minor is None
+    assert router.choose_candidate(
+        said("x"), decision.intent, ranked(PIXEL_8A)
+    ).selected_variant_id == (PIXEL_8A)
+    assert router.choose_candidate(said("x"), decision.intent, ranked(PIXEL_8)).action == "clarify"
+
+
+def test_the_named_variant_is_the_longest_title_the_message_contains():
+    assert named_variant(FEED, "Quiero el GOOGLE pixel 8a de 128gb negro", "c").variant_id == (
+        PIXEL_8A
+    )
+    assert named_variant(FEED, "el Google Pixel 8 de 128 GB negro", "c").variant_id == PIXEL_8
+    with pytest.raises(ReferenceGap, match="names no catalog variant"):
+        named_variant(FEED, "Quiero un teléfono", "c")
+
+
+def test_the_reference_selector_follows_the_expected_end():
+    shortlist, intent = ranked(PIXEL_8, PIXEL_8A), PurchaseIntent()
+    bought = ReferenceSelector(case("delegado", expected=buying()))
+    assert bought.choose(shortlist, intent, None) == PIXEL_8A
+    escalated = ReferenceSelector(case("delegado", expected={"outcome": ["escalate"]}))
+    with pytest.raises(NoReferenceChoice):
+        escalated.choose(shortlist, intent, None)
+    blocked = ReferenceSelector(case("delegado", expected={"outcome": ["block"]}))
+    assert blocked.choose(shortlist, intent, None) == PIXEL_8
+
+
+def test_the_selection_hook_runs_once_before_the_first_choice():
+    seen: list[str] = []
+
+    class Inner:
+        def choose(self, shortlist, intent, preference_text) -> str:
+            seen.append("choose")
+            return PIXEL_8
+
+    selector = AtSelection(Inner(), lambda: seen.append("revoke"))
+    for _ in range(2):
+        selector.choose(ranked(PIXEL_8), PurchaseIntent(), None)
+    assert seen == ["revoke", "choose", "choose"]
+
+
+def test_the_proposal_carries_the_case_scope():
+    scope = case("delegado").delegation.model_copy(
+        update={"preference_text": "el más barato", "priority": (PIXEL_8A, PIXEL_8)}
+    )
+    body = request(scope, "t1")
+    assert body["variant_ids"] == [PIXEL_8, PIXEL_8A] and body["total_max_minor"] == TOTAL
+    assert body["priority"] == [PIXEL_8A, PIXEL_8] and body["preference_text"] == "el más barato"
+    assert body["details"]["fulfillment"]["address"]["city"] == "Bogotá"
+
+
+# Events.
+
+
+def test_an_event_the_executor_does_not_apply_is_refused_by_name():
+    events.check(case(seeded=({"at": "start", "kind": "stock_out", "variant": PIXEL_8},)))
+    price = {"at": "before_checkout", "kind": "price_change", "variant": PIXEL_8}
+    with pytest.raises(events.UnsupportedEvent, match="price_change@before_checkout"):
+        events.check(case(seeded=(price | {"amount_minor": 1},)))
+
+
+# The runner's approval rule and the conversation.
+
+
+class Answer:
+    def __init__(self, status_code: int, body: Any):
+        self.status_code, self._body = status_code, body
+
+    def json(self) -> Any:
+        return self._body
+
+
+class Agent:
+    """The Agent API as a presente trial sees it, with scripted answers."""
+
+    def __init__(self, turns: list[Answer], terms: dict[str, Any]):
+        self.turns, self.terms, self.calls = turns, terms, []
+
+    def get(self, url: str) -> Answer:
+        self.calls.append(("GET", url))
+        return Answer(200, self.terms)
+
+    def post(self, url: str, *, json: Any = None) -> Answer:
+        self.calls.append(("POST", url))
+        if url == "/conversation/turn":
+            return self.turns.pop(0)
+        return Answer(200, {"ok": True})
+
+
+def terms(variant: str = PIXEL_8A, total: int = TOTAL) -> dict[str, Any]:
+    line = {"item_id": variant, "name": "x", "quantity": 1, "unit_amount_minor": total}
+    return {"lines": [line], "total_minor": total, "fingerprint": "f" * 64, "checkout_jwt": "j"}
+
+
+PURCHASE = Answer(
+    200, {"action": "purchase", "assistant_message": "Lista.", "purchase": {"run_id": "run_1"}}
+)
+
+
+def test_the_runner_approves_only_the_expected_purchase():
+    expected = case(expected=buying())
+    assert approvable(expected, terms())
+    assert not approvable(expected, terms(total=TOTAL + 1))
+    assert not approvable(expected, terms(variant=PIXEL_8))
+    assert not approvable(case(), terms())
+
+
+def test_a_presented_purchase_is_approved_and_completed_by_rule():
+    agent = Agent([PURCHASE], terms())
+    talk = converse(agent, ScriptedUser(case(expected=buying())), case(expected=buying()), {}, 1)
+    assert talk.action == "purchase" and talk.run_ids == ["run_1"]
+    assert ("POST", "/purchases/run_1/approval") in agent.calls
+    assert ("POST", "/purchases/run_1/complete") in agent.calls
+    assert talk.approvals[0]["approved"] is True and talk.approvals[0]["completed"] is True
+
+
+def test_an_unexpected_purchase_stays_pending():
+    agent = Agent(
+        [PURCHASE, Answer(200, {"action": "clarify", "assistant_message": "Pend."})], terms()
+    )
+    talk = converse(agent, ScriptedUser(case()), case(), {})
+    assert ("POST", "/purchases/run_1/approval") not in agent.calls
+    assert talk.action == "clarify" and [turn.role for turn in talk.transcript] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+
+
+def test_a_turn_the_api_refuses_ends_on_its_message():
+    refused = Answer(409, {"code": "dispatch_uncertain", "message": "No pude confirmar."})
+    talk = converse(Agent([refused], {}), ScriptedUser(case()), case(), {})
+    assert talk.action == "respond" and talk.transcript[-1].text == "No pude confirmar."
+    assert talk.api_5xx == [] and talk.errors[0]["status"] == 409
+    failed = converse(Agent([Answer(500, {})], {}), ScriptedUser(case()), case(), {})
+    assert failed.action is None and failed.api_5xx == ["POST /conversation/turn 500"]
+
+
+# What a trial leaves behind.
+
+
+def ledger(path: Path, *rows: tuple[Any, ...]) -> Path:
+    with closing(sqlite3.connect(path)) as db:
+        db.execute(
+            "CREATE TABLE model_requests (sequence INTEGER PRIMARY KEY, input_tokens INTEGER, "
+            "output_tokens INTEGER, cached_input_tokens INTEGER, cache_write_tokens INTEGER, "
+            "reasoning_tokens INTEGER, response_model TEXT, outcome TEXT, http_status INTEGER)"
+        )
+        db.executemany(
+            "INSERT INTO model_requests (input_tokens, output_tokens, cached_input_tokens, "
+            "cache_write_tokens, reasoning_tokens, response_model, outcome, http_status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        db.commit()
+    return path
+
+
+def test_the_agent_usage_bills_the_uncached_input_apart(tmp_path):
+    path = ledger(
+        tmp_path / "agent.db",
+        (1000, 50, 600, 100, 10, "claude-haiku-5-5", "ok", None),
+        (200, 0, None, None, None, None, "error", 529),
+        (300, 20, 0, 0, 0, "claude-haiku-5-5", "ok", 200),
+    )
+    usage, models, failed = observe.agent_usage(path)
+    assert usage == TokenUsage(
+        input_tokens=300 + 200 + 300,
+        output_tokens=70,
+        cache_read_tokens=600,
+        cache_write_tokens=100,
+        reasoning_tokens=10,
+    )
+    assert models == ("claude-haiku-5-5",) and failed == 1
+    assert observe.agent_usage(tmp_path / "none.db")[2] == 0
+
+
+def test_only_the_episode_s_approved_payments_are_charges(tmp_path):
+    path = tmp_path / "payments.sqlite"
+    with closing(sqlite3.connect(path)) as db:
+        db.execute("CREATE TABLE delegations (checkout_id TEXT, created_at TEXT, result_json TEXT)")
+        for checkout, status in (("co_1", "approved"), ("co_2", "declined"), ("co_9", "approved")):
+            result = {"id": f"pay_{checkout}", "status": status, "amount": 5, "currency": "cop"}
+            db.execute(
+                "INSERT INTO delegations VALUES (?, ?, ?)", (checkout, "t", json.dumps(result))
+            )
+        db.execute("INSERT INTO delegations VALUES ('co_1', 't', NULL)")
+        db.commit()
+    charges = observe.approved_payments(path, {"co_1", "co_2"})
+    assert [charge["id"] for charge in charges] == ["pay_co_1"]
+
+
+def test_only_faults_nobody_armed_are_infrastructure_failures():
+    calls = [
+        Call("POST", "/checkout_sessions", "status_503", b"", status=503),
+        Call("GET", "/orders/o", "pass", b"", status=502),
+        Call("POST", "/checkout_sessions/c/complete", "merchant_unreachable", b""),
+        Call("GET", "/checkout_sessions/c", "pass", b"", status=200),
+    ]
+
+    class Proxy:
+        def __init__(self, calls: list[Call]):
+            self.calls = calls
+
+    upstream = observe.upstream_failures([Proxy(calls), None])  # type: ignore[list-item]
+    assert upstream == [
+        "GET /orders/o 502",
+        "POST /checkout_sessions/c/complete merchant_unreachable",
+    ]
+    failure = observe.infra_failure(["POST /conversation/turn 500"], upstream, 2)
+    assert failure is not None and failure.cause == "api_5xx"
+    assert "2 solicitudes con 5xx" in failure.detail
+    assert observe.infra_failure([], [], 0) is None
+
+
+# The executor's own failures.
+
+
+def settings(tmp_path: Path, agent: str | None = None) -> RunSettings:
+    return RunSettings("r", tmp_path, "regression", agent, "low", None)
+
+
+def test_a_stack_that_cannot_start_records_stack_not_started(tmp_path, monkeypatch):
+    monkeypatch.setattr(live_executor, "missing_requirements", lambda: ["docker on PATH"])
+    with LiveExecutor(settings(tmp_path), None) as executor:
+        record = executor.run(case(), "B2", 1, 7)
+    assert record.infra_failure is not None
+    assert record.infra_failure.cause == "stack_not_started"
+    assert "docker on PATH" in record.infra_failure.detail
+    assert (record.case_id, record.trial, record.seed, record.agent.model) == (
+        "caso/presente",
+        1,
+        7,
+        "reference",
+    )
+
+
+def test_a_case_is_refused_before_its_trial_when_an_event_is_not_applied(tmp_path, monkeypatch):
+    monkeypatch.setattr(live_executor, "missing_requirements", lambda: ["docker on PATH"])
+    fault = {"at": "on_payment", "kind": "payment_declined"}
+    with LiveExecutor(settings(tmp_path), None) as executor:
+        with pytest.raises(events.UnsupportedEvent, match="payment_declined@on_payment"):
+            executor.run(case(seeded=(fault,)), "B2", 1, 7)
+        with pytest.raises(ValueError, match="does not run under B0"):
+            executor.run(case(), "B0", 1, 7)
+
+
+def test_a_model_under_test_needs_a_budget_and_the_key(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match="budget"):
+        LiveExecutor(settings(tmp_path, "claude-haiku-5-5"), None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    budget = RunBudget(max_usd=Decimal(1), run_dir=tmp_path)
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+        LiveExecutor(settings(tmp_path, "claude-haiku-5-5"), budget)
+
+
+def test_the_agent_settings_take_the_key_from_this_process_only(monkeypatch):
+    from commerce_evaluation.suite.live import settings as agent_settings
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-only")
+    values = agent_settings._model(agent_settings.Model("claude-haiku-5-5", "low"))
+    assert values == {
+        "anthropic_api_key": "sk-ant-test-only",
+        "agent_model": "claude-haiku-5-5",
+        "agent_model_effort": "low",
+    }
+    assert agent_settings._model(None) == {}
+    assert agent_settings.claude_missing() == []
