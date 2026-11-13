@@ -39,6 +39,10 @@ class UnsupportedEvent(ValueError):
     """The live executor does not apply this event yet."""
 
 
+class EventRefused(ValueError):
+    """The Merchant refused the case's change to an offer: the case is wrong, not the agent."""
+
+
 def check(case: PresentCase | DelegatedCase) -> None:
     unsupported = [
         f"{event.kind}@{event.at}"
@@ -67,7 +71,7 @@ def at_start(
     """The `start` events and the faults armed from the start; what was applied, in order."""
     applied = []
     for event in at(case, "start"):
-        offer(lane, episode, event, feed=True)
+        offer(case, lane, episode, event, feed=True)
         applied.append(described(event))
     for event in at(case, "on_checkout_create"):
         # Only the checkout POST takes this path: the fault answers it, and nothing else.
@@ -76,14 +80,27 @@ def at_start(
     return applied
 
 
-def offer(lane: PurchaseLane, episode: Episode, event: Event, *, feed: bool) -> None:
+def offer(
+    case: PresentCase | DelegatedCase,
+    lane: PurchaseLane,
+    episode: Episode,
+    event: Event,
+    *,
+    feed: bool,
+) -> None:
     assert event.kind in OFFER_KINDS and event.variant is not None
-    lane.rpc(
-        "suite_offer",
-        run_id=episode.run_id,
-        variant=event.variant,
-        kind=event.kind,
-        field=event.field,
-        text=event.text,
-        feed_dir=str(episode.feed) if feed else None,
-    )
+    try:
+        lane.rpc(
+            "suite_offer",
+            run_id=episode.run_id,
+            variant=event.variant,
+            kind=event.kind,
+            field=event.field,
+            text=event.text,
+            feed_dir=str(episode.feed) if feed else None,
+        )
+    except AssertionError as error:
+        # The worker names only the error's class (a contract's ValidationError, for one).
+        raise EventRefused(
+            f"{case.id}: the Merchant refused {event.kind}@{event.at} on {event.variant} ({error})"
+        ) from None

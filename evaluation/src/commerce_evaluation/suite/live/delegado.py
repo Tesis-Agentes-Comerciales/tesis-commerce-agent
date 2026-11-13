@@ -187,7 +187,7 @@ def play_delegado(
                     owner.revoke()
                     owner.delegate(event.replacement, name)
                 else:
-                    events.offer(lane, episode, event, feed=False)
+                    events.offer(case, lane, episode, event, feed=False)
                 applied.append(events.described(event))
             owner.run()
             message = owner.message()
