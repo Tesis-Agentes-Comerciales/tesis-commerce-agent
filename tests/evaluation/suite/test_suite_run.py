@@ -3,28 +3,33 @@ resumes (docs/design/eval-suite.md §2, §7)."""
 
 import hashlib
 import json
+from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from commerce_evaluation.llm.budget import LEDGER_FILE, RunBudget
 from commerce_evaluation.llm.transport import FundsExhausted
-from commerce_evaluation.suite.cases import CASE
+from commerce_evaluation.suite import run as runner
+from commerce_evaluation.suite.cases import CASE, Case, Governance
 from commerce_evaluation.suite.executor import SimulatorFailure
-from commerce_evaluation.suite.run import (
+from commerce_evaluation.suite.plan import pending, select
+from commerce_evaluation.suite.run import INFRA_STREAK, RunMismatch, execute
+from commerce_evaluation.suite.rundir import (
     CASES_FILE,
     EXCLUDED_FILE,
     INFRA_FILE,
     MANIFEST_FILE,
     TRIALS_FILE,
-    RunMismatch,
-    execute,
-    pending,
     read_cases,
-    select,
+    read_trials,
 )
+from commerce_evaluation.suite.trial import TrialRecord
 from tests.evaluation.suite.runs import (
     API_5XX,
     STACK_DOWN,
+    Charging,
     FakeExecutor,
     adversarial_case,
     capability_case,
@@ -58,11 +63,17 @@ def test_each_governance_runs_k_times_with_a_seed_that_other_cases_do_not_move(
     alone = plan(tmp_path / "a", tmp_path, [ADVERSARIAL], suite="adversarial", k=2).trials()
     together = plan(tmp_path / "b", tmp_path, ALL, suite="adversarial", k=2).trials()
 
+    # Round by round: a run cut short has every governance's first trials.
     assert [(each.governance, each.trial) for each in alone] == [
         ("B0", 1),
-        ("B0", 2),
         ("B2", 1),
+        ("B0", 2),
         ("B2", 2),
+    ]
+    assert [(each.case.id, each.trial) for each in together][:3] == [
+        (CAPABILITY.id, 1),
+        (ADVERSARIAL.id, 1),
+        (ADVERSARIAL.id, 1),
     ]
     assert len({each.seed for each in alone}) == 4
     seeds = {each.key: each.seed for each in together}
@@ -115,6 +126,7 @@ def test_an_infrastructure_failure_is_repeated_twice_and_then_kept(tmp_path: Pat
     assert len(executor.calls) == 3 + 2
     assert outcome.infra_retries == 3
     discarded = lines(run_dir / INFRA_FILE)
+    assert {row["kind"] for row in discarded} == {"infra"}
     assert [(row["record"]["case_id"], row["attempt"]) for row in discarded] == [
         (CAPABILITY.id, 1),
         (CAPABILITY.id, 2),
@@ -154,10 +166,16 @@ def test_a_simulator_failure_is_repeated_once_and_then_excluded(tmp_path: Path) 
     outcome = execute(run, executor, say=lambda _: None)
 
     run_dir = run.settings.run_dir
-    assert outcome.excluded == 1 and outcome.kept == 1
+    assert (outcome.excluded, outcome.kept, outcome.simulator_retries) == (1, 1, 2)
     [excluded] = lines(run_dir / EXCLUDED_FILE)
     assert excluded["case_id"] == CAPABILITY.id
-    assert (excluded["attempts"], excluded["reason"]) == (2, "schema_invalid")
+    assert (excluded["attempt"], excluded["reason"]) == (2, "schema_invalid")
+    # Each repeated attempt is written down, with its kind.
+    retried = lines(run_dir / INFRA_FILE)
+    assert [(row["kind"], row["case_id"], row["reason"]) for row in retried] == [
+        ("simulator", CAPABILITY.id, "schema_invalid"),
+        ("simulator", again.id, "refusal"),
+    ]
     assert ran(run_dir) == [(again.id, "B2", 1)]
     assert pending(run) == []
 
@@ -171,7 +189,7 @@ def test_a_spent_budget_stops_the_run_and_the_same_run_id_resumes_it(tmp_path: P
 
     run_dir = run.settings.run_dir
     assert stopped.status == "funds_exhausted" and stopped.kept == 1
-    assert spent.exited == 1 and any("presupuesto" in line for line in said)
+    assert spent.exited == 1 and any("no encontró fondos" in line for line in said)
     assert json.loads((run_dir / MANIFEST_FILE).read_text())["status"] == "funds_exhausted"
     assert ran(run_dir) == [(CAPABILITY.id, "B2", 1)]
 
@@ -224,11 +242,121 @@ def test_a_run_id_is_not_resumed_with_other_settings_or_cases(tmp_path: Path) ->
         execute(run, FakeExecutor())
 
 
-def test_a_record_of_another_trial_is_refused(tmp_path: Path) -> None:
+class OtherSeed(FakeExecutor):
+    def run(self, case: Case, governance: Governance, trial: int, seed: int) -> TrialRecord:
+        return super().run(case, governance, trial, seed + 1)
+
+
+@pytest.mark.parametrize("executor", [FakeExecutor(suite="adversarial"), OtherSeed()])
+def test_a_record_of_another_trial_is_refused(tmp_path: Path, executor: FakeExecutor) -> None:
     run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [CAPABILITY]), [CAPABILITY])
 
     with pytest.raises(ValueError, match="returned the record"):
-        execute(run, FakeExecutor(suite="adversarial"), say=lambda _: None)
+        execute(run, executor, say=lambda _: None)
 
     manifest = json.loads((run.settings.run_dir / MANIFEST_FILE).read_text())
     assert manifest["status"] == "interrupted"
+
+
+def test_a_run_whose_stack_is_down_stops_and_its_broken_trials_run_again(
+    tmp_path: Path,
+) -> None:
+    run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [CAPABILITY]), [CAPABILITY], k=5)
+    down = FakeExecutor(
+        script={
+            (CAPABILITY.id, "B2", trial): [{"infra_failure": STACK_DOWN}] for trial in range(1, 6)
+        }
+    )
+    said: list[str] = []
+
+    stopped = execute(run, down, say=said.append)
+
+    run_dir = run.settings.run_dir
+    assert stopped.status == "interrupted"
+    # Each of the first INFRA_STREAK trials with its two retries; the rest never started.
+    assert len(down.calls) == INFRA_STREAK * 3
+    assert {call[2] for call in down.calls} == set(range(1, INFRA_STREAK + 1))
+    assert json.loads((run_dir / MANIFEST_FILE).read_text())["status"] == "interrupted"
+    assert any("revisa el stack" in line.lower() for line in said)
+    # A trial kept broken is not done: the resumed run repeats it.
+    assert [planned.trial for planned in pending(run)] == [1, 2, 3, 4, 5]
+
+    healthy = FakeExecutor()
+    finished = execute(run, healthy, say=lambda _: None)
+
+    assert finished.status == "complete" and finished.resumed == 0
+    assert [call[2] for call in healthy.calls] == [1, 2, 3, 4, 5]
+    trials = read_trials(run_dir)
+    assert [record.infra_failure for record in trials.kept] == [None] * 5
+    assert [record.trial for record in trials.superseded] == [1, 2, 3]
+
+
+def test_the_last_record_of_a_trial_is_the_one_that_counts(tmp_path: Path) -> None:
+    run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [CAPABILITY]), [CAPABILITY], k=2)
+    execute(run, FakeExecutor(), say=lambda _: None)
+    trials = run.settings.run_dir / TRIALS_FILE
+    first, second = trials.read_text().splitlines()
+    again = json.loads(first) | {"run_id": "otra-sesion"}
+    trials.write_text(f"{first}\n{second}\n{json.dumps(again)}\n")
+
+    kept, superseded = read_trials(run.settings.run_dir)
+
+    assert [(record.trial, record.run_id) for record in kept] == [
+        (1, "otra-sesion"),
+        (2, json.loads(second)["run_id"]),
+    ]
+    assert [(record.trial, record.run_id) for record in superseded] == [
+        (1, json.loads(first)["run_id"])
+    ]
+
+
+def test_a_spent_cap_stops_the_run_after_keeping_the_trial_that_spent_it(
+    tmp_path: Path,
+) -> None:
+    run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [CAPABILITY]), [CAPABILITY], k=3)
+    run_dir = run.settings.run_dir
+    budget = RunBudget(max_usd=Decimal("0.015"), run_dir=run_dir)
+    said: list[str] = []
+
+    stopped = execute(run, Charging(budget), budget=budget, say=said.append)
+
+    assert (stopped.status, stopped.kept) == ("budget_exhausted", 2)
+    assert ran(run_dir) == [(CAPABILITY.id, "B2", 1), (CAPABILITY.id, "B2", 2)]
+    assert [row["error"] for row in lines(run_dir / LEDGER_FILE)] == [None, "BudgetExhausted"]
+    assert json.loads((run_dir / MANIFEST_FILE).read_text())["status"] == "budget_exhausted"
+    assert any("tope de USD 0.015" in line for line in said)
+
+    # The same cap stops it again before any trial; a higher one finishes it.
+    idle = Charging(RunBudget(max_usd=Decimal("0.015"), run_dir=run_dir))
+    assert execute(run, idle, budget=idle.budget, say=lambda _: None).status == "budget_exhausted"
+    assert idle.calls == []
+    more = RunBudget(max_usd=Decimal(1), run_dir=run_dir)
+    finished = execute(run, Charging(more), budget=more, say=lambda _: None)
+    assert (finished.status, finished.kept, finished.resumed) == ("complete", 1, 2)
+
+
+@pytest.mark.parametrize(
+    ("change", "said"),
+    [({"commit": "0" * 40}, "commit"), ({"dirty": "flip"}, "con cambios sin confirmar")],
+)
+def test_a_run_is_not_resumed_on_other_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: dict[str, Any], said: str
+) -> None:
+    run = plan(tmp_path / "run", write_catalog(tmp_path / "c", [CAPABILITY]), [CAPABILITY], k=2)
+    clean = {"commit": "a" * 40, "dirty": False}
+    monkeypatch.setattr(runner, "git_state", lambda: clean)
+    execute(
+        run,
+        FakeExecutor(script={(CAPABILITY.id, "B2", 2): [FundsExhausted("x")]}),
+        say=lambda _: None,
+    )
+    other = clean | change
+    if other["dirty"] == "flip":
+        other["dirty"] = True
+    monkeypatch.setattr(runner, "git_state", lambda: other)
+
+    assert said in (runner.resume_problem(run) or "")
+    with pytest.raises(RunMismatch, match="otro código"):
+        execute(run, FakeExecutor(), say=lambda _: None)
+    monkeypatch.setattr(runner, "git_state", lambda: clean)
+    assert execute(run, FakeExecutor(), say=lambda _: None).status == "complete"

@@ -11,7 +11,6 @@ from commerce_evaluation.suite.agreement import Sample, score, split
 from commerce_evaluation.suite.calibration import (
     DIRECTORY,
     SAMPLE_FILE,
-    TRIALS_FILE,
     export,
     main,
     sample,
@@ -19,6 +18,7 @@ from commerce_evaluation.suite.calibration import (
 from commerce_evaluation.suite.graders.grade import Verdict
 from commerce_evaluation.suite.graders.judge import Failure, Judged, write_judged
 from commerce_evaluation.suite.graders.question import Question
+from commerce_evaluation.suite.rundir import TRIALS_FILE
 from tests.evaluation.suite.test_suite_calibration import asked, catalog, labels, trials
 
 FAILED_TASK = "tarea-a/presente"

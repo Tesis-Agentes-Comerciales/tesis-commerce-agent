@@ -1,12 +1,14 @@
-"""`eval-suite`: run a suite of the evaluation and report it (docs/design/eval-suite.md §8).
+"""`eval-suite`: run a suite of the evaluation, judge it and report it (eval-suite.md §8).
 
 `run` plans the trials of the suite's cases, runs them through the live executor
-(`suite/live_executor.py`, imported only when a run starts) and writes the report. Capability and
-adversarial call a real LLM: they refuse to start without `--max-usd` and `ANTHROPIC_API_KEY`, and
-only the owner launches them (AGENTS.md). The key is read from the environment or from the
-repository's `.env`, and only it is loaded from there; its value is never printed. `--dry-run`
-prints the plan and its estimated cost and touches nothing. Regression also runs the pytest ids
-of the regression map. `report` rewrites the report of a run directory.
+(`suite/live_executor.py`, imported only when a run starts) and writes the report. `judge` asks the
+judge what code left to it (suite/judging.py). A capability or adversarial run, and the judge,
+call a real LLM: they refuse to start without `--max-usd` and `ANTHROPIC_API_KEY`, and only the
+owner launches them (AGENTS.md). The key is read from the environment or from the repository's
+`.env`, and only it is loaded from there; its value is never printed. `--dry-run` prints the plan
+and its cost and touches nothing. Regression also runs the pytest ids of the regression map, and
+fails when a trial or one of those tests does not pass. `report` rewrites the report of a run,
+and `calibrate` is `suite/calibration.py`.
 """
 
 import argparse
@@ -20,33 +22,22 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, get_args
 
-from dotenv import dotenv_values
-
-from commerce_evaluation.llm.budget import RunBudget
+from commerce_evaluation.llm.budget import LEDGER_FILE, RunBudget
 from commerce_evaluation.llm.cost import CLAUDE_PRICES
-from commerce_evaluation.llm.transport import Effort
-from commerce_evaluation.paths import DATA, RESULTS, ROOT
-from commerce_evaluation.suite import mapped
+from commerce_evaluation.llm.transport import Effort, FundsExhausted
+from commerce_evaluation.paths import DATA, RESULTS
+from commerce_evaluation.suite import calibration, console, judging, mapped
 from commerce_evaluation.suite.cases import SUITES, Suite, load_catalog
-from commerce_evaluation.suite.estimate import estimate
+from commerce_evaluation.suite.console import KEY, PAID, money, shown
 from commerce_evaluation.suite.executor import RunSettings, TrialExecutor
+from commerce_evaluation.suite.graders.judge import MODEL as JUDGE
+from commerce_evaluation.suite.plan import DEFAULT_SEED, K, Plan, select
 from commerce_evaluation.suite.report import write
-from commerce_evaluation.suite.report_md import SUITES as SUITE_NAMES
-from commerce_evaluation.suite.run import (
-    DEFAULT_SEED,
-    K,
-    Plan,
-    RunMismatch,
-    execute,
-    pending,
-    select,
-)
+from commerce_evaluation.suite.run import RunMismatch, Status, execute, resume_problem
+from commerce_evaluation.suite.rundir import MANIFEST_FILE, repair_jsonl
 
 RUNS = RESULTS / "suite"
 CATALOG = DATA / "suite" / "cases"
-ENV_FILE = ROOT / ".env"
-KEY = "ANTHROPIC_API_KEY"
-PAID: frozenset[Suite] = frozenset({"capability", "adversarial"})
 AGENT = "claude-haiku-5-5"
 EFFORT = "low"
 # §3: a weak simulator adds noise charged to the agent, and no model speaks on both sides.
@@ -54,6 +45,11 @@ SIMULATOR = "claude-sonnet-5-5"
 SIMULATOR_FOR_SONNET = "claude-opus-5-5"
 EXECUTOR_MODULE = "commerce_evaluation.suite.live_executor"
 RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+STOPPED: dict[Status, str] = {
+    "budget_exhausted": "La corrida llegó a su tope de gasto.",
+    "funds_exhausted": "Una llamada no encontró fondos, por el tope o por el saldo de Anthropic.",
+    "interrupted": "La infraestructura falló varias veces seguidas: revisa el stack.",
+}
 
 Factory = Callable[[RunSettings, RunBudget | None], TrialExecutor]
 
@@ -63,7 +59,10 @@ class Refused(Exception):
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    arguments = parser().parse_args(argv)
+    given = list(sys.argv[1:] if argv is None else argv)
+    if given[:1] == ["calibrate"]:
+        return calibration.main(given[1:])
+    arguments = parser().parse_args(given)
     try:
         return arguments.command(arguments)
     except Refused as refusal:
@@ -73,9 +72,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
-        prog="eval-suite", description="Corre la suite de evaluación y escribe su reporte."
+        prog="eval-suite", description="Corre la suite de evaluación, la juzga y la reporta."
     )
-    commands = root.add_subparsers(required=True, metavar="{run,report}")
+    commands = root.add_subparsers(required=True, metavar="{run,judge,report,calibrate}")
     run = commands.add_parser(
         "run",
         help="corre una suite",
@@ -99,29 +98,45 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--run-id", help="id de la corrida; uno que ya existe se retoma")
     run.add_argument("--seed", type=int, default=DEFAULT_SEED, help="semilla base")
     run.add_argument("--dry-run", action="store_true", help="muestra el plan y no corre nada")
+    judge = commands.add_parser(
+        "judge",
+        help="juzga lo que el código dejó al juez",
+        description=f"Pregunta al juez ({JUDGE}, en un lote) lo que el código no pudo calificar "
+        "y reescribe el reporte. Llama a un LLM real: lo lanza solo el dueño, con su propio "
+        "--max-usd. Lo ya juzgado no se vuelve a preguntar.",
+    )
+    judge.set_defaults(command=judge_command)
+    judge.add_argument("run", metavar="RUN", help="id de la corrida o su carpeta")
+    judge.add_argument(
+        "--max-usd", type=_usd, help="tope del juez en USD, sumando sus sesiones anteriores"
+    )
+    judge.add_argument("--dry-run", action="store_true", help="muestra las preguntas y su costo")
     report = commands.add_parser("report", help="reescribe el reporte de una corrida")
     report.set_defaults(command=report_command)
     report.add_argument("run", metavar="RUN", help="id de la corrida o su carpeta")
+    # Listed for --help; main() hands its arguments to suite/calibration.py untouched.
+    commands.add_parser("calibrate", help="calibra el juez: export o score (ver calibrate -h)")
     return root
 
 
 def run_command(arguments: argparse.Namespace) -> int:
-    suite: Suite = arguments.suite
     plan = _plan(arguments)
-    settings = plan.settings
-    entries = _map(arguments) if suite == "regression" else None
+    settings, paid = plan.settings, plan.settings.suite in PAID
+    entries = _map(arguments) if settings.suite == "regression" else None
     if arguments.dry_run:
-        _dry_run(plan, entries)
+        console.run_preview(plan, entries)
         return 0
-    budget = None
-    if suite in PAID:
+    if problem := resume_problem(plan):
+        raise Refused(problem)
+    if paid:
         _require_paid(plan.max_usd)
-    factory = load_executor()
-    if suite in PAID and plan.max_usd is not None:
+    factory, budget = load_executor(), None
+    if paid and plan.max_usd is not None:
+        repair_jsonl(settings.run_dir / LEDGER_FILE)
         budget = RunBudget(max_usd=plan.max_usd, run_dir=settings.run_dir)
-    print(f"Corrida {settings.run_id} en {_shown(settings.run_dir)}")
+    print(f"Corrida {settings.run_id} en {shown(settings.run_dir)}")
     try:
-        outcome = execute(plan, factory(settings, budget))
+        outcome = execute(plan, factory(settings, budget), budget=budget)
     except RunMismatch as error:
         raise Refused(str(error)) from error
     except KeyboardInterrupt:
@@ -130,25 +145,70 @@ def run_command(arguments: argparse.Namespace) -> int:
     if entries is not None and outcome.status == "complete":
         print(f"Pruebas del mapa de regresión: {len(mapped.mapped_ids(entries))}")
         mapped.run_mapped(entries, settings.run_dir)
-    write(settings.run_dir)
+    report = write(settings.run_dir)
     print(
-        f"Intentos guardados: {outcome.kept} nuevos y {outcome.resumed} de antes. Repetidos por "
-        f"infraestructura: {outcome.infra_retries}. Excluidos: {outcome.excluded}."
+        f"Intentos guardados: {outcome.kept} nuevos y {outcome.resumed} de antes. Repetidos: "
+        f"{outcome.infra_retries} por infraestructura y {outcome.simulator_retries} por el "
+        f"usuario simulado. Excluidos: {outcome.excluded}."
     )
-    print(f"Reporte: {_shown(settings.run_dir / 'report.md')}")
-    if outcome.status == "funds_exhausted":
-        print(f"Se acabó el presupuesto. Para seguir: {_resume(arguments, plan)}", file=sys.stderr)
+    print(f"Reporte: {shown(settings.run_dir / 'report.md')}")
+    if outcome.status != "complete":
+        spent = f" Ya van {money(budget.spent_usd)}." if budget else ""
+        stopped = f"{STOPPED[outcome.status]}{spent} Para seguir: {_resume(arguments, plan)}"
+        print(stopped, file=sys.stderr)
+        return 1
+    if settings.suite == "regression" and (failing := console.failing(report)):
+        print(f"La regresión no pasa: {failing}.", file=sys.stderr)
         return 1
     return 0
 
 
+def judge_command(arguments: argparse.Namespace) -> int:
+    run_dir = _run_dir(arguments.run)
+    todo = judging.pending(run_dir)
+    print(
+        f"Juez {JUDGE} sobre {run_dir.name}: {todo.answered} intentos ya juzgados, "
+        f"{len(todo.trials)} por juzgar con {todo.questions} preguntas."
+    )
+    if arguments.dry_run:
+        console.judge_preview(todo, arguments.max_usd)
+        return 0
+    if todo.trials:
+        _require_paid(arguments.max_usd)
+        print("Se envía un lote: Anthropic puede tardar hasta 24 horas en devolverlo.")
+    try:
+        judged = judging.judge(run_dir, judging.batch_client, max_usd=arguments.max_usd)
+    except FundsExhausted:
+        write(run_dir)
+        print(
+            "El juez no encontró fondos, por su tope o por el saldo; lo pagado quedó en "
+            f"judge.jsonl. Ya gastó {money(judging.pending(run_dir).spent_usd)}: para seguir, "
+            "otra vez con un --max-usd que sume eso y el peor caso que da judge --dry-run.",
+            file=sys.stderr,
+        )
+        return 1
+    except KeyboardInterrupt:
+        print(
+            f"Interrumpido. El lote {judging.last_batch(run_dir) or '(sin enviar)'} sigue en "
+            "Anthropic y se cobra, pero sus respuestas no se recogen: volver a correr judge "
+            "envía un lote nuevo y paga esas preguntas otra vez.",
+            file=sys.stderr,
+        )
+        return 130
+    write(run_dir)
+    counts = judging.tally(judged)
+    print(
+        f"Respuestas nuevas: {counts['pass']} cumple, {counts['fail']} no cumple y "
+        f"{counts['unknown']} sin decidir, de ellas {counts['failure']} sin respuesta usable."
+    )
+    print(f"Reporte: {shown(run_dir / 'report.md')}")
+    return 0
+
+
 def report_command(arguments: argparse.Namespace) -> int:
-    given = Path(arguments.run)
-    run_dir = given if given.is_dir() else RUNS / arguments.run
-    if not (run_dir / "manifest.json").exists():
-        raise Refused(f"{arguments.run} no es una corrida: falta manifest.json")
+    run_dir = _run_dir(arguments.run)
     report = write(run_dir)
-    print(f"Reporte: {_shown(run_dir / 'report.md')} ({len(report.reduction.tasks)} tareas)")
+    print(f"Reporte: {shown(run_dir / 'report.md')} ({len(report.reduction.tasks)} tareas)")
     return 0
 
 
@@ -190,65 +250,28 @@ def _plan(arguments: argparse.Namespace) -> Plan:
 
 
 def _require_paid(max_usd: Decimal | None) -> None:
-    if max_usd is None or not max_usd.is_finite() or max_usd <= 0:
-        raise Refused("Una corrida paga exige --max-usd, un monto finito mayor que cero.")
+    if max_usd is None:
+        raise Refused("Llamar a un LLM real exige --max-usd.")
     if not os.environ.get(KEY):
-        if not (value := _env_file_key()):
-            raise Refused(f"Falta {KEY}: ponla en el entorno o en {_shown(ENV_FILE)}.")
+        if not (value := console.env_file_key()):
+            raise Refused(f"Falta {KEY}: ponla en el entorno o en {shown(console.ENV_FILE)}.")
         # Only the key is loaded: the rest of .env must not change the stack under test.
         os.environ[KEY] = value
 
 
-def _env_file_key() -> str | None:
-    return dotenv_values(ENV_FILE).get(KEY) if ENV_FILE.is_file() else None
-
-
 def _map(arguments: argparse.Namespace) -> dict[str, dict[str, Any]] | None:
     if not mapped.MAP_FILE.exists():
-        print(f"No está {_shown(mapped.MAP_FILE)}: se omiten las pruebas del mapa de regresión.")
+        print(f"No está {shown(mapped.MAP_FILE)}: se omiten las pruebas del mapa de regresión.")
         return None
     return mapped.load_map(mapped.MAP_FILE, arguments.cases)
 
 
-def _dry_run(plan: Plan, entries: dict[str, dict[str, Any]] | None) -> None:
-    settings, trials = plan.settings, plan.trials()
-    left = pending(plan)
-    agent = settings.agent_model
-    print(f"Plan de la corrida {settings.run_id}: no se corre nada.")
-    simulator = settings.simulator_model
-    print(f"Suite {SUITE_NAMES[settings.suite]}, k = {plan.k}, semilla {plan.seed}.")
-    print(f"Agente: {f'{agent}, esfuerzo {settings.agent_effort}' if agent else 'guionado'}.")
-    print(f"Usuario: {f'simulado por {simulator}' if simulator else 'guionado'}.")
-    print(f"Casos: {len(plan.cases)}. Intentos: {len(trials)}, de ellos {len(left)} por correr.")
-    for case in plan.cases:
-        governances = case.environment.governance
-        each = " en cada una" if len(governances) > 1 else ""
-        print(f"  {case.id}: {' y '.join(governances)}, {plan.k} intentos{each}")
-    if settings.suite in PAID:
-        cost = estimate(left, agent, simulator)
-        print(
-            "Costo estimado del agente y del usuario simulado (el juez va aparte): "
-            f"típico {_money(cost.typical_usd)}, peor caso {_money(cost.worst_usd)}."
-        )
-        cap = plan.max_usd
-        if cap is None:
-            print("Tope: falta --max-usd, que la corrida exige.")
-        else:
-            fits = (
-                "cabe" if cost.worst_usd <= cap else "lo pasa: la corrida se detendría en el tope"
-            )
-            print(f"Tope: {_money(cap)}; el peor caso {fits}.")
-        found = "en el entorno" if os.environ.get(KEY) else "en .env" if _env_file_key() else None
-        print(f"{KEY}: {found or 'falta, y la corrida la exige'}.")
-    state = "existe: se retoma" if settings.run_dir.exists() else "nueva"
-    print(f"Carpeta: {_shown(settings.run_dir)} ({state}).")
-    if entries is not None:
-        counts = mapped.summary(mapped.coverage(entry) for entry in entries.values())
-        print(
-            f"Mapa de regresión: {len(entries)} tareas ({counts['covered']} cubiertas, "
-            f"{counts['partial']} parciales, {counts['uncovered']} sin cubrir) y "
-            f"{len(mapped.mapped_ids(entries))} pruebas con RUN_LIVE_STACK=1."
-        )
+def _run_dir(given: str) -> Path:
+    path = Path(given)
+    run_dir = path if path.is_dir() else RUNS / given
+    if not (run_dir / MANIFEST_FILE).exists():
+        raise Refused(f"{given} no es una corrida: falta {MANIFEST_FILE}")
+    return run_dir
 
 
 def _resume(arguments: argparse.Namespace, plan: Plan) -> str:
@@ -256,23 +279,18 @@ def _resume(arguments: argparse.Namespace, plan: Plan) -> str:
     words = ["uv run eval-suite run", f"--suite {settings.suite}", f"--run-id {settings.run_id}"]
     if settings.suite in PAID:
         words += [f"--agent {settings.agent_model}", f"--effort {settings.agent_effort}"]
-        words += [f"--simulator {settings.simulator_model}", "--max-usd <tope mayor>"]
+        words += [f"--simulator {settings.simulator_model}", "--max-usd <tope>"]
     words += [f"--k {plan.k}", f"--seed {plan.seed}"]
     if arguments.cases:
         words.append(f"--cases '{arguments.cases}'")
     return " ".join(words)
 
 
-def _money(amount: Decimal) -> str:
-    return "USD " + f"{amount:.2f}".replace(".", ",")
-
-
 def _usd(value: str) -> Decimal:
     try:
-        return Decimal(value)
+        amount = Decimal(value)
     except InvalidOperation as error:
         raise argparse.ArgumentTypeError(f"{value!r} no es un monto") from error
-
-
-def _shown(path: Path) -> str:
-    return str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
+    if not amount.is_finite() or amount <= 0:
+        raise argparse.ArgumentTypeError(f"{value!r}: tiene que ser un monto finito mayor que 0")
+    return amount

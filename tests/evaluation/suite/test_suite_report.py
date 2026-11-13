@@ -8,10 +8,14 @@ from typing import Any
 import pytest
 
 from commerce_evaluation.llm.budget import RunBudget
-from commerce_evaluation.llm.cost import TokenUsage
 from commerce_evaluation.suite import mapped, report
 from commerce_evaluation.suite.executor import SimulatorFailure
-from commerce_evaluation.suite.run import Plan, execute
+from commerce_evaluation.suite.graders.grade import Verdict
+from commerce_evaluation.suite.graders.judge import Judged, write_judged
+from commerce_evaluation.suite.graders.question import questions
+from commerce_evaluation.suite.plan import Plan
+from commerce_evaluation.suite.run import execute
+from commerce_evaluation.suite.rundir import read_cases, read_trials
 from tests.evaluation.suite.runs import (
     STACK_DOWN,
     FakeExecutor,
@@ -19,6 +23,7 @@ from tests.evaluation.suite.runs import (
     make_case,
     plan,
     regression_case,
+    usage,
     write_catalog,
 )
 from tests.evaluation.suite.trials import B, bought
@@ -29,16 +34,6 @@ UNSURE = make_case("para-el-juez", must_communicate=["que no hay stock"])
 BROKEN = make_case("se-cae-la-primera")
 EXCLUDED = make_case("simulador-falla")
 CASES = [PASSES, HALF, UNSURE, BROKEN, EXCLUDED]
-
-
-def usage(input_tokens: int, output_tokens: int) -> TokenUsage:
-    return TokenUsage(
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_read_tokens=0,
-        cache_write_tokens=0,
-        reasoning_tokens=0,
-    )
 
 
 def run(tmp_path: Path, cases: list[Any], script: dict[Any, list[Any]], **settings: Any) -> Plan:
@@ -108,9 +103,10 @@ def test_cost_by_role_infra_retries_and_exclusions(capability: Path) -> None:
     assert cost["agent"].usd == pytest.approx(0.02)
     assert cost["simulator"].usd == pytest.approx(1.0)
     assert built.usd == pytest.approx(1.02)
-    assert [(row["case_id"], row["attempt"]) for row in built.infra_retries] == [
-        (BROKEN.id, 1),
-        (BROKEN.id, 2),
+    assert [(row["kind"], row["case_id"], row["attempt"]) for row in built.retries] == [
+        ("infra", BROKEN.id, 1),
+        ("infra", BROKEN.id, 2),
+        ("simulator", EXCLUDED.id, 1),
     ]
     assert [(row["case_id"], row["trial"]) for row in built.excluded] == [(EXCLUDED.id, 1)]
 
@@ -126,28 +122,77 @@ def test_the_report_files_are_written_in_spanish(capability: Path) -> None:
     assert "| B2 | 5 | 9 | 5 | 1 | 2 | 1 | 70,0 % (" in text
     assert "| Total | 3 |  |  |  |  | USD 1,0200 |" in text
     assert "## Para revisión humana" in text and "Lo que dice: solo código, sin el juez." in text
-    assert "Intentos excluidos porque el usuario simulado falló dos veces: 1." in text
+    assert (
+        "Intentos repetidos por una falla de infraestructura: 2. Repetidos porque el usuario "
+        "simulado falló: 1. Excluidos porque el usuario simulado falló dos veces: 1." in text
+    )
+    assert "| para-el-juez/presente | B2 | 1 | 1 | usuario simulado | refusal |" not in text
+    assert "| simulador-falla/presente | B2 | 1 | 1 | usuario simulado | refusal |" in text
+    # The cost legend says what a refused call and a call without usage count.
+    assert "cuenta como llamada, con USD 0" in text and "cuenta su peor caso" in text
 
 
-def test_the_judge_hook_folds_its_verdicts_into_claims(
-    capability: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (capability / report.JUDGE_FILE).write_text("{}\n")
-    monkeypatch.setattr(report, "JUDGE_MODULE", "tests.evaluation.suite.fake_judge")
+def judge_unsure(run_dir: Path, verdict: Verdict = "pass", answered: int | None = None) -> None:
+    """The judge's answers to UNSURE's questions: the agent said there is no stock."""
+    cases = read_cases(run_dir)
+    asked = [
+        question
+        for record in read_trials(run_dir).kept
+        for question in questions(cases[record.case_id], record)
+    ]
+    assert len(asked) == 2  # one criterion in each of the two trials
+    rows = [
+        Judged(question=question, verdict=verdict, said=verdict, quote="No hay stock.", reason="x")
+        for question in asked[:answered]
+    ]
+    write_judged(run_dir, rows)
 
-    built = report.build(capability)
+
+def test_the_judges_verdicts_fold_into_claims(capability: Path) -> None:
+    judge_unsure(capability)
+
+    built = report.write(capability)
 
     assert built.judged and built.review == ()
     tasks = {task.case_id: task for task in built.reduction.tasks}
     assert tasks[UNSURE.id].passes == 2
+    graders = {task.case_id: task.graders for task in built.tasks}
+    assert graders[UNSURE.id]["claims"] == {"pass": 2, "fail": 0, "unknown": 0}
+    assert "Lo que dice: con el juez (`judge.jsonl`)." in (capability / "report.md").read_text()
 
 
-def test_a_judged_run_needs_the_judge(capability: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    (capability / report.JUDGE_FILE).write_text("{}\n")
-    monkeypatch.setattr(report, "JUDGE_MODULE", "commerce_evaluation.suite.no_such_judge")
+def test_a_question_the_judge_did_not_answer_leaves_claims_undecided(capability: Path) -> None:
+    judge_unsure(capability, answered=1)
 
-    with pytest.raises(RuntimeError, match="no_such_judge"):
-        report.build(capability)
+    built = report.build(capability)
+
+    [review] = built.review
+    assert review.trial == 2 and "faltan 1 respuestas del juez" in review.unknown["claims"]
+
+
+def test_a_failed_criterion_fails_the_trial(capability: Path) -> None:
+    judge_unsure(capability, verdict="fail")
+
+    tasks = {task.case_id: task for task in report.build(capability).reduction.tasks}
+
+    assert (tasks[UNSURE.id].passes, tasks[UNSURE.id].fails) == (0, 2)
+
+
+def test_a_trial_run_again_after_a_resume_keeps_its_last_record(tmp_path: Path) -> None:
+    cases = [PASSES]
+    done = plan(tmp_path / "run", write_catalog(tmp_path / "cases", cases), cases, k=1)
+    broken = FakeExecutor(script={(PASSES.id, "B2", 1): [{"infra_failure": STACK_DOWN}]})
+    execute(done, broken, say=lambda _: None)
+    execute(done, FakeExecutor(), say=lambda _: None)
+
+    built = report.write(done.settings.run_dir)
+
+    [task] = built.reduction.tasks
+    assert (task.trials, task.infra_failures, task.passes) == (1, 0, 1)
+    assert [row["attempt"] for row in built.retries] == [1, 2, None]
+    text = (done.settings.run_dir / "report.md").read_text()
+    assert "| pasa-siempre/presente | B2 | 1 | antes de retomar | stack_not_started" not in text
+    assert "| pasa-siempre/presente | B2 | 1 | antes de retomar | el stack no arrancó |" in text
 
 
 def test_the_attack_success_rate_leaves_the_control_out(tmp_path: Path) -> None:
@@ -180,6 +225,19 @@ def test_the_attack_success_rate_leaves_the_control_out(tmp_path: Path) -> None:
     text = (done.settings.run_dir / "report.md").read_text()
     assert "## Ataques que logran su objetivo" in text
     assert "| B2 | 1 de 2 | 50,0 % (" in text
+
+
+def test_outside_the_adversarial_suite_a_forbidden_purchase_is_not_called_an_attack(
+    tmp_path: Path,
+) -> None:
+    careful = make_case("no-compres-la-b", forbidden_variants=[B])
+    done = run(tmp_path, [careful], {(careful.id, "B2", 1): [{"state": bought(B)}]})
+
+    report.write(done.settings.run_dir)
+
+    text = (done.settings.run_dir / "report.md").read_text()
+    assert "## Compras de una variante prohibida" in text
+    assert "Ataques" not in text
 
 
 def test_regression_reports_the_coverage_of_the_mapped_tasks(tmp_path: Path) -> None:

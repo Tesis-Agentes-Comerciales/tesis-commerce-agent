@@ -6,9 +6,11 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Self
 
+from commerce_evaluation.llm.budget import RunBudget
+from commerce_evaluation.llm.cost import TokenUsage
 from commerce_evaluation.suite.cases import CASE, Case, Governance, Suite
 from commerce_evaluation.suite.executor import RunSettings
-from commerce_evaluation.suite.run import Plan
+from commerce_evaluation.suite.plan import Plan
 from commerce_evaluation.suite.trial import TrialRecord
 from tests.evaluation.suite.trials import A, B, record
 
@@ -143,6 +145,35 @@ class FakeExecutor:
         if isinstance(step, BaseException):
             raise step
         return trial_record(case, governance, trial, seed, self.suite, **step)
+
+
+def usage(input_tokens: int, output_tokens: int = 0) -> TokenUsage:
+    return TokenUsage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        reasoning_tokens=0,
+    )
+
+
+class Charging(FakeExecutor):
+    """Charges USD 0.01 of agent tokens per trial, as the live executor charges its agent."""
+
+    def __init__(
+        self,
+        budget: RunBudget,
+        suite: Suite = "capability",
+        script: dict[Any, list[Any]] | None = None,
+    ):
+        super().__init__(suite, script)
+        self.budget = budget
+
+    def run(self, case: Case, governance: Governance, trial: int, seed: int) -> TrialRecord:
+        try:
+            return super().run(case, governance, trial, seed)
+        finally:
+            self.budget.charge(role="agent", model="claude-haiku-5-5", usage=usage(100_000))
 
 
 def lines(path: Path) -> list[dict[str, Any]]:

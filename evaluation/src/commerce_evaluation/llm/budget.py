@@ -6,7 +6,9 @@ the spend so far plus its worst case (estimated instructions, input and schema, 
 ``max_output_tokens`` output, at the requested model's price) stays within the cap. The
 provider's reported usage then replaces the reservation; a call that failed, timed out or was
 interrupted keeps its worst case reserved, because it may have been billed. The agent calls the
-API from the product, so the runner reports its usage afterwards with ``charge``.
+API from the product, so the runner reports its usage afterwards with ``charge``, which never
+raises: that spend is already made, and the trial it paid for must still be kept. ``exhausted``
+then tells the runner to stop after keeping the trial, and every later reservation is refused.
 
 Every call, admitted or refused, appends one JSON line to ``llm-usage.jsonl`` in the run
 directory: role, models asked for and answering, tokens, cost, latency, attempts and error
@@ -103,7 +105,7 @@ class RunBudget:
 
     def reserve(self, calls: Sequence[Call]) -> list[Decimal]:
         """Reserves every call's worst case, or none of them and raises ``FundsExhausted``."""
-        worst = [self._price(call.request.model, call.mode).cost(_worst(call)) for call in calls]
+        worst = [self.worst_usd(call) for call in calls]
         total = sum(worst, Decimal(0))
         with self._lock:
             admitted = self.spent_usd + total <= self.max_usd
@@ -115,6 +117,16 @@ class RunBudget:
                 self._write(call, refusal, usd=Decimal(0), latency_seconds=None, batch_id=None)
             raise refusal
         return worst
+
+    @property
+    def exhausted(self) -> bool:
+        """Whether the spend reached the cap: no further call can be admitted."""
+        with self._lock:
+            return self.spent_usd >= self.max_usd
+
+    def worst_usd(self, call: Call) -> Decimal:
+        """What admitting the call reserves: its worst case at the requested model's price."""
+        return self._price(call.request.model, call.mode).cost(worst_usage(call))
 
     def settle(
         self,
@@ -143,8 +155,9 @@ class RunBudget:
     ) -> Decimal:
         """Adds usage spent outside these transports (the agent's) and returns its cost.
 
-        It was already spent, so it is always recorded; once the spend passes the cap it raises
-        ``FundsExhausted``, and every later reservation is refused.
+        It was already spent, so it is always recorded and never raises. A row that takes the
+        spend past the cap says so (``BudgetExhausted``); ``exhausted`` is then true, and every
+        later reservation is refused.
         """
         usd = self._price(model, "sync").cost(usage)
         with self._lock:
@@ -168,8 +181,6 @@ class RunBudget:
             error="BudgetExhausted" if over else None,
         )
         self._append(self.ledger_path, row.model_dump_json())
-        if over:
-            raise FundsExhausted("BudgetExhausted", attempts=0)
         return usd
 
     def record_batch(self, batch_id: str, calls: Sequence[Call]) -> None:
@@ -256,7 +267,7 @@ def read_ledger(path: Path) -> list[UsageRow]:
     return [UsageRow.model_validate_json(line, strict=False) for line in lines if line]
 
 
-def _worst(call: Call) -> TokenUsage:
+def worst_usage(call: Call) -> TokenUsage:
     request = call.request
     schema = json.dumps(call.schema.model_json_schema())
     return TokenUsage(

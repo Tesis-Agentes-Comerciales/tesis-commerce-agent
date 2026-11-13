@@ -1,16 +1,14 @@
 """The report of a run: grades, the reduction, cost and what is left to a person (§2, §5).
 
-Everything comes from the run directory (suite/run.py): the cases as they were run, the trials
-kept, the attempts repeated or excluded, and the usage ledger. Grading is code's
-(`graders.success.grade`), with one hook for the judge (PR #210): when the run has `judge.jsonl`,
-its verdicts on what the agent says replace code's `claims` grade wherever code left it to the
-judge (`judged_grading`). A caller can pass any other `Grading` instead.
+Everything comes from the run directory (suite/rundir.py): the cases as they were run, the last
+record of each trial, the attempts repeated or excluded, and the usage ledgers of the run and of
+the judge. Grading is code's (`graders.success.grade`); when the run has `judge.jsonl`, the
+judge's verdicts on what the agent says replace code's `claims` grade wherever code left it to
+the judge (`graders.judge.grades_with_judge`). A caller can pass any other `Grading` instead.
 
 The report is `report.json`, for the thesis's tables, and `report.md`, to read.
 """
 
-import importlib
-import json
 from collections import Counter
 from collections.abc import Callable
 from decimal import Decimal
@@ -22,23 +20,23 @@ from pydantic import JsonValue
 from commerce_evaluation.llm.budget import LEDGER_FILE, read_ledger
 from commerce_evaluation.suite.cases import Case, CaseId, Governance, Grader, SuiteModel, Text
 from commerce_evaluation.suite.graders.grade import Grade, Verdict
+from commerce_evaluation.suite.graders.judge import JUDGE_FILE, grades_with_judge, read_judged
 from commerce_evaluation.suite.graders.success import grade, strict_success
 from commerce_evaluation.suite.mapped import MappedTask, read_mapped
 from commerce_evaluation.suite.reduce import Reduction, Scored, is_infra_failure, reduce
 from commerce_evaluation.suite.report_md import markdown
-from commerce_evaluation.suite.run import (
+from commerce_evaluation.suite.rundir import (
     EXCLUDED_FILE,
     INFRA_FILE,
-    MANIFEST_FILE,
+    JUDGE_BUDGET_DIR,
     read_cases,
     read_jsonl,
+    read_manifest,
     read_trials,
+    repair_jsonl,
 )
 from commerce_evaluation.suite.trial import TrialRecord
 
-# Written by graders/judge.py (PR #210): one verdict per question the judge was asked.
-JUDGE_FILE = "judge.jsonl"
-JUDGE_MODULE = "commerce_evaluation.suite.graders.judge"
 REPORT_JSON = "report.json"
 REPORT_MD = "report.md"
 
@@ -87,7 +85,9 @@ class Report(SuiteModel):
     governances: tuple[GovernanceGraders, ...]
     cost: tuple[RoleCost, ...]
     usd: float
-    infra_retries: tuple[dict[str, JsonValue], ...]
+    # Attempts repeated: by the infrastructure (`infra`, with `attempt` None for a trial run
+    # again after a resume) or by the simulated user (`simulator`).
+    retries: tuple[dict[str, JsonValue], ...]
     excluded: tuple[dict[str, JsonValue], ...]
     review: tuple[Review, ...]
     # Regression only: the tasks the scripted tests cover, and how those tests ended.
@@ -95,27 +95,23 @@ class Report(SuiteModel):
 
 
 def judged_grading(run_dir: Path) -> Grading | None:
-    """The judge's verdicts folded into `claims` (graders/judge.py `grades_with_judge`), or None
-    when the run was not judged. Imported here so this module does not depend on the judge."""
+    """The judge's verdicts folded into `claims`, or None when the run was not judged."""
     if not (run_dir / JUDGE_FILE).exists():
         return None
-    try:
-        judge = importlib.import_module(JUDGE_MODULE)
-    except ModuleNotFoundError as error:
-        raise RuntimeError(f"{run_dir / JUDGE_FILE} existe, pero falta {JUDGE_MODULE}") from error
-    judged = judge.read_judged(run_dir)
-    return lambda case, record: tuple(judge.grades_with_judge(case, record, judged))
+    judged = read_judged(run_dir)
+    return lambda case, record: grades_with_judge(case, record, judged)
 
 
 def build(run_dir: Path, grading: Grading | None = None) -> Report:
-    manifest: dict[str, Any] = json.loads((run_dir / MANIFEST_FILE).read_text("utf-8"))
+    manifest = read_manifest(run_dir)
     judging = grading or judged_grading(run_dir)
     grader = judging or grade
     cases = read_cases(run_dir)
     scored: list[Scored] = []
     tasks: dict[tuple[str, Governance], dict[Grader, Counter[Verdict]]] = {}
     review: list[Review] = []
-    for record in read_trials(run_dir):
+    trials = read_trials(run_dir)
+    for record in trials.kept:
         case = cases[record.case_id]
         grades = grader(case, record)
         success = strict_success(case, grades)
@@ -152,7 +148,13 @@ def build(run_dir: Path, grading: Grading | None = None) -> Report:
         governances=_by_governance(tasks),
         cost=cost,
         usd=float(sum((Decimal(str(role.usd)) for role in cost), Decimal(0))),
-        infra_retries=tuple(_infra(row) for row in read_jsonl(run_dir / INFRA_FILE)),
+        retries=(
+            *(_retry(row) for row in read_jsonl(run_dir / INFRA_FILE)),
+            *(
+                _retry({"kind": "infra", "record": record.model_dump(mode="json")})
+                for record in trials.superseded
+            ),
+        ),
         excluded=tuple(read_jsonl(run_dir / EXCLUDED_FILE)),
         review=tuple(review),
         mapped=None if (mapped := read_mapped(run_dir)) is None else tuple(mapped),
@@ -189,10 +191,14 @@ def _by_governance(
 
 
 def _cost(run_dir: Path) -> tuple[RoleCost, ...]:
-    """The ledger's calls and spend per role, in the order each role first spent."""
+    """The calls and spend per role of the run's ledger and the judge's, in the order each role
+    first spent. A call the cap refused counts, at USD 0; one that failed without reporting
+    usage counts its worst case, which stays reserved because it may have been billed."""
     roles: dict[str, list[Any]] = {}
-    for row in read_ledger(run_dir / LEDGER_FILE):
-        roles.setdefault(row.role, []).append(row)
+    for ledger in (run_dir / LEDGER_FILE, run_dir / JUDGE_BUDGET_DIR / LEDGER_FILE):
+        repair_jsonl(ledger)
+        for row in read_ledger(ledger):
+            roles.setdefault(row.role, []).append(row)
     return tuple(
         RoleCost(
             role=role,
@@ -207,14 +213,19 @@ def _cost(run_dir: Path) -> tuple[RoleCost, ...]:
     )
 
 
-def _infra(row: dict[str, Any]) -> dict[str, JsonValue]:
+def _retry(row: dict[str, Any]) -> dict[str, JsonValue]:
+    """One repeated attempt, the same for both kinds: who, which attempt, and why."""
+    if row["kind"] == "simulator":
+        named = {name: row[name] for name in ("case_id", "governance", "trial", "attempt")}
+        return {"kind": "simulator", **named, "cause": "simulator", "detail": row["reason"]}
     record = row["record"]
     failure = record.get("infra_failure") or {}
     return {
+        "kind": "infra",
         "case_id": record["case_id"],
         "governance": record["governance"],
         "trial": record["trial"],
-        "attempt": row["attempt"],
+        "attempt": row.get("attempt"),
         "cause": failure.get("cause"),
         "detail": failure.get("detail"),
     }

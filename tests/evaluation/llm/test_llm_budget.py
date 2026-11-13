@@ -277,7 +277,7 @@ def test_custom_ids_are_checked_before_anything_is_reserved(tmp_path: Path, cust
     assert fake.requests == [] and not run_budget.ledger_path.exists()
 
 
-def test_the_agent_spend_is_charged_to_the_same_cap(tmp_path: Path):
+def test_the_agent_spend_is_charged_to_the_same_cap_and_never_raises(tmp_path: Path):
     agent_usage = usage(400_000, 20_000)
     run_budget = budget(tmp_path, PRICES.cost(agent_usage) + worst_case(request()) / 2)
     simulator = BudgetedTransport(
@@ -287,13 +287,17 @@ def test_the_agent_spend_is_charged_to_the_same_cap(tmp_path: Path):
     usd = run_budget.charge(
         role="agent", model="model-under-test", usage=agent_usage, model_returned="served"
     )
+    assert not run_budget.exhausted
     with pytest.raises(FundsExhausted, match="BudgetExhausted"):
         simulator.parse(request(), Verdict)
+    # Past the cap the agent's spend is still recorded, and the runner reads `exhausted`.
+    assert run_budget.charge(role="agent", model="model-under-test", usage=agent_usage) == usd
+    assert run_budget.exhausted
     with pytest.raises(FundsExhausted, match="BudgetExhausted"):
-        run_budget.charge(role="agent", model="model-under-test", usage=agent_usage)
+        simulator.parse(request(), Verdict)
 
     assert usd == PRICES.cost(agent_usage)
-    charged, refused, crossing = ledger(run_budget)
+    charged, refused, crossing, refused_again = ledger(run_budget)
     assert (charged["role"], charged["usage"], charged["usd"]) == (
         "agent",
         agent_usage.model_dump(),
@@ -302,7 +306,18 @@ def test_the_agent_spend_is_charged_to_the_same_cap(tmp_path: Path):
     assert (charged["model_returned"], charged["error"]) == ("served", None)
     assert (refused["role"], refused["error"]) == ("simulator", "BudgetExhausted")
     assert (crossing["role"], crossing["error"]) == ("agent", "BudgetExhausted")
+    assert (refused_again["role"], refused_again["usd"]) == ("simulator", 0.0)
     assert run_budget.spent_usd == 2 * usd
+
+
+def test_a_cap_reached_exactly_is_exhausted(tmp_path: Path):
+    agent_usage = usage(400_000, 20_000)
+    run_budget = budget(tmp_path, PRICES.cost(agent_usage))
+
+    run_budget.charge(role="agent", model="model-under-test", usage=agent_usage)
+
+    assert run_budget.exhausted
+    assert budget(tmp_path, PRICES.cost(agent_usage) * 2).exhausted is False
 
 
 @pytest.mark.parametrize("max_usd", ["0", "-1", "NaN", "Infinity"])

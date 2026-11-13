@@ -1,12 +1,11 @@
 """The report of a run as Markdown, in Spanish, for a person to read (suite/report.py)."""
 
-from collections.abc import Iterable, Sequence
 from operator import attrgetter, itemgetter
 from typing import TYPE_CHECKING, Any
 
 from commerce_evaluation.suite.cases import Grader
 from commerce_evaluation.suite.mapped import Coverage, summary
-from commerce_evaluation.suite.reduce import Rate
+from commerce_evaluation.suite.tables import attack, rate, share, table, usd
 
 if TYPE_CHECKING:
     from commerce_evaluation.suite.report import Report
@@ -15,7 +14,8 @@ SUITES = {"regression": "regresión", "capability": "capacidad", "adversarial": 
 STATUSES = {
     "running": "en curso",
     "complete": "completa",
-    "funds_exhausted": "detenida por falta de presupuesto",
+    "budget_exhausted": "detenida al llegar al tope de gasto",
+    "funds_exhausted": "detenida porque una llamada no encontró fondos",
     "interrupted": "interrumpida",
 }
 GRADERS: dict[Grader, str] = {
@@ -25,6 +25,7 @@ GRADERS: dict[Grader, str] = {
     "claims": "Lo que dice",
 }
 ROLES = {"agent": "Agente", "simulator": "Usuario simulado", "judge": "Juez"}
+CAUSES = {"simulator": "usuario simulado", "stack_not_started": "el stack no arrancó"}
 COVERAGE: dict[Coverage, str] = {
     "covered": "cubierta",
     "partial": "parcial",
@@ -70,8 +71,8 @@ def _settings(report: "Report") -> str:
         f"Commit: `{git['commit']}`, {dirty[git['dirty']]}.",
         f"Inicio: {manifest['started_at']}. Fin: {manifest['ended_at'] or 'sin terminar'}. "
         f"Estado: {STATUSES[manifest['status']]}.",
-        f"Tope de gasto: {_usd(manifest['max_usd']) if manifest['max_usd'] else 'ninguno'}. "
-        f"Gastado: {_usd(report.usd)}.",
+        f"Tope de gasto: {usd(manifest['max_usd']) if manifest['max_usd'] else 'ninguno'}. "
+        f"Gastado: {usd(report.usd)}.",
         "Lo que dice: "
         + ("con el juez (`judge.jsonl`)." if report.judged else "solo código, sin el juez."),
     ]
@@ -93,10 +94,10 @@ def _governances(report: "Report") -> str:
     )
     counts = attrgetter("governance", "tasks", "trials", "passes", "fails", "unknowns")
     rows = [
-        (*counts(each), each.infra_failures, _rate(each.pass_1), _rate(each.pass_k))
+        (*counts(each), each.infra_failures, rate(each.pass_1), rate(each.pass_k))
         for each in report.reduction.governances
     ]
-    text = "## Resultado por gobernanza\n\n" + _table(header, rows)
+    text = "## Resultado por gobernanza\n\n" + table(header, rows)
     text += "\n\npass^1 y pass^k son promedios por tarea, con su intervalo de Wilson al 95 %."
     if short := sorted({task for each in report.reduction.governances for task in each.short}):
         text += f" Sin {k} intentos calificados, pass^{k} no se calcula en: {', '.join(short)}."
@@ -122,15 +123,15 @@ def _tasks(report: "Report") -> str:
                 task.case_id,
                 task.governance,
                 trials,
-                _rate(task.pass_1),
-                _share(task.pass_k),
+                rate(task.pass_1),
+                share(task.pass_k),
                 *verdicts,
             )
         )
     legend = (
         "Intentos: los calificados de los registrados. En cada calificador: pasa/falla/sin decidir."
     )
-    return f"## Por tarea\n\n{legend}\n\n{_table(header, rows)}"
+    return f"## Por tarea\n\n{legend}\n\n{table(header, rows)}"
 
 
 def _graders(report: "Report") -> str:
@@ -142,7 +143,7 @@ def _graders(report: "Report") -> str:
             each.graders.items(), key=lambda item: list(GRADERS).index(item[0])
         )
     ]
-    return "## Calificadores\n\n" + _table(header, rows)
+    return "## Calificadores\n\n" + table(header, rows)
 
 
 def _attacks(report: "Report") -> str:
@@ -150,21 +151,28 @@ def _attacks(report: "Report") -> str:
     if not attacked:
         return ""
     rates = [
-        (each.governance, *_attack(each.attack_success), each.attack_unknowns)
+        (each.governance, *attack(each.attack_success), each.attack_unknowns)
         for each in report.reduction.governances
         if each.attack_success is not None
     ]
     per_task = [
-        (task.case_id, task.governance, *_attack(task.attacks), task.attack_unknowns)
+        (task.case_id, task.governance, *attack(task.attacks), task.attack_unknowns)
         for task in attacked
     ]
+    if report.manifest["suite"] == "adversarial":
+        title = "## Ataques que logran su objetivo\n\nPor intento: un checkout o una orden de "
+        title += (
+            "una variante prohibida. El control, sin variantes prohibidas, no entra en la tasa."
+        )
+    else:
+        title = "## Compras de una variante prohibida\n\nPor intento: un checkout o una orden de "
+        title += "una variante que el caso prohíbe."
     return (
-        "## Ataques que logran su objetivo\n\n"
-        "Por intento: un checkout o una orden de una variante prohibida. El control, sin "
-        "variantes prohibidas, no entra en la tasa.\n\n"
-        + _table(("Gobernanza", "Lograron", "Tasa", "Sin decidir"), rates)
+        title
         + "\n\n"
-        + _table(("Tarea", "Gobernanza", "Lograron", "Tasa", "Sin decidir"), per_task)
+        + table(("Gobernanza", "Lograron", "Tasa", "Sin decidir"), rates)
+        + "\n\n"
+        + table(("Tarea", "Gobernanza", "Lograron", "Tasa", "Sin decidir"), per_task)
     )
 
 
@@ -174,32 +182,43 @@ def _cost(report: "Report") -> str:
         "calls", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"
     )
     rows: list[tuple[object, ...]] = [
-        (ROLES.get(role.role, role.role), *tokens(role), _usd(role.usd)) for role in report.cost
+        (ROLES.get(role.role, role.role), *tokens(role), usd(role.usd)) for role in report.cost
     ]
     if not rows:
         return "## Costo\n\nNinguna llamada a un LLM: `llm-usage.jsonl` está vacío o no existe."
-    rows.append(
-        ("Total", sum(role.calls for role in report.cost), "", "", "", "", _usd(report.usd))
+    rows.append(("Total", sum(role.calls for role in report.cost), "", "", "", "", usd(report.usd)))
+    legend = (
+        "De `llm-usage.jsonl` y del de `judge/`, en tokens. Una llamada que el tope rechazó "
+        "cuenta como llamada, con USD 0. Una que falló sin informar su uso cuenta su peor caso, "
+        "que queda reservado porque pudo cobrarse."
     )
-    return "## Costo\n\nDe `llm-usage.jsonl`, en tokens.\n\n" + _table(header, rows)
+    return f"## Costo\n\n{legend}\n\n" + table(header, rows)
 
 
 def _infra(report: "Report") -> str:
+    infra = sum(row["kind"] == "infra" for row in report.retries)
     text = (
         "## Infraestructura y exclusiones\n\n"
-        f"Intentos repetidos por una falla de infraestructura: {len(report.infra_retries)}. "
-        f"Intentos excluidos porque el usuario simulado falló dos veces: {len(report.excluded)}. "
-        "Ninguno cuenta contra el agente."
+        f"Intentos repetidos por una falla de infraestructura: {infra}. Repetidos porque el "
+        f"usuario simulado falló: {len(report.retries) - infra}. Excluidos porque el usuario "
+        f"simulado falló dos veces: {len(report.excluded)}. Ninguno cuenta contra el agente."
     )
-    if report.infra_retries:
-        cells = itemgetter("case_id", "governance", "trial", "attempt", "cause", "detail")
-        rows = [cells(row) for row in report.infra_retries]
+    if report.retries:
+        rows = [
+            (
+                *itemgetter("case_id", "governance", "trial")(row),
+                "antes de retomar" if row["attempt"] is None else row["attempt"],
+                CAUSES.get(str(row["cause"]), row["cause"]),
+                row["detail"],
+            )
+            for row in report.retries
+        ]
         header = ("Tarea", "Gobernanza", "Intento", "Vez", "Causa", "Detalle")
-        text += "\n\nRepetidos:\n\n" + _table(header, rows)
+        text += "\n\nRepetidos:\n\n" + table(header, rows)
     if report.excluded:
         cells = itemgetter("case_id", "governance", "trial", "reason")
         rows = [cells(row) for row in report.excluded]
-        text += "\n\nExcluidos:\n\n" + _table(("Tarea", "Gobernanza", "Intento", "Motivo"), rows)
+        text += "\n\nExcluidos:\n\n" + table(("Tarea", "Gobernanza", "Intento", "Motivo"), rows)
     return text
 
 
@@ -215,7 +234,7 @@ def _review(report: "Report") -> str:
     return (
         "## Para revisión humana\n\n"
         f"{len(report.review)} intentos quedaron sin decidir y no cuentan como acierto.\n\n"
-        + _table(header, rows)
+        + table(header, rows)
     )
 
 
@@ -240,48 +259,5 @@ def _mapped(report: "Report") -> str:
     return (
         "## Mapa de regresión\n\n"
         f"Las tareas que cubren las pruebas guionadas: {told}.\n\n"
-        + _table(("Tarea", "Fuente", "Cobertura", "Pruebas", "Resultado"), rows)
+        + table(("Tarea", "Fuente", "Cobertura", "Pruebas", "Resultado"), rows)
     )
-
-
-def _table(header: Sequence[object], rows: Iterable[Sequence[object]]) -> str:
-    lines = [_line(header), "| " + " | ".join("---" for _ in header) + " |"]
-    lines += [_line(row) for row in rows]
-    return "\n".join(lines)
-
-
-def _line(cells: Sequence[object]) -> str:
-    return "| " + " | ".join(_cell(cell) for cell in cells) + " |"
-
-
-def _cell(value: object) -> str:
-    if isinstance(value, int) and not isinstance(value, bool):
-        return f"{value:,}".replace(",", ".")
-    return " ".join(str(value).split()).replace("|", "\\|")
-
-
-def _rate(rate: Rate | None) -> str:
-    if rate is None or rate.rate is None or rate.low is None or rate.high is None:
-        return "sin datos"
-    return f"{_pct(rate.rate)} ({_pct(rate.low)} a {_pct(rate.high)})"
-
-
-def _share(value: float | None) -> str:
-    return "sin datos" if value is None else _pct(value)
-
-
-def _attack(rate: Rate | None) -> tuple[str, str]:
-    """How many attacks reached their goal, of how many could be told, and the rate."""
-    return (
-        ("sin datos", "sin datos")
-        if rate is None
-        else (f"{rate.successes:g} de {rate.n}", _rate(rate))
-    )
-
-
-def _pct(value: float) -> str:
-    return f"{value * 100:.1f}".replace(".", ",") + " %"
-
-
-def _usd(value: object) -> str:
-    return "USD " + f"{float(str(value)):.4f}".replace(".", ",")

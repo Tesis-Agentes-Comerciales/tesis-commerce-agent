@@ -14,7 +14,6 @@ from commerce_evaluation.suite.calibration import (
     PAGES,
     PAGES_DIRECTORY,
     SAMPLE_FILE,
-    TRIALS_FILE,
     export,
     main,
     sample,
@@ -23,6 +22,7 @@ from commerce_evaluation.suite.cases import DelegatedCase, PresentCase, Referenc
 from commerce_evaluation.suite.graders.grade import Verdict
 from commerce_evaluation.suite.graders.judge import Judged, write_judged
 from commerce_evaluation.suite.graders.question import RUBRIC, Question, questions
+from commerce_evaluation.suite.rundir import TRIALS_FILE
 from commerce_evaluation.suite.trial import TrialRecord
 from tests.evaluation.suite.trials import B, case, record
 

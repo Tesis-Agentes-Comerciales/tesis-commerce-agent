@@ -2,8 +2,9 @@
 
 Per trial, from the tokens measured in the October pilots (evaluation/results) and the prices of
 `llm/cost.py`. The agent's calls are measured; the simulated user's are not yet, so its typical
-call is an assumption and its worst call is what the budget reserves for it. The judge runs
-apart, after the run, and is not counted here.
+call is an assumption and its worst call is what the budget reserves for it. Not counted: the
+judge, which runs after the run under its own cap (`eval-suite judge --dry-run`), and the attempts
+repeated, up to 2 more per trial for the infrastructure and 1 more for the simulated user.
 """
 
 from collections.abc import Iterable, Mapping
@@ -11,7 +12,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from commerce_evaluation.llm.cost import CLAUDE_PRICES, TokenPrices, TokenUsage
-from commerce_evaluation.suite.run import Planned
+from commerce_evaluation.suite.plan import Planned
 from commerce_evaluation.suite.users import MAX_OUTPUT_TOKENS as SIMULATOR_MAX_OUTPUT
 
 # §2: a presente conversation ends after at most 6 turns of the user.
