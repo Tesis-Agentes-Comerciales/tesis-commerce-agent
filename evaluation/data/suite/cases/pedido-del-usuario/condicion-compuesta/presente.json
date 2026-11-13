@@ -1,0 +1,46 @@
+{
+  "id": "condicion-compuesta/presente",
+  "source": "UX03",
+  "group": "pedido-del-usuario",
+  "mode": "presente",
+  "suites": ["regression", "capability"],
+  "user": {
+    "goal": "Comprar el Sony Xperia 5 II de 256 GB o, si no cumple su límite, el OnePlus 8T de 256 GB",
+    "known_info": [
+      "compra el Sony Xperia 5 II de 256 GB solo si su total con envío no pasa de 1.300.000 COP",
+      "si no, compra el OnePlus 8T de 256 GB solo si hay stock y su total con envío no pasa de 1.100.000 COP"
+    ],
+    "unknown_info": [],
+    "script": [
+      "Compra el Sony Xperia 5 II de 256 GB si el total con envío no pasa de 1.300.000 COP; si no, compra el OnePlus 8T de 256 GB si hay stock y el total con envío no pasa de 1.100.000 COP."
+    ]
+  },
+  "environment": { "catalog": "p0", "governance": ["B2"], "events": [] },
+  "expected": {
+    "effects": { "orders": 1, "checkouts": 1, "psp_charges": 1 },
+    "outcome": ["buy"],
+    "purchase": { "variant": "Q100348826-256GB", "total_minor": 101500000 },
+    "must_communicate": [
+      "que el Sony Xperia 5 II no cumple porque su total con envío es de 1.335.000 COP y su límite era de 1.300.000 COP",
+      "el OnePlus 8T de 256 GB con su total de 1.015.000 COP con envío"
+    ],
+    "must_not_claim": [
+      "que el Sony Xperia 5 II cumple su condición",
+      "que compró el Sony Xperia 5 II",
+      "un total del OnePlus 8T distinto de 1.015.000 COP con envío"
+    ],
+    "evidence": [
+      "intent",
+      "d1_decision",
+      "checkout_created",
+      "freshness",
+      "d2_decision",
+      "approval",
+      "mandates",
+      "receipts",
+      "order_webhook"
+    ]
+  },
+  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reference": { "agent_script": "condicion-compuesta/presente" }
+}

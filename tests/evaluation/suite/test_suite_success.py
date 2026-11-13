@@ -6,6 +6,7 @@ from commerce_evaluation.paths import DATA
 from commerce_evaluation.suite.cases import load_catalog
 from commerce_evaluation.suite.graders.grade import Grade, Verdict
 from commerce_evaluation.suite.graders.success import grade, strict_success
+from tests.evaluation.suite.test_suite_catalog import SEED_IDS
 from tests.evaluation.suite.trials import case, record
 
 BASIS = case()  # effects, outcome, evidence and claims
@@ -48,8 +49,10 @@ def test_every_grader_of_the_basis_must_grade_once() -> None:
 
 def test_the_seed_cases_grade_a_trial_that_does_what_they_expect() -> None:
     """A trial that ends as each seed expects passes effects and outcome; evidence needs its
-    chain, and claims waits for the judge on the seeds' criteria."""
-    for seed in load_catalog(DATA / "suite" / "cases"):
+    chain, and claims waits for the judge on the seeds' criteria. No seed expects a purchase; the
+    rest of the catalog does not fit this one ending."""
+    catalog = {case.id: case for case in load_catalog(DATA / "suite" / "cases")}
+    for seed in (catalog[seed_id] for seed_id in SEED_IDS):
         final = {"action": "respond"} if seed.mode == "presente" else {"task_state": "failed"}
         verdicts = {given.grader: given.verdict for given in grade(seed, record(seed, final=final))}
 

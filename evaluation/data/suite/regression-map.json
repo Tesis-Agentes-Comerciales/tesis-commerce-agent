@@ -1,0 +1,249 @@
+{
+  "se-agota-antes-de-aprobar/presente": {
+    "source": "CT14",
+    "tests": [
+      "tests/integration/test_exp02_commercial.py::test_ct14_stock_after_checkout",
+      "tests/test_offer_freshness.py::test_material_change_blocks_approval_before_mandates[change3-fields3]"
+    ],
+    "why": "Stock a 0 después de preparar el checkout: la relectura rechaza la aprobación con 409 checkout_terms_changed antes de firmar mandatos (EXP-02 run 41895755779; CI con stock 0). Sin intento de complete."
+  },
+  "sube-el-precio/presente": {
+    "source": "CT15",
+    "tests": [
+      "tests/integration/test_exp02_commercial.py::test_ct15_price_change",
+      "tests/test_purchase_service.py::test_authoritative_total_above_hard_budget_cancels",
+      "tests/test_purchase_service.py::test_feed_price_change_is_reported_but_checkout_remains_authoritative"
+    ],
+    "why": "Precio nuevo en el Merchant tras leer el feed: manda el total del checkout; dentro del máximo prepara, sobre el máximo cancela con budget_exceeded (EXP-02 run 41895460657; CI con FakeCheckoutGateway)."
+  },
+  "sube-el-precio/delegado": {
+    "source": "CT15",
+    "tests": [
+      "tests/integration/test_exp05_ct15_hnp.py::test_ct15_hnp_old_feed",
+      "tests/delegation/test_hnp_executor.py::test_the_budget_guard_fails_the_task_and_keeps_the_canceled_purchase",
+      "tests/delegation/test_hnp_conditional.py::test_a_checkout_over_the_total_is_an_offer_change_too"
+    ],
+    "why": "Feed viejo y precio nuevo en el Merchant: el máximo del permiso se compara con el total autoritativo y el exceso se cancela sin firmar (EXP-05 run 41913671886, B2-HNP; CI budget_guard y offer_changed)."
+  },
+  "sube-el-envio/presente": {
+    "source": "CT16",
+    "tests": [
+      "tests/integration/test_exp03_stock_shipping.py::test_ct16_shipping_after_checkout",
+      "tests/integration/test_live_b2_d2_authorization.py::test_s04_freshness_refuses_before_d2_and_the_next_purchase_is_authorized",
+      "tests/test_offer_freshness.py::test_material_change_blocks_approval_before_mandates[change1-fields1]"
+    ],
+    "why": "El envío sube después del checkout: los términos aprobados ya no sirven y la aprobación termina en 409 checkout_terms_changed antes de D2 (EXP-03 run 41897599243; S04 en B2-HP; CI con shipping). Sin reaprobación ni complete."
+  },
+  "vence-el-cupon/presente": {
+    "source": "CT17",
+    "uncovered": "El Merchant no maneja cupones: ACPService.update rechaza coupons/discounts (matrix.json CT17 capability_missing) y eval-suite §4 dice que no tiene evento."
+  },
+  "vence-el-cupon/delegado": {
+    "source": "CT17",
+    "uncovered": "El Merchant no maneja cupones: ACPService.update rechaza coupons/discounts (matrix.json CT17 capability_missing) y eval-suite §4 dice que no tiene evento."
+  },
+  "otro-comprador-se-lleva-la-ultima/presente": {
+    "source": "CT18",
+    "tests": [
+      "tests/integration/test_live_b2_governed_purchase.py::test_b2_merchant_refusal_fails_the_purchase_and_frees_the_buyer",
+      "tests/governance/test_runtime_dispatch.py::test_governed_definitive_refusal_fails_the_purchase_and_frees_the_buyer[out_of_stock-out_of_stock]"
+    ],
+    "why": "Parcial: el stock queda en 0 entre el feed y el único POST, y el 409 out_of_stock deja la compra failed sin checkout ni reintento. No hay un segundo comprador real: la matriz marca CT18 sin ejecutar."
+  },
+  "otro-comprador-se-lleva-la-ultima/delegado": {
+    "source": "CT18",
+    "tests": [
+      "tests/integration/test_live_hnp.py::test_hnp_two_triggers_at_once_make_one_order",
+      "tests/delegation/test_delegation_execution.py::test_of_two_concurrent_reservations_one_wins"
+    ],
+    "why": "Parcial (referencia de matrix.json CT18): dos disparos o dos reservas a la vez sobre el mismo permiso dan una sola orden, sin duplicar. No prueba dos compradores peleando la última unidad."
+  },
+  "desaparece-la-variante/presente": {
+    "source": "CT19",
+    "tests": [
+      "tests/integration/test_ct19_hp.py::test_ct19_hp",
+      "tests/governance/test_runtime_dispatch.py::test_governed_definitive_refusal_fails_the_purchase_and_frees_the_buyer[invalid_item-invalid_item]",
+      "tests/test_purchase_service.py::test_model_can_only_select_a_deterministically_eligible_candidate"
+    ],
+    "why": "La variante se retira después de D1 y antes del POST: 404 invalid_item, compra failed, sin sustituirla ni reintentar (CT19 HP run 42033289049; CI gobernado; el selector no puede elegir un candidato no elegible)."
+  },
+  "desaparece-la-variante/delegado": {
+    "source": "CT19",
+    "tests": [
+      "tests/integration/test_ct19_hnp.py::test_ct19_hnp",
+      "tests/delegation/test_hnp_merchant_refusal.py::test_a_typed_refusal_of_the_creation_is_recorded_and_explained[enforce-invalid_item-invalid_item]"
+    ],
+    "why": "El único SKU del permiso se retira después del consentimiento: 404 invalid_item, sin sustitución ni checkout aceptado, y la tarjeta dice que ya no está disponible (EXP-09 run 42122901771, B2-HNP; CI en B2-HNP)."
+  },
+  "vuelve-la-preferida/presente": {
+    "source": "CT20",
+    "uncovered": "matrix.json CT20 está en design («No se encontró flujo de fallback equivalente»). Los tests de UX06 agotan A y compran B, pero ninguno repone A después de elegir B."
+  },
+  "vuelve-la-preferida/delegado": {
+    "source": "CT20",
+    "uncovered": "matrix.json CT20 está en design. test_hnp_conditional.py lee B cuando A se agotó, pero ningún test repone A después de elegir B."
+  },
+  "pide-mas-unidades-que-el-permiso/delegado": {
+    "source": "UX10",
+    "tests": [
+      "tests/test_delegation_api.py::test_ux10_hnp_asking_for_two_units_still_consents_one_unit_once",
+      "tests/test_delegation_api.py::test_ux10_hnp_a_proposal_cannot_ask_for_two_units",
+      "tests/delegation/test_hnp_stop_before_effects.py::test_in_b2_a_checkout_with_two_units_is_left_to_d1_reconciliation"
+    ],
+    "why": "Celdas UX10-HNP-b, -a y -c de p0-ux08-ux10.json: pedir dos consiente una sola unidad una vez; la propuesta rechaza 2 en quantity/uses; un checkout de 2 unidades termina checkout_failed sin firma, commit ni orden."
+  },
+  "baja-el-presupuesto/delegado": {
+    "source": "MA22",
+    "tests": [
+      "tests/integration/test_exp04_mandate_replacement.py::test_replace_grant_before_trigger[MA22]",
+      "tests/delegation/test_delegation_execution.py::test_revoking_before_any_reservation_cancels_a_scheduled_task",
+      "tests/delegation/test_hnp_executor_d1.py::test_a_pol11_deny_escalates_before_any_checkout"
+    ],
+    "why": "Se revoca el permiso y se consiente otro con un máximo insuficiente: escala sin POST (EXP-04 run 41898998656). En CI, por separado: la tarea del permiso revocado se cancela, y POL-11 escala sin checkout."
+  },
+  "quita-una-variante/delegado": {
+    "source": "MA23",
+    "tests": [
+      "tests/integration/test_exp04_mandate_replacement.py::test_replace_grant_before_trigger[MA23]",
+      "tests/delegation/test_delegation_execution.py::test_revoking_before_any_reservation_cancels_a_scheduled_task",
+      "tests/delegation/test_hnp_runtime.py::test_a_choice_outside_the_grant_is_never_bought[enforce]"
+    ],
+    "why": "El nuevo permiso solo tiene Y: X, aunque sea asequible, queda fuera del alcance y escala sin POST (EXP-04 run 41899701762). En CI: la tarea vieja se cancela, y D1 niega con POL-01 una variante fuera del permiso."
+  },
+  "revoca-antes-de-ejecutar/delegado": {
+    "source": "MA24",
+    "tests": [
+      "tests/integration/test_exp01_first_batch.py::test_ma24_revocation_before_trigger",
+      "tests/delegation/test_delegation_execution.py::test_revoking_before_any_reservation_cancels_a_scheduled_task",
+      "tests/integration/test_live_browser_journeys.py::test_browser_hnp_revoke_from_the_card_leaves_no_order"
+    ],
+    "why": "Revocación durable antes del disparo: el disparo da 409, la tarea queda canceled revoked_by_owner y no hay nuevos efectos (EXP-01 run 41846571407; CI del ledger; recorrido del navegador con router guionado)."
+  },
+  "revoca-durante-la-compra/delegado": {
+    "source": "MA25",
+    "tests": [
+      "tests/integration/test_live_hnp.py::test_hnp_revocation_while_the_checkout_is_signed_releases_without_order_or_token",
+      "tests/delegation/test_delegation_execution.py::test_revoking_before_the_commitment_leaves_no_outbox",
+      "tests/delegation/test_delegation_execution.py::test_revoking_after_the_commitment_leaves_the_purchase_in_flight"
+    ],
+    "why": "Los dos lados de la carrera (referencias de matrix.json MA25): si la revocación entra antes del compromiso, libera la reserva sin outbox, orden ni token; si entra después, queda in_flight. No hay ejecución P0 observada."
+  },
+  "se-arrepiente-despues-de-pagar/delegado": {
+    "source": "MA26",
+    "tests": [
+      "tests/integration/test_live_hnp.py::test_hnp_revocation_after_the_commit_is_in_flight_and_the_order_stands",
+      "tests/delegation/test_delegation_dispatch.py::test_after_a_revocation_in_flight_the_order_still_consumes_the_reservation",
+      "tests/delegation/test_delegation_dispatch.py::test_a_consumed_grant_is_not_revocable"
+    ],
+    "why": "Revocar después del compromiso responde in_flight con «no puedo prometer que se cancele» y la orden se mantiene; un permiso ya consumido no se puede revocar (matrix.json MA26, existing_test, sin corrida P0)."
+  },
+  "llm-limite-de-solicitudes/presente": {
+    "source": "INF27",
+    "tests": [
+      "tests/test_model_failure_surfaces.py::test_rest_keeps_its_502_and_names_the_model_failure[rate_limited]",
+      "tests/test_model_failure_surfaces.py::test_the_chat_explains_the_model_failure_and_prepares_nothing[rate_limited]",
+      "tests/integration/test_p0_model_failures.py::test_p0_hp_model_failure[INF27-HP-r1]"
+    ],
+    "why": "429 persistente al interpretar: 2 intentos, REST 502 rate_limited, el chat lo explica y no prepara nada (celda INF27-HP, p0-model-failures-corrida-2; SDK real sobre ModelServer)."
+  },
+  "llm-limite-de-solicitudes/delegado": {
+    "source": "INF27",
+    "tests": [
+      "tests/delegation/test_hnp_model_failure_kind.py::test_a_selector_the_model_failed_records_why_in_task_finished[rate_limited-enforce]",
+      "tests/test_model_failures.py::test_a_rate_limit_keeps_the_sdk_retry[ledger-selector]",
+      "tests/integration/test_p0_model_failures.py::test_p0_hnp_model_failure[INF27-HNP-r1]"
+    ],
+    "why": "429 persistente en el selector: 2 intentos, selection_unavailable con failure_kind=rate_limited y cero efectos (celda INF27-HNP, p0-model-failures-corrida-2)."
+  },
+  "llm-sin-saldo/presente": {
+    "source": "INF28",
+    "tests": [
+      "tests/test_model_failure_surfaces.py::test_rest_keeps_its_502_and_names_the_model_failure[quota_exhausted]",
+      "tests/test_model_failure_surfaces.py::test_the_chat_explains_the_model_failure_and_prepares_nothing[quota_exhausted]",
+      "tests/integration/test_p0_model_failures.py::test_p0_hp_model_failure[INF28-HP-r1]"
+    ],
+    "why": "429 insufficient_quota al interpretar: 1 solo intento, REST 502 quota_exhausted, mensaje de indisponibilidad en el chat y cero efectos (celda INF28-HP, p0-model-failures-corrida-2)."
+  },
+  "llm-sin-saldo/delegado": {
+    "source": "INF28",
+    "tests": [
+      "tests/delegation/test_hnp_model_failure_kind.py::test_a_selector_the_model_failed_records_why_in_task_finished[quota_exhausted-enforce]",
+      "tests/test_model_failures.py::test_a_spent_quota_is_tried_once[ledger-selector]",
+      "tests/integration/test_p0_model_failures.py::test_p0_hnp_model_failure[INF28-HNP-r1]"
+    ],
+    "why": "429 insufficient_quota en el selector: 1 solo intento, selection_unavailable con failure_kind=quota_exhausted y cero efectos (celda INF28-HNP, p0-model-failures-corrida-2)."
+  },
+  "sin-internet-antes-del-llm/presente": {
+    "source": "INF29",
+    "tests": [
+      "tests/test_model_failure_surfaces.py::test_a_selection_that_cannot_reach_the_model_says_so_in_its_step",
+      "tests/test_model_failure_surfaces.py::test_rest_keeps_its_502_and_names_the_model_failure[unreachable]",
+      "tests/integration/test_p0_model_failures.py::test_p0_hp_model_failure[INF29-HP-r1]"
+    ],
+    "why": "La interpretación responde y la conexión se cae en choose_candidate: REST 502 unreachable, el chat falla en select_product, sin selección ni efectos (celda INF29-HP, p0-model-failures-corrida-2)."
+  },
+  "sin-internet-antes-del-llm/delegado": {
+    "source": "INF29",
+    "tests": [
+      "tests/delegation/test_hnp_model_failure_kind.py::test_a_selector_the_model_failed_records_why_in_task_finished[unreachable-enforce]",
+      "tests/delegation/test_hnp_runtime.py::test_b2_hnp_escalates_a_selector_outage_without_effects",
+      "tests/integration/test_p0_model_failures.py::test_p0_hnp_model_failure[INF29-HNP-r1]"
+    ],
+    "why": "ConnectError antes de que responda el selector: escala con selection_unavailable (nunca selection_not_eligible), failure_kind=unreachable y cero POST (celda INF29-HNP, p0-model-failures-corrida-2)."
+  },
+  "sin-internet-tras-el-checkout/presente": {
+    "source": "INF30",
+    "tests": [
+      "tests/integration/test_exp01_first_batch.py::test_inf30_lost_creation_response",
+      "tests/governance/test_guarded_d1.py::test_unverified_or_lost_initial_response_only_allows_readonly_recovery[lost]",
+      "tests/governance/test_runtime_dispatch.py::test_governed_uncertain_creation_is_never_retried[timeout]"
+    ],
+    "why": "El Merchant acepta la creación y la respuesta se pierde: la consulta concilia el mismo checkout y no hay un segundo POST (EXP-01 run 41846571407; CI de D1 gobernado)."
+  },
+  "sin-internet-tras-el-checkout/delegado": {
+    "source": "INF30",
+    "tests": [
+      "tests/governance/test_d1_hnp_gate.py::test_a_checkout_that_may_exist_stays_uncertain_after_the_task_ends[timeout-d1_dispatch_uncertain]",
+      "tests/delegation/test_hnp_executor.py::test_a_selected_purchase_is_left_to_d1_recovery[d1_dispatch_uncertain]"
+    ],
+    "why": "Timeout después del POST de creación en D1-HNP: la compra queda uncertain, la tarea falla sin decir que no se creó y la conciliación D1 acepta la evidencia HNP; nunca se repite el POST. Solo CI: no hay corrida P0 HNP."
+  },
+  "tienda-no-responde/delegado": {
+    "source": "INF31",
+    "tests": [
+      "tests/delegation/test_hnp_merchant_refusal.py::test_an_untyped_answer_to_the_creation_names_no_cause[server_error-enforce]",
+      "tests/governance/test_d1_hnp_gate.py::test_a_checkout_that_may_exist_stays_uncertain_after_the_task_ends[timeout-d1_dispatch_uncertain]"
+    ],
+    "why": "5xx o timeout en la creación en B2-HNP: checkout_failed sin efectos, sin culpar al comercio y con la compra uncertain para D1. Solo CI: no hay corrida P0 HNP."
+  },
+  "pago-rechazado/presente": {
+    "source": "INF32",
+    "tests": [
+      "tests/integration/test_live_purchase.py::test_b0_declined_payment_leaves_the_checkout_open_and_no_order",
+      "tests/test_purchase_trace_api.py::test_payment_rejected_by_the_merchant_ends_in_a_failure",
+      "tests/test_completion.py::test_failure_keeps_key_and_approval_without_inventing_order[error0-failed]"
+    ],
+    "why": "Pago rechazado (payment_declined): el checkout queda abierto, no hay orden y la traza termina en failed (matrix.json INF32, B0 en vivo; CI). El PSP no modela la razón «fondos insuficientes»."
+  },
+  "pago-rechazado/delegado": {
+    "source": "INF32",
+    "tests": [
+      "tests/delegation/test_hnp_dispatcher.py::test_a_psp_error_receipt_releases_and_escalates_or_fails",
+      "tests/integration/test_live_hnp.py::test_hnp_open_mandate_beyond_the_profile_is_never_paid[B0-HNP]"
+    ],
+    "why": "Parcial: el PSP rechaza con un recibo de error AP2 (unresolved_constraint o invalid_credential), libera la reserva y no hay orden. En HNP no hay payment_declined ni razón de fondos."
+  },
+  "revisor-responde-mal/presente": {
+    "source": "INF33",
+    "uncovered": "No aplica: en HP no hay revisor LLM y la aprobación es del comprador (matrix-observed.json INF33 HP not_applicable; p0-model-failures.md §4)."
+  },
+  "revisor-responde-mal/delegado": {
+    "source": "INF33",
+    "tests": [
+      "tests/delegation/test_hnp_model_failure_kind.py::test_a_review_the_model_could_not_give_records_why",
+      "tests/delegation/test_hnp_model_reviewer.py::test_a_failed_or_invalid_answer_is_an_interpretation_error",
+      "tests/integration/test_p0_model_failures.py::test_p0_hnp_model_failure[INF33-HNP-b-r1]"
+    ],
+    "why": "Revisor con timeout o JSON fuera de contrato: choice_not_confirmed con review_unavailable, sin revisión confirmada, compra cancelada sin checkout (celdas INF33-HNP-a/b, p0-model-failures-corrida-2)."
+  }
+}

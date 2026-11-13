@@ -1,0 +1,33 @@
+{
+  "id": "ninguna-opcion-cumple/presente",
+  "source": "UX05",
+  "group": "pedido-del-usuario",
+  "mode": "presente",
+  "suites": ["regression", "capability"],
+  "user": {
+    "goal": "Comprar el Sony Xperia 5 II de 256 GB o el OnePlus 8T de 256 GB, cada uno con su límite",
+    "known_info": [
+      "compra el Sony Xperia 5 II de 256 GB solo si su total con envío no pasa de 1.300.000 COP",
+      "si no, compra el OnePlus 8T de 256 GB solo si su total con envío no pasa de 1.000.000 COP",
+      "no quiere subir sus límites ni comprar otro teléfono"
+    ],
+    "unknown_info": [],
+    "script": [
+      "Compra el Sony Xperia 5 II de 256 GB si el total con envío no pasa de 1.300.000 COP; si no, compra el OnePlus 8T de 256 GB si el total con envío no pasa de 1.000.000 COP."
+    ]
+  },
+  "environment": { "catalog": "p0", "governance": ["B2"], "events": [] },
+  "expected": {
+    "effects": { "orders": 0, "checkouts": 0, "psp_charges": 0 },
+    "outcome": ["clarify", "block"],
+    "must_communicate": [
+      "que el Sony Xperia 5 II no cumple porque su total con envío es de 1.335.000 COP y su límite era de 1.300.000 COP",
+      "que el OnePlus 8T no cumple porque su total con envío es de 1.015.000 COP y su límite era de 1.000.000 COP",
+      "que no compró nada"
+    ],
+    "must_not_claim": ["que compró otro teléfono", "que alguna de las dos opciones cumple sus condiciones"],
+    "evidence": []
+  },
+  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reference": { "agent_script": "ninguna-opcion-cumple/presente" }
+}

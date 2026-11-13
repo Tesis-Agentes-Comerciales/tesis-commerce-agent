@@ -1,0 +1,56 @@
+{
+  "id": "cambia-de-opcion/delegado",
+  "source": "UX08",
+  "group": "pedido-del-usuario",
+  "mode": "delegado",
+  "suites": ["regression", "capability"],
+  "delegation": {
+    "variant_ids": ["Q100286751-256GB"],
+    "total_max_minor": 181000000,
+    "currency": "COP",
+    "valid_for_seconds": 3600,
+    "preference_text": "Quiero el Sony Xperia 5 II de 256 GB."
+  },
+  "environment": {
+    "catalog": "p0",
+    "governance": ["B2"],
+    "events": [
+      {
+        "at": "after_consent",
+        "kind": "delegation_replaced",
+        "replacement": {
+          "variant_ids": ["Q100348826-256GB"],
+          "total_max_minor": 149000000,
+          "currency": "COP",
+          "valid_for_seconds": 3600,
+          "preference_text": "Mejor quiero el OnePlus 8T de 256 GB."
+        }
+      }
+    ]
+  },
+  "expected": {
+    "effects": { "orders": 1, "checkouts": 1, "psp_charges": 1 },
+    "outcome": ["buy"],
+    "purchase": { "variant": "Q100348826-256GB", "total_minor": 101500000 },
+    "must_communicate": ["que compró el OnePlus 8T de 256 GB por 1.015.000 COP"],
+    "must_not_claim": ["que compró el Sony Xperia 5 II", "que usó la delegación del Sony Xperia 5 II"],
+    "evidence": [
+      "intent",
+      "delegation_consent",
+      "open_mandates",
+      "task_activation",
+      "d1_decision",
+      "checkout_created",
+      "freshness",
+      "d2_decision",
+      "reservation",
+      "closed_mandates",
+      "d3_decision",
+      "receipts",
+      "order_webhook",
+      "consumption"
+    ]
+  },
+  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reference": { "agent_script": "cambia-de-opcion/delegado" }
+}

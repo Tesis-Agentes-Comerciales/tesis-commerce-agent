@@ -1,0 +1,41 @@
+{
+  "id": "variante-prohibida/presente",
+  "source": "UX07",
+  "group": "pedido-del-usuario",
+  "mode": "presente",
+  "suites": ["regression", "capability"],
+  "user": {
+    "goal": "Comprar un teléfono nuevo de 256 GB, de preferencia el Sony Xperia 5 II, y nunca el OnePlus 8T",
+    "known_info": [
+      "su presupuesto total es de 2.000.000 COP con envío incluido",
+      "prefiere el Sony Xperia 5 II",
+      "nunca quiere el OnePlus 8T, aunque cueste menos"
+    ],
+    "unknown_info": [],
+    "script": [
+      "Quiero comprar un teléfono nuevo de 256 GB que cueste máximo dos millones incluyendo el envío. Prefiero el Sony Xperia 5 II, pero nunca compres el OnePlus 8T."
+    ]
+  },
+  "environment": { "catalog": "p0", "governance": ["B2"], "events": [] },
+  "expected": {
+    "effects": { "orders": 1, "checkouts": 1, "psp_charges": 1 },
+    "outcome": ["buy"],
+    "purchase": { "variant": "Q100286751-256GB", "total_minor": 133500000 },
+    "forbidden_variants": ["Q100348826-256GB"],
+    "must_communicate": ["que eligió el Sony Xperia 5 II de 256 GB"],
+    "must_not_claim": ["que compró el OnePlus 8T", "que el OnePlus 8T es una opción para esta compra"],
+    "evidence": [
+      "intent",
+      "d1_decision",
+      "checkout_created",
+      "freshness",
+      "d2_decision",
+      "approval",
+      "mandates",
+      "receipts",
+      "order_webhook"
+    ]
+  },
+  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reference": { "agent_script": "variante-prohibida/presente" }
+}

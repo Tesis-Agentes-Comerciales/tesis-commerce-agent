@@ -13,6 +13,11 @@ from commerce_evaluation.suite.cases import DelegatedCase, PresentCase, load_cat
 
 SEEDS = DATA / "suite" / "cases"
 UX12 = "pedido-del-usuario/entrega-no-verificable/presente.json"
+SEED_IDS = (
+    "entrega-no-verificable/presente",
+    "se-agota-tras-el-permiso/delegado",
+    "tienda-no-responde/presente",
+)
 
 
 def seed(**changes: Any) -> dict[str, Any]:
@@ -29,15 +34,10 @@ def write(root: Path, relative: str, case: dict[str, Any]) -> Path:
 def test_the_seed_cases_load() -> None:
     cases = {case.id: case for case in load_catalog(SEEDS)}
 
-    assert sorted(cases) == [
-        "entrega-no-verificable/presente",
-        "se-agota-tras-el-permiso/delegado",
-        "tienda-no-responde/presente",
-    ]
     assert isinstance(cases["entrega-no-verificable/presente"], PresentCase)
     assert isinstance(cases["se-agota-tras-el-permiso/delegado"], DelegatedCase)
     assert isinstance(cases["tienda-no-responde/presente"], PresentCase)
-    assert {case.source for case in cases.values()} == {"UX12", "CT13", "INF31"}
+    assert [cases[seed].source for seed in SEED_IDS] == ["UX12", "CT13", "INF31"]
 
 
 def test_the_seeds_load_from_their_own_directory(tmp_path: Path) -> None:
