@@ -168,7 +168,7 @@
     "source": "INF28",
     "tests": [
       "tests/delegation/test_hnp_model_failure_kind.py::test_a_selector_the_model_failed_records_why_in_task_finished[quota_exhausted-enforce]",
-      "tests/test_model_failures.py::test_a_spent_quota_is_tried_once[ledger-selector]",
+      "tests/test_model_failures.py::test_a_spent_monthly_cap_is_tried_once[ledger-selector]",
       "tests/integration/test_p0_model_failures.py::test_p0_hnp_model_failure[INF28-HNP-r1]"
     ],
     "why": "429 insufficient_quota en el selector: 1 solo intento, selection_unavailable con failure_kind=quota_exhausted y cero efectos (celda INF28-HNP, p0-model-failures-corrida-2)."
