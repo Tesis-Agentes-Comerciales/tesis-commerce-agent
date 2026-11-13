@@ -115,8 +115,9 @@ pasa del límite, el checkout se crea y se cancela igual. Esto lo leí; no lo ej
 - **Leer una oferta deja rastro en el Merchant:** `PersistentCatalogReader.get` inserta un evento
   `offer.read` en `run_events`, con `offer_id` y resultado
   (`commerce_lab/persistent_catalog.py:47-64`). El oráculo de 0 efectos del bloque A compara
-  **todas** las tablas del Merchant (`tests/integration/live_merchant_control.py:173-188`), así
-  que hay que ajustarlo (§4.4).
+  **todas** las tablas del Merchant
+  (`evaluation/src/commerce_evaluation/stack/merchant_control/core.py:170-185`), así que hay que
+  ajustarlo (§4.4).
 
 ### 2.5 Restricciones que condicionan el diseño (leído)
 
@@ -532,7 +533,7 @@ arnés de Maldo. El producto no los necesita para decidir.
   Xperia 5 II y 5 IV, pero no 5 III. Si una regla da 0 o más de una coincidencia, la celda se
   bloquea como `insufficient_fixture_data`, sin cambiar de par.
 - **Totales:** `T_A` y `T_B` son el `pricing.total_minor` de cada oferta. Los lee el worker del
-  Merchant en solo lectura (`observe_offer`, `live_merchant_control.py:329-335`) antes del turno, y
+  Merchant en solo lectura (`observe_offer`, `merchant_control/core.py:211-217`) antes del turno, y
   quedan registrados con su `revision`.
 - **Límites:** `T−1` es una unidad menor, sin floats. Si `T = 0`, se bloquea.
 - **UX03-C** exige `T_B < T_A`. Si no se cumple, esa celda queda bloqueada; no se cambia de par.
@@ -627,7 +628,7 @@ Tiene dos partes, adaptadas del bloque A (`zero_effects`, `test_p0_model_failure
   | UX04-HNP-rev-no | {A: 1} |
 
   **En UX06, el snapshot «antes» se toma después de `edit_offer`.** `edit_offer` sube la revisión
-  de A en `catalog_offers` (`live_merchant_control.py:345-348`). Si el «antes» fuera previo, ese
+  de A en `catalog_offers` (`merchant_control/offers.py:137-140`). Si el «antes» fuera previo, ese
   cambio del estímulo contaría como efecto del agente.
 - **En el ledger del agente:** ninguna fila nueva en `purchases`, `approvals`, `orders`,
   `completion_results`, `grant_reservations`, `dispatch_outbox`, `ap2_evidence`,

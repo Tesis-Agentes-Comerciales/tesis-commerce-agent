@@ -11,6 +11,11 @@ pasa por HTTP real de loopback a través de `FaultProxy`, que es transparente sa
 prueba arma un fallo etiquetado. La suite normal y `ci.yml` los omiten; el workflow
 `nightly.yml` los ejecuta cada noche y a pedido.
 
+El stack vive en [`commerce_evaluation.stack`](../../evaluation/src/commerce_evaluation/stack)
+([piezas](#piezas)), porque el corredor de la suite de evaluación arranca con él un entorno
+limpio por intento ([spec](../../docs/design/eval-suite.md), §5). Aquí quedan las pruebas, sus
+fixtures y los ayudantes que solo ellas usan.
+
 Hay cinco grupos sobre el mismo PostgreSQL:
 
 - Gobernanza (06D-C, 07A, 07B-B, 07B-P): el Merchant del stack detrás de su proxy, con fallos
@@ -230,29 +235,56 @@ docker ps -a --filter label=tesis-live=1
 docker rm --force --volumes $(docker ps -aq --filter label=tesis-live=1)
 pgrep -fl "commerce_lab.api:app --fd"   # Merchant huérfano, si quedó alguno
 pgrep -fl "tesis_payment_provider.api:app_factory"   # proveedor huérfano
-pgrep -fl "live_purchase:hnp_app"   # Agent HNP huérfano
+pgrep -fl "stack.hnp_agent:hnp_app"   # Agent HNP huérfano
 pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
 ```
 
 ## Piezas
 
-- `live_stack.py`: `PostgresContainer`, `ServiceServer` (Merchant o proveedor, con listener
-  heredado), `MerchantControl`, `FaultProxy` (rutas exactas o con `*` por segmento),
-  `LiveStack`, `AgentProcess` y `JointCase` (episodio 06D-C/07A sobre el Merchant real).
-- `live_purchase.py`: `PurchaseLane` (Merchant, proxy, proveedor de pagos, receptor de webhooks
-  del Agent y control del Merchant de un perfil `b0`, `acp` o `hnp`) y `Episode` (episodio B0
-  sembrado con su sesión y su feed ACP exportado), además del router guionado y la solicitud del
-  teléfono que comparten la prueba conversacional y la del navegador. Para HNP, `HnpAgent` (el
-  Agent de un episodio y una condición en su propio proceso: `hnp_app` bajo uvicorn, con el
-  comprador del episodio y un reloj de autoridad que puede adelantarse tras una caída) y
+En `commerce_evaluation.stack`:
+
+- `environment.py`: requisitos (`missing_requirements`), puertos libres, `wait_until`,
+  `clean_environment` (los hijos no heredan credenciales ni el virtualenv) y `git_state`.
+- `postgres.py`: `PostgresContainer`, el PostgreSQL desechable con la imagen del CI del Merchant.
+- `service_server.py`: `ServiceServer` (Merchant, proveedor o Agent HNP bajo uvicorn, con
+  listener heredado y, si tiene proxy, detrás de él aunque se reinicie).
+- `fault_proxy.py`: `FaultProxy` (rutas exactas o con `*` por segmento), `await_call` y
   `on_checkout`, que arma los hooks y fallos de las rutas con el id del checkout antes de que el
   Agent las pida.
+- `live_stack.py`: `LiveStack` (PostgreSQL, Merchant, proxy y control del Merchant) y
+  `MerchantControl`, el cliente del control.
+- `merchant_control/`: corre con el intérprete del Merchant (`python -m
+  commerce_evaluation.stack.merchant_control`, con solo `evaluation/src` en `PYTHONPATH`; sus
+  módulos importan solo la biblioteca estándar). Aprovisiona con las funciones del propio
+  Merchant (migraciones, episodios, sesiones, catálogo gestionado) y toma instantáneas y
+  contadores de efectos; para las compras siembra episodios B0, exporta su feed, despacha
+  webhooks y avanza órdenes, y `reprice_offer` sube el precio de una oferta y reexporta su feed.
+  Rechaza cualquier DSN, base, rol o `cluster_name` que no sean los de la ejecución. `core.py`
+  tiene la conexión y las operaciones base; `offers.py`, `ct19.py` y `p3.py`, las de cada grupo.
+- `agent_process.py` y `agent_worker/`: `AgentProcess`, el proceso del Agent para reinicios y
+  caídas (`python -m commerce_evaluation.stack.agent_worker`). Un audit hook limita sus sockets
+  al proxy y sus escrituras al directorio de la ejecución.
+- `fake_checkout.py`: `FakeCheckoutGateway` (el gateway en memoria de las pruebas unitarias, con
+  `checkout` y `details`) y `NoEffectsGateway`, el del Agent de un caso de recuperación, que nunca
+  llega al Merchant.
+- `joint_case.py`: `JointCase`, el episodio 06D-C/07A sobre el Merchant real.
+- `purchase_lane.py`: `PurchaseLane` (Merchant, proxy, proveedor de pagos, receptor de webhooks
+  del Agent y control del Merchant de un perfil `b0`, `acp` o `hnp`) y `Episode` (episodio B0
+  sembrado con su sesión y su feed ACP exportado). `webhook_receiver.py` tiene el receptor.
+- `purchase_agent.py`: el Agent Human Present de un episodio en este proceso (`agent`), el router
+  guionado y la solicitud del teléfono que comparten la prueba conversacional y la del navegador.
+- `hnp_agent.py`: `HnpAgent` (el Agent de un episodio y una condición en su propio proceso:
+  `hnp_app` bajo uvicorn, con el comprador del episodio y un reloj de autoridad que puede
+  adelantarse tras una caída), `hnp_condition` y `delegation_request`.
+
+En `tests/integration`:
+
 - `live_browser.py`: `BuyerUi` (`auth/` y Vite como `NodeServer`, el Agent como `AgentServer`
   de `tests/support/agent_server.py`, uvicorn en un hilo de este proceso con `ExplicitSettings`;
   no depende del stack, así que la capa 1 también lo usa) para un episodio de un carril y una
   condición; puede reiniciar el Agent en el mismo puerto y disparar una tarea HNP con el token de
-  servicio. `Journey` graba vídeo, capturas, controles y traza sanitizada. `hnp_condition` da
-  las variables de una condición HNP que comparten `HnpAgent` y `BuyerUi`.
+  servicio. `Journey` graba vídeo, capturas, controles y traza sanitizada. `hnp_condition` (de
+  `hnp_agent.py`) da las variables de una condición HNP que comparten `HnpAgent` y `BuyerUi`.
 - `live_model.py`: `ModelHnpAgent`, el Agent HNP de `HnpAgent` (mismas variables, rutas y
   lecturas) servido en este proceso con `AgentServer` y `ExplicitSettings`, con
   `AGENT_HNP_SELECTOR=llm` y, si se pide, `AGENT_HNP_REVIEWER=llm`, más una clave y un modelo
@@ -272,14 +304,8 @@ pgrep -fl "node server.js|vite.js"   # auth o UI huérfanos
   justo después del POST del checkout. UX08-HP agrega la ruta de cancel al proxy de `b0` solo
   durante su caso. Deja `p0-ux08-ux10/summary.json`; las celdas de CI del protocolo corren
   aparte, sin red.
-- `live_merchant_control.py`: corre con el intérprete del Merchant. Aprovisiona con las
-  funciones del propio Merchant (migraciones, episodios, sesiones, catálogo gestionado) y toma
-  instantáneas y contadores de efectos; para las compras siembra episodios B0, exporta su feed,
-  despacha webhooks y avanza órdenes, y `reprice_offer` sube el precio de una oferta y
-  reexporta su feed. Rechaza cualquier DSN, base, rol o `cluster_name` que no
-  sean los de la ejecución.
-- `live_agent_worker.py`: proceso del Agent para reinicios y caídas. Un audit hook limita sus
-  sockets al proxy y sus escrituras al directorio de la ejecución.
+- `exp01_support.py`: el registro congelado de entrada y oráculo de cada caso EXP y sus
+  instantáneas SQLite.
 - `conftest.py`: `stack` (sesión), `proxy` (por prueba) y los carriles `b0`, `acp` y `hnp` (sesión,
   verificados por prueba). Cada proxy se reinicia antes de la prueba y la hace fallar si un hook
   falló o si alguien pidió una ruta fuera de la lista permitida (el proxy responde 405 y no la
@@ -325,7 +351,8 @@ real (sin red):
 
 La revocación entre D2 y D3 en vivo cae en la lectura del Checkout JWT, después de UoW-1 y antes
 de UoW-C. Inyectar en vivo los dos puntos sin HTTP exigiría un cutpoint dentro del proceso del
-Agent, como `live_agent_worker.py` hace para 06D-C y 07B-B, y eso queda fuera de este PR.
+Agent, como `commerce_evaluation.stack.agent_worker` hace para 06D-C y 07B-B, y eso queda fuera
+de este PR.
 
 ## fail_open_rate
 
