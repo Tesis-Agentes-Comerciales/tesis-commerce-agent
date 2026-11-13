@@ -96,6 +96,8 @@ def test_tokens_other_tests_left_in_the_session_provider_do_not_count() -> None:
         lambda f: f.update(after_cleanup={}),
         lambda f: f.update(payment_calls=1),
         lambda f: f.update(psp_after={"delegations": {"count": 1}}),
+        # A snapshot without the provider's delegations proves nothing about its tokens.
+        lambda f: f.update(psp_before={}, psp_after={}, psp_after_cleanup={}),
         lambda f: f.update(reservations=[["reserved", None]]),
     ],
 )

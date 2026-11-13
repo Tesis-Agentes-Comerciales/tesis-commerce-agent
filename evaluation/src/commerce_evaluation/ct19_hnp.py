@@ -64,11 +64,12 @@ def verify_control(control: str, facts: dict[str, Any]) -> bool:
             for table in ("orders", "checkout_completion_attempts")
         ):
             return False
-        # No PSP mutation: the provider's tables (delegations included) are the same before,
-        # after and after the cleanup. The lane's provider lives for the whole pytest session,
-        # so tokens other tests left before this control do not count.
+        # No PSP mutation: the provider's tables, its delegations among them, are the same
+        # before, after and after the cleanup. The lane's provider lives for the whole pytest
+        # session, so tokens other tests left before this control do not count.
         if (
-            facts["psp_before"] != facts["psp_after"]
+            "delegations" not in facts["psp_before"]
+            or facts["psp_before"] != facts["psp_after"]
             or facts["psp_before"] != facts["psp_after_cleanup"]
             or facts["payment_calls"] != 0
             or facts["completion_calls"] != 0
