@@ -450,14 +450,14 @@ def in_clone(commit: str) -> bool:
 
 def test_the_run_ref_is_the_product_base_and_its_tag_names_it():
     """Batch two is reproduced from its tag, not from main: main's executor may move on, since
-    the batch is exploratory. Where the clone has the run_ref, its product is the base's and
-    the tag names it. A shallow checkout without it skips."""
+    the batch is exploratory. Where the clone has them, the run_ref's product is the base's and
+    the tag names the run_ref. A shallow or tagless checkout skips."""
     run_ref = AMENDMENT["run_ref"]
-    if not in_clone(run_ref["commit"]) or not in_clone(execution.PRODUCT_BASE):
-        pytest.skip("run_ref or product_base not in this clone")
-    repository = str(execution.REPOSITORY)
-    base, commit = execution.PRODUCT_BASE, run_ref["commit"]
-    product = ["git", "-C", repository, "diff", "--quiet", base, commit, "--"]
-    assert subprocess.run([*product, *execution.PRODUCT_PATHS]).returncode == 0
-    tag = ["git", "-C", repository, "rev-parse", run_ref["tag"] + "^{commit}"]
-    assert subprocess.run(tag, capture_output=True, text=True).stdout.strip() == commit
+    base, commit, tag = execution.PRODUCT_BASE, run_ref["commit"], run_ref["tag"]
+    if not all(in_clone(ref) for ref in (base, commit, tag)):
+        pytest.skip("product_base, run_ref or its tag not in this clone")
+    git = ["git", "-C", str(execution.REPOSITORY)]
+    product = [*git, "diff", "--quiet", base, commit, "--", *execution.PRODUCT_PATHS]
+    assert subprocess.run(product).returncode == 0
+    named = subprocess.run([*git, "rev-parse", "--verify", tag + "^{commit}"], capture_output=True)
+    assert named.stdout.decode().strip() == commit
