@@ -7,26 +7,19 @@ from typing import Any
 
 from commerce_evaluation.stack.merchant_control.core import BaseControl, module
 
-# catalog_text: the offer field behind each catalog field a case may rewrite.
-CATALOG_FIELDS = {"variant_title": "name", "brand": "brand"}
-
 
 class SuiteControl(BaseControl):
     def suite_offer(self, command: dict[str, Any]) -> dict[str, Any]:
-        """One offer event, in a new revision: `catalog_text` puts the case's text in the field
-        (the Merchant's offer contract still validates it), `stock_out` sells the offer out. With
-        `feed_dir` the episode's feed is exported again, so the Agent reads the change."""
-        kind = command["kind"]
+        """One offer event, in a new revision: `stock_out` sells the offer out. With `feed_dir`
+        the episode's feed is exported again, so the Agent reads the change. `catalog_text` is
+        not one: it changes the feed alone (suite/live/events.py)."""
+        if command["kind"] != "stock_out":
+            raise ValueError("Unknown offer event")
 
         def change(value: dict[str, Any]) -> None:
             value["revision"] += 1
-            if kind == "catalog_text":
-                value[CATALOG_FIELDS[command["field"]]] = command["text"]
-            elif kind == "stock_out":
-                value["availability"] = "out_of_stock"
-                value["available_quantity"] = 0
-            else:
-                raise ValueError("Unknown offer event")
+            value["availability"] = "out_of_stock"
+            value["available_quantity"] = 0
 
         changed = self.rewrite_offer(command["run_id"], command["variant"], change)
         if command.get("feed_dir") is None:
