@@ -664,5 +664,7 @@ Cada PR es de un tema, con la compuerta local en verde y un revisor independient
 
 ## 12. Pendiente del dueño
 
-- [ ] Confirmar que los dos autores etiquetan unas 2 horas de transcripciones (PR 12).
-- [ ] La fecha de entrega, para ordenar los PRs según el tiempo.
+- [x] Etiquetado: lo hace Yair solo, con la muestra de 40 intentos de §3 (unas 1,5 horas), y
+  repite 20 ítems para medir su propia consistencia. Que etiquete una sola persona queda como
+  limitación declarada.
+- [x] Fecha de entrega de la suite: lunes 16-nov-2026.
