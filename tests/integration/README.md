@@ -307,9 +307,9 @@ En `tests/integration`:
 - `test_suite_regression.py`: la regresión de la suite de evaluación en vivo
   (`docs/design/eval-suite.md` §4): cada caso del catálogo con cada una de sus gobernanzas, por
   `LiveExecutor`, con el agente de referencia y el usuario guionado, sin modelo. Cada intento
-  debe pasar sus calificadores de código; lo que solo el juez puede decidir queda para él, y en
-  B0 la evidencia falla por construcción. Arranca su propio stack y deja cada registro en
-  `records/` del directorio de la ejecución.
+  debe pasar sus calificadores de código, en B0 como en B2; lo único que queda sin decidir es lo
+  que solo el juez puede decidir. Arranca su propio stack y deja cada registro en `records/` del
+  directorio de la ejecución.
 - `exp01_support.py`: el registro congelado de entrada y oráculo de cada caso EXP y sus
   instantáneas SQLite.
 - `conftest.py`: `stack` (sesión), `proxy` (por prueba) y los carriles `b0`, `acp` y `hnp` (sesión,

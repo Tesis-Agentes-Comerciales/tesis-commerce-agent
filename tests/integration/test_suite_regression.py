@@ -2,11 +2,10 @@
 governance conditions, with the reference agent and the scripted user (eval-suite.md §2, §4).
 
 No model is configured and no LLM is called. Each trial runs through `LiveExecutor`, as
-`eval-suite run --suite regression` does, and must pass every code grader of its reward basis:
-what the agent says that code cannot square stays for the judge (a claims `unknown` whose reason
-starts with `FOR_THE_JUDGE`), and nothing else may be left unknown. One known limit stands
-(§4): under B0 there is no D1, so a purchase's evidence chain is incomplete by construction and
-the evidence grader fails there; the test checks that it fails for that reason only.
+`eval-suite run --suite regression` does, and must be a strict success on everything code
+decides: every grader of its reward basis passes, under B0 as under B2 (the evidence grader sets
+B0's governance links aside itself, §4). Only what the agent says that code cannot square is
+left, for the judge: a claims `unknown` whose reason starts with `FOR_THE_JUDGE`.
 
 A case that fails here is inconsistent with the product or the stack, since its reference ends
 where it expects. Each record is written to the run directory,
@@ -24,25 +23,11 @@ from commerce_evaluation.stack.environment import missing_requirements
 from commerce_evaluation.suite.cases import Case, load_catalog
 from commerce_evaluation.suite.executor import RunSettings
 from commerce_evaluation.suite.graders.claims import FOR_THE_JUDGE
+from commerce_evaluation.suite.graders.grade import Grade
 from commerce_evaluation.suite.graders.success import grade
 from commerce_evaluation.suite.live_executor import LiveExecutor
 
 CATALOG = load_catalog(DATA / "suite" / "cases")
-# The links B0 never records: without governance there is no intent, D1, D2 or D3 evidence, and
-# the links that chain onto them go missing too.
-GOVERNED = frozenset(
-    {
-        "intent",
-        "d1_decision",
-        "checkout_created",
-        "freshness",
-        "d2_decision",
-        "d3_decision",
-        "approval",
-        "mandates",
-        "receipts",
-    }
-)
 TRIALS = [
     pytest.param(case, governance, id=f"{case.id}-{governance}")
     for case in CATALOG
@@ -73,17 +58,18 @@ def test_reference_passes_the_code_graders(executor, run_dir, case: Case, govern
     (records / f"{name}.json").write_text(record.model_dump_json(indent=2), encoding="utf-8")
     assert record.infra_failure is None, record.infra_failure
     assert record.agent.model == "reference" and record.usage.usd == 0
+    # Strict success on what code decides: no fail, and no unknown but the judge's.
     left = [
         f"{given.grader} {given.verdict}: {given.reason}"
         for given in grade(case, record)
-        if given.verdict != "pass"
-        and not (given.grader == "claims" and given.reason.startswith(FOR_THE_JUDGE))
-        and not (governance == "B0" and given.grader == "evidence" and ungoverned(given.reason))
+        if given.verdict != "pass" and not for_the_judge(given)
     ]
     assert not left, left
 
 
-def ungoverned(reason: str) -> bool:
-    """B0's evidence failure (§4): only the governance links are missing from its chains."""
-    broken = re.findall(r"(\w+) (?:missing|mismatch)", reason)
-    return bool(broken) and set(broken) <= GOVERNED
+def for_the_judge(given: Grade) -> bool:
+    return (
+        given.grader == "claims"
+        and given.verdict == "unknown"
+        and given.reason.startswith(FOR_THE_JUDGE)
+    )
