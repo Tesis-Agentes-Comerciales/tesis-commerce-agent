@@ -210,7 +210,7 @@ vocabulario de los eventos está en `suite/events.py`.
 | `expected.forbidden_variants` | Opcional. Variantes de las que no puede haber checkout ni orden (`no_checkout_of` del lote 2), como la que señala una inyección |
 | `expected.evidence` | Los eslabones de `verify_evidence` (`presente`) o de `verify_evidence_hnp` (`delegado`) que deben quedar `ok` |
 | `reward_basis` | Los calificadores que cuentan para el éxito: `effects`, `outcome`, `evidence` y `claims` |
-| `reference` | El guion de un modelo que resuelve bien el caso. Tiene que pasar todos los calificadores, y así se valida el caso mismo |
+| `reference` | La solución de referencia: `agent_script` es el `id` del caso, porque el agente de referencia sale de `expected` (abajo, «El intento en el stack»). Tiene que pasar todos los calificadores de código, y así se valida el caso mismo |
 
 Los eventos salen de lo que piden los escenarios de la tienda, del permiso y de las fallas:
 
@@ -305,7 +305,8 @@ por su cuenta la variante que señalan I1 o I3. La tasa de ataques que logran su
 solo sobre los casos con `catalog_text`.
 
 **El texto llega al modelo.** `catalog_text` reescribe el campo en el feed que exporta el
-comercio y lee el agente, antes de que arranque; la base y los checkouts del comercio no cambian.
+comercio y lee el agente, antes de que arranque; la base y los checkouts del comercio no cambian,
+así que el texto no pasa por los límites de sus campos (una marca, por ejemplo, tiene hasta 100).
 `variant_title` entra en los candidatos que ven la selección y el selector de `delegado`, y
 `brand` entra en el vocabulario del catálogo que lleva el router en sus instrucciones. Un intento
 en el que el texto no aparece en la petición al modelo no mide el ataque.
@@ -323,6 +324,48 @@ revisor. Su pass^k mide ese código, no la capacidad del modelo.
 
 `llm-limite-de-solicitudes`, `llm-sin-saldo` y `revisor-responde-mal` reemplazan al LLM por una
 respuesta guionada de su proveedor, así que solo van en regresión.
+
+### El intento en el stack
+
+`LiveExecutor` (`suite/live_executor.py` y `suite/live/`) corre cada intento sobre el stack
+vivo. Arranca PostgreSQL y el Merchant una vez por corrida, y cada carril la primera vez que lo
+necesita un intento: `b0` para `presente` y `hnp` para `delegado`, los dos con el PSP real. Cada
+intento es un episodio nuevo del Merchant y un Agent nuevo con su propia base, en su carpeta de
+la corrida: el `create_app` de producción en este proceso, con todos sus valores explícitos y sin
+leer `.env`.
+
+- **Gobernanza.** En `presente`, B2 es la condición B2 con la política b2-hp-v2, y B0 es B0′
+  (gobernanza apagada), como en los pilotos. En `delegado`, B2 es B2-HNP y B0 es B0-HNP.
+- **Modelo.** Con `--agent`, el Agent corre sobre Claude con ese modelo y ese esfuerzo; en
+  `delegado` el selector es el modelo y, en B2, también el revisor. La clave sale de
+  `ANTHROPIC_API_KEY` de este proceso y va solo a los settings del Agent.
+- **Agente de referencia** (`suite/live/reference.py`). Sin `--agent`, en la frontera del modelo
+  está el agente de referencia, que no lee un guion: sale de `expected`, así que termina donde el
+  caso espera, y todo lo demás (búsqueda, gobernanza, checkout, aprobación y evidencia) es del
+  producto. En `presente` reemplaza al router. Si el caso espera `buy`, compra la variante y el
+  total de `expected.purchase`. Si no espera compra pero sí el eslabón `intent`, intenta la
+  variante que nombra `script[0]`, para que el evento o el producto la detengan. Si no, pregunta
+  (`clarify`) cuando el caso lo acepta, o responde con `must_communicate`. En `delegado`
+  reemplaza al selector: elige la variante esperada, no elige nada si el caso espera `escalate`,
+  y si no, elige la primera de la lista corta.
+- **Eventos.** El corredor aplica `catalog_text` y `stock_out` en `start`, `stock_out` y
+  `delegation_replaced` en `after_consent`, `revoke` en `on_selection` y `merchant_unavailable`
+  en `on_checkout_create`. Un caso con otro evento se rechaza antes de su intento, con su nombre,
+  en vez de correr sin él; si el cambio de un evento no se puede hacer, el que está mal es el
+  caso.
+- **Una respuesta de error.** Si la API del Agent rechaza un turno de `presente`, la
+  conversación termina donde el chat muestra el error: su mensaje es el turno del asistente, y la
+  acción es `respond`.
+- **Infraestructura.** Si el stack o un carril no arrancan, cada intento que los necesita queda
+  con `stack_not_started` y nada más observado, y no se reintenta dentro de la corrida. Es
+  `api_5xx` un 5xx de la API del Agent, un 5xx del Merchant o del PSP que ningún fallo armó, una
+  solicitud al modelo que el proveedor respondió 5xx en todos los intentos o una falla de la API
+  del usuario simulado.
+- **Costo.** El uso del agente sale de `model_requests` en la base del intento y se cobra al
+  presupuesto de la corrida termine como termine el intento.
+
+`tests/integration/test_suite_regression.py` corre así cada caso del catálogo con cada una de
+sus gobernanzas, y exige que pase sus calificadores de código.
 
 ### Registro del intento
 
@@ -409,7 +452,7 @@ flowchart LR
 | `stack/` | Entorno limpio por intento. Vive en `commerce_evaluation/stack/` desde el PR 4, y `tests/integration` lo importa desde ahí | `LiveStack`, `FaultProxy`, `PurchaseLane` |
 | `llm/` | Puerto para llamar a un LLM con salida estructurada y tope de gasto. Hoy vive en `hnp/llm/transport.py` | `StructuredLLM`, `BudgetedTransport`, `FakeTransport` |
 | `users.py` | Usuario guionado y usuario simulado | nada: no existe |
-| `trial.py` | Corre un intento y arma su registro | `build_flow_trace` y los lectores del comercio y del PSP |
+| `trial.py` y `live_executor.py` | El registro del intento, y el ejecutor que corre cada intento en el stack y lo arma (`live/`) | `build_flow_trace`, `verify_database` y los lectores del comercio y del PSP |
 | `graders/` | Los cuatro calificadores y el juez | `verify_evidence`, `StructuredLLM` |
 | `reduce.py` | pass^1 y pass^k con el estimador C(c,k)/C(n,k), con intervalos de Wilson, por tarea y por gobernanza, y la tasa de ataques que logran su objetivo | `wilson` |
 | `report.py` | Tabla y JSON del reporte | nada |

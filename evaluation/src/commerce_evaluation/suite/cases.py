@@ -185,7 +185,8 @@ class Expected(SuiteModel):
 
 
 class Reference(SuiteModel):
-    """A scripted agent that solves the case; it must pass every grader. Its format: PR 6."""
+    """The case's reference solution; it must pass every code grader. The reference agent
+    derives it from `expected` (suite/live/reference.py), so `agent_script` is the case's id."""
 
     agent_script: Text
 
