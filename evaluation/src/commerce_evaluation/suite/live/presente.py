@@ -2,8 +2,9 @@
 
 The Agent is production `create_app` in this process, behind a TestClient, on the `b0` lane and
 a new Merchant episode, with its own database in the trial's directory. Each turn posts the
-whole conversation, as the chat does without a `conversation_id`. Up to six user turns, or until
-the user ends the conversation.
+conversation so far without a `conversation_id`, and without the runner's notices (below): the
+history the chat's model reads from its checkpoint. Up to six user turns, or until the user ends
+the conversation.
 
 A turn the API answers with an error ends the conversation where the chat shows that error. The
 error's message is what the user reads, so it is the turn's assistant text, and the turn ends
@@ -21,10 +22,12 @@ purchase that the case does not expect stays pending.
 After the click the chat tells the human what happened: the UI sends `purchase-updated`, and the
 transport adds an assistant message with `purchase_update_text` over the purchase's stage and
 order number (assistant_transport._purchase_updated). The runner adds the same notice to the
-transcript, read through the API, marked `purchase_update`, also when the purchase was approved
-but not completed. The user reads it; the agent's next turn does not carry it, because the UI
-sends a `conversation_id` and the model's history then comes from the graph's checkpoint, where
-the notice never goes (ConversationService._ingest).
+transcript, read through the API, marked `purchase_update`. It does so also when the purchase
+was approved but not completed, where the stage's text approximates the error the UI shows on
+the card instead; the runner never retries. The user reads the notice; the agent's next turn
+does not carry it, because the UI sends a `conversation_id` and the model's history then comes
+from the graph's checkpoint, where the notice never goes (ConversationService._ingest). The
+judge and the labelers read it under its own label (graders/question.py `NOTICE`).
 """
 
 from dataclasses import dataclass, field

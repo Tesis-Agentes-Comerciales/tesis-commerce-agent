@@ -41,6 +41,7 @@
     background: var(--card); white-space: pre-wrap; overflow-wrap: anywhere; }
   .turn.user { background: var(--user); margin-right: 12%; }
   .turn.assistant { margin-left: 4%; }
+  .turn.purchase_update { border-style: dashed; }
   .speaker { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
   pre { margin: 0; padding: 12px 14px; background: var(--card); border: 1px solid var(--line);
     border-radius: 10px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -141,8 +142,9 @@ function render() {
   $("progress").textContent = `${done} de ${total} criterios respondidos`;
   $("delegated").hidden = !trial.delegated;
   $("turns").replaceChildren(...trial.turns.map((turn) => {
-    const node = element("div", `turn ${turn.role}`);
-    node.append(element("span", "speaker", turn.role === "user" ? "Usuario" : "Asistente"), turn.text);
+    // `speaker` is the judge's own label (graders/question.py), the chat's notice included.
+    const node = element("div", turn.source ? `turn ${turn.role} ${turn.source}` : `turn ${turn.role}`);
+    node.append(element("span", "speaker", turn.speaker), turn.text);
     return node;
   }));
   if (!trial.turns.length) $("turns").append(element("p", "muted", "Sin mensajes."));

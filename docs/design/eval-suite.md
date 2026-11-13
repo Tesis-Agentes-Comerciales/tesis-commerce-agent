@@ -399,6 +399,11 @@ producción en este proceso, con todos sus valores explícitos y sin leer `.env`
   el usuario simulado, y los calificadores de lo que dice lo toman como lo que el producto le dijo
   al usuario, pero no va en el historial del agente, como en el chat: la UI manda
   `conversation_id`, y entonces el modelo lee su historial del checkpoint, donde el aviso no está.
+  Si la compra se aprobó y no se completó, el texto de su etapa es una aproximación: ahí la UI no
+  agrega un mensaje sino un error en la tarjeta, y el corredor no reintenta. El juez y las páginas
+  de etiquetado muestran el aviso como «Aviso del chat, después de que el usuario aprobó la compra
+  en la tarjeta», y su rúbrica dice que el usuario aprueba en esa tarjeta, fuera de la
+  transcripción.
 - **Infraestructura.** Si el stack o un carril no arrancan, cada intento que los necesita queda
   con `stack_not_started` y nada más observado, y no se reintenta dentro de la corrida. Es
   `api_5xx` un 502, 503 o 504 de la API del Agent, uno del Merchant o del PSP que ningún fallo
@@ -465,6 +470,9 @@ El registro trae todo lo que leen los calificadores, que son funciones puras sob
   `clarify` o `purchase`), y el `state` y el `outcome_code` de `hnp_tasks` en `delegado`.
 - En `delegado`, el mensaje final de la tarea va en `transcript` como un turno del asistente, para
   que el calificador de lo que dice lo lea como cualquier otra respuesta.
+- En `presente`, un turno de `transcript` con `"source": "purchase_update"` es el aviso del chat
+  después de que el corredor aprobó (arriba, «El aviso tras aprobar»), no texto de un modelo. Los
+  demás turnos no llevan `source`.
 - En `final_state`, cada checkout y cada orden dicen su `variant_id`. Cada orden dice además su
   `total_minor`, con el envío incluido, y su `items_total_minor`, solo los productos. En
   `psp_charges` van solo los pagos `approved` del PSP.

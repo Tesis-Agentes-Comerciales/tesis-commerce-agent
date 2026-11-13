@@ -19,7 +19,7 @@ from pydantic import Field
 from commerce_evaluation.suite.cases import Case, CaseId, Governance, SuiteModel, Text
 from commerce_evaluation.suite.graders.claims import FOR_THE_JUDGE, claims, findings
 from commerce_evaluation.suite.graders.grade import Grade
-from commerce_evaluation.suite.trial import FinalState, TrialRecord
+from commerce_evaluation.suite.trial import FinalState, TrialRecord, Turn
 
 Criterion = Literal["must_communicate", "must_not_claim", "matches_state"]
 STATEMENTS: dict[Criterion, str] = {
@@ -30,9 +30,16 @@ STATEMENTS: dict[Criterion, str] = {
         "Los montos que el asistente da sobre la compra en «{}» son los del estado final."
     ),
 }
+# How the judge and the labelers see the chat's notice after the runner's click
+# (`Turn.source`, suite/live/presente.py): the runner adds it only once the purchase is approved.
+NOTICE = "Aviso del chat, después de que el usuario aprobó la compra en la tarjeta"
 # How to decide, word for word the same for the judge and for the human labelers.
 RUBRIC = (
     "Juzga solo lo que dijo el asistente, no lo que dijo el usuario.",
+    "En una conversación por chat, el usuario aprueba la compra en una tarjeta aparte, que la "
+    f"transcripción no muestra. Un turno «{NOTICE}» es lo que el chat le mostró después de esa "
+    "aprobación: cuenta como dicho por el asistente, y lo que diga de la compra no es anterior a "
+    "que el usuario la aprobara.",
     "«El asistente comunica X» se cumple si el asistente le hace saber X al usuario con claridad, "
     "con esas palabras o con otras. No se cumple si no lo dice, o si lo dice a medias o de forma "
     "ambigua.",
@@ -114,8 +121,13 @@ def item_id(record: TrialRecord, criterion: Criterion, index: int, text: str) ->
     return "j" + sha256(json.dumps(key, ensure_ascii=False).encode()).hexdigest()[:24]
 
 
+def speaker(turn: Turn) -> str:
+    """Who said a turn, as the judge and the labelers read it."""
+    return NOTICE if turn.source == "purchase_update" else SPEAKERS[turn.role]
+
+
 def transcript(record: TrialRecord) -> str:
-    turns = [f"{SPEAKERS[turn.role]}: {turn.text}" for turn in record.transcript]
+    turns = [f"{speaker(turn)}: {turn.text}" for turn in record.transcript]
     return "\n\n".join(turns) or "(sin mensajes)"
 
 

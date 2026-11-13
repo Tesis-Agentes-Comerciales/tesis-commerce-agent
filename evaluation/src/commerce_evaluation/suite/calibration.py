@@ -36,7 +36,7 @@ from commerce_evaluation.paths import DATA
 from commerce_evaluation.suite.agreement import REPORT_FILE, Page, Sample, score
 from commerce_evaluation.suite.cases import Case, load_catalog
 from commerce_evaluation.suite.graders.judge import Judged, read_judged
-from commerce_evaluation.suite.graders.question import RUBRIC, final_state, questions
+from commerce_evaluation.suite.graders.question import RUBRIC, final_state, questions, speaker
 from commerce_evaluation.suite.reduce import is_infra_failure
 from commerce_evaluation.suite.rundir import read_trials as read_records
 from commerce_evaluation.suite.trial import TrialRecord
@@ -150,7 +150,10 @@ def _shown(case: Case, record: TrialRecord, items: set[str]) -> dict[str, object
     """A trial as the page shows it: what the judge sees, and no more."""
     return {
         "delegated": case.mode == "delegado",
-        "turns": [{"role": turn.role, "text": turn.text} for turn in record.transcript],
+        "turns": [
+            {"role": turn.role, "source": turn.source, "speaker": speaker(turn), "text": turn.text}
+            for turn in record.transcript
+        ],
         "state": final_state(record.final_state),
         "items": [
             {"id": question.item_id, "question": question.statement}
