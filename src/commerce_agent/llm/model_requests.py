@@ -11,7 +11,8 @@ with a response hook that stops the retry of a spent balance (llm/model_failures
 without a ledger. With a ledger, a request hook also counts the attempts by reading the SDK's
 `x-stainless-retry-count` header. That hook only reads, and it never raises: httpx would turn an
 exception there into a failed attempt that the SDK retries. A failed call's row keeps the HTTP
-status and the provider's error code next to the SDK's error class (p0-model-failures.md §3.3).
+status, the provider's error code and its message (cut short) next to the SDK's error class
+(p0-model-failures.md §3.3).
 An answer that came back but failed its validation (`invalid_output`) keeps its usage and what
 the model said: it was billed, and its `stop_reason` tells a refusal from a cut answer.
 Recording is fail-open throughout: an error is logged and the row dropped, never the request.
@@ -38,7 +39,11 @@ import httpx2
 from anthropic import DefaultHttpxClient
 from pydantic import BaseModel
 
-from commerce_agent.llm.model_failures import classify_model_failure, refuse_quota_retry
+from commerce_agent.llm.model_failures import (
+    classify_model_failure,
+    provider_error_message,
+    refuse_quota_retry,
+)
 from commerce_agent.persistence.model_requests_sqlite import ModelRequestRow
 
 _log = logging.getLogger(__name__)
@@ -274,6 +279,7 @@ class ModelRequestRecorder:
                 output_json=None if response is None else _output_json(response, pending.parsed),
                 http_status=None if failure is None else failure.http_status,
                 provider_error_code=None if failure is None else failure.provider_error_code,
+                provider_error_message=None if error is None else provider_error_message(error),
             )
             if self._sink is not None:  # always, once a request is open
                 self._sink.record(row)
