@@ -2,7 +2,8 @@
 
 The three model clients (the HP router, the HNP selector and the HNP reviewer) raise
 `IntentInterpretationError` with its `failure_kind`, and `classify_model_failure` gives the same
-kind, the HTTP status and the provider's error code for the `model_requests` ledger:
+kind, the HTTP status and the provider's error code for the `model_requests` ledger, which also
+keeps the provider's error message (`provider_error_message`):
 
 - `rate_limited`: HTTP 429 without a spent balance.
 - `quota_exhausted`: the account cannot pay for the call, and retrying will not change that
@@ -26,6 +27,7 @@ raises: httpx would turn an exception there into a failed attempt that the SDK r
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -49,6 +51,10 @@ BILLING_ERROR = "billing_error"
 # The start of the two 400s that name a spent balance in their message alone.
 SPENT_MESSAGES = ("your credit balance is too low", "you have reached your specified")
 NO_RETRY_HEADER = "x-should-retry"
+# The ledger keeps this much of the provider's error message.
+PROVIDER_MESSAGE_LIMIT = 500
+# The shape of an Anthropic key, never kept even if a message ever quoted one.
+_API_KEY = re.compile(r"sk-ant-[A-Za-z0-9_-]+")
 
 
 class IntentInterpretationError(RuntimeError):
@@ -103,6 +109,17 @@ def classify_model_failure(error: BaseException) -> ModelFailure:
     if isinstance(error, ValidationError):
         return ModelFailure("invalid_output")
     return ModelFailure("provider_error")
+
+
+def provider_error_message(error: BaseException) -> str | None:
+    """The `error.message` of the provider's error body, cut to `PROVIDER_MESSAGE_LIMIT`
+    characters, so a rejected request can be diagnosed from the ledger alone (e.g. the 400 "The
+    compiled grammar is too large"). Only the body is read, never the headers, and a key's shape
+    is replaced. None when no response came back or its body had no message."""
+    status = error.__cause__ if isinstance(error, IntentInterpretationError) else error
+    if not isinstance(status, APIStatusError) or not isinstance(status.api_message, str):
+        return None
+    return _API_KEY.sub("[redacted]", status.api_message)[:PROVIDER_MESSAGE_LIMIT]
 
 
 def model_failure_kind(error: BaseException) -> ModelFailureKind | None:

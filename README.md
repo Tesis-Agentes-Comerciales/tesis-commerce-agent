@@ -83,7 +83,8 @@ y `tests/` es la verificación de ambos.
 El modelo recibe los mensajes del chat y vocabulario validado del feed. Primero produce una decisión
 tipada con una intención estructurada. Puede invocar `lookup_catalog`, una herramienta de solo lectura
 sobre la instantánea validada del feed, para responder preguntas sobre productos y precios
-observados; después puede elegir o aclarar entre candidatos que ya
+observados; la herramienta y el esquema de la decisión van en peticiones distintas, así que cada
+turno hace a lo sumo dos. Después puede elegir o aclarar entre candidatos que ya
 pasaron los filtros deterministas. No recibe datos de entrega, Bearer, secretos, token de pago,
 actor, Request ID, clave idempotente, fingerprint de aprobación ni acceso al método de completion.
 El navegador tampoco construye ni envía `PurchaseIntent`.

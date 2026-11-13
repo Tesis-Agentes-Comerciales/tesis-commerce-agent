@@ -296,8 +296,13 @@ En `tests/integration`:
   deja `p0-model-failures/summary.json` en el directorio de la ejecución. El protocolo congeló los
   cuerpos de error de OpenAI: sus dos 429 mandan los de Anthropic y los campos del proveedor de
   sus oráculos se enmiendan en el módulo (`ON_CLAUDE`). El resumen guarda en `oracle_amendment`
-  los cuerpos que se mandaron y los campos que cambiaron. `ScriptedModel` sirve
-  el guion de un caso con las respuestas que le pasa su módulo.
+  los cuerpos que se mandaron y los campos que cambiaron. El router de HP hace dos peticiones por
+  turno (la primera ofrece `lookup_catalog` sin esquema; la segunda trae la decisión): el módulo
+  agrega a los guiones HP esa primera respuesta, sin llamada a la herramienta, antes de cada
+  decisión del router, y el resumen guarda en `oracle_amendment.router_first` las celdas
+  enmendadas. `ScriptedModel` sirve el guion de un caso con las respuestas que le pasa su módulo y
+  contesta el 400 del proveedor («The compiled grammar is too large») a una petición que deje
+  llamar una herramienta con un esquema de salida.
 - `test_p0_ux08_ux10.py`: la evidencia P0 de UX08, UX09 y UX10 en vivo
   (`docs/design/p0-ux08-ux10.md` §5.2), con el protocolo congelado
   `evaluation/scenarios/p0-ux08-ux10.json`. HP es B2-HP sobre `b0` con el `HpAgent` de
@@ -305,8 +310,9 @@ En `tests/integration`:
   del modelo está retenida (`held`). HNP es B2-HNP sobre `hnp` con `ModelHnpAgent`: el dueño
   revoca, o el operador enciende el kill switch, mientras el selector o el revisor responden, o
   justo después del POST del checkout. UX08-HP agrega la ruta de cancel al proxy de `b0` solo
-  durante su caso. Deja `p0-ux08-ux10/summary.json`; las celdas de CI del protocolo corren
-  aparte, sin red.
+  durante su caso. Las decisiones del router llevan antes la primera respuesta del turno, como en
+  `test_p0_model_failures.py`. Deja `p0-ux08-ux10/summary.json`; las celdas de CI del protocolo
+  corren aparte, sin red.
 - `test_suite_regression.py`: la regresión de la suite de evaluación en vivo
   (`docs/design/eval-suite.md` §4): cada caso del catálogo con cada una de sus gobernanzas, por
   `LiveExecutor`, con el agente de referencia y el usuario guionado, sin modelo. Cada intento

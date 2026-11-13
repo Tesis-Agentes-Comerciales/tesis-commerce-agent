@@ -64,7 +64,7 @@ from tests.assistant_support import (
     settings,
 )
 from tests.governance.test_enforce_runtime import decisions as d1_decisions
-from tests.support.model_server import ModelServer, structured
+from tests.support.model_server import ModelServer, routed, structured
 
 A, B, C = CONDITIONAL_A, CONDITIONAL_B, CONDITIONAL_C
 AIRPODS = "APL-APP3"
@@ -205,7 +205,7 @@ def app(database: Path, merchant: Merchant, server: ModelServer, mode: str) -> I
 def run_turn(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    routed: CommerceDecision,
+    decision: CommerceDecision,
     merchant: Merchant,
     *,
     surface: str = "rest",
@@ -213,7 +213,7 @@ def run_turn(
     selection: Any = None,
     request: str = REQUEST,
 ) -> Turn:
-    answers = [structured(routed)]
+    answers = [*routed(decision)]
     if selection is not None:
         answers.append(structured(selection))
     server = ModelServer(*answers)
@@ -360,8 +360,8 @@ def test_ux03_c_ux04_hp_keeps_the_priority_although_b_is_cheaper(
     assert_prepared(turn, A)
     assert turn.decision.body["label"] == "A"
     assert turn.merchant.reads_before_creation() == [A]
-    # The selection model is never asked: the router's is the only request.
-    assert len(turn.server.requests) == 1
+    # The selection model is never asked: the router's two are the only requests.
+    assert len(turn.server.requests) == 2
     if surface == "chat":
         select = turn.steps()["select_product"]["result"]
         assert select["decision"] == "select" and select["product"]["variant_id"] == A
@@ -454,8 +454,8 @@ def test_ux06_hp_hard_takes_the_limit_from_the_turn_itself(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, surface: str
 ) -> None:
     """No limit in `conditional`: B's effective limit is `intent.hard`'s total (D14)."""
-    routed = ux06(limit=None, hard_total=T_B - 1)
-    turn = run_turn(monkeypatch, tmp_path, routed, lab(**{A: {"stock": 0}}), surface=surface)
+    decision = ux06(limit=None, hard_total=T_B - 1)
+    turn = run_turn(monkeypatch, tmp_path, decision, lab(**{A: {"stock": 0}}), surface=surface)
 
     assert_zero_effects(turn, {A: 1, B: 1}, "none")
     assert turn.statuses == ["out_of_stock", "over_limit"]
@@ -501,7 +501,7 @@ def first_of_the_enum(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def selection_enum(server: ModelServer) -> list[str]:
-    schema = server.bodies()[1]["output_config"]["format"]["schema"]["properties"][
+    schema = server.bodies()[2]["output_config"]["format"]["schema"]["properties"][
         "selected_variant_id"
     ]
     return schema["enum"]
@@ -672,8 +672,8 @@ def test_an_unresolved_branch_asks_without_reading_any_offer(
     cause: str,
     text: str,
 ) -> None:
-    routed = conditional_decision(conditional, request=REQUEST, hard=hard)
-    turn = run_turn(monkeypatch, tmp_path, routed, lab())
+    decision = conditional_decision(conditional, request=REQUEST, hard=hard)
+    turn = run_turn(monkeypatch, tmp_path, decision, lab())
 
     assert_zero_effects(turn, {}, "clarify")
     assert turn.decision.body["clarify"]["cause"] == cause
@@ -816,7 +816,7 @@ def test_every_mode_reads_the_offers_and_buys_the_chosen_branch(
 def test_a_repeated_turn_is_answered_from_its_cache_without_new_rows_or_reads(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    server = ModelServer(structured(ux03(T_A - 1, T_B - 1)))
+    server = ModelServer(*routed(ux03(T_A - 1, T_B - 1)))
     server.install(monkeypatch)
     merchant = lab()
     body = {
@@ -921,7 +921,7 @@ class Delegated:
 
 def delegate(tmp_path: Path, conditional: ConditionalIntent) -> Delegated:
     merchant = lab()
-    routed = conditional_decision(
+    decision = conditional_decision(
         conditional,
         request=REQUEST,
         hard=HardConstraints(
@@ -930,7 +930,7 @@ def delegate(tmp_path: Path, conditional: ConditionalIntent) -> Delegated:
     )
     with assistant_client(
         tmp_path / "agent.db",
-        router=StaticRouter(routed),
+        router=StaticRouter(decision),
         merchant=merchant,
         governance=HNP_ON,
         buyer_authenticator=TwoBuyers(),
@@ -986,7 +986,7 @@ def test_the_feed_without_exclusions_keeps_every_other_turn_as_it_was(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A purchase without `conditional` reads no offer to decide and writes no row."""
-    routed = CommerceDecision(
+    decision = CommerceDecision(
         action="purchase",
         assistant_message="Busco audífonos negros.",
         purchase_request=REQUEST,
@@ -999,7 +999,7 @@ def test_the_feed_without_exclusions_keeps_every_other_turn_as_it_was(
             preferences=SoftPreferences(terms=("sony",)),
         ),
     )
-    turn = run_turn(monkeypatch, tmp_path, routed, lab(), selection=first_of_the_enum)
+    turn = run_turn(monkeypatch, tmp_path, decision, lab(), selection=first_of_the_enum)
 
     assert turn.status == 200 and turn.body["action"] == "purchase"
     assert turn.records == ()

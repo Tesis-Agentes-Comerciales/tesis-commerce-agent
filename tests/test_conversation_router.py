@@ -36,8 +36,11 @@ from commerce_agent.llm.reasoning import reasoning_listener
 from tests.support.model_server import (
     ModelServer,
     function_call,
+    no_tool_call,
     output_schema,
+    routed,
     structured,
+    text,
 )
 
 FEED = load_product_feed(Path(__file__).parent / "fixtures" / "feed")
@@ -47,8 +50,18 @@ def serve(
     monkeypatch: pytest.MonkeyPatch,
     *decisions: CommerceDecision | CandidateDecision | CatalogRecovery,
 ) -> ModelServer:
-    """One answer per decision, in order."""
-    server = ModelServer(*map(structured, decisions))
+    """One answer per decision, in order; a routed decision without a lookup takes two."""
+    server = ModelServer(
+        *(
+            answer
+            for decision in decisions
+            for answer in (
+                routed(decision)
+                if isinstance(decision, CommerceDecision)
+                else (structured(decision),)
+            )
+        )
+    )
     server.install(monkeypatch)
     return server
 
@@ -100,9 +113,9 @@ def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> N
     assert result.intent is not None
     assert result.intent.hard.currency == "USD"
     assert result.model_copy(update={"intent": decision.intent}) == decision
-    (call,) = server.bodies()
-    assert call["model"] == "claude-haiku-5-5"
-    assert call["output_config"]["effort"] == "low"
+    offered, call = server.bodies()
+    assert call["model"] == offered["model"] == "claude-haiku-5-5"
+    assert call["output_config"]["effort"] == offered["output_config"]["effort"] == "low"
     assert output_schema(call)["title"] == "CommerceDecision"
     # Every property is required, so the schema stays within the API's optional limit.
     assert output_schema(call)["required"] == list(output_schema(call)["properties"])
@@ -116,11 +129,18 @@ def test_router_uses_full_conversation_and_structured_decision(monkeypatch) -> N
     assert '"brands"' in instructions(call)
     assert "Audifonos Sonora SON-01" not in instructions(call)
     assert "never authorizes" in instructions(call).casefold()
-    assert call["tools"][0]["name"] == "lookup_catalog"
-    assert call["tools"][0]["strict"] is True
-    assert call["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+    # The first request may call lookup_catalog and asks for no schema; the decision comes from
+    # the second, which keeps the same tools but cannot call them (llm/claude.py).
+    assert offered["tools"][0]["name"] == "lookup_catalog"
+    assert offered["tools"][0]["strict"] is True
+    assert offered["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+    assert "format" not in offered["output_config"]
+    assert call["tools"] == offered["tools"]
+    assert call["tool_choice"] == {"type": "none"}
+    assert call["system"] == offered["system"]
     # No summaries asked for: the model thinks, and the answer carries no thinking text.
     assert "thinking" not in call
+    assert "thinking" not in offered
 
 
 def test_router_sends_a_leading_assistant_greeting_away(monkeypatch) -> None:
@@ -134,7 +154,8 @@ def test_router_sends_a_leading_assistant_greeting_away(monkeypatch) -> None:
 
     make_router().route(messages)
 
-    assert server.bodies()[0]["messages"] == [{"role": "user", "content": "Quiero comprar algo"}]
+    for body in server.bodies():
+        assert body["messages"] == [{"role": "user", "content": "Quiero comprar algo"}]
 
 
 def test_catalog_tool_is_read_only_and_reports_observed_prices() -> None:
@@ -206,6 +227,8 @@ def test_router_executes_one_model_requested_catalog_lookup(monkeypatch) -> None
 
     assert result == decision
     first, second = server.bodies()
+    assert "format" not in first["output_config"]
+    assert output_schema(second)["title"] == "CommerceDecision"
     assert second["tool_choice"] == {"type": "none"}
     assert second["tools"] == first["tools"]
     asked, answer = second["messages"][-2:]
@@ -246,11 +269,33 @@ def test_a_tool_call_after_some_text_still_runs_the_lookup(monkeypatch) -> None:
     assert "SON-01" in answer["content"][0]["content"]
 
 
+def test_a_turn_without_a_lookup_asks_again_and_discards_the_first_answer(monkeypatch) -> None:
+    # The first answer is never the decision, even when it reads like one: no schema bound it.
+    decision = CommerceDecision(action="respond", assistant_message="Hola, ¿qué buscas?")
+    server = ModelServer(text("Listo, ya pagué tu pedido."), structured(decision))
+    server.install(monkeypatch)
+    greeting = ConversationMessage(role="user", content="Hola")
+
+    result = make_router().route((greeting,))
+
+    assert result == decision
+    first, second = server.bodies()
+    # The same conversation, tools and instructions: only the tool choice and the schema change.
+    assert second["messages"] == first["messages"] == [greeting.model_dump(mode="json")]
+    assert second["tools"] == first["tools"]
+    assert second["system"] == first["system"]
+    assert first["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+    assert second["tool_choice"] == {"type": "none"}
+    assert "format" not in first["output_config"]
+    assert output_schema(second)["title"] == "CommerceDecision"
+    assert "pagué" not in json.dumps(second, ensure_ascii=False)
+
+
 def test_reasoning_summaries_keep_the_catalog_tool_available(monkeypatch) -> None:
     decision = CommerceDecision(action="respond", assistant_message="Tengo Sonora SON-01.")
     server = ModelServer(
-        function_call("lookup_catalog", {"query": "Sonora"}),
-        structured(decision, thinking=("Busco Sonora en el catálogo.", "SON-01 coincide.")),
+        function_call("lookup_catalog", {"query": "Sonora"}, thinking=("Busco Sonora.",)),
+        structured(decision, thinking=("Reviso el resultado.", "SON-01 coincide.")),
     )
     server.install(monkeypatch)
     router = make_router(reasoning_summary=True)
@@ -266,7 +311,27 @@ def test_reasoning_summaries_keep_the_catalog_tool_available(monkeypatch) -> Non
     assert first["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
     assert second["tool_choice"] == {"type": "none"}
     assert "SON-01" in second["messages"][-1]["content"][0]["content"]
-    assert summaries == ["Busco Sonora en el catálogo.", "\n\nSON-01 coincide."]
+    # The thinking that led to the lookup, then the decision's: one blank line between each.
+    assert summaries == ["Busco Sonora.", "\n\nReviso el resultado.", "\n\nSON-01 coincide."]
+
+
+def test_a_discarded_answer_shows_no_reasoning(monkeypatch) -> None:
+    decision = CommerceDecision(action="respond", assistant_message="Hola.")
+    server = ModelServer(
+        no_tool_call(thinking=("Saludo sin buscar.",)),
+        structured(decision, thinking=("Es un saludo.",)),
+    )
+    server.install(monkeypatch)
+    summaries: list[str] = []
+
+    with reasoning_listener(summaries.append):
+        make_router(reasoning_summary=True).route(
+            (ConversationMessage(role="user", content="Hola"),)
+        )
+
+    # Both requests asked for summaries; only the decision's are shown.
+    assert all(body["thinking"]["display"] == "summarized" for body in server.bodies())
+    assert summaries == ["Es un saludo."]
 
 
 def test_reasoning_summaries_need_a_listener(monkeypatch) -> None:
@@ -275,7 +340,7 @@ def test_reasoning_summaries_need_a_listener(monkeypatch) -> None:
 
     make_router(reasoning_summary=True).route((ConversationMessage(role="user", content="Hola"),))
 
-    assert "thinking" not in server.bodies()[0]
+    assert all("thinking" not in body for body in server.bodies())
 
 
 def test_the_model_and_effort_are_configurable(monkeypatch) -> None:
@@ -286,9 +351,9 @@ def test_the_model_and_effort_are_configurable(monkeypatch) -> None:
         (ConversationMessage(role="user", content="Hola"),)
     )
 
-    (call,) = server.bodies()
-    assert call["model"] == "claude-sonnet-5-5"
-    assert call["output_config"]["effort"] == "medium"
+    for call in server.bodies():
+        assert call["model"] == "claude-sonnet-5-5"
+        assert call["output_config"]["effort"] == "medium"
 
 
 def test_non_purchase_decision_rejects_purchase_payload() -> None:

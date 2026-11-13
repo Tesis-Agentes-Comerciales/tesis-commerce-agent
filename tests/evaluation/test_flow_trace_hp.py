@@ -38,7 +38,14 @@ from commerce_evaluation.redaction import REDACTED
 from tests.governance.test_hp_continuation import StoreMerchant, approve
 from tests.governance.test_hp_continuation import router as sonora_router
 from tests.governance.test_runtime_dispatch import governed
-from tests.support.model_server import ModelServer, function_call, structured
+from tests.support.model_server import (
+    SAID_WITHOUT_LOOKUP,
+    Answer,
+    ModelServer,
+    function_call,
+    routed,
+    structured,
+)
 from tests.test_api import StubConversationRouter, checkout_details
 from tests.test_governed_recovery import PHONES_PATH, PIXEL_8, PIXEL_8A, PhoneMerchant
 
@@ -167,11 +174,22 @@ def picking(variant_id: str) -> StubConversationRouter:
 
 def lookup(directory: Path) -> Path:
     """The same turn with the real router: it looks the catalog up before routing."""
-    server = ModelServer(
+    return real_router(
+        directory,
         function_call("lookup_catalog", {"query": QUERY}),
         structured(ROUTED),
         structured(OVER_BUDGET),
     )
+
+
+def no_lookup(directory: Path) -> Path:
+    """The same turn with the real router, whose model calls no tool: its first answer is
+    discarded and the decision comes from the turn's second request."""
+    return real_router(directory, *routed(ROUTED), structured(OVER_BUDGET))
+
+
+def real_router(directory: Path, *answers: Answer) -> Path:
+    server = ModelServer(*answers)
     with pytest.MonkeyPatch.context() as patch:
         server.install(patch)
         configured = {"anthropic_api_key": SecretStr(API_KEY), "agent_model": "test-model"}
@@ -213,6 +231,7 @@ def b2_purchase(directory: Path) -> Path:
 RUNS: dict[str, Callable[[Path], Path]] = {
     "s05_deny": s05_deny,
     "lookup": lookup,
+    "no_lookup": no_lookup,
     "b2_purchase": b2_purchase,
     "sold_out_pick": explained(picking(PIXEL_9)),
     "unknown_pick": explained(picking(UNKNOWN)),
@@ -362,6 +381,34 @@ def test_a_turn_that_looked_the_catalog_up_records_the_query_and_its_results(
         {"name": "lookup_catalog", "arguments": json.dumps({"query": QUERY})}
     ]
     assert {(item["input_tokens"], item["output_tokens"]) for item in requests} == {(1825, 786)}
+    assert token_metrics(trace) == {
+        "model_input_tokens": 3 * 1825,
+        "model_output_tokens": 3 * 786,
+    }
+
+
+def test_a_turn_whose_model_calls_no_tool_keeps_both_route_requests_and_no_lookup(
+    run_dir: Callable[[str], Path],
+) -> None:
+    trace = trace_of(run_dir("no_lookup"))
+
+    [step] = trace["turns"]
+    assert step["lookup_catalog"] is None
+    assert step["choice"]["selected_variant_id"] == PIXEL_8
+    requests = trace["model_requests"]
+    assert [(item["run_id"], item["stage"], item["request_index"]) for item in requests] == [
+        (turn_run_id(TURN_ID), "model.route", 1),
+        (turn_run_id(TURN_ID), "model.route", 2),
+        (turn_run_id(TURN_ID), "model.choose_candidate", 1),
+    ]
+    # The discarded first answer is kept, and its usage counts with the decision's.
+    assert [item["outcome"] for item in requests] == ["ok", "ok", "ok"]
+    assert requests[0]["output"] == {
+        "function_calls": [],
+        "stop_reason": "end_turn",
+        "structured": None,
+        "text": SAID_WITHOUT_LOOKUP,
+    }
     assert token_metrics(trace) == {
         "model_input_tokens": 3 * 1825,
         "model_output_tokens": 3 * 786,

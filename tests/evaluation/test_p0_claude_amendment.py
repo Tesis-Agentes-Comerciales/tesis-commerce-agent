@@ -1,6 +1,8 @@
 """What tests/integration/test_p0_model_failures.py changes from its frozen protocol now that the
 agent runs on Claude (`ON_CLAUDE`), checked without the stack: only the provider's fields of the
-OpenAI rows change, and each amended stimulus is what its amended oracle expects."""
+OpenAI rows change, and each amended stimulus is what its amended oracle expects. Also what the
+router's two requests per turn change (`on_router_first`): only the HP cells whose interpretation
+answers, never INF27-HP and INF28-HP, whose first request fails."""
 
 import copy
 import json
@@ -11,12 +13,16 @@ import pytest
 from anthropic._error_classes import make_status_error
 
 from commerce_agent.llm.model_failures import SPEND_CAP, classify_model_failure
+from tests.integration.live_model import ROUTER_FIRST
 from tests.integration.test_p0_model_failures import (
     ANSWERS,
+    CASES,
     ON_CLAUDE_STIMULI,
     PROTOCOL,
+    ROUTER_DECISION_ROW,
     amendment,
     on_claude,
+    on_router_first,
 )
 
 ROWS = ("model_requests", "model_requests_per_surface")
@@ -96,3 +102,74 @@ def test_the_summary_records_the_bodies_sent_and_the_oracle_fields_replaced() ->
         "rate_limit_error"
     )
     assert recorded["oracles"]["insufficient_quota"]["provider_error_code"] == SPEND_CAP
+
+
+def ok_row(stage: str, retries: int = 0) -> dict[str, Any]:
+    return {**ROUTER_DECISION_ROW, "stage": stage, "retries": retries}
+
+
+def test_the_router_first_answer_amends_only_the_hp_cells_that_route() -> None:
+    before = on_claude(frozen())
+    after = on_router_first(copy.deepcopy(before))
+
+    amended = {cell for cell in before if after[cell] != before[cell]}
+    assert amended == {"INF29-HP", "INF27-HP-control", "CTRL-HP"}
+    view = {
+        cell: (
+            after[cell]["script"],
+            after[cell]["oracle"]["model_http_attempts_per_surface"],
+            after[cell]["oracle"]["model_requests_per_surface"],
+        )
+        for cell in amended
+    }
+    lost = ok_row("model.choose_candidate", 1) | {
+        "outcome": "error",
+        "error_kind": "APIConnectionError",
+    }
+    assert view == {
+        "INF29-HP": (
+            [ROUTER_FIRST, "route_ok", "disconnect"],
+            4,
+            [ok_row("model.route"), ok_row("model.route"), lost],
+        ),
+        # The 429 hits the first request; its SDK retry gets the first answer.
+        "INF27-HP-control": (
+            ["http_429_rate_limit", ROUTER_FIRST, "route_ok", "choice_ok"],
+            4,
+            [ok_row("model.route", 1), ok_row("model.route"), ok_row("model.choose_candidate")],
+        ),
+        "CTRL-HP": (
+            [ROUTER_FIRST, "route_ok", "choice_ok"],
+            3,
+            [ok_row("model.route"), ok_row("model.route"), ok_row("model.choose_candidate")],
+        ),
+    }
+    # Everything else of an amended cell stays as frozen.
+    for cell in amended:
+        for key in ("model_http_attempts_per_surface", "model_requests_per_surface"):
+            after[cell]["oracle"][key] = before[cell]["oracle"][key]
+        after[cell]["script"] = before[cell]["script"]
+        assert after[cell] == before[cell]
+
+
+@pytest.mark.parametrize(("cell", "attempts"), [("INF27-HP", 2), ("INF28-HP", 1)])
+def test_a_failed_interpretation_is_still_one_request(cell: str, attempts: int) -> None:
+    """The first request fails, so the router never sends its second: one row, and the SDK's
+    retry of a rate limit or none for a spent cap."""
+    case = CASES[cell]
+
+    assert ROUTER_FIRST not in case["script"]
+    assert case["oracle"]["model_http_attempts_per_surface"] == attempts
+    [row] = case["oracle"]["model_requests_per_surface"]
+    assert (row["stage"], row["outcome"], row["retries"]) == ("model.route", "error", attempts - 1)
+
+
+def test_the_summary_records_the_router_first_answer_and_its_cells() -> None:
+    recorded = amendment()["router_first"]
+
+    assert recorded["stimulus"]["name"] == ROUTER_FIRST
+    assert recorded["stimulus"]["status"] == 200
+    [block] = recorded["stimulus"]["body"]["content"]
+    assert block["type"] == "text"
+    assert set(recorded["cells"]) == {"INF29-HP", "INF27-HP-control", "CTRL-HP"}
+    assert recorded["cells"]["CTRL-HP"]["model_http_attempts_per_surface"] == 3

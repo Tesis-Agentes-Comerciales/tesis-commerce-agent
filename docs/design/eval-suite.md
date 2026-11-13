@@ -547,8 +547,22 @@ queda fuera del plazo del 16-nov.
   el de `CommerceDecision` deja 28 propiedades opcionales: la API admite 24 en total por
   solicitud. Por eso el cliente marca como requeridas todas las propiedades antes de enviarlo, y
   un test cuenta las opcionales (0) y las uniones (menos de 16) de cada solicitud.
+- **El router, en dos peticiones por turno:** la API rechaza el esquema de `CommerceDecision`
+  junto a `lookup_catalog` cuando el modelo puede llamarla (`tool_choice` auto): responde 400
+  `invalid_request_error`, «The compiled grammar is too large», con o sin `strict` (Haiku 5.5,
+  13-nov-2026). Por eso la primera petición ofrece `lookup_catalog` sin `output_config.format`, y
+  la decisión siempre sale de la segunda, que exige el esquema y manda las mismas herramientas con
+  `tool_choice` none. Si el modelo llamó la herramienta, la segunda lleva la llamada y su
+  resultado; si no, su texto se descarta y la segunda repite la misma entrada. Las dos mandan las
+  mismas herramientas e instrucciones, así que la segunda lee ese prefijo de la caché. Ninguna
+  petición junta un `tool_choice` que deje llamar una herramienta con `output_config.format`, y
+  `tests/test_request_grammar.py` lo verifica sin red.
 - **Registro de uso:** guarda la entrada, la salida y la caché, más el `model` que devuelve cada
-  respuesta.
+  respuesta. Una petición fallida guarda además el mensaje de error del proveedor
+  (`provider_error_message` en `model_requests`, nulo si no aplica): el `error.message` de su
+  cuerpo, cortado a 500 caracteres, para diagnosticar un 400 sin repetir la llamada. Nunca sale de
+  los encabezados, y una cadena con forma de clave se reemplaza por `[redacted]`. `initialize`
+  agrega la columna a una tabla anterior, como hizo con `http_status` y `provider_error_code`.
 - **Doble de prueba:** `tests/support/model_server.py` pasa a responder con la forma de la API
   de Messages.
 - **Corredores de los pilotos:** están amarrados a OpenAI. Son `exp06*`, `p0_llm_batch2*`,
