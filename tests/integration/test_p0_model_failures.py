@@ -8,7 +8,9 @@ evaluation/scenarios/p0-model-failures.json: cases, stimuli, scripts, oracles an
 This module reads the oracles from it, records each case's inputs before the Agent runs
 (`recorded_case`) and then checks every oracle one by one, so a failed oracle stays failed in the
 evidence. The protocol froze OpenAI's error bodies: its 429 stimuli and the provider's fields of
-its oracles are Anthropic's here (`ON_CLAUDE`). Human Present is B2-HP on the `b0` lane through
+its oracles are Anthropic's here (`ON_CLAUDE`). It also froze one request per router turn: the
+router's first answer goes before each `route_ok` and each routed turn counts one more attempt
+and row (`on_router_first`). Human Present is B2-HP on the `b0` lane through
 `AgentServer`; Human Not Present is B2-HNP on the `hnp` lane through `ModelHnpAgent`
 (tests/integration/live_model.py). When the module ends it writes
 `p0-model-failures/summary.json` in the run directory.
@@ -46,7 +48,14 @@ from tests.assistant_support import add_message, assistant_body, parse_sse, rebu
 from tests.delegation.test_hnp_model_failure_kind import read_timeout
 from tests.integration.exp01_support import ROOT, recorded_case, sqlite_snapshot
 from tests.integration.live_browser import ExplicitSettings
-from tests.integration.live_model import MODEL_SETTINGS, ModelHnpAgent, ScriptedModel
+from tests.integration.live_model import (
+    MODEL_SETTINGS,
+    ROUTER_FIRST,
+    ModelHnpAgent,
+    ScriptedModel,
+    router_first_answers,
+    with_router_first,
+)
 from tests.integration.test_exp02_commercial import local_effects, observe
 from tests.integration.test_live_b2_d2_authorization import settings_for
 from tests.integration.test_live_hnp import SHIPPING_ROOM_MINOR, catalog, effects
@@ -90,7 +99,40 @@ def on_claude(cases: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return cases
 
 
-CASES: dict[str, dict[str, Any]] = on_claude(PLAN["cases"])
+# The router's decision request after its first one (llm/conversation_router.py): it answers
+# once, without a retry, since a scripted failure on the interpretation hits the first request.
+ROUTER_DECISION_ROW = {
+    "stage": "model.route",
+    "outcome": "ok",
+    "error_kind": None,
+    "http_status": None,
+    "provider_error_code": None,
+    "retries": 0,
+}
+
+
+def on_router_first(cases: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The protocol's HP cases with the router's two requests per turn, amended in place: the
+    router's first answer before each `route_ok`, one more attempt per routed surface turn, and
+    the decision's row after the frozen `model.route` row it follows. A turn whose first request
+    fails (INF27-HP, INF28-HP) never sends the second, so its cell stays as frozen."""
+    for case in cases.values():
+        if case["mode"] != "HP":
+            continue
+        frozen = case["script"]
+        case["script"] = with_router_first(frozen)
+        oracle = case["oracle"]
+        oracle["model_http_attempts_per_surface"] += len(case["script"]) - len(frozen)
+        rows = []
+        for row in oracle["model_requests_per_surface"]:
+            rows.append(row)
+            if (row["stage"], row["outcome"]) == ("model.route", "ok"):
+                rows.append(dict(ROUTER_DECISION_ROW))
+        oracle["model_requests_per_surface"] = rows
+    return cases
+
+
+CASES: dict[str, dict[str, Any]] = on_router_first(on_claude(PLAN["cases"]))
 
 ROUTED = CommerceDecision(
     action="purchase",
@@ -98,29 +140,31 @@ ROUTED = CommerceDecision(
     purchase_request=PHONE_REQUEST,
     intent=PHONE_INTENT,
 )
-# The stimuli of the protocol, by name.
-ANSWERS: dict[str, Answer] = {
-    "route_ok": structured(ROUTED),
-    "choice_ok": structured(shortlisted_choice),
-    "review_confirmed": structured(
-        lambda body: {"decision": "confirmed", "reason": "matches_request"}
-    ),
-    "review_outside_contract": structured(
-        lambda body: {"decision": "not_confirmed", "reason": "review_unavailable"}
-    ),
-    "http_429_rate_limit": failure(429, error_type="rate_limit_error"),
-    "http_429_insufficient_quota": failure(429, code=SPEND_CAP, error_type="rate_limit_error"),
-    "disconnect": disconnect(),
-    "read_timeout": read_timeout(),
-}
+# The stimuli of the protocol, by name, and the router's first answer.
+ANSWERS: dict[str, Answer] = router_first_answers(
+    {
+        "route_ok": structured(ROUTED),
+        "choice_ok": structured(shortlisted_choice),
+        "review_confirmed": structured(
+            lambda body: {"decision": "confirmed", "reason": "matches_request"}
+        ),
+        "review_outside_contract": structured(
+            lambda body: {"decision": "not_confirmed", "reason": "review_unavailable"}
+        ),
+        "http_429_rate_limit": failure(429, error_type="rate_limit_error"),
+        "http_429_insufficient_quota": failure(429, code=SPEND_CAP, error_type="rate_limit_error"),
+        "disconnect": disconnect(),
+        "read_timeout": read_timeout(),
+    }
+)
 # The stimuli whose bodies are Anthropic's instead of the protocol's (`ON_CLAUDE`).
 ON_CLAUDE_STIMULI = ("http_429_rate_limit", "http_429_insufficient_quota")
 
 
 def amendment() -> dict[str, Any]:
     """What a run sends and checks apart from the frozen protocol, for its summary: each amended
-    stimulus as the scripted transport answers it (status, retry headers and body), and the
-    oracle fields `ON_CLAUDE` replaces."""
+    stimulus as the scripted transport answers it (status, retry headers and body), the oracle
+    fields `ON_CLAUDE` replaces, and the router's first answer with the HP cells it amends."""
     stimuli = {}
     for name in ON_CLAUDE_STIMULI:
         response = ANSWERS[name]({})
@@ -130,7 +174,22 @@ def amendment() -> dict[str, Any]:
             "headers": headers,
             "body": response.json(),
         }
-    return {"stimuli": stimuli, "oracles": ON_CLAUDE}
+    first = ANSWERS[ROUTER_FIRST]({})
+    router_first = {
+        "stimulus": {"name": ROUTER_FIRST, "status": first.status_code, "body": first.json()},
+        "cells": {
+            cell: {
+                "script": case["script"],
+                "model_http_attempts_per_surface": case["oracle"][
+                    "model_http_attempts_per_surface"
+                ],
+                "model_requests_per_surface": case["oracle"]["model_requests_per_surface"],
+            }
+            for cell, case in CASES.items()
+            if ROUTER_FIRST in case["script"]
+        },
+    }
+    return {"stimuli": stimuli, "oracles": ON_CLAUDE, "router_first": router_first}
 
 
 # The model_requests columns an oracle compares; payloads and hashes stay out of the summary.
@@ -825,7 +884,8 @@ def summarize(cases: list[dict[str, Any]], stack: LiveStack) -> dict[str, Any]:
     return {
         "schema": "p0-model-failures-summary/1",
         "protocol": {"path": str(PROTOCOL.relative_to(ROOT)), "sha256": sha256(PROTOCOL)},
-        # What this run sent and checked apart from the frozen protocol: Anthropic's 429s.
+        # What this run sent and checked apart from the frozen protocol: Anthropic's 429s and
+        # the router's first answer.
         "oracle_amendment": amendment(),
         "spec": {
             "path": PLAN["spec"]["path"],

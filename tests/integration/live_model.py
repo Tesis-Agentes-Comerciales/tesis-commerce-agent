@@ -16,6 +16,12 @@ installs its `ModelServer` before building the agent; no request leaves the proc
 
 `ScriptedModel` is the `ModelServer` of the P0 protocols: it serves a script of answer names
 from the answers its module defines (p0-model-failures.md §5.3, p0-ux08-ux10.md §5.3).
+
+The protocols froze one request per router turn. The router now asks twice
+(llm/conversation_router.py): first with `lookup_catalog` and no output schema, then for the
+decision. `with_router_first` puts the first request's answer, a text that calls no tool
+(`ROUTER_FIRST`), before each answer of a router decision in a frozen script, and each module
+amends the attempt counts of its oracles by one per routed turn.
 """
 
 import json
@@ -30,7 +36,13 @@ from commerce_evaluation.stack.hnp_agent import EpisodeBuyer, HnpAgent
 from commerce_evaluation.stack.purchase_lane import Episode, PurchaseLane
 from tests.integration.live_browser import agent_settings
 from tests.support.agent_server import AgentServer
-from tests.support.model_server import Answer, ModelServer
+from tests.support.model_server import (
+    Answer,
+    ModelServer,
+    grammar_too_large,
+    lets_a_tool_be_called_with_a_schema,
+    no_tool_call,
+)
 
 # Synthetic: only the scripted transport ever sees it.
 MODEL = "p0-scripted-model"
@@ -88,6 +100,26 @@ class ModelHnpAgent(HnpAgent):
             self.http.close()
 
 
+# The router's first answer of a turn, scripted before each frozen answer of its decision.
+ROUTER_FIRST = "route_first_without_lookup"
+# The frozen stimuli that answer a router decision, held or not.
+ROUTER_DECISIONS = ("route_", "held_route_")
+
+
+def with_router_first(script: list[str]) -> list[str]:
+    """A frozen script with `ROUTER_FIRST` before each answer of a router decision."""
+    return [
+        name
+        for item in script
+        for name in ((ROUTER_FIRST, item) if item.startswith(ROUTER_DECISIONS) else (item,))
+    ]
+
+
+def router_first_answers(answers: Mapping[str, Answer]) -> dict[str, Answer]:
+    """A module's answers by name, plus the router's first answer."""
+    return {**answers, ROUTER_FIRST: no_tool_call()}
+
+
 class ScriptedModel(ModelServer):
     """`ModelServer` serving a named script of the protocol whose last answer persists: an attempt
     beyond the oracle gets the same stimulus and is counted, instead of breaking the double. Each
@@ -109,8 +141,13 @@ class ScriptedModel(ModelServer):
     def handle(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
         name = self.script[min(len(self.requests) - self.origin, len(self.script)) - 1]
+        body = json.loads(request.content)
+        answer = self.answers[name]
+        if lets_a_tool_be_called_with_a_schema(body):
+            # As `ModelServer`: the provider's 400, whatever the script says.
+            name, answer = "grammar_too_large", grammar_too_large()
         try:
-            response = self.answers[name](json.loads(request.content))
+            response = answer(body)
         except httpx2.TransportError:
             self.served.append((name, None, None))
             raise
