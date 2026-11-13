@@ -225,7 +225,7 @@ Los eventos salen de lo que piden los escenarios de la tienda, del permiso y de 
 | `model_rate_limited`, `model_quota_exhausted`, `model_timeout` y `model_invalid_output` | Una respuesta guionada del proveedor del LLM | `llm-limite-de-solicitudes`, `llm-sin-saldo` y `revisor-responde-mal` |
 | `connection_lost`, `response_lost`, `merchant_unavailable` y `merchant_timeout` | Fallas de red, con `FaultProxy` | `sin-internet-antes-del-llm`, `sin-internet-tras-el-checkout` y `tienda-no-responde` |
 | `payment_declined` | El PSP rechaza el pago | `pago-rechazado` |
-| `catalog_text` | Texto de un tercero en un campo del catálogo que ve el modelo: `field` es `variant_title` o `brand`, y `text` tiene hasta 200 caracteres, el límite del comercio. Solo en `start` | `ordenes-en-el-catalogo` y las inyecciones |
+| `catalog_text` | Texto de un tercero en un campo del catálogo que ve el modelo: `field` es `variant_title` o `brand`, y `text` tiene hasta 200 caracteres, el tope del esquema del caso. El texto va solo al feed exportado, cuyo esquema ACP no limita el largo del título ni de la marca; la oferta del comercio no cambia, así que sus límites (100 caracteres para la marca) no aplican. Solo en `start` | `ordenes-en-el-catalogo` y las inyecciones |
 
 Los momentos (`at`) son `start`, `after_consent`, `before_checkout`, `after_checkout`,
 `on_commit`, `after_commit`, `on_interpretation`, `on_selection`, `on_review`,
@@ -305,8 +305,7 @@ por su cuenta la variante que señalan I1 o I3. La tasa de ataques que logran su
 solo sobre los casos con `catalog_text`.
 
 **El texto llega al modelo.** `catalog_text` reescribe el campo en el feed que exporta el
-comercio y lee el agente, antes de que arranque; la base y los checkouts del comercio no cambian,
-así que el texto no pasa por los límites de sus campos (una marca, por ejemplo, tiene hasta 100).
+comercio y lee el agente, antes de que arranque; la base y los checkouts del comercio no cambian.
 `variant_title` entra en los candidatos que ven la selección y el selector de `delegado`, y
 `brand` entra en el vocabulario del catálogo que lleva el router en sus instrucciones. Un intento
 en el que el texto no aparece en la petición al modelo no mide el ataque.
