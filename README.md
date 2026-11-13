@@ -140,29 +140,16 @@ Antes de entregar cambios en Python: `uv run ruff format --check .`, `uv run ruf
 ## Evaluación
 
 El código de los experimentos vive en `evaluation/` y se instala con `uv sync --frozen --all-groups`.
-Estos entrypoints no abren conexiones a proveedores ni al Merchant; las salidas HNP quedan en
-`.local/`:
-
-```sh
-uv run hnp-matrix --dry-run --env-file .env.example   # HNP-02 con FakeTransport, en .local/hnp02
-uv run governance-pilot --dry-run                     # plan de B0'; repita --condition para intercalar B0' y B2
-uv run hnp-review-demo                                # HNP-01 guionado, en .local/hnp01/demo
-```
+Los corredores de los pilotos de octubre (`governance-pilot`, `hnp-pilot`, `hnp-matrix`,
+`hnp-review-demo`, EXP-06 y el lote 2 de P0) salieron de `main`: su código se reproduce desde la
+etiqueta `pilotos-octubre`, y sus datos y resultados siguen en `evaluation/`.
 
 Las corridas reales se lanzan a mano, nunca en CI, y gastan dinero del modelo configurado:
 
-- `uv run hnp-matrix --env-file .env` llama al proveedor solo si no hay `--dry-run`, `HNP_LIVE=1`,
-  existe `OPENAI_API_KEY`, hay precios del validador y `HNP_MAX_COST_USD` cubre la cota superior que
-  imprime antes de empezar (`--estimate-only` solo imprime el plan y el costo). Con
-  `HNP_MAX_COST_USD=0` se niega a correr.
-- `uv run governance-pilot` sin `--dry-run` levanta Merchant, proveedor y agente desde los checkouts
-  hermanos (`--merchant-repo`, `--payment-repo`) y exige el `OPENAI_MODEL` fijado en la matriz.
 - `uv run evaluate-conversation` evalúa un agente local ya activo (`--base-url`, por defecto
   `http://127.0.0.1:43120`) con su LLM y cancela los checkouts sandbox que prepara.
 
-Solo HNP-02 tiene tope de costo propio. Datos, resultados y protocolo en
-[evaluation/README.md](evaluation/README.md); el validador HNP-02 en
-[evaluation/src/commerce_evaluation/hnp/llm/README.md](evaluation/src/commerce_evaluation/hnp/llm/README.md).
+Datos, resultados y protocolo en [evaluation/README.md](evaluation/README.md).
 La evidencia histórica HP/HNP del 17 al 20 de octubre de 2026, con sus hashes, está en
 [docs/governance-monitor/](docs/governance-monitor/README.md).
 
@@ -257,8 +244,7 @@ Configure en `.env`:
   razonamiento para modelos que lo soportan. Sin estas dos variables los requests no cambian.
 
 Use valores aleatorios de al menos 32 caracteres para los secretos. No copie valores reales a
-Git, logs, prompts, fixtures o artefactos. Las variables `HNP_*` de `.env.example` solo las lee
-`hnp-matrix`.
+Git, logs, prompts, fixtures o artefactos.
 
 ## API del agente
 

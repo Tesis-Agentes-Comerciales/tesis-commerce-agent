@@ -72,43 +72,38 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 
 | Ruta | Contenido |
 | --- | --- |
-| `src/commerce_evaluation/governance_pilot.py` | runner del piloto pareado B0/B2 |
 | `src/commerce_evaluation/conversation.py` | evaluación conversacional contra un agente local |
 | `src/commerce_evaluation/demo_stack.py` | `demo-stack`: stack local de la demo con las condiciones del piloto ([guion](../docs/demo/guion-2026-10-23.md)) |
 | `src/commerce_evaluation/verify_evidence.py` | `verify-evidence`: verificador de la cadena decisión–consentimiento–efecto y métrica H2 ([spec](../docs/design/hp-p2-evidence-chain.md)) |
 | `src/commerce_evaluation/verify_evidence_hnp.py` | perfil HNP de `verify-evidence`: los 17 eslabones de HNP-V1 por tarea y grant, y H2-HNP ([spec](../docs/design/hnp-governed.md), §9.2) |
-| `src/commerce_evaluation/hnp/` | arnés HNP-01 y validador LLM de HNP-02 ([`llm/`](src/commerce_evaluation/hnp/llm/README.md)) |
-| `src/commerce_evaluation/hnp_review_demo.py`, `hnp_matrix.py` | runners de HNP-01 y HNP-02 |
-| `src/commerce_evaluation/hnp_pilot.py` | `hnp-pilot`: plan, guardas y `--dry-run` del piloto HNP v1 ([spec](../docs/design/hnp-pilot.md)) |
-| `src/commerce_evaluation/hnp_pilot_episode.py` | un episodio HNP sobre el stack del piloto de gobernanza y lo que se lee después |
-| `src/commerce_evaluation/hnp_pilot_live.py` | corrida en vivo de `hnp-pilot`: servicios, agente por episodio, tope de costo y resumen |
-| `src/commerce_evaluation/hnp_pilot_scoring.py` | oráculo, métricas y costo de cada fila del piloto HNP |
-| `src/commerce_evaluation/hnp_pilot_agent.py` | agentes de los escenarios guionados (HN11, HR02, HR03) con el selector inyectado por código |
-| `src/commerce_evaluation/hnp_review_pilot.py`, `hnp_review_live.py`, `hnp_review_scoring.py` | piloto del revisor de intención HNP: plan, guardas, `--dry-run`, corrida en vivo, oráculo y resumen por hipótesis ([spec](../docs/design/hnp-review-pilot.md)) |
-| `src/commerce_evaluation/run_artifacts.py` | artefacto local de cada corrida de `governance-pilot` y `hnp-pilot` ([spec](../docs/design/run-traceability.md), T1) |
+| `src/commerce_evaluation/agent_condition.py` | condiciones B0' y B2, llaves D1 de la corrida y chequeos de arranque y de `/health`, para `demo-stack` y la suite viva |
+| `src/commerce_evaluation/auth_client.py` | comprador de evaluación en el auth local, con la espera ante su límite de tasa |
+| `src/commerce_evaluation/llm/` | puerto para llamar a un LLM con salida estructurada, su tope de gasto y su doble sin red ([spec](../docs/design/eval-suite.md), §5) |
+| `src/commerce_evaluation/run_artifacts.py` | artefacto local de cada corrida de los pilotos ([spec](../docs/design/run-traceability.md), T1) |
 | `src/commerce_evaluation/redaction.py` | redacción común de logs, errores y campos de fila (secretos conocidos y formas de secreto) |
-| `src/commerce_evaluation/flow_trace.py` | bloque `flow_trace` de cada fila de `hnp-pilot` y de `governance-pilot`: qué decidió y por qué, de `agent.db` y, en HP, `agent.graph.db` ([spec](../docs/design/run-traceability.md) §4.1, T3 y T4) |
-| `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto lo ejecuta con el entorno del Merchant |
+| `src/commerce_evaluation/flow_trace.py` | bloque `flow_trace` de cada fila de los pilotos HNP y HP: qué decidió y por qué, de `agent.db` y, en HP, `agent.graph.db` ([spec](../docs/design/run-traceability.md) §4.1, T3 y T4) |
+| `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto B0/B2 lo ejecutaba con el entorno del Merchant |
 | `scripts/build_b0_analysis_notebook.py` | genera el notebook B0; `nbformat` no está en el lock |
 
+Los corredores de los pilotos de octubre (`governance_pilot`, `hnp_pilot*`, `hnp_review*`,
+`hnp_matrix`, el arnés `hnp/`, `exp06*` y `p0_llm_batch2*`) salieron de `main`: su código se
+reproduce desde la etiqueta `pilotos-octubre`. Sus datos y resultados siguen en `data/`,
+`scenarios/` y `results/`.
+
 ```sh
-uv run governance-pilot --dry-run                    # plan de B0'; --condition B2 para el tratado
-uv run governance-pilot --dry-run --condition B0prime --condition B2  # plan intercalado del piloto
-uv run governance-pilot --dry-run --manifest evaluation/data/b2-pilot-v2.json --condition B0prime --condition B2  # piloto v2
 uv run evaluate-conversation                         # con agente y Merchant locales activos
 uv run demo-stack --dry-run                          # plan y requisitos de la demo local, sin arrancar nada
 uv run verify-evidence --agent-db agent.db --psp-db payments.db  # cadena de evidencia y H2
 uv run verify-evidence --agent-db agent.db --grant dg_…  # cadena HNP de un grant
-uv run hnp-review-demo                               # HNP-01 offline, escribe en .local/hnp01/demo
-uv run hnp-matrix --dry-run --env-file .env.example  # HNP-02 con FakeTransport, escribe en .local/hnp02
-uv run hnp-pilot --dry-run                           # piloto HNP v1: plan, entorno (solo nombres) y preparación
 uv run --with nbformat python evaluation/scripts/build_b0_analysis_notebook.py
 ```
 
-Los comandos se ejecutan desde la raíz del repositorio. Las salidas HNP deben quedar bajo
-`.local/`; el piloto escribe por defecto en `results/`.
+Los comandos se ejecutan desde la raíz del repositorio.
 
 ## Artefacto de cada corrida (`governance-pilot` y `hnp-pilot`)
+
+> Esos corredores salieron de `main` y se reproducen desde la etiqueta `pilotos-octubre`.
+> `run_artifacts.py`, `flow_trace.py` y `redaction.py` siguen aquí.
 
 Cada corrida en vivo guarda, además de su fila, el artefacto completo de cada repetición o
 episodio ([spec](../docs/design/run-traceability.md), §4.2, §4.3 y T1). El runner lo copia cuando
@@ -180,6 +175,9 @@ su directorio temporal:
 - `--dry-run` no cambia ni crea artefactos.
 
 ## Piloto B2 gobernado: B0' y B2
+
+> El corredor de este piloto salió de `main`: su código se reproduce desde la etiqueta
+> `pilotos-octubre`. Sus datos y resultados siguen aquí.
 
 La spec es [`b2-governed-pilot.md`](../docs/design/b2-governed-pilot.md) y el manifiesto
 pre-registrado, [`data/b2-pilot-v1.json`](data/b2-pilot-v1.json). Las dos condiciones corren sobre el
@@ -347,6 +345,9 @@ re-puntuar el JSONL congelado del piloto v1 da los mismos números
 
 ## Piloto B2 gobernado v2
 
+> El corredor de este piloto salió de `main`: su código se reproduce desde la etiqueta
+> `pilotos-octubre`. Sus datos y resultados siguen aquí.
+
 La spec es [`b2-governed-pilot-v2.md`](../docs/design/b2-governed-pilot-v2.md) y el manifiesto,
 [`data/b2-pilot-v2.json`](data/b2-pilot-v2.json). El mismo runner lo corre con `--manifest`; sin esa
 opción usa el manifiesto v1 y el v1 se reproduce igual. `--matrix` toma por defecto la matriz del
@@ -489,6 +490,9 @@ para una orden (los JWT los guarda su UoW-3 en `completion_results`). Desde Pyth
 
 ## Piloto HNP v1: B0-HNP, B2-HNP y P
 
+> El corredor de este piloto salió de `main`: su código se reproduce desde la etiqueta
+> `pilotos-octubre`. Sus datos y resultados siguen aquí.
+
 La spec es [`hnp-pilot.md`](../docs/design/hnp-pilot.md) y el pre-registro,
 [`data/hnp-pilot-v1.json`](data/hnp-pilot-v1.json) con [`data/hnp-scenarios.json`](data/hnp-scenarios.json).
 
@@ -548,6 +552,9 @@ uv run hnp-pilot --rescore results/hnp-pilot-v1/corrida1-hnp-pilot-069a0ec8adfe.
 
 ## Piloto del revisor de intención HNP: B2-HNP y B2-HNP-R
 
+> El corredor de este piloto salió de `main`: su código se reproduce desde la etiqueta
+> `pilotos-octubre`. Sus datos y resultados siguen aquí.
+
 La spec es [`hnp-review-pilot.md`](../docs/design/hnp-review-pilot.md) y el pre-registro,
 [`data/hnp-review-pilot-v1.json`](data/hnp-review-pilot-v1.json) con
 [`data/hnp-review-scenarios.json`](data/hnp-review-scenarios.json). Corre sobre el runner
@@ -596,7 +603,8 @@ HNP_REVIEW_PILOT_MAX_COST_USD=1 HNP_LIVE=1 uv run hnp-pilot --manifest $M  # en 
 - `data/hnp-review-pilot-v1.json`, `data/hnp-review-scenarios.json`: pre-registro del piloto del
   revisor de intención HNP con B2-HNP y B2-HNP-R y los escenarios HR01–HR03
   ([spec](../docs/design/hnp-review-pilot.md)).
-- `data/hnp/cases.json`, `data/hnp/oracle.json`: corpus HNP de 27 casos y su oráculo separado.
+- `data/hnp/cases.json`, `data/hnp/oracle.json`: corpus HNP de 27 casos y su oráculo separado, de
+  HNP-01 y HNP-02 (su arnés está en la etiqueta `pilotos-octubre`).
 - `results/b0-pilot-v1.jsonl`: las 25 ejecuciones del piloto B0.
 - `results/b0-pilot-v1.summary.json`: agregado generado por el runner.
 - `results/b0-pilot-v1-report.md`: análisis humano y decisiones derivadas del piloto.
