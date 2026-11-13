@@ -2,6 +2,7 @@
 
 import json
 from decimal import Decimal
+from math import ceil
 from pathlib import Path
 from typing import Any, Literal
 
@@ -29,6 +30,9 @@ class Verdict(BaseModel):
     decision: Literal["accept", "reject"]
 
 
+SCHEMA = json.dumps(Verdict.model_json_schema())
+
+
 def request(**overrides: Any) -> LlmRequest:
     values: dict[str, Any] = {
         "model": "model-under-test",
@@ -52,8 +56,9 @@ def usage(input_tokens: int, output_tokens: int, read: int = 0, write: int = 0) 
 
 
 def worst_case(llm_request: LlmRequest, prices: TokenPrices = PRICES) -> Decimal:
-    characters = len(llm_request.instructions + llm_request.input_text)
-    return prices.cost(usage((characters + 2) // 3, llm_request.max_output_tokens))
+    # The schema travels in output_config.format, so it counts as input too.
+    sent = llm_request.instructions + llm_request.input_text + SCHEMA
+    return prices.cost(usage(ceil(len(sent) / 2), llm_request.max_output_tokens))
 
 
 def budget(tmp_path: Path, max_usd: Decimal, **prices: TokenPrices) -> RunBudget:
@@ -164,6 +169,7 @@ def test_ledger_records_every_call_without_prompts(tmp_path: Path):
         "custom_id": None,
         "usage": accepted.usage.model_dump(),
         "usd": float(PRICES.cost(accepted.usage)),
+        "attempts": 1,
         "failure": None,
         "error": None,
     }
@@ -213,3 +219,104 @@ def test_a_batch_is_priced_at_batch_rates_and_recorded_item_by_item(tmp_path: Pa
     assert first["usd"] == float(PRICES.cost(parsed.usage) / 2)
     assert (second["custom_id"], second["error"]) == ("c2", "BatchItemErrored:overloaded_error")
     assert second["usd"] == float(worst_case(items["c2"], PRICES.batch()))
+
+
+def test_the_worst_case_counts_the_schema_at_two_characters_per_token(tmp_path: Path):
+    fake = FakeTransport(lambda _: FakeReply(output=ACCEPT))
+    small = request(max_output_tokens=16)
+    exact = budget(tmp_path / "exact", worst_case(small))
+    short = budget(tmp_path / "short", worst_case(small) - Decimal("0.000000001"))
+
+    BudgetedTransport(fake, budget=exact, role="judge").parse(small, Verdict)
+    with pytest.raises(FundsExhausted, match="BudgetExhausted"):
+        BudgetedTransport(fake, budget=short, role="judge").parse(small, Verdict)
+
+
+def test_an_interrupted_call_is_recorded_and_keeps_its_reservation(tmp_path: Path):
+    run_budget = budget(tmp_path, Decimal(1))
+    fake = FakeTransport(lambda _: FakeReply(raises=KeyboardInterrupt()))
+
+    with pytest.raises(KeyboardInterrupt):
+        BudgetedTransport(fake, budget=run_budget, role="simulator").parse(request(), Verdict)
+
+    [row] = ledger(run_budget)
+    assert (row["error"], row["usd"], row["attempts"]) == (
+        "KeyboardInterrupt",
+        float(worst_case(request())),
+        1,
+    )
+    assert run_budget.spent_usd == worst_case(request())
+
+
+def test_an_interrupted_batch_leaves_its_id_in_the_run_directory(tmp_path: Path):
+    run_budget = budget(tmp_path, Decimal(1))
+    fake = FakeBatchTransport(FakeTransport(lambda _: FakeReply(raises=KeyboardInterrupt())))
+    judge = BudgetedBatchTransport(fake, budget=run_budget, role="judge")
+
+    with pytest.raises(KeyboardInterrupt):
+        judge.parse_batch({"c1": request(), "c2": request()}, Verdict)
+
+    [submitted] = [json.loads(line) for line in run_budget.batches_path.read_text().splitlines()]
+    assert (submitted["batch_id"], submitted["role"]) == ("fake_batch_1", "judge")
+    assert submitted["custom_ids"] == ["c1", "c2"]
+    rows = ledger(run_budget)
+    assert {(row["batch_id"], row["error"]) for row in rows} == {
+        ("fake_batch_1", "KeyboardInterrupt")
+    }
+
+
+@pytest.mark.parametrize("custom_id", ["c 1", "c1/2", "x" * 65, ""], ids=repr)
+def test_custom_ids_are_checked_before_anything_is_reserved(tmp_path: Path, custom_id: str):
+    run_budget = budget(tmp_path, Decimal(1))
+    fake = FakeTransport(lambda _: FakeReply(output=ACCEPT))
+    judge = BudgetedBatchTransport(FakeBatchTransport(fake), budget=run_budget, role="judge")
+
+    with pytest.raises(ValueError, match="custom_id"):
+        judge.parse_batch({"ok_1": request(), custom_id: request()}, Verdict)
+
+    assert fake.requests == [] and not run_budget.ledger_path.exists()
+
+
+def test_the_agent_spend_is_charged_to_the_same_cap(tmp_path: Path):
+    agent_usage = usage(400_000, 20_000)
+    run_budget = budget(tmp_path, PRICES.cost(agent_usage) + worst_case(request()) / 2)
+    simulator = BudgetedTransport(
+        FakeTransport(lambda _: FakeReply(output=ACCEPT)), budget=run_budget, role="simulator"
+    )
+
+    usd = run_budget.charge(
+        role="agent", model="model-under-test", usage=agent_usage, model_returned="served"
+    )
+    with pytest.raises(FundsExhausted, match="BudgetExhausted"):
+        simulator.parse(request(), Verdict)
+    with pytest.raises(FundsExhausted, match="BudgetExhausted"):
+        run_budget.charge(role="agent", model="model-under-test", usage=agent_usage)
+
+    assert usd == PRICES.cost(agent_usage)
+    charged, refused, crossing = ledger(run_budget)
+    assert (charged["role"], charged["usage"], charged["usd"]) == (
+        "agent",
+        agent_usage.model_dump(),
+        float(usd),
+    )
+    assert (charged["model_returned"], charged["error"]) == ("served", None)
+    assert (refused["role"], refused["error"]) == ("simulator", "BudgetExhausted")
+    assert (crossing["role"], crossing["error"]) == ("agent", "BudgetExhausted")
+    assert run_budget.spent_usd == 2 * usd
+
+
+@pytest.mark.parametrize("max_usd", ["0", "-1", "NaN", "Infinity"])
+def test_the_cap_is_a_positive_amount(tmp_path: Path, max_usd: str):
+    with pytest.raises(ValueError, match="positive"):
+        budget(tmp_path, Decimal(max_usd))
+
+
+def test_a_resumed_run_keeps_what_it_already_spent(tmp_path: Path):
+    first = budget(tmp_path, Decimal(1))
+    fake = FakeTransport(lambda _: FakeReply(output=ACCEPT))
+    BudgetedTransport(fake, budget=first, role="judge").parse(request(), Verdict)
+
+    resumed = budget(tmp_path, Decimal(1))
+
+    assert first.spent_usd > 0
+    assert abs(resumed.spent_usd - first.spent_usd) < Decimal("1e-12")

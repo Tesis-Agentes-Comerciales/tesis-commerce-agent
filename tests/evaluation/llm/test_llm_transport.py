@@ -43,8 +43,8 @@ def test_fake_transport_parses_its_answer_records_the_request_and_estimates_usag
     assert result.parsed == Verdict(decision="accept")
     assert (result.failure, result.response_model) == (None, "model-under-test")
     assert result.usage == TokenUsage(
-        input_tokens=(len(INSTRUCTIONS) + 2 + 2) // 3,
-        output_tokens=(len('{"decision": "accept"}') + 2) // 3,
+        input_tokens=(len(INSTRUCTIONS) + 2 + 1) // 2,
+        output_tokens=(len('{"decision": "accept"}') + 1) // 2,
         cache_read_tokens=0,
         cache_write_tokens=0,
         reasoning_tokens=0,

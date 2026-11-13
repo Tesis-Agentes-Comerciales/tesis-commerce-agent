@@ -1,7 +1,8 @@
 """Structured-output transports: the port and an offline fake.
 
 Contract shared by every transport:
-- one ``parse`` call is one request and one observation: no retries, no fallback model;
+- one ``parse`` call is one observation: no fallback model, and no retries except of a request
+  the provider turned away unprocessed (``AnthropicTransport``: 429 and 529, at most twice);
 - provider and network failures raise ``TransportError`` (infrastructure, never a verdict);
 - a call the run cannot pay for raises ``FundsExhausted``, which no retry can fix;
 - an exceeded request timeout raises ``TransportTimeout`` (a ``TimeoutError``);
@@ -28,8 +29,12 @@ TransportId = Literal["fake", "anthropic"]
 class TransportError(RuntimeError):
     """Provider, network or budget failure: infrastructure, never an observation of the model.
 
-    Carries the error class name, never response bodies.
+    Carries the error class name, never response bodies, and how many requests were sent.
     """
+
+    def __init__(self, name: str, *, attempts: int = 1):
+        super().__init__(name)
+        self.attempts = attempts
 
 
 class FundsExhausted(TransportError):
@@ -61,6 +66,8 @@ class LlmResult[T: BaseModel]:
     failure: FailureKind | None
     usage: TokenUsage | None
     response_model: str | None
+    # Requests sent for this one observation: more than one only after a 429 or 529.
+    attempts: int = 1
 
 
 class StructuredLLM(Protocol):

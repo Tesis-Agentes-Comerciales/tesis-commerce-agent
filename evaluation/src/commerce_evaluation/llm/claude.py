@@ -6,16 +6,22 @@ as ``messages.parse`` would). Thinking stays adaptive, the default on the 5.5 mo
 is validated here instead of by ``messages.parse``, which raises on an off-schema answer and
 loses its usage; here it comes back as ``schema_invalid`` and its cost is counted.
 
-The client never retries (``max_retries=0``), except when polling a batch: one HTTP request is
-one observation and one ledger row, and the runner retries trials after infrastructure failures.
+The SDK never retries (``max_retries=0``): a hidden retry would be a request without a ledger
+row. ``AnthropicTransport`` sends a request again itself, at most twice and after its
+``retry-after``, only when the API turned it away unprocessed: a 429 ``rate_limit_error`` or a
+529 ``overloaded_error`` that is not a spent balance. The call keeps one reservation and one
+ledger row, with its ``attempts``. Creating a batch is never retried; polling one is.
+
 Errors follow the product's classification (src/commerce_agent/llm/model_failures.py): a spent
-credit balance or spend cap is ``FundsExhausted``; every other failure is a ``TransportError``
-named after the SDK's error class.
+credit balance or spend cap is ``FundsExhausted``, for a response and a batch item alike; every
+other failure is a ``TransportError`` named after the SDK's error class. Usage the price table
+does not cover (1-hour cache writes, US-only inference at 1.1x) fails closed as
+``TransportError("UnpricedUsage")``.
 """
 
 import logging
-from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Callable, Mapping
+from math import isfinite
 from time import sleep
 
 from anthropic import (
@@ -30,7 +36,7 @@ from anthropic.types.message_create_params import MessageCreateParamsNonStreamin
 from anthropic.types.messages import MessageBatchResult
 from pydantic import BaseModel, ValidationError
 
-from .batch import BatchReply
+from .batch import BatchReply, Submitted, check_custom_ids
 from .cost import TokenUsage
 from .transport import (
     FundsExhausted,
@@ -47,6 +53,11 @@ _log = logging.getLogger(__name__)
 # two 400s that name a spent balance in their message alone.
 SPEND_CAP = "enforced_spend_limit_reached"
 SPENT_MESSAGES = ("your credit balance is too low", "you have reached your specified")
+# Turned away before any processing, so sending it again bills nothing twice.
+BUSY = ("rate_limit_error", "overloaded_error")
+MAX_ATTEMPTS = 3
+DEFAULT_RETRY_SECONDS = 5.0
+MAX_RETRY_SECONDS = 60.0
 BATCH_POLL_SECONDS = 30.0
 
 
@@ -55,15 +66,25 @@ class AnthropicTransport:
 
     transport_id: TransportId = "anthropic"
 
-    def __init__(self, client: Anthropic):
+    def __init__(self, client: Anthropic, *, wait: Callable[[float], None] = sleep):
         self._client = client.with_options(max_retries=0)
+        self._wait = wait
 
     def parse[T: BaseModel](self, request: LlmRequest, schema: type[T]) -> LlmResult[T]:
-        with provider_errors():
-            message = self._client.messages.create(
-                **message_params(request, schema), timeout=request.timeout_seconds
-            )
-        return read_message(message, schema)
+        params = message_params(request, schema)
+        attempt = 1
+        while True:
+            try:
+                message = self._client.messages.create(**params, timeout=request.timeout_seconds)
+            except APIStatusError as error:
+                if attempt == MAX_ATTEMPTS or not _busy(error):
+                    raise transport_error(error, attempts=attempt) from None
+                self._wait(_retry_after(error))
+                attempt += 1
+            except AnthropicError as error:
+                raise transport_error(error, attempts=attempt) from None
+            else:
+                return read_message(message, schema, attempts=attempt)
 
 
 class AnthropicBatchTransport:
@@ -85,23 +106,31 @@ class AnthropicBatchTransport:
         self._wait = wait
 
     def parse_batch[T: BaseModel](
-        self, requests: Mapping[str, LlmRequest], schema: type[T]
+        self,
+        requests: Mapping[str, LlmRequest],
+        schema: type[T],
+        *,
+        on_submitted: Submitted | None = None,
     ) -> BatchReply[T]:
-        with provider_errors():
+        check_custom_ids(requests)
+        try:
             batch = self._submit.messages.batches.create(
                 requests=[
                     {"custom_id": custom_id, "params": message_params(request, schema)}
                     for custom_id, request in requests.items()
                 ]
             )
-            # Logged before polling, so a batch whose results are never collected can be found.
             _log.info("Message Batch %s submitted with %d requests", batch.id, len(requests))
+            if on_submitted is not None:
+                on_submitted(batch.id)
             while batch.processing_status != "ended":
                 self._wait(self._poll_seconds)
                 batch = self._read.messages.batches.retrieve(batch.id)
             rows = {
                 row.custom_id: row.result for row in self._read.messages.batches.results(batch.id)
             }
+        except AnthropicError as error:
+            raise transport_error(error) from None
         return BatchReply(
             batch.id, {custom_id: _item(rows.get(custom_id), schema) for custom_id in requests}
         )
@@ -122,23 +151,28 @@ def message_params(request: LlmRequest, schema: type[BaseModel]) -> MessageCreat
     }
 
 
-def read_message[T: BaseModel](message: Message, schema: type[T]) -> LlmResult[T]:
+def read_message[T: BaseModel](
+    message: Message, schema: type[T], *, attempts: int = 1
+) -> LlmResult[T]:
     usage = token_usage(message.usage)
     if message.stop_reason == "refusal":
-        return LlmResult(None, "refusal", usage, message.model)
+        return LlmResult(None, "refusal", usage, message.model, attempts)
     if message.stop_reason in ("max_tokens", "model_context_window_exceeded"):
-        return LlmResult(None, "incomplete", usage, message.model)
+        return LlmResult(None, "incomplete", usage, message.model, attempts)
     text = next((block.text for block in message.content if block.type == "text"), None)
     if text is None:
-        return LlmResult(None, "schema_invalid", usage, message.model)
+        return LlmResult(None, "schema_invalid", usage, message.model, attempts)
     try:
         parsed = schema.model_validate_json(text)
     except ValidationError:
-        return LlmResult(None, "schema_invalid", usage, message.model)
-    return LlmResult(parsed, None, usage, message.model)
+        return LlmResult(None, "schema_invalid", usage, message.model, attempts)
+    return LlmResult(parsed, None, usage, message.model, attempts)
 
 
 def token_usage(usage: Usage) -> TokenUsage:
+    one_hour_writes = usage.cache_creation.ephemeral_1h_input_tokens if usage.cache_creation else 0
+    if one_hour_writes or usage.inference_geo == "us":
+        raise TransportError("UnpricedUsage")
     details = usage.output_tokens_details
     return TokenUsage(
         input_tokens=usage.input_tokens,
@@ -149,26 +183,38 @@ def token_usage(usage: Usage) -> TokenUsage:
     )
 
 
-@contextmanager
-def provider_errors() -> Iterator[None]:
-    """Turns SDK errors into transport errors that carry a class name, never a body."""
-    try:
-        yield
-    except APITimeoutError:
-        raise TransportTimeout("APITimeoutError") from None
-    except APIStatusError as error:
-        if _spent(error):
-            raise FundsExhausted("CreditBalanceExhausted") from None
-        raise TransportError(type(error).__name__) from None
-    except AnthropicError as error:
-        raise TransportError(type(error).__name__) from None
+def transport_error(
+    error: AnthropicError, *, attempts: int = 1
+) -> TransportError | TransportTimeout:
+    """The SDK error as a transport error: its class name, never its body."""
+    if isinstance(error, APITimeoutError):
+        return TransportTimeout("APITimeoutError")
+    if isinstance(error, APIStatusError) and _spent(
+        error.status_code, error.type, error.error_code, error.api_message
+    ):
+        return FundsExhausted("CreditBalanceExhausted", attempts=attempts)
+    return TransportError(type(error).__name__, attempts=attempts)
 
 
-def _spent(error: APIStatusError) -> bool:
-    if error.status_code == 402 or error.type == "billing_error" or error.error_code == SPEND_CAP:
+def _spent(status: int | None, kind: str | None, code: str | None, message: str | None) -> bool:
+    """A spent credit balance or spend cap, from a response or from a batch item's error."""
+    if status == 402 or kind == "billing_error" or code == SPEND_CAP:
         return True
-    message = (error.api_message or "").casefold()
-    return error.status_code == 400 and message.startswith(SPENT_MESSAGES)
+    rejected = status == 400 or kind == "invalid_request_error"
+    return rejected and (message or "").casefold().startswith(SPENT_MESSAGES)
+
+
+def _busy(error: APIStatusError) -> bool:
+    spent = _spent(error.status_code, error.type, error.error_code, error.api_message)
+    return error.type in BUSY and not spent
+
+
+def _retry_after(error: APIStatusError) -> float:
+    try:
+        seconds = float(error.response.headers.get("retry-after", ""))
+    except ValueError:
+        return DEFAULT_RETRY_SECONDS
+    return min(max(seconds, 0.0), MAX_RETRY_SECONDS) if isfinite(seconds) else DEFAULT_RETRY_SECONDS
 
 
 def _item[T: BaseModel](
@@ -177,10 +223,20 @@ def _item[T: BaseModel](
     if result is None:
         return TransportError("BatchResultMissing")
     if result.type == "succeeded":
-        return read_message(result.message, schema)
+        try:
+            return read_message(result.message, schema)
+        except TransportError as error:
+            return error
     if result.type == "errored":
-        kind = result.error.error.type
-        if kind == "billing_error":
+        error = result.error.error
+        if _spent(None, error.type, _detail_code(error), error.message):
             return FundsExhausted("CreditBalanceExhausted")
-        return TransportError(f"BatchItemErrored:{kind}")
+        return TransportError(f"BatchItemErrored:{error.type}")
     return TransportError(f"BatchItem{result.type.capitalize()}")
+
+
+def _detail_code(error: object) -> str | None:
+    # `details` is not a declared field of a batch item's error; the SDK keeps it as sent.
+    details = getattr(error, "details", None)
+    code = details.get("error_code") if isinstance(details, dict) else None
+    return code if isinstance(code, str) else None

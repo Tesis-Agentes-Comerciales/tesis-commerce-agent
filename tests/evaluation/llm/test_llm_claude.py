@@ -65,7 +65,7 @@ def request(**overrides: Any) -> LlmRequest:
     return LlmRequest(**{**values, **overrides})
 
 
-def message(text: str, *, stop_reason: str = "end_turn") -> dict[str, Any]:
+def message(text: str, *, stop_reason: str = "end_turn", **usage: Any) -> dict[str, Any]:
     return {
         "id": "msg_1",
         "type": "message",
@@ -83,15 +83,19 @@ def message(text: str, *, stop_reason: str = "end_turn") -> dict[str, Any]:
             "cache_read_input_tokens": 30,
             "cache_creation_input_tokens": 10,
             "output_tokens_details": {"thinking_tokens": 16},
+            **usage,
         },
     }
 
 
-def error(status: int, kind: str, text: str, code: str | None = None) -> httpx2.Response:
+def error(
+    status: int, kind: str, text: str, code: str | None = None, retry_after: str | None = None
+) -> httpx2.Response:
     body: dict[str, Any] = {"type": kind, "message": text}
     if code is not None:
         body["details"] = {"error_code": code}
-    return httpx2.Response(status, json={"type": "error", "error": body})
+    headers = {} if retry_after is None else {"retry-after": retry_after}
+    return httpx2.Response(status, json={"type": "error", "error": body}, headers=headers)
 
 
 USAGE = TokenUsage(
@@ -146,26 +150,75 @@ def test_unusable_answers_come_back_as_failures_with_their_usage(
 @pytest.mark.parametrize(
     ("response", "name"),
     [
-        (
-            error(429, "rate_limit_error", "Number of requests has exceeded your rate limit"),
-            "RateLimitError",
-        ),
-        (error(529, "overloaded_error", "Overloaded"), "OverloadedError"),
+        (error(500, "api_error", "Internal server error"), "InternalServerError"),
+        (error(400, "invalid_request_error", "max_tokens is too large"), "BadRequestError"),
         (httpx2.ConnectError("refused"), "APIConnectionError"),
     ],
-    ids=["429", "529", "connection"],
+    ids=["500", "400", "connection"],
 )
-def test_provider_failures_are_infrastructure_and_never_retried(
+def test_other_provider_failures_are_infrastructure_and_never_retried(
     response: httpx2.Response | Exception, name: str
 ):
     api = Api(response)
+    waits: list[float] = []
 
     with pytest.raises(TransportError) as raised:
-        AnthropicTransport(client(api)).parse(request(), Verdict)
+        AnthropicTransport(client(api), wait=waits.append).parse(request(), Verdict)
 
     assert str(raised.value) == name and not isinstance(raised.value, FundsExhausted)
-    assert raised.value.__cause__ is None
-    assert len(api.requests) == 1
+    assert raised.value.__cause__ is None and raised.value.attempts == 1
+    assert len(api.requests) == 1 and waits == []
+
+
+def test_a_turned_away_request_is_sent_again_after_its_retry_after(tmp_path: Path):
+    api = Api(
+        error(429, "rate_limit_error", "Rate limited.", retry_after="3"),
+        error(529, "overloaded_error", "Overloaded"),
+        httpx2.Response(200, json=message('{"decision": "accept"}')),
+    )
+    waits: list[float] = []
+    run_budget = RunBudget(max_usd=Decimal(1), run_dir=tmp_path)
+    simulator = BudgetedTransport(
+        AnthropicTransport(client(api), wait=waits.append), budget=run_budget, role="simulator"
+    )
+
+    result = simulator.parse(request(), Verdict)
+
+    assert (result.parsed, result.attempts) == (Verdict(decision="accept"), 3)
+    assert len(api.requests) == 3 and waits == [3.0, 5.0]
+    [row] = [json.loads(line) for line in run_budget.ledger_path.read_text().splitlines()]
+    assert (row["attempts"], row["error"]) == (3, None)
+    assert run_budget.spent_usd == CLAUDE_PRICES["claude-sonnet-5-5"].cost(USAGE)
+
+
+def test_a_request_turned_away_three_times_fails_with_its_attempts(tmp_path: Path):
+    api = Api(*[error(529, "overloaded_error", "Overloaded", retry_after="1")] * 3)
+    run_budget = RunBudget(max_usd=Decimal(1), run_dir=tmp_path)
+    simulator = BudgetedTransport(
+        AnthropicTransport(client(api), wait=lambda _: None), budget=run_budget, role="simulator"
+    )
+
+    with pytest.raises(TransportError, match="OverloadedError") as raised:
+        simulator.parse(request(), Verdict)
+
+    assert raised.value.attempts == 3 and len(api.requests) == 3
+    [row] = [json.loads(line) for line in run_budget.ledger_path.read_text().splitlines()]
+    assert (row["attempts"], row["error"]) == (3, "OverloadedError")
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"cache_creation": {"ephemeral_1h_input_tokens": 10, "ephemeral_5m_input_tokens": 0}},
+        {"inference_geo": "us"},
+    ],
+    ids=["one-hour-cache", "us-only"],
+)
+def test_usage_the_prices_do_not_cover_fails_closed(usage: dict[str, Any]):
+    api = Api(httpx2.Response(200, json=message('{"decision": "accept"}', **usage)))
+
+    with pytest.raises(TransportError, match="UnpricedUsage"):
+        AnthropicTransport(client(api)).parse(request(), Verdict)
 
 
 @pytest.mark.parametrize(
@@ -245,8 +298,13 @@ def results(*lines: dict[str, Any]) -> httpx2.Response:
     return httpx2.Response(200, content="\n".join(json.dumps(line) for line in lines).encode())
 
 
-def errored(custom_id: str, kind: str) -> dict[str, Any]:
-    failure = {"type": "error", "error": {"type": kind, "message": "Failed."}}
+def errored(
+    custom_id: str, kind: str, text: str = "Failed.", code: str | None = None
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"type": kind, "message": text}
+    if code is not None:
+        body["details"] = {"error_code": code}
+    failure = {"type": "error", "error": body}
     return {"custom_id": custom_id, "result": {"type": "errored", "error": failure}}
 
 
@@ -266,6 +324,10 @@ def test_a_batch_is_submitted_polled_and_collected_by_custom_id(tmp_path: Path):
                 "result": {"type": "succeeded", "message": message('{"decision": "accept"}')},
             },
             errored("c4", "billing_error"),
+            errored("c6", "invalid_request_error", "Your credit balance is too low."),
+            errored(
+                "c7", "rate_limit_error", "Spend limit reached.", "enforced_spend_limit_reached"
+            ),
         ),
     )
     waits: list[float] = []
@@ -273,7 +335,7 @@ def test_a_batch_is_submitted_polled_and_collected_by_custom_id(tmp_path: Path):
     run_budget = RunBudget(max_usd=Decimal(1), run_dir=tmp_path)
     judge = BudgetedBatchTransport(transport, budget=run_budget, role="judge")
     items = {
-        f"c{n}": request(model="claude-opus-5-5", input_text=f"Criterion {n}") for n in range(1, 6)
+        f"c{n}": request(model="claude-opus-5-5", input_text=f"Criterion {n}") for n in range(1, 8)
     }
 
     reply = judge.parse_batch(items, Verdict)
@@ -288,9 +350,13 @@ def test_a_batch_is_submitted_polled_and_collected_by_custom_id(tmp_path: Path):
         "c3": ("TransportError", "BatchItemExpired"),
         "c4": ("FundsExhausted", "CreditBalanceExhausted"),
         "c5": ("TransportError", "BatchResultMissing"),
+        "c6": ("FundsExhausted", "CreditBalanceExhausted"),
+        "c7": ("FundsExhausted", "CreditBalanceExhausted"),
     }
     submitted = json.loads(api.requests[0].content)["requests"]
-    assert [item["custom_id"] for item in submitted] == ["c1", "c2", "c3", "c4", "c5"]
+    assert [item["custom_id"] for item in submitted] == [f"c{n}" for n in range(1, 8)]
+    [recorded] = [json.loads(line) for line in run_budget.batches_path.read_text().splitlines()]
+    assert recorded["batch_id"] == "msgbatch_1"
     assert submitted[0]["params"]["output_config"]["format"]["type"] == "json_schema"
     rows = [json.loads(line) for line in run_budget.ledger_path.read_text().splitlines()]
     assert {(row["mode"], row["batch_id"]) for row in rows} == {("batch", "msgbatch_1")}
@@ -305,3 +371,32 @@ def test_a_failed_batch_submission_is_not_retried():
         transport.parse_batch({"c1": request()}, Verdict)
 
     assert len(api.requests) == 1
+
+
+def test_an_interrupted_poll_leaves_the_batch_recoverable(tmp_path: Path):
+    api = Api(httpx2.Response(200, json=batch("in_progress")))
+
+    def interrupt(_: float) -> None:
+        raise KeyboardInterrupt
+
+    run_budget = RunBudget(max_usd=Decimal(1), run_dir=tmp_path)
+    judge = BudgetedBatchTransport(
+        AnthropicBatchTransport(client(api), wait=interrupt), budget=run_budget, role="judge"
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        judge.parse_batch({"c1": request(model="claude-opus-5-5")}, Verdict)
+
+    [recorded] = [json.loads(line) for line in run_budget.batches_path.read_text().splitlines()]
+    assert (recorded["batch_id"], recorded["custom_ids"]) == ("msgbatch_1", ["c1"])
+    [row] = [json.loads(line) for line in run_budget.ledger_path.read_text().splitlines()]
+    assert (row["batch_id"], row["error"]) == ("msgbatch_1", "KeyboardInterrupt")
+
+
+def test_the_batch_transport_checks_custom_ids_before_sending():
+    api = Api()
+
+    with pytest.raises(ValueError, match="custom_id"):
+        AnthropicBatchTransport(client(api)).parse_batch({"bad id": request()}, Verdict)
+
+    assert api.requests == []

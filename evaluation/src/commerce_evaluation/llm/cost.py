@@ -9,9 +9,9 @@ from types import MappingProxyType
 from pydantic import BaseModel, ConfigDict, Field
 
 MILLION = Decimal(1_000_000)
-# Pre-run estimates only: no tokenizer is installed offline. JSON with hex digests packs fewer
-# characters per token than prose, so 3 errs towards a higher estimate.
-ESTIMATED_CHARS_PER_TOKEN = 3
+# Pre-run estimates only: no tokenizer is installed offline. Prose runs about 4 characters per
+# token and JSON with digests fewer; 2 keeps the estimate an upper bound for both.
+ESTIMATED_CHARS_PER_TOKEN = 2
 # A model with a long-prompt rate card bills the whole call at it above this many prompt tokens.
 LONG_PROMPT_TOKENS = 100_000
 # Message Batches bill every token, cache included, at half price.
