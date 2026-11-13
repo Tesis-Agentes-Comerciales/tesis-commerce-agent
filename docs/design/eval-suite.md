@@ -136,12 +136,19 @@ está en `known_info`. Si le preguntan algo de `unknown_info`, dice que no lo sa
 sigue el guion al pie de la letra.
 
 **Juez.** Responde una pregunta por criterio, con cita y razón. Ve la transcripción, el estado
-final y el criterio, pero no ve la solución de referencia.
+final y el criterio, pero no ve la solución de referencia. Del estado final solo ve variante,
+estado, montos y cantidad. Decide con la misma rúbrica que leen quienes etiquetan.
 
-**Calibración.** Los dos autores etiquetan a ciegas unas 200 transcripciones del piloto, en unas
-2 horas. El juez se acepta si su κ de Cohen frente a las etiquetas humanas es de al menos 0,7,
-medido en transcripciones que no se usaron para ajustar la rúbrica. Como agente, simulador y
-juez son Claude, esta calibración es obligatoria.
+**Calibración.** Se etiquetan a ciegas 40 intentos del piloto, una hora y media para una
+persona: por cada criterio que fue al juez, la misma pregunta y la misma rúbrica, sin su
+veredicto. El juez se acepta si su κ de Cohen frente a las etiquetas humanas es de al menos 0,7,
+medido en tareas que no se usaron para ajustar la rúbrica. Lo que el juez no pudo responder
+(falla del transporte, rechazo, respuesta truncada) queda fuera del κ y se cuenta aparte. Con
+pocas fallas en la muestra κ es inestable, así que el reporte da también el acuerdo observado y
+la matriz, y avisa si una clase tiene menos de 10 criterios. Con `--by-verdict` la muestra
+alterna intentos donde el juez dio alguna falla con el resto: deja de ser representativa de la
+corrida, y el reporte lo dice. Como agente, simulador y juez son Claude, esta calibración es
+obligatoria.
 
 ## 4. Contrato de datos
 
@@ -461,7 +468,8 @@ Estimado con los tokens medidos en los pilotos, para las 51 tareas con LLM (45 d
 Las dos pasadas, la calibración y un piloto caben en los USD 200 de créditos.
 
 Toda corrida paga exige `--max-usd`, y `BudgetedTransport` la corta al llegar al tope. La lanza
-el dueño a mano.
+el dueño a mano. El juez lleva su propio `--max-usd`: el lote reserva de una vez el peor caso de
+cada pregunta, unos USD 0,035 a 0,04 con Opus por Batch.
 
 ## 8. Cómo se corre
 
@@ -475,8 +483,9 @@ uv run eval-suite run --suite capability --agent claude-haiku-5-5 --k 5 --max-us
 # Reporte de una corrida
 uv run eval-suite report <run-id>
 
-# Calibración del juez: páginas de etiquetado a ciegas y κ contra las etiquetas
-uv run python -m commerce_evaluation.suite.calibration export <run-dir>
+# Calibración del juez: páginas de etiquetado a ciegas en <run-dir>/calibration/labeling/
+# y κ contra las etiquetas. --by-verdict, después del juez, asegura fallas en la muestra.
+uv run python -m commerce_evaluation.suite.calibration export <run-dir> [--by-verdict]
 uv run python -m commerce_evaluation.suite.calibration score <run-dir> --labels etiquetas.json
 ```
 

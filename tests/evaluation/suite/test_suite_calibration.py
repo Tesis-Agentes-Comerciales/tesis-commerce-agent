@@ -12,6 +12,8 @@ from commerce_evaluation.suite.agreement import Sample, kappa, score, split
 from commerce_evaluation.suite.calibration import (
     DIRECTORY,
     PAGES,
+    PAGES_DIRECTORY,
+    SAMPLE_FILE,
     TRIALS_FILE,
     export,
     main,
@@ -20,7 +22,7 @@ from commerce_evaluation.suite.calibration import (
 from commerce_evaluation.suite.cases import DelegatedCase, PresentCase, Reference
 from commerce_evaluation.suite.graders.grade import Verdict
 from commerce_evaluation.suite.graders.judge import Judged, write_judged
-from commerce_evaluation.suite.graders.question import Question, questions
+from commerce_evaluation.suite.graders.question import RUBRIC, Question, questions
 from commerce_evaluation.suite.trial import TrialRecord
 from tests.evaluation.suite.trials import B, case, record
 
@@ -157,24 +159,31 @@ def test_the_page_is_blind_and_self_contained(run_dir: Path) -> None:
 
     written = export(run_dir, catalog(), size=6, repeated=4, seed=3)
 
-    page = (run_dir / DIRECTORY / PAGES["main"][0]).read_text("utf-8")
+    page = (run_dir / DIRECTORY / PAGES_DIRECTORY / PAGES["main"][0]).read_text("utf-8")
     data = embedded(page)
     shown = [item["id"] for trial in data["trials"] for item in trial["items"]]
     assert shown == list(written.main)
     assert len(data["trials"]) == 6
     assert "El asistente comunica que no tiene cómo saber la fecha de entrega." in page
+    # The labeler decides by the judge's rubric, word for word, and sees it from the start.
+    assert all(f"<li>{rule}</li>" in page for rule in RUBRIC)
+    assert "<details open>" in page
     oracle = ["GUION-DE-REFERENCIA", "tarea-a", "pedido-del-usuario", B, "RAZON-DEL-JUEZ"]
     secrets = ["claude-haiku", "claude-opus", "B0", "B2", "run_tarea", "governance"]
     assert [text for text in [*oracle, *secrets] if text in page] == []
     # The agent's text cannot close the data's script element.
     assert page.count("</script>") == 2
     assert not re.search(r"https?://|<link|\bsrc=", page)
+    # The folder the labeler opens holds the pages and nothing that names the cases.
+    pages = sorted(path.name for path in (run_dir / DIRECTORY / PAGES_DIRECTORY).iterdir())
+    assert pages == sorted(name for name, _, _ in PAGES.values())
+    assert (run_dir / DIRECTORY / SAMPLE_FILE).exists()
 
 
 def test_the_repeat_page_asks_again_some_items_of_the_sample(run_dir: Path) -> None:
     written = export(run_dir, catalog(), size=6, repeated=4, seed=3)
 
-    page = (run_dir / DIRECTORY / PAGES["repeat"][0]).read_text("utf-8")
+    page = (run_dir / DIRECTORY / PAGES_DIRECTORY / PAGES["repeat"][0]).read_text("utf-8")
     data = embedded(page)
     repeated = {item["id"] for trial in data["trials"] for item in trial["items"]}
     assert repeated == set(written.repeat)
@@ -270,7 +279,7 @@ def test_the_command_exports_and_scores(run_dir: Path, tmp_path: Path) -> None:
     write_judged(run_dir, [Judged(question=q, verdict="pass", reason="x") for q in by_id.values()])
 
     assert main(["export", str(run_dir), "--catalog", str(folder), "--trials", "6"]) == 0
-    written = Sample.model_validate_json((run_dir / DIRECTORY / "sample.json").read_bytes())
+    written = Sample.model_validate_json((run_dir / DIRECTORY / SAMPLE_FILE).read_bytes())
     answers: dict[str, Verdict | None] = {item: "pass" for item in written.main}
     path = tmp_path / "etiquetas.json"
     path.write_text(json.dumps(labels(written, "main", answers)), encoding="utf-8")

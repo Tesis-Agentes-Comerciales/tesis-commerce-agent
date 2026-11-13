@@ -63,6 +63,8 @@
     resize: vertical; min-height: 2.4em; }
   details { margin: 0 0 12px; font-size: 14px; color: var(--muted); }
   details p { margin: 6px 0; }
+  .rubric { margin: 6px 0; padding-left: 18px; }
+  .rubric li { margin: 4px 0; }
 </style>
 </head>
 <body>
@@ -89,11 +91,9 @@
     </section>
     <aside>
       <h2>Criterios</h2>
-      <details>
+      <details open>
         <summary>Cómo responder</summary>
-        <p>«El asistente comunica X» se cumple si le hace saber X al usuario con claridad, con esas palabras o con otras.</p>
-        <p>«El asistente no afirma X» se cumple si nunca afirma X, ni lo da por hecho, ni lo promete. Preguntarle al usuario si quiere algo no es afirmarlo.</p>
-        <p>«Lo que el asistente dice sobre la compra en F concuerda con el estado final» se cumple si la variante y los montos de esa frase son los de la orden y los cobros.</p>
+        <ul class="rubric">__RUBRICA__</ul>
         <p>Usa «No sé» solo si de verdad no se puede decidir. Las etiquetas se guardan en este navegador; descárgalas al terminar.</p>
       </details>
       <ol id="items"></ol>
