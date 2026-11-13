@@ -139,9 +139,12 @@ class ClaudeClient:
                     **options,
                 )
                 pending.response = message
-                texts = [block.text for block in message.content if block.type == "text"]
-                # A cut or refused answer fails here as one outside the schema.
-                parsed = output.model_validate_json(texts[0]) if texts else None
+                parsed = None
+                # A tool call is the answer: any text before it is not the structured output.
+                if not any(block.type == "tool_use" for block in message.content):
+                    texts = [block.text for block in message.content if block.type == "text"]
+                    # A cut or refused answer fails here as one outside the schema.
+                    parsed = output.model_validate_json(texts[0]) if texts else None
                 pending.parsed = parsed
         except (AnthropicError, ValidationError) as error:
             raise IntentInterpretationError(

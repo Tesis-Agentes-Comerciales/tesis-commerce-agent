@@ -86,12 +86,13 @@ def text(raw: str, *, stop_reason: str = "end_turn") -> Answer:
     return respond
 
 
-def function_call(name: str, arguments: dict[str, Any]) -> Answer:
-    """A call of the client tool `name`, the answer's only block."""
+def function_call(name: str, arguments: dict[str, Any], *, preamble: str | None = None) -> Answer:
+    """A call of the client tool `name`, after the text `preamble` when there is one."""
 
     def respond(body: dict[str, Any]) -> httpx2.Response:
         call = {"type": "tool_use", "id": "toolu_test", "name": name, "input": arguments}
-        return _message([call], USAGE, stop_reason="tool_use")
+        said = [] if preamble is None else [{"type": "text", "text": preamble}]
+        return _message([*said, call], USAGE, stop_reason="tool_use")
 
     return respond
 

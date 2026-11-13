@@ -230,6 +230,22 @@ def test_router_executes_one_model_requested_catalog_lookup(monkeypatch) -> None
     assert "checkout_id" not in output["content"]
 
 
+def test_a_tool_call_after_some_text_still_runs_the_lookup(monkeypatch) -> None:
+    # Text before a tool call is not the structured output: it is never validated as one.
+    decision = CommerceDecision(action="respond", assistant_message="Tengo audífonos Sonora.")
+    call = function_call("lookup_catalog", {"query": "Sonora"}, preamble="Reviso el catálogo.")
+    server = ModelServer(call, structured(decision))
+    server.install(monkeypatch)
+
+    result = make_router().route((ConversationMessage(role="user", content="¿Qué Sonora tienes?"),))
+
+    assert result == decision
+    _, second = server.bodies()
+    asked, answer = second["messages"][-2:]
+    assert [block["type"] for block in asked["content"]] == ["text", "tool_use"]
+    assert "SON-01" in answer["content"][0]["content"]
+
+
 def test_reasoning_summaries_keep_the_catalog_tool_available(monkeypatch) -> None:
     decision = CommerceDecision(action="respond", assistant_message="Tengo Sonora SON-01.")
     server = ModelServer(
