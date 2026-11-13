@@ -62,7 +62,7 @@ def settings_for(b0, episode, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         # build_runtime never authenticates buyers; jwt only satisfies the AP2 settings rule.
         agent_auth_mode="jwt",
         agent_auth_issuer="http://127.0.0.1:9",
-        openai_api_key=None,
+        anthropic_api_key=None,
     )
 
 

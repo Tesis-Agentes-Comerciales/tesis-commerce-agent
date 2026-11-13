@@ -1,9 +1,10 @@
-"""The model boundary of the live stack: the real OpenAI SDK over `ModelServer`, never a provider.
+"""The model boundary of the live stack: the real Anthropic SDK over `ModelServer`, never a
+provider.
 
 `ModelServer` (tests/support/model_server.py) hands its scripted transport to the HTTP clients of
 the test process. The Human Present Agent already runs there (`AgentServer` with
 `ExplicitSettings`, as in live_browser.py and test_exp05_authenticated_ux.py). `HnpAgent` does
-not: it runs in a process of its own, refuses every OPENAI_* variable and picks with the
+not: it runs in a process of its own, refuses every ANTHROPIC_* variable and picks with the
 deterministic selector, so the scripted transport never reaches it (p0-model-failures.md §5.3).
 
 `ModelHnpAgent` is that same HNP Agent served in the test process: the variables `HnpAgent`
@@ -21,7 +22,7 @@ import json
 from collections.abc import Mapping
 from typing import Any, NoReturn
 
-import httpx
+import httpx2
 
 from commerce_agent.api import create_app
 from commerce_agent.llm.model_failures import NO_RETRY_HEADER
@@ -34,8 +35,8 @@ from tests.support.model_server import Answer, ModelServer
 # Synthetic: only the scripted transport ever sees it.
 MODEL = "p0-scripted-model"
 MODEL_SETTINGS = {
-    "OPENAI_API_KEY": "sk-p0-scripted-transport-only-0123456789",
-    "OPENAI_MODEL": MODEL,
+    "ANTHROPIC_API_KEY": "sk-ant-p0-scripted-transport-only-0123456789",
+    "AGENT_MODEL": MODEL,
 }
 
 
@@ -99,18 +100,18 @@ class ScriptedModel(ModelServer):
         assert set(script) <= set(answers), set(script) - set(answers)
         self.script = script
         self.answers = answers
-        self.served: list[tuple[str, httpx.Response | None, str | None]] = []
+        self.served: list[tuple[str, httpx2.Response | None, str | None]] = []
         self.origin = 0
 
     def restart(self) -> None:
         self.origin = len(self.requests)
 
-    def handle(self, request: httpx.Request) -> httpx.Response:
+    def handle(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
         name = self.script[min(len(self.requests) - self.origin, len(self.script)) - 1]
         try:
             response = self.answers[name](json.loads(request.content))
-        except httpx.TransportError:
+        except httpx2.TransportError:
             self.served.append((name, None, None))
             raise
         self.served.append((name, response, response.headers.get(NO_RETRY_HEADER)))

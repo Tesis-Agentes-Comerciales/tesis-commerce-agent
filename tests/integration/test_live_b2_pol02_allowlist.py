@@ -67,7 +67,7 @@ def test_b2_pol02_allowlist_from_settings_governs_the_purchase_turn(
         # build_runtime never authenticates buyers; jwt only satisfies the AP2 settings rule.
         agent_auth_mode="jwt",
         agent_auth_issuer="http://127.0.0.1:9",
-        openai_api_key=None,
+        anthropic_api_key=None,
     )
     # The condition comes from the environment, as in the pilot and the demo.
     assert (settings.agent_governance_mode, settings.agent_hp_flow) == ("enforce", "governed")

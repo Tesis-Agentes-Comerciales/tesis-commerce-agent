@@ -140,19 +140,19 @@ preservar el alcance y las fuentes del perfil de regresión vigente.
 | `RUN_LIVE_STACK` | `1` activa la suite. Con cualquier otro valor, cada prueba se omite e indica el motivo. |
 | `MERCHANT_REPO` | Ruta del checkout del Merchant. |
 | `PAYMENT_REPO` | Ruta del checkout del proveedor de pagos; solo la usan las compras. |
-| `RUN_LIVE_LLM` | Opcional y manual: `1` pone el modelo de OpenAI del entorno (`OPENAI_API_KEY`, `OPENAI_MODEL` exportados; el `.env` no se lee) detrás de la prueba conversacional y de `b0-compra` en vez del router estático. Los recorridos de `test_live_browser_journeys.py` siempre usan el router guionado. Gasta dinero. |
+| `RUN_LIVE_LLM` | Opcional y manual: `1` pone Claude detrás (`ANTHROPIC_API_KEY` exportada y, si se quiere otro modelo, `AGENT_MODEL`; el `.env` no se lee) detrás de la prueba conversacional y de `b0-compra` en vez del router estático. Los recorridos de `test_live_browser_journeys.py` siempre usan el router guionado. Gasta dinero. |
 
 No hay más variables. Si se activa la suite y falta un requisito (`MERCHANT_REPO`, `docker`,
 `uv` o un sistema POSIX), la fixture `stack` falla con la lista de lo que falta en vez de omitir
 en silencio; lo mismo hacen cada carril de compras sin `PAYMENT_REPO` y las pruebas del
 navegador sin `node`, sin `npm ci` o sin el Chromium de Playwright. Los puertos los asigna el kernel en `127.0.0.1` (PostgreSQL
 publicado, Merchant y proxy; `auth/` y Vite reciben uno libre) y las credenciales y claves AP2
-son sintéticas y aleatorias por ejecución; nunca se imprimen. Los procesos hijos reciben un entorno limpio (`clean_environment`: sin `OPENAI_*`, `DATABASE_URL`,
+son sintéticas y aleatorias por ejecución; nunca se imprimen. Los procesos hijos reciben un entorno limpio (`clean_environment`: sin `ANTHROPIC_*` ni `OPENAI_*`, `DATABASE_URL`,
 `PG*`, `VIRTUAL_ENV`, etc.) y el Merchant corre con el directorio de la ejecución como `cwd`,
 así que no lee el `.env` de su checkout. El Agent de las pruebas del navegador corre en el
 proceso de pytest con `Settings` explícitos (`ExplicitSettings`: solo los valores que le pasa la
 prueba, sin el entorno ni el `.env`), y `BuyerUi` comprueba que `auth/` y Vite no reciben ninguna
-variable `OPENAI_*` y que, con el router guionado, el Agent no tiene clave ni modelo.
+variable `ANTHROPIC_*` ni `OPENAI_*` y que, con el router guionado, el Agent no tiene clave.
 
 ## Ejecución en macOS y Linux
 

@@ -1,7 +1,8 @@
 """P0 evidence of UX08, UX09 and UX10 on the live stack (docs/design/p0-ux08-ux10.md §4 and §5.2).
 
 Every live cell of §4.2, three times, against the live stack's real Merchant, payment provider and
-PostgreSQL, with the real OpenAI SDK over the scripted transport of tests/support/model_server.py:
+PostgreSQL, with the real Anthropic SDK over the scripted transport of
+tests/support/model_server.py:
 no model, no request to a provider, no cost. The protocol, frozen before the registered run, is
 evaluation/scenarios/p0-ux08-ux10.json: cases, stimuli, scripts, oracles, repetitions and the CI
 cells, which run apart (tests/, without network). This module reads the oracles from it, records
@@ -37,7 +38,7 @@ from commerce_agent.application.conversation import PENDING_PURCHASE_MESSAGE
 from commerce_agent.assistant_transport import AssistantTransport
 from commerce_agent.domain import PurchaseIntent
 from commerce_agent.llm import CommerceDecision
-from commerce_evaluation.stack.environment import AGENT, git_state
+from commerce_evaluation.stack.environment import AGENT, MODEL_PREFIXES, git_state
 from commerce_evaluation.stack.fault_proxy import CREATE_PATH
 from commerce_evaluation.stack.hnp_agent import delegation_request
 from commerce_evaluation.stack.live_stack import LiveStack
@@ -149,9 +150,9 @@ def held_answer(case: dict[str, Any], model: ScriptedModel) -> Held:
 
 @pytest.fixture(autouse=True)
 def no_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No OPENAI_* variable of the developer's shell reaches the SDK (a base URL included)."""
+    """No ANTHROPIC_* variable of the developer's shell reaches the SDK (a base URL included)."""
     for name in list(os.environ):
-        if name.startswith("OPENAI_"):
+        if name.startswith(MODEL_PREFIXES):
             monkeypatch.delenv(name)
 
 

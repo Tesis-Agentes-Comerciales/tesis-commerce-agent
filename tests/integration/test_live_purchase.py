@@ -185,7 +185,7 @@ def test_acp_natural_request_crosses_the_model_boundary_and_completes(acp, tmp_p
         agent_feed_path=episode.feed,
         agent_principal_id="human-conversational-live",
     )
-    # RUN_LIVE_LLM=1 puts the configured OpenAI model behind the boundary (manual runs only).
+    # RUN_LIVE_LLM=1 puts the configured Claude model behind the boundary (manual runs only).
     router = None
     if os.getenv("RUN_LIVE_LLM") != "1":
         router = StaticConversationRouter(PHONE_REQUEST, PHONE_INTENT)
