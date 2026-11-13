@@ -7,12 +7,18 @@ The callers of a model client name the run and the stage in a context variable, 
 
 The SDK retries a request once (`max_retries=1`) inside that call. The client gets the SDK's own
 `DefaultHttpxClient` (its limits and redirects; the explicit timeout still applies per request)
-with a response hook that stops the retry of a spent quota (llm/model_failures.py), with or
+with a response hook that stops the retry of a spent balance (llm/model_failures.py), with or
 without a ledger. With a ledger, a request hook also counts the attempts by reading the SDK's
 `x-stainless-retry-count` header. That hook only reads, and it never raises: httpx would turn an
 exception there into a failed attempt that the SDK retries. A failed call's row keeps the HTTP
 status and the provider's error code next to the SDK's error class (p0-model-failures.md §3.3).
 Recording is fail-open throughout: an error is logged and the row dropped, never the request.
+
+Usage, from the Messages API's `usage`: `input_tokens` is every input token of the request, the
+uncached ones plus those read from and written to the cache (the API reports the three apart);
+`cached_input_tokens` and `cache_write_tokens` are the read and written parts of that total, as
+they were with the earlier provider; `output_tokens` includes the thinking, which
+`reasoning_tokens` reports apart. `response_model` is the `model` the response names.
 """
 
 import hashlib
@@ -26,8 +32,8 @@ from datetime import UTC, datetime
 from time import perf_counter_ns
 from typing import Any, Protocol
 
-import httpx
-from openai import DefaultHttpxClient
+import httpx2
+from anthropic import DefaultHttpxClient
 from pydantic import BaseModel
 
 from commerce_agent.llm.model_failures import classify_model_failure, refuse_quota_retry
@@ -75,6 +81,8 @@ class PendingRequest:
     text_format: type[BaseModel] | None = None
     catalog_vocabulary: str | None = None
     response: object = None
+    # The structured output validated from the response, when it was.
+    parsed: BaseModel | None = None
     run_id: str | None = None
     stage: str | None = None
     request_index: int = 1
@@ -87,11 +95,11 @@ class PendingRequest:
 _pending: ContextVar[PendingRequest | None] = ContextVar("model_request_pending", default=None)
 
 
-def _retry_count(request: httpx.Request) -> int:
+def _retry_count(request: httpx2.Request) -> int:
     return int(request.headers.get(RETRY_HEADER, "0"))
 
 
-def _observe_attempt(request: httpx.Request) -> None:
+def _observe_attempt(request: httpx2.Request) -> None:
     try:
         pending = _pending.get()
         if pending is not None:
@@ -116,15 +124,14 @@ def _input_json(model_input: object) -> str:
     return json.dumps(model_input, ensure_ascii=False)
 
 
-def _output_json(response: object) -> str:
+def _output_json(response: object, parsed: BaseModel | None) -> str:
     """The structured output and the tool calls of a response."""
-    parsed = getattr(response, "output_parsed", None)
     calls = [
-        {"name": item.name, "arguments": item.arguments}
-        for item in getattr(response, "output", None) or ()
-        if getattr(item, "type", None) == "function_call"
+        {"name": block.name, "arguments": json.dumps(block.input, ensure_ascii=False)}
+        for block in getattr(response, "content", None) or ()
+        if getattr(block, "type", None) == "tool_use"
     ]
-    structured = parsed.model_dump(mode="json") if isinstance(parsed, BaseModel) else None
+    structured = None if parsed is None else parsed.model_dump(mode="json")
     return json.dumps({"structured": structured, "function_calls": calls}, ensure_ascii=False)
 
 
@@ -139,6 +146,15 @@ def _count(source: object, name: str) -> int | None:
     return None
 
 
+def total_input_tokens(usage: object) -> int | None:
+    """Every input token of a request: the API counts the cached ones apart from `input_tokens`."""
+    uncached = _count(usage, "input_tokens")
+    if uncached is None:
+        return None
+    read = _count(usage, "cache_read_input_tokens") or 0
+    return uncached + read + (_count(usage, "cache_creation_input_tokens") or 0)
+
+
 class ModelRequestRecorder:
     """Records the requests of one model client; without a sink it does nothing at all."""
 
@@ -147,7 +163,7 @@ class ModelRequestRecorder:
     ) -> None:
         self._sink, self._model, self._reasoning_effort = sink, model, reasoning_effort
 
-    def http_client(self) -> httpx.Client | None:
+    def http_client(self) -> httpx2.Client | None:
         """The HTTP client to give the SDK. None, when it cannot be built, lets the SDK build its
         own: the call still goes out, without the quota hook or the attempt count."""
         hooks: dict[str, list[Callable[..., Any]]] = {"response": [refuse_quota_retry]}
@@ -215,7 +231,6 @@ class ModelRequestRecorder:
             response = pending.response if error is None else None
             failure = None if error is None else classify_model_failure(error)
             usage = getattr(response, "usage", None)
-            input_details = getattr(usage, "input_tokens_details", None)
             output_details = getattr(usage, "output_tokens_details", None)
             row = ModelRequestRow(
                 run_id=pending.run_id,
@@ -229,11 +244,11 @@ class ModelRequestRecorder:
                 response_model=_text(getattr(response, "model", None)),
                 reasoning_effort=self._reasoning_effort,
                 text_format=None if pending.text_format is None else pending.text_format.__name__,
-                input_tokens=_count(usage, "input_tokens"),
-                cached_input_tokens=_count(input_details, "cached_tokens"),
-                cache_write_tokens=_count(input_details, "cache_write_tokens"),
+                input_tokens=total_input_tokens(usage),
+                cached_input_tokens=_count(usage, "cache_read_input_tokens"),
+                cache_write_tokens=_count(usage, "cache_creation_input_tokens"),
                 output_tokens=_count(usage, "output_tokens"),
-                reasoning_tokens=_count(output_details, "reasoning_tokens"),
+                reasoning_tokens=_count(output_details, "thinking_tokens"),
                 retries=max(pending.retry_counts) if pending.retry_counts else None,
                 request_sha256=_sha256(
                     {"instructions": pending.instructions, "input": pending.model_input}
@@ -241,7 +256,7 @@ class ModelRequestRecorder:
                 instructions_sha256=_sha256(pending.instructions),
                 catalog_vocabulary=pending.catalog_vocabulary,
                 input_json=_input_json(pending.model_input),
-                output_json=None if response is None else _output_json(response),
+                output_json=None if response is None else _output_json(response, pending.parsed),
                 http_status=None if failure is None else failure.http_status,
                 provider_error_code=None if failure is None else failure.provider_error_code,
             )

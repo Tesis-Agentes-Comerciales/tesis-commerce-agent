@@ -1,9 +1,8 @@
 import json
-from typing import Annotated, Any, Literal, Protocol, cast
+from typing import Annotated, Literal, Protocol, cast
 
-from openai import OpenAI, OpenAIError
-from openai.types.responses import ParsedResponse, ResponseInputParam, ToolParam
-from openai.types.shared_params import Reasoning
+from anthropic import transform_schema
+from anthropic.types import MessageParam, ToolChoiceParam, ToolParam
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -16,15 +15,15 @@ from pydantic import (
 )
 
 from commerce_agent.acp.feed import ProductCandidate, ProductFeed
+from commerce_agent.config import DEFAULT_MODEL, ModelEffort
 from commerce_agent.domain import HardConstraints, PurchaseIntent, RankedCandidate, SoftPreferences
 from commerce_agent.domain.conditional import ConditionalIntent
 from commerce_agent.llm.catalog_tool import CatalogLookupArgs, make_catalog_lookup
-from commerce_agent.llm.model_failures import IntentInterpretationError, classify_model_failure
-from commerce_agent.llm.model_requests import ModelRequestRecorder, ModelRequestSink
+from commerce_agent.llm.claude import ClaudeClient, Reply, content_params
+from commerce_agent.llm.model_failures import IntentInterpretationError
+from commerce_agent.llm.model_requests import ModelRequestSink
 from commerce_agent.llm.prices import format_minor_amount
 from commerce_agent.llm.reasoning import emit_reasoning, reasoning_requested
-
-ReasoningEffort = Literal["minimal", "low", "medium", "high"]
 
 
 class UnknownVariantSelection(IntentInterpretationError):
@@ -179,16 +178,6 @@ def _brand_of(candidate: ProductCandidate) -> str:
     if candidate.brands:
         return candidate.brands[0].casefold()
     return candidate.product_title.strip().split(" ", 1)[0].casefold()
-
-
-def _response_item_input(item: Any) -> dict[str, Any]:
-    payload = item.to_dict()
-    # The SDK adds parsed fields that the Responses API does not accept as input.
-    payload.pop("parsed_arguments", None)
-    for content in payload.get("content", ()):
-        if isinstance(content, dict):
-            content.pop("parsed", None)
-    return payload
 
 
 def _catalog_vocabulary(feed: ProductFeed) -> str:
@@ -403,45 +392,40 @@ class ConversationRouter(Protocol):
     ) -> CatalogRecovery: ...
 
 
-class OpenAIConversationRouter:
+class ClaudeConversationRouter:
     def __init__(
         self,
         *,
         api_key: SecretStr,
-        model: str,
         feed: ProductFeed,
+        model: str = DEFAULT_MODEL,
+        effort: ModelEffort = "low",
         timeout_seconds: float = 20.0,
         reasoning_summary: bool = False,
-        reasoning_effort: ReasoningEffort | None = None,
         model_requests: ModelRequestSink | None = None,
     ) -> None:
-        if not model.strip():
-            raise ValueError("OpenAI model must not be empty")
-        self._model = model
+        self._claude = ClaudeClient(
+            api_key=api_key,
+            model=model,
+            effort=effort,
+            timeout_seconds=timeout_seconds,
+            model_requests=model_requests,
+        )
         self._reasoning_summary = reasoning_summary
-        self._reasoning_effort: ReasoningEffort | None = reasoning_effort
         self._feed = feed
         self._catalog_tool = make_catalog_lookup(feed)
         self._vocabulary = _catalog_vocabulary(feed)
         self._instructions = f"{_INSTRUCTIONS}\nCurrent catalog vocabulary:\n{self._vocabulary}"
-        # Without a ledger (studio, tests) nothing is recorded, but the SDK still gets the
-        # recorder's client, with its hook that refuses to retry a spent quota.
-        self._recorder = ModelRequestRecorder(
-            model_requests, model=model, reasoning_effort=reasoning_effort
-        )
-        self._client = OpenAI(
-            api_key=api_key.get_secret_value(),
-            timeout=timeout_seconds,
-            max_retries=1,
-            http_client=self._recorder.http_client(),
-        )
 
     def route(self, messages: tuple[ConversationMessage, ...]) -> CommerceDecision:
         if not messages or messages[-1].role != "user":
             raise ValueError("Conversation must end with a user message")
+        # The Messages API opens with the user: a history window that starts with an earlier
+        # answer of the agent drops it.
+        first_user = next(index for index, item in enumerate(messages) if item.role == "user")
         model_input = cast(
-            ResponseInputParam,
-            [message.model_dump(mode="json") for message in messages],
+            list[MessageParam],
+            [message.model_dump(mode="json") for message in messages[first_user:]],
         )
         parsed = self._parse(
             instructions=self._instructions,
@@ -559,7 +543,7 @@ class OpenAIConversationRouter:
         self,
         *,
         instructions: str,
-        model_input: str | ResponseInputParam,
+        model_input: str | list[MessageParam],
         text_format: type[ParsedT],
         failure: str,
         catalog_tool: bool = False,
@@ -569,31 +553,31 @@ class OpenAIConversationRouter:
         Reasoning summaries are requested only when enabled and a caller listens for them, so
         ``/conversation/turn`` keeps sending the plain structured-output request.
         """
-        tool_schema: ToolParam | None = None
+        tools: list[ToolParam] | None = None
         if catalog_tool:
             args_schema = self._catalog_tool.args_schema
             if not isinstance(args_schema, type) or not issubclass(args_schema, BaseModel):
                 # The agent's own tool, checked before any request: no model failure to name.
                 raise IntentInterpretationError("Catalog tool schema is invalid")
-            tool_schema = {
-                "type": "function",
-                "name": self._catalog_tool.name,
-                "description": self._catalog_tool.description,
-                "parameters": args_schema.model_json_schema(),
-                "strict": True,
-            }
-        response = self._request_model(
+            tools = [
+                {
+                    "name": self._catalog_tool.name,
+                    "description": self._catalog_tool.description,
+                    "input_schema": transform_schema(args_schema),
+                    "strict": True,
+                }
+            ]
+        reply = self._request_model(
             instructions=instructions,
             model_input=model_input,
             text_format=text_format,
             failure=failure,
-            tool_schema=tool_schema,
+            tools=tools,
+            tool_choice={"type": "auto", "disable_parallel_tool_use": True} if tools else None,
         )
-        if not catalog_tool:
-            return response.output_parsed
-        calls = [item for item in getattr(response, "output", ()) if item.type == "function_call"]
+        calls = [block for block in reply.message.content if block.type == "tool_use"]
         if not calls:
-            return response.output_parsed
+            return reply.parsed
         if len(calls) != 1 or not isinstance(model_input, list):
             raise IntentInterpretationError(
                 "The catalog model returned invalid tool calls", failure_kind="invalid_output"
@@ -604,18 +588,20 @@ class OpenAIConversationRouter:
                 "The catalog model requested an unknown tool", failure_kind="invalid_output"
             )
         try:
-            arguments = CatalogLookupArgs.model_validate_json(call.arguments)
+            arguments = CatalogLookupArgs.model_validate(call.input)
             output = self._catalog_tool.invoke(arguments.model_dump())
         except (ValidationError, ValueError) as error:
             raise IntentInterpretationError(
                 "The catalog model returned invalid tool arguments", failure_kind="invalid_output"
             ) from error
+        result = {"type": "tool_result", "tool_use_id": call.id, "content": output}
         followup = cast(
-            ResponseInputParam,
+            list[MessageParam],
             [
                 *model_input,
-                *(_response_item_input(item) for item in response.output),
-                {"type": "function_call_output", "call_id": call.call_id, "output": output},
+                # The whole answer goes back, its thinking blocks unchanged.
+                {"role": "assistant", "content": content_params(reply.message)},
+                {"role": "user", "content": [result]},
             ],
         )
         final = self._request_model(
@@ -623,90 +609,47 @@ class OpenAIConversationRouter:
             model_input=followup,
             text_format=text_format,
             failure=failure,
-            tool_schema=tool_schema,
-            tool_choice="none",
+            tools=tools,
+            tool_choice={"type": "none"},
         )
-        if any(item.type == "function_call" for item in getattr(final, "output", ())):
+        if any(block.type == "tool_use" for block in final.message.content):
             raise IntentInterpretationError(
                 "The catalog model exceeded the tool limit", failure_kind="invalid_output"
             )
-        return final.output_parsed
+        return final.parsed
 
     def _request_model[ParsedT: BaseModel](
         self,
         *,
         instructions: str,
-        model_input: str | ResponseInputParam,
+        model_input: str | list[MessageParam],
         text_format: type[ParsedT],
         failure: str,
-        tool_schema: ToolParam | None = None,
-        tool_choice: Literal["none"] | None = None,
-    ) -> ParsedResponse[ParsedT]:
-        effort = self._reasoning_effort
-        options: dict[str, Any] = {}
-        if effort is not None:
-            options["reasoning"] = Reasoning(effort=effort)
-        if tool_schema is not None:
-            options["tools"] = [tool_schema]
-            options["parallel_tool_calls"] = False
-        if tool_choice is not None:
-            options["tool_choice"] = tool_choice
-        recorded = self._recorder.request(
+        tools: list[ToolParam] | None = None,
+        tool_choice: ToolChoiceParam | None = None,
+    ) -> Reply[ParsedT]:
+        summarize = self._reasoning_summary and reasoning_requested()
+        reply = self._claude.parse(
             instructions=instructions,
             model_input=model_input,
-            text_format=text_format,
+            output=text_format,
+            failure=failure,
             # Only the router's own instructions carry the feed's vocabulary.
             catalog_vocabulary=self._vocabulary if instructions is self._instructions else None,
+            tools=tools,
+            tool_choice=tool_choice,
+            summarize_thinking=summarize,
         )
-        if not (self._reasoning_summary and reasoning_requested()):
-            try:
-                with recorded as pending:
-                    response = self._client.responses.parse(
-                        model=self._model,
-                        instructions=instructions,
-                        input=model_input,
-                        text_format=text_format,
-                        store=False,
-                        **options,
-                    )
-                    pending.response = response
-            except (OpenAIError, ValidationError) as error:
-                kind = classify_model_failure(error).kind
-                raise IntentInterpretationError(failure, failure_kind=kind) from error
-            return response
-        reasoning = Reasoning(summary="auto")
-        if effort is not None:
-            reasoning["effort"] = effort
-        options["reasoning"] = reasoning
-        try:
-            with (
-                recorded as pending,
-                self._client.responses.stream(
-                    model=self._model,
-                    instructions=instructions,
-                    input=model_input,
-                    text_format=text_format,
-                    store=False,
-                    **options,
-                ) as stream,
-            ):
-                for event in stream:
-                    if event.type == "response.reasoning_summary_part.added":
-                        if event.summary_index > 0:
-                            emit_reasoning("\n\n")
-                    elif event.type == "response.reasoning_summary_text.delta":
-                        emit_reasoning(event.delta)
-                response = stream.get_final_response()
-                pending.response = response
-        except (OpenAIError, ValidationError) as error:
-            kind = classify_model_failure(error).kind
-            raise IntentInterpretationError(failure, failure_kind=kind) from error
-        except RuntimeError as error:
-            # The SDK raises RuntimeError when the stream ends without response.completed.
-            if isinstance(error, IntentInterpretationError):
-                raise
-            raise IntentInterpretationError(failure, failure_kind="provider_error") from error
-        return response
+        if summarize:
+            # The summaries arrive with the answer, one per thinking block.
+            summaries = [
+                block.thinking
+                for block in reply.message.content
+                if block.type == "thinking" and block.thinking
+            ]
+            for index, summary in enumerate(summaries):
+                emit_reasoning(f"\n\n{summary}" if index else summary)
+        return reply
 
     def close(self) -> None:
-        self._client.close()
+        self._claude.close()

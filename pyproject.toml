@@ -5,15 +5,17 @@ description = "Buyer agent that interacts with an external ecommerce service thr
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "anthropic>=2.8,<3",
   "ap2 @ git+https://github.com/google-agentic-commerce/AP2.git@e1ea56db72a6385bce3e5c1112b3a56ce60acb43",
   "assistant-stream>=0.0.36,<0.0.37",
   "fastapi>=0.116,<1",
   "httpx>=0.28,<1",
+  # The HTTP client the Anthropic SDK runs on (llm/model_requests.py hooks into it).
+  "httpx2>=2.13,<3",
   "jsonschema[format]>=4.25,<5",
   "langchain-core>=1.6.4,<2",
   "langgraph>=1.2.12,<2",
   "langgraph-checkpoint-sqlite>=3.1.1,<4",
-  "openai>=2,<3",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
   "pyjwt[crypto]>=2.10,<3",

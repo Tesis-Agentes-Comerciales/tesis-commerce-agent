@@ -8,6 +8,11 @@ from urllib.parse import urlparse
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The agent's model by default and the efforts it admits (docs/design/eval-suite.md §6). They
+# live here, not in llm/claude.py, because the llm package imports this module through acp/.
+DEFAULT_MODEL = "claude-haiku-5-5"
+ModelEffort = Literal["low", "medium", "high", "xhigh", "max"]
+
 
 def validate_service_base_url(value: str) -> str:
     normalized = value.rstrip("/")
@@ -98,11 +103,14 @@ class Settings(BaseSettings):
     agent_d1_hmac_key_hex: SecretStr | None = Field(default=None, repr=False)
     agent_d1_aes_key_hex: SecretStr | None = Field(default=None, repr=False)
     agent_d1_commercial_clock_id: str | None = None
-    openai_api_key: SecretStr | None = Field(default=None, repr=False)
-    openai_model: str | None = Field(default=None, min_length=1, max_length=128)
-    openai_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
-    openai_reasoning_summary: bool = False
-    openai_reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
+    # The agent's model (docs/design/eval-suite.md §6): without the key there is no router.
+    anthropic_api_key: SecretStr | None = Field(default=None, repr=False)
+    agent_model: str = Field(default=DEFAULT_MODEL, min_length=1, max_length=128)
+    agent_model_effort: ModelEffort = "low"
+    agent_model_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    agent_model_reasoning_summary: bool = False
+    # The HNP reviewer's model when it is not the agent's (hnp-intent-review.md §9).
+    agent_hnp_reviewer_model: str | None = Field(default=None, min_length=1, max_length=128)
 
     @field_validator("merchant_base_url")
     @classmethod

@@ -4,28 +4,33 @@ The three model clients (the HP router, the HNP selector and the HNP reviewer) r
 `IntentInterpretationError` with its `failure_kind`, and `classify_model_failure` gives the same
 kind, the HTTP status and the provider's error code for the `model_requests` ledger:
 
-- `rate_limited`: HTTP 429 without a spent quota.
-- `quota_exhausted`: HTTP 429 with `insufficient_quota` as the error's code or type.
+- `rate_limited`: HTTP 429 without a spent balance.
+- `quota_exhausted`: the account cannot pay for the call, and retrying will not change that
+  (docs/api/errors and docs/api/rate-limits): a 402 `billing_error`; the tier's monthly spend cap,
+  a 429 whose `error.details.error_code` is `enforced_spend_limit_reached`; or a 400 whose message
+  says the credit balance is too low or a spend limit was reached. Those two 400s carry no code of
+  their own, so only they are told apart by their message; if its wording changes they become
+  `rejected`, which the SDK does not retry either.
 - `unreachable`: no response, from a connection error or a timeout.
-- `provider_error`: HTTP 5xx, and any other SDK error, such as a stream that never completed.
-- `rejected`: any other HTTP status error (400, 401, 403, 408, 409...).
+- `provider_error`: HTTP 5xx (529 `overloaded_error` included), and any other SDK error.
+- `rejected`: any other HTTP status error (400, 401, 403, 404, 408, 409...).
 - `invalid_output`: an answer the client cannot use: no structured output, one outside the
   schema, an incoherent one.
 
-A spent quota does not come back by retrying. `refuse_quota_retry` is an httpx response hook on
-the client the SDK gets (llm/model_requests.py): it marks that one response `x-should-retry:
-false`, which the SDK obeys before it retries a 429. Everything else keeps the SDK's own retry
-decision (one retry of 408, 409, 429, 5xx and connection errors). The hook only reads the body
-and adds that header, and it never raises: httpx would turn an exception there into a failed
-attempt that the SDK retries.
+A spent balance does not come back by retrying. The SDK never retries a 400 or a 402, but it does
+retry every 429. `refuse_quota_retry` is an httpx response hook on the client the SDK gets
+(llm/model_requests.py): it marks a spend-cap 429 `x-should-retry: false`, which the SDK obeys
+before it retries. Everything else keeps the SDK's own retry decision (one retry of 408, 409,
+429, 5xx and connection errors). The hook only reads the body and adds that header, and it never
+raises: httpx would turn an exception there into a failed attempt that the SDK retries.
 """
 
 import logging
 from dataclasses import dataclass
 from typing import Literal
 
-import httpx
-from openai import APIConnectionError, APIStatusError, OpenAIError
+import httpx2
+from anthropic import AnthropicError, APIConnectionError, APIStatusError
 from pydantic import ValidationError
 
 _log = logging.getLogger(__name__)
@@ -39,7 +44,10 @@ ModelFailureKind = Literal[
     "rejected",
 ]
 
-SPENT_QUOTA = "insufficient_quota"
+SPEND_CAP = "enforced_spend_limit_reached"
+BILLING_ERROR = "billing_error"
+# The start of the two 400s that name a spent balance in their message alone.
+SPENT_MESSAGES = ("your credit balance is too low", "you have reached your specified")
 NO_RETRY_HEADER = "x-should-retry"
 
 
@@ -62,7 +70,7 @@ class ModelFailure:
     kind: ModelFailureKind
     # The provider's answer, when there was one.
     http_status: int | None = None
-    # The `code` of the provider's error body, or its `type` when the body has no code.
+    # The `error.details.error_code` of the provider's error body, or its `error.type`.
     provider_error_code: str | None = None
 
 
@@ -82,14 +90,15 @@ def classify_model_failure(error: BaseException) -> ModelFailure:
         return ModelFailure("unreachable")
     if isinstance(error, APIStatusError):
         status = error.status_code
-        code = _provider_code(error.body)
-        if status == 429:
-            kind: ModelFailureKind = "quota_exhausted" if _spent(error.body) else "rate_limited"
+        if _spent(status, error.type, error.error_code, error.api_message):
+            kind: ModelFailureKind = "quota_exhausted"
+        elif status == 429:
+            kind = "rate_limited"
         elif status >= 500:
             kind = "provider_error"
         else:
             kind = "rejected"
-        return ModelFailure(kind, status, code)
+        return ModelFailure(kind, status, error.error_code or error.type)
     # A structured output outside the schema fails inside `parse`, after the HTTP exchange.
     if isinstance(error, ValidationError):
         return ModelFailure("invalid_output")
@@ -105,36 +114,28 @@ def model_failure_kind(error: BaseException) -> ModelFailureKind | None:
     if isinstance(error, IntentInterpretationError) and error.failure_kind is not None:
         return error.failure_kind
     sdk_error = error.__cause__ if isinstance(error, IntentInterpretationError) else error
-    if isinstance(sdk_error, OpenAIError | ValidationError):
+    if isinstance(sdk_error, AnthropicError | ValidationError):
         return classify_model_failure(sdk_error).kind
     return None
 
 
-def refuse_quota_retry(response: httpx.Response) -> None:
-    """httpx response hook: the SDK does not retry a 429 whose quota is spent."""
+def refuse_quota_retry(response: httpx2.Response) -> None:
+    """httpx response hook: the SDK does not retry a 429 whose monthly spend cap is reached."""
     if response.status_code != 429:
         return
     try:
         response.read()
         payload = response.json()
-        # The SDK reads the same `error` object into the error's body.
-        body = payload.get("error", payload) if isinstance(payload, dict) else payload
-        if _spent(body):
+        error = payload.get("error") if isinstance(payload, dict) else None
+        details = error.get("details") if isinstance(error, dict) else None
+        if isinstance(details, dict) and details.get("error_code") == SPEND_CAP:
             response.headers[NO_RETRY_HEADER] = "false"
     except Exception as error:
         # The SDK retries it, as it did before this hook.
-        _log.warning("Model 429 not inspected for its quota: %s", type(error).__name__)
+        _log.warning("Model 429 not inspected for its spend cap: %s", type(error).__name__)
 
 
-def _spent(body: object) -> bool:
-    return isinstance(body, dict) and SPENT_QUOTA in (body.get("code"), body.get("type"))
-
-
-def _provider_code(body: object) -> str | None:
-    if not isinstance(body, dict):
-        return None
-    for key in ("code", "type"):
-        value = body.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
+def _spent(status: int, error_type: str | None, code: str | None, message: str | None) -> bool:
+    if status == 402 or error_type == BILLING_ERROR or code == SPEND_CAP:
+        return True
+    return status == 400 and (message or "").casefold().startswith(SPENT_MESSAGES)
