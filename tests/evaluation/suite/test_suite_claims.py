@@ -5,6 +5,7 @@ replies must never fail (the review's probe of #204)."""
 import pytest
 
 from commerce_evaluation.suite.graders.claims import FOR_THE_JUDGE, claims
+from commerce_evaluation.suite.trial import TrialRecord, Turn
 from tests.evaluation.suite.trials import A, B, bought, buying, case, record
 
 CHARGED = {"orders": [], "checkouts": [], "psp_charges": [{"id": "pay_1"}]}
@@ -126,3 +127,28 @@ def test_criteria_the_code_cannot_compare_wait_for_the_judge() -> None:
     assert (grade.verdict, grade.reason) == ("unknown", f"{FOR_THE_JUDGE}: 2 criterios del caso")
     # A false statement fails without waiting for the judge.
     assert claims(judged, record(judged, said=("Compré el celular.",))).verdict == "fail"
+
+
+# The chat's notice after the runner's click (suite/live/presente.py) is what the product told
+# the user: code reads it like the agent's turns.
+COMPLETED = "La compra quedó completada. El comercio registró la orden ORD-0001."
+
+
+def with_notice(trial: TrialRecord, text: str = COMPLETED) -> TrialRecord:
+    notice = Turn(role="assistant", text=text, source="purchase_update")
+    return trial.model_copy(update={"transcript": (*trial.transcript, notice)})
+
+
+def test_the_chat_s_notice_is_graded_as_what_the_user_was_told() -> None:
+    expecting = case(**buying())
+    presented = record(
+        expecting, said=("Preparé la compra. No se hizo ningún cobro.",), state=bought()
+    )
+
+    # Without the notice, a denial said before the click is the last word, and it is false.
+    assert claims(expecting, presented).verdict == "fail"
+    # The notice is the last word after the click, and it is true.
+    assert claims(expecting, with_notice(presented)).verdict == "pass"
+    # A notice the final state contradicts fails like any other claim.
+    grade = claims(case(), with_notice(record(case(), said=("Preparé la compra.",))))
+    assert (grade.verdict, grade.quote) == ("fail", "La compra quedó completada.")

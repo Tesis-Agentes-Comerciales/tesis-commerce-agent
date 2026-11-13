@@ -100,6 +100,8 @@ def claims(case: Case, record: TrialRecord) -> Grade:
 def findings(case: Case, record: TrialRecord) -> Iterator[Finding]:
     """What code finds false or cannot square, sentence by sentence, in the order said. The
     judge (graders/question.py) settles each one code cannot square."""
+    # The chat's notice after the runner's click (`Turn.source`) counts too, as the judge reads
+    # it: it is what the product told the user.
     turns = [turn.text for turn in record.transcript if turn.role == "assistant"]
     state = record.final_state
     for index, text in enumerate(turns):

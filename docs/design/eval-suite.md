@@ -363,6 +363,12 @@ producción en este proceso, con todos sus valores explícitos y sin leer `.env`
 - **Una respuesta de error.** Si la API del Agent rechaza un turno de `presente`, la
   conversación termina donde el chat muestra el error: su mensaje es el turno del asistente, y la
   acción es `respond`.
+- **El aviso tras aprobar.** Cuando el corredor aprueba una compra, completada o no, agrega el
+  aviso que el chat muestra después del clic: `purchase_update_text` con la etapa y el número de
+  orden que da la API, como un turno del asistente marcado `"source": "purchase_update"`. Lo lee
+  el usuario simulado, y los calificadores de lo que dice lo toman como lo que el producto le dijo
+  al usuario, pero no va en el historial del agente, como en el chat: la UI manda
+  `conversation_id`, y entonces el modelo lee su historial del checkpoint, donde el aviso no está.
 - **Infraestructura.** Si el stack o un carril no arrancan, cada intento que los necesita queda
   con `stack_not_started` y nada más observado, y no se reintenta dentro de la corrida. Es
   `api_5xx` un 502, 503 o 504 de la API del Agent, uno del Merchant o del PSP que ningún fallo

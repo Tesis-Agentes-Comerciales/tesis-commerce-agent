@@ -164,7 +164,9 @@ def instructions(case: PresentCase) -> str:
 
 
 def render(transcript: Sequence[Turn]) -> str:
-    """The transcript as tagged turns; text is escaped, so no turn can open or close another."""
+    """The transcript as tagged turns; text is escaped, so no turn can open or close another.
+    Each turn is one chat message: the chat's notice after the runner's click
+    (`purchase_update`) is one more assistant turn, as the human sees it."""
     lines = "\n".join(
         f'<turno de="{SPEAKERS[turn.role]}">{escape(turn.text, quote=False)}</turno>'
         for turn in transcript

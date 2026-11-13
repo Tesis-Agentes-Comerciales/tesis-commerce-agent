@@ -40,6 +40,7 @@ from commerce_evaluation.suite.graders.judge import (
 )
 from commerce_evaluation.suite.graders.question import Question, questions
 from commerce_evaluation.suite.graders.success import strict_success
+from commerce_evaluation.suite.trial import Turn
 from tests.evaluation.suite.trials import bought, buying, case, record
 
 DELIVERY = "que no tiene cómo saber la fecha de entrega"
@@ -305,3 +306,20 @@ def test_a_question_names_its_trial() -> None:
         1,
         "run_1",
     )
+
+
+def test_the_chat_s_notice_counts_as_what_the_assistant_told_the_user() -> None:
+    # The runner's notice after the click (suite/live/presente.py): the judge reads it as the
+    # assistant's, as the user did, so it can meet a must_communicate criterion.
+    completed = "La compra quedó completada. El comercio registró la orden ORD-0001."
+    expecting = case(**buying(), must_communicate=["que la compra quedó completada"])
+    presented = record(expecting, said=("Preparé la compra.",), state=bought())
+    notice = Turn(role="assistant", text=completed, source="purchase_update")
+    trial = presented.model_copy(update={"transcript": (*presented.transcript, notice)})
+
+    [question] = questions(expecting, trial)
+    assert f"Asistente: {completed}" in request(expecting, trial, question).input_text
+    reply = judged("pass", "La compra quedó completada.")
+    [row] = judge_run([(expecting, trial)], FakeBatchTransport(FakeTransport(lambda _: reply)))
+
+    assert row.verdict == "pass"
