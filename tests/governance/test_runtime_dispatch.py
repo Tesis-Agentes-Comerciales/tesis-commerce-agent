@@ -16,10 +16,10 @@ from commerce_agent.application import PurchaseServiceError
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent
 from commerce_agent.runtime import AgentRuntime, build_runtime
+from commerce_evaluation.stack.fake_checkout import details
 from tests.governance.test_shadow_integration import OWNER, configuration, start
 from tests.test_api import checkout
 from tests.test_client import lab_offer
-from tests.test_purchase_service import details
 
 UNLISTED = "https://otro-comercio.example"
 CREATE = ("POST", "/checkout_sessions")

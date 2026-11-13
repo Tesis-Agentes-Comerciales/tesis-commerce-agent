@@ -52,7 +52,7 @@ from commerce_agent.governance.remote_creation import LOOKUP_PATH, SessionScope,
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.d1_envelope_sqlite import SqliteD1EnvelopeStore
 from commerce_agent.persistence.remote_creation_sqlite import RemoteCreationVerifier
-from tests.test_purchase_service import FakeCheckoutGateway, details
+from commerce_evaluation.stack.fake_checkout import FakeCheckoutGateway, details
 
 AGENT = Path(__file__).resolve().parents[2]
 MERCHANT_REPO = "MERCHANT_REPO"

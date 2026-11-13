@@ -51,13 +51,13 @@ from commerce_agent.governance.hnp_ports import HnpGateDecision, HnpPolicyGate
 from commerce_agent.governance.provenance import ProvenanceKeys
 from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger
+from commerce_evaluation.stack.fake_checkout import details
 from tests.governance.test_d1_hnp_gate import hnp_service, settings_for
 from tests.governance.test_hp_continuation import StoreMerchant
 from tests.governance.test_runtime_dispatch import runtime
 from tests.governance.test_shadow_integration import FIXTURE, OWNER, configuration
 from tests.support.ap2_hnp_fixtures import checkout_jwt, generate_keys
 from tests.support.delegation import AuthorityClock, Ids
-from tests.test_purchase_service import details
 
 Mode = Literal["off", "enforce"]
 ORDER_ID = "ord_api_1"

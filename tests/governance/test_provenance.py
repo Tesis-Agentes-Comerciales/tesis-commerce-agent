@@ -652,8 +652,8 @@ def test_write_during_measurement_is_never_reused(
 def test_purchase_paths_reuse_one_measurement_per_process(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from commerce_evaluation.stack.fake_checkout import details
     from tests.governance.test_enforce_integration import baseline, make_case, start
-    from tests.test_purchase_service import details
 
     measured = provenance_artifacts._measure
     calls: list[int] = []

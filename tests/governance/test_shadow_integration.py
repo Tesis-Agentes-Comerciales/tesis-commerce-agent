@@ -35,7 +35,7 @@ from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.persistence.provenance_sqlite import SqliteD1ProvenanceStore
 from commerce_agent.runtime import build_runtime
-from tests.test_purchase_service import FakeCheckoutGateway, details
+from commerce_evaluation.stack.fake_checkout import FakeCheckoutGateway, details
 
 OWNER = "private-owner@example.test"
 MARKER = "private-sensitive@example.test"

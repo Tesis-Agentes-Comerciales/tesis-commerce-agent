@@ -41,11 +41,11 @@ from commerce_agent.persistence import SqliteAgentStore
 from commerce_agent.persistence.d1_reconciliation_sqlite import SqliteD1Reconciler
 from commerce_agent.persistence.governance_sqlite import SqliteGovernanceEvidenceStore
 from commerce_agent.runtime import AgentRuntime
+from commerce_evaluation.stack.fake_checkout import details
 from tests.governance.test_d1_budget_runtime import decision_records, rules
 from tests.governance.test_hp_continuation import StoreMerchant
 from tests.governance.test_runtime_dispatch import CREATE, governed, runtime
 from tests.governance.test_shadow_integration import FIXTURE, OWNER
-from tests.test_purchase_service import details
 
 RUN = "run-real"
 # HN08 of the HNP pilot: an operator list that leaves the configured merchant out.
