@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from commerce_evaluation.suite.graders.grade import Grade
-from commerce_evaluation.suite.trial import TrialRecord
+from commerce_evaluation.suite.trial import TrialRecord, Turn
 
 RECORD = {
     "case_id": "entrega-no-verificable/presente",
@@ -168,3 +168,18 @@ def test_a_grade_round_trips_through_json() -> None:
 def test_a_grade_refuses_what_the_contract_does_not_name(grade: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         Grade.model_validate_json(json.dumps(grade))
+
+
+def test_a_record_marks_the_chat_s_notice_and_nothing_else() -> None:
+    # The runner's notice after the click (suite/live/presente.py) is not model text.
+    notice = {
+        "role": "assistant",
+        "text": "La compra quedó completada.",
+        "source": "purchase_update",
+    }
+    told = RECORD | {"transcript": [*RECORD["transcript"], notice]}
+
+    turns = json.loads(TrialRecord.model_validate_json(json.dumps(told)).model_dump_json())
+    assert turns["transcript"] == told["transcript"]
+    with pytest.raises(ValidationError, match="assistant message"):
+        Turn(role="user", text="Ya compré.", source="purchase_update")

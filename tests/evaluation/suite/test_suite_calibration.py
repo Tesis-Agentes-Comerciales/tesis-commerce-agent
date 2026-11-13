@@ -21,10 +21,10 @@ from commerce_evaluation.suite.calibration import (
 from commerce_evaluation.suite.cases import DelegatedCase, PresentCase, Reference
 from commerce_evaluation.suite.graders.grade import Verdict
 from commerce_evaluation.suite.graders.judge import Judged, write_judged
-from commerce_evaluation.suite.graders.question import RUBRIC, Question, questions
+from commerce_evaluation.suite.graders.question import NOTICE, RUBRIC, Question, questions
 from commerce_evaluation.suite.rundir import TRIALS_FILE
-from commerce_evaluation.suite.trial import TrialRecord
-from tests.evaluation.suite.trials import B, case, record
+from commerce_evaluation.suite.trial import TrialRecord, Turn
+from tests.evaluation.suite.trials import B, bought, buying, case, record
 
 TASKS = ("tarea-a", "tarea-b", "tarea-c")
 CRITERIA: dict[str, Any] = {
@@ -178,6 +178,27 @@ def test_the_page_is_blind_and_self_contained(run_dir: Path) -> None:
     pages = sorted(path.name for path in (run_dir / DIRECTORY / PAGES_DIRECTORY).iterdir())
     assert pages == sorted(name for name, _, _ in PAGES.values())
     assert (run_dir / DIRECTORY / SAMPLE_FILE).exists()
+
+
+def test_the_page_labels_the_chat_s_notice_as_the_judge_does(tmp_path: Path) -> None:
+    # The runner's notice after the click (suite/live/presente.py) reaches the labeler with its
+    # source and the judge's own label.
+    notice = Turn(role="assistant", text="La compra quedó completada.", source="purchase_update")
+    buys = case(**buying(), must_communicate=["que la compra quedó completada"])
+    trial = record(buys, said=("Preparé la compra.",), state=bought())
+    trial = trial.model_copy(update={"transcript": (*trial.transcript, notice)})
+    (tmp_path / TRIALS_FILE).write_text(trial.model_dump_json() + "\n", encoding="utf-8")
+
+    export(tmp_path, [buys], size=1, repeated=1, seed=3)
+
+    page = (tmp_path / DIRECTORY / PAGES_DIRECTORY / PAGES["main"][0]).read_text("utf-8")
+    [shown] = embedded(page)["trials"]
+    assert [(turn["source"], turn["speaker"]) for turn in shown["turns"]] == [
+        (None, "Usuario"),
+        (None, "Asistente"),
+        ("purchase_update", NOTICE),
+    ]
+    assert "turn.speaker" in page and "turn.source" in page
 
 
 def test_the_repeat_page_asks_again_some_items_of_the_sample(run_dir: Path) -> None:

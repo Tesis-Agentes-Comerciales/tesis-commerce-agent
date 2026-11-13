@@ -14,12 +14,13 @@ import pytest
 from pydantic import SecretStr
 
 from commerce_agent.acp import load_product_feed
+from commerce_agent.assistant_transport import PURCHASE_UPDATE_TEXT, purchase_update_text
 from commerce_agent.domain import PurchaseIntent, RankedCandidate
 from commerce_agent.llm import ConversationMessage
 from commerce_agent.persistence.model_requests_sqlite import ModelRequestRow, SqliteModelRequests
 from commerce_evaluation.llm.budget import RunBudget
 from commerce_evaluation.llm.cost import CLAUDE_PRICES, TokenUsage
-from commerce_evaluation.llm.transport import FundsExhausted
+from commerce_evaluation.llm.transport import FakeReply, FakeTransport, FundsExhausted, LlmRequest
 from commerce_evaluation.stack.fault_proxy import CREATE_PATH, Call
 from commerce_evaluation.stack.purchase_lane import Episode
 from commerce_evaluation.suite import live_executor
@@ -41,8 +42,8 @@ from commerce_evaluation.suite.live.reference import (
     named_variant,
 )
 from commerce_evaluation.suite.live_executor import LiveExecutor
-from commerce_evaluation.suite.trial import Ending, FinalState, InfraFailure
-from commerce_evaluation.suite.users import ScriptedUser
+from commerce_evaluation.suite.trial import Ending, FinalState, InfraFailure, Turn
+from commerce_evaluation.suite.users import ScriptedUser, SimulatedUser
 
 PHONES = Path(__file__).parents[2] / "fixtures" / "phones_feed"
 FEED = load_product_feed(PHONES)
@@ -312,20 +313,43 @@ class Answer:
         return self._body
 
 
-class Agent:
-    """The Agent API as a presente trial sees it, with scripted answers."""
+ORDER = {"id": "ord_1", "order_number": "ORD-0001"}
 
-    def __init__(self, turns: list[Answer], terms: dict[str, Any]):
+
+class Agent:
+    """The Agent API as a presente trial sees it, with scripted answers. A purchase it presents
+    ends in `stage` after the runner's click, and `/complete` answers `completed`."""
+
+    def __init__(
+        self,
+        turns: list[Answer],
+        terms: dict[str, Any],
+        *,
+        stage: str = "completed",
+        completed: Answer | None = None,
+    ):
         self.turns, self.terms, self.calls = turns, terms, []
+        self.stage = stage
+        self.completed = completed or Answer(200, {"status": "completed", "order": ORDER})
+        # The messages each turn posted: the agent's model history.
+        self.posted: list[list[dict[str, str]]] = []
 
     def get(self, url: str) -> Answer:
         self.calls.append(("GET", url))
-        return Answer(200, self.terms)
+        if url.endswith("/approval"):
+            return Answer(200, self.terms)
+        run_id = url.removeprefix("/purchases/")
+        order_id = ORDER["id"] if self.stage == "completed" else None
+        status = {"run_id": run_id, "stage": self.stage, "checkout_id": "cs_1"}
+        return Answer(200, status | {"order_id": order_id})
 
     def post(self, url: str, *, json: Any = None) -> Answer:
         self.calls.append(("POST", url))
         if url == "/conversation/turn":
+            self.posted.append(json["messages"])
             return self.turns.pop(0)
+        if url.endswith("/complete"):
+            return self.completed
         return Answer(200, {"ok": True})
 
 
@@ -334,9 +358,12 @@ def terms(variant: str = PIXEL_8A, total: int = TOTAL) -> dict[str, Any]:
     return {"lines": [line], "total_minor": total, "fingerprint": "f" * 64, "checkout_jwt": "j"}
 
 
-PURCHASE = Answer(
-    200, {"action": "purchase", "assistant_message": "Lista.", "purchase": {"run_id": "run_1"}}
-)
+def presented(run_id: str = "run_1") -> Answer:
+    purchase = {"run_id": run_id}
+    return Answer(200, {"action": "purchase", "assistant_message": "Lista.", "purchase": purchase})
+
+
+PURCHASE = presented()
 
 
 def test_the_runner_approves_only_the_expected_purchase():
@@ -354,6 +381,105 @@ def test_a_presented_purchase_is_approved_and_completed_by_rule():
     assert ("POST", "/purchases/run_1/approval") in agent.calls
     assert ("POST", "/purchases/run_1/complete") in agent.calls
     assert talk.approvals[0]["approved"] is True and talk.approvals[0]["completed"] is True
+
+
+def notice(stage: str = "completed", number: str | None = None) -> str:
+    """The chat's own notice after the click, from the product's function."""
+    order_id = ORDER["id"] if stage == "completed" else None
+    return purchase_update_text({"run_id": "run_1", "stage": stage, "order_id": order_id}, number)
+
+
+def test_after_the_click_the_user_reads_the_chat_s_notice_and_the_agent_does_not():
+    expected = case(expected=buying())
+    agent = Agent(
+        [PURCHASE, Answer(200, {"action": "respond", "assistant_message": "Ok."})], terms()
+    )
+
+    talk = converse(agent, ScriptedUser(expected), expected, {})
+
+    completed = notice(number=ORDER["order_number"])
+    assert completed == "La compra quedó completada. El comercio registró la orden ORD-0001."
+    assert [(turn.role, turn.text, turn.source) for turn in talk.transcript] == [
+        ("user", "Quiero el Google Pixel 8a de 128 GB negro", None),
+        ("assistant", "Lista.", None),
+        ("assistant", completed, "purchase_update"),
+        ("user", "¿Y entonces?", None),
+        ("assistant", "Ok.", None),
+    ]
+    # The view is the agent's database's, read after the click, as the transport reads it.
+    assert agent.calls.index(("GET", "/purchases/run_1")) > agent.calls.index(
+        ("POST", "/purchases/run_1/complete")
+    )
+    # The model's history in the chat, which carries a conversation_id: no notice.
+    assert agent.posted[1] == [
+        {"role": "user", "content": "Quiero el Google Pixel 8a de 128 GB negro"},
+        {"role": "assistant", "content": "Lista."},
+        {"role": "user", "content": "¿Y entonces?"},
+    ]
+    # The trace keeps it with what it was built from; the turn's action is still the agent's.
+    assert talk.approvals[0]["update"] == {
+        "view": {"run_id": "run_1", "stage": "completed", "order_id": "ord_1"},
+        "order_number": "ORD-0001",
+        "text": completed,
+    }
+    assert talk.action == "respond"
+
+
+def test_the_notice_names_the_order_as_the_receipt_does():
+    # `order_number`, or the order's id when the Merchant gives none (ConversationService).
+    expected = case(expected=buying())
+    unnumbered = Answer(200, {"status": "completed", "order": {"id": "ord_1"}})
+
+    talk = converse(
+        Agent([PURCHASE], terms(), completed=unnumbered), ScriptedUser(expected), expected, {}, 1
+    )
+
+    assert talk.transcript[-1].text == notice(number="ord_1")
+    assert "ord_1" in talk.transcript[-1].text
+
+
+@pytest.mark.parametrize("stage", ["approved", "uncertain", "failed"])
+def test_an_approved_purchase_left_uncompleted_gets_its_stage_s_notice(stage: str):
+    expected = case(expected=buying())
+    refused = Answer(409, {"code": "payment_declined", "message": "El PSP rechazó el pago."})
+    agent = Agent([PURCHASE], terms(), stage=stage, completed=refused)
+
+    talk = converse(agent, ScriptedUser(expected), expected, {}, 1)
+
+    assert talk.approvals[0]["approved"] is True and talk.approvals[0]["completed"] is False
+    assert talk.approvals[0]["update"]["order_number"] is None
+    assert talk.transcript[-1] == Turn(
+        role="assistant", text=notice(stage), source="purchase_update"
+    )
+    assert talk.transcript[-1].text in PURCHASE_UPDATE_TEXT.values()
+
+
+def test_a_user_who_reads_the_completion_does_not_get_a_second_order():
+    """The paid runs' defect: the simulated user never learned the purchase was paid, asked for
+    it again, the agent presented a second checkout and the runner approved it too. This user
+    asks again unless the conversation it reads says the purchase was completed."""
+    expected = case(expected=buying())
+    again = {"message": "Prepárame la compra de una sola unidad.", "done": False}
+    seen: list[str] = []
+
+    def reply(request: LlmRequest) -> FakeReply:
+        seen.append(request.input_text)
+        done = "La compra quedó completada" in request.input_text
+        return FakeReply(output={"message": "", "done": True} if done else again)
+
+    # The agent presents the purchase again on every turn it is asked, as it did in those runs.
+    agent = Agent([presented(f"run_{turn}") for turn in range(1, 7)], terms())
+    talk = converse(agent, SimulatedUser(expected, FakeTransport(reply)), expected, {})
+
+    assert [call for call in agent.calls if call[1].endswith("/complete")] == [
+        ("POST", "/purchases/run_1/complete")
+    ]
+    assert talk.run_ids == ["run_1"] and len(agent.posted) == 1
+    # It read the notice as one more message of the assistant, right after the agent's.
+    assert (
+        '<turno de="asistente">Lista.</turno>\n'
+        f'<turno de="asistente">{notice(number="ORD-0001")}</turno>'
+    ) in seen[0]
 
 
 def test_an_unexpected_purchase_stays_pending():

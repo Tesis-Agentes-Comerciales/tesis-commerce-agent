@@ -2,8 +2,9 @@
 
 The Agent is production `create_app` in this process, behind a TestClient, on the `b0` lane and
 a new Merchant episode, with its own database in the trial's directory. Each turn posts the
-whole conversation, as the chat does without a `conversation_id`. Up to six user turns, or until
-the user ends the conversation.
+conversation so far without a `conversation_id`, and without the runner's notices (below): the
+history the chat's model reads from its checkpoint. Up to six user turns, or until the user ends
+the conversation.
 
 A turn the API answers with an error ends the conversation where the chat shows that error. The
 error's message is what the user reads, so it is the turn's assistant text, and the turn ends
@@ -17,16 +18,27 @@ Nobody else approves: when a turn presents a checkout, the runner rereads its te
 does right before the click, and approves and completes it exactly when its one line is the
 expected purchase's variant and its total the expected total; never otherwise, so a presented
 purchase that the case does not expect stays pending.
+
+After the click the chat tells the human what happened: the UI sends `purchase-updated`, and the
+transport adds an assistant message with `purchase_update_text` over the purchase's stage and
+order number (assistant_transport._purchase_updated). The runner adds the same notice to the
+transcript, read through the API, marked `purchase_update`. It does so also when the purchase
+was approved but not completed, where the stage's text approximates the error the UI shows on
+the card instead; the runner never retries. The user reads the notice; the agent's next turn
+does not carry it, because the UI sends a `conversation_id` and the model's history then comes
+from the graph's checkpoint, where the notice never goes (ConversationService._ingest). The
+judge and the labelers read it under its own label (graders/question.py `NOTICE`).
 """
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 from fastapi.testclient import TestClient
 
 from commerce_agent.acp import load_product_feed
 from commerce_agent.api import create_app
+from commerce_agent.assistant_transport import purchase_update_text
 from commerce_evaluation.stack.hnp_agent import EpisodeBuyer
 from commerce_evaluation.stack.purchase_agent import buyer_details
 from commerce_evaluation.stack.purchase_lane import PurchaseLane
@@ -45,6 +57,8 @@ from commerce_evaluation.suite.users import User
 
 MAX_TURNS = 6
 TURN = "/conversation/turn"
+# How a transcript marks the chat's notice after the click (trial.Turn.source).
+PURCHASE_UPDATE: Final = "purchase_update"
 
 
 class Response(Protocol):
@@ -104,7 +118,12 @@ def converse(
         if text is None:
             break
         talk.transcript.append(Turn(role="user", text=text))
-        messages = [{"role": turn.role, "content": turn.text} for turn in talk.transcript]
+        # What the agent's model reads, as in the chat: the runner's notices stay out.
+        messages = [
+            {"role": turn.role, "content": turn.text}
+            for turn in talk.transcript
+            if turn.source is None
+        ]
         body = talk.call(
             client.post(
                 TURN, json={"turn_id": f"turn-{index}", "messages": messages, "details": details}
@@ -122,12 +141,17 @@ def converse(
         if body["action"] == "purchase":
             run_id = body["purchase"]["run_id"]
             talk.run_ids.append(run_id)
-            talk.approvals.append(settle(client, case, run_id, talk))
+            settled = settle(client, case, run_id, talk)
+            talk.approvals.append(settled)
+            if "update" in settled:
+                text = settled["update"]["text"]
+                talk.transcript.append(Turn(role="assistant", text=text, source=PURCHASE_UPDATE))
     return talk
 
 
 def settle(client: Client, case: PresentCase, run_id: str, talk: Talk) -> dict[str, Any]:
-    """The runner's rule on a presented checkout: approve and complete it, or leave it."""
+    """The runner's rule on a presented checkout: approve and complete it, or leave it. Once
+    approved, `update` is the notice the chat adds next (`notice`)."""
     path = f"/purchases/{run_id}"
     terms = talk.call(client.get(f"{path}/approval"), "GET /purchases/{run_id}/approval")
     if terms is None:
@@ -142,10 +166,36 @@ def settle(client: Client, case: PresentCase, run_id: str, talk: Talk) -> dict[s
     approved = talk.call(
         client.post(f"{path}/approval", json=approval), "POST /purchases/{run_id}/approval"
     )
-    completed = approved and talk.call(
-        client.post(f"{path}/complete"), "POST /purchases/{run_id}/complete"
-    )
-    return seen | {"approved": approved is not None, "completed": bool(completed)}
+    if approved is None:
+        return seen | {"approved": False, "completed": False}
+    completed = talk.call(client.post(f"{path}/complete"), "POST /purchases/{run_id}/complete")
+    settled = seen | {"approved": True, "completed": completed is not None}
+    update = notice(client, run_id, completed, talk)
+    return settled if update is None else settled | {"update": update}
+
+
+def notice(
+    client: Client, run_id: str, completed: dict[str, Any] | None, talk: Talk
+) -> dict[str, Any] | None:
+    """What the chat says after the click, as `AssistantTransport._purchase_updated` builds it:
+    the purchase's view from the agent's database (`GET /purchases/{run_id}`, the row of
+    `ConversationService.purchase_view`) and, once completed, the order number the receipt
+    shows, from the completion's own answer (`ConversationService.order_number` reads the same
+    answer stored). None when the view cannot be read."""
+    status = talk.call(client.get(f"/purchases/{run_id}"), "GET /purchases/{run_id}")
+    if status is None:
+        return None
+    view = {"run_id": run_id, "stage": status["stage"], "order_id": status["order_id"]}
+    number = _order_number(completed) if view["stage"] == "completed" else None
+    return {"view": view, "order_number": number, "text": purchase_update_text(view, number)}
+
+
+def _order_number(completed: dict[str, Any] | None) -> str | None:
+    order = completed.get("order") if completed is not None else None
+    if not isinstance(order, dict):
+        return None
+    number = order.get("order_number") or order.get("id")
+    return number if isinstance(number, str) else None
 
 
 def approvable(case: PresentCase, terms: dict[str, Any]) -> bool:

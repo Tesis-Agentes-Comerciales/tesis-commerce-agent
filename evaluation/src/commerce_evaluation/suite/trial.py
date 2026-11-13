@@ -34,6 +34,20 @@ class Agent(SuiteModel):
 class Turn(SuiteModel):
     role: Literal["user", "assistant"]
     text: str
+    # None for what the user or the agent said. `purchase_update` is the chat's own notice after
+    # the runner's click (assistant_transport.purchase_update_text, suite/live/presente.py): no
+    # model wrote it and the agent's model never reads it, but the user reads it as one more
+    # assistant message and the graders as what the product told the user. Absent from the
+    # JSON when None, as in records written before the field.
+    source: Literal["purchase_update"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def _a_notice_is_the_assistant_s(self) -> Self:
+        if self.source is not None and self.role != "assistant":
+            raise ValueError("A purchase update is an assistant message")
+        return self
 
 
 class Ending(SuiteModel):
