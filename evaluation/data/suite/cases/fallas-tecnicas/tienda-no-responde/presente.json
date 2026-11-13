@@ -12,12 +12,12 @@
   },
   "environment": {
     "catalog": "p0",
-    "governance": "B2",
+    "governance": ["B2"],
     "events": [{ "at": "on_checkout_create", "kind": "merchant_unavailable" }]
   },
   "expected": {
     "effects": { "orders": 0, "checkouts": 0, "psp_charges": 0 },
-    "outcome": "block",
+    "outcome": ["block"],
     "must_communicate": [
       "que no pudo confirmar si el comercio creó el checkout",
       "que no se hizo ningún cobro"

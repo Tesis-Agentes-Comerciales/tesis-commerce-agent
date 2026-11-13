@@ -9,7 +9,7 @@ Each case is one file, `<group>/<escenario>/<modo>.json`, under the catalog dire
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Annotated, ClassVar, Literal, Self, get_args
+from typing import Annotated, ClassVar, Literal, Self
 
 from pydantic import (
     AfterValidator,
@@ -28,6 +28,17 @@ from commerce_agent.governance.hnp_models import (
     Priority,
 )
 from commerce_agent.governance.models import Id, Ids, Minor
+from commerce_evaluation.suite.events import (
+    DELEGATED_TRIGGERS,
+    MAX_CATALOG_TEXT,
+    MODEL_FAULTS,
+    OWNER_EVENTS,
+    PARAMETERS,
+    CatalogField,
+    EventKind,
+    Trigger,
+    parameters_of,
+)
 from commerce_evaluation.verify_evidence import LINKS
 from commerce_evaluation.verify_evidence_hnp import HNP_LINKS
 
@@ -50,52 +61,9 @@ Grader = Literal["effects", "outcome", "evidence", "claims"]
 Outcome = Literal["buy", "clarify", "block", "escalate"]
 # The Merchant's P0 fixture: the only catalog the live stack seeds.
 Catalog = Literal["p0"]
-# AGENT_GOVERNANCE_MODE off and enforce.
+# AGENT_GOVERNANCE_MODE off and enforce. Manipulation runs under both: their comparison backs
+# the thesis's central finding.
 Governance = Literal["B0", "B2"]
-
-# Where the runner applies an event, as the P0 scenarios place them (scenarios/p0/matrix.json).
-Trigger = Literal[
-    "start",  # before the agent acts
-    "after_consent",  # delegado: consented, the task not yet triggered
-    "before_checkout",  # an offer chosen, its checkout not yet created
-    "after_checkout",  # the checkout created, not yet approved or completed
-    "on_commit",  # delegado: at the commitment of the purchase, concurrently
-    "after_commit",  # delegado: after the commitment and the payment
-    "on_interpretation",  # the model call `model.route`
-    "on_selection",  # `model.choose_candidate` or `model.hnp_select`
-    "on_review",  # `model.hnp_review`
-    "on_checkout_create",  # the checkout POST, through FaultProxy
-    "on_payment",  # the payment request to the PSP
-]
-# The Merchant changes one offer.
-OfferEvent = Literal[
-    "stock_out",
-    "restock",
-    "price_change",
-    "shipping_change",
-    "variant_removed",
-    "competing_purchase",
-]
-# The owner changes the delegation. A grant is never edited in place: a narrower scope replaces
-# it (revocation plus a new consent).
-OwnerEvent = Literal["revoke", "delegation_replaced"]
-# A scripted provider answer instead of the model (FakeTransport). With no model to measure,
-# a case with one runs in regression only.
-ModelFault = Literal[
-    "model_rate_limited", "model_quota_exhausted", "model_timeout", "model_invalid_output"
-]
-# The network, through FaultProxy, and the PSP.
-Fault = Literal[
-    "connection_lost",
-    "response_lost",
-    "merchant_unavailable",
-    "merchant_timeout",
-    "payment_declined",
-]
-EventKind = Literal[OfferEvent, OwnerEvent, ModelFault, Fault]
-OFFER_EVENTS = frozenset(get_args(OfferEvent))
-PRICED_EVENTS = frozenset({"price_change", "shipping_change"})
-MODEL_FAULTS = frozenset(get_args(ModelFault))
 
 Text = Annotated[str, Field(min_length=1)]
 CaseId = Annotated[str, Field(min_length=1)]
@@ -114,8 +82,13 @@ class SuiteModel(BaseModel):
 
 
 class User(SuiteModel):
-    """The simulated user pursues `goal`, gives only `known_info` and says it does not know
-    anything in `unknown_info`. In regression it says `script`, line by line."""
+    """The simulated user opens with `script[0]` word for word, then pursues `goal`, gives only
+    `known_info` and says it does not know anything in `unknown_info`. In regression it says
+    `script`, line by line.
+
+    The user never decides an approval: the runner approves a presented checkout exactly when its
+    variant and total equal `expected.purchase`, and never otherwise.
+    """
 
     goal: Text
     known_info: tuple[Text, ...]
@@ -142,39 +115,35 @@ class Delegation(SuiteModel):
 
 
 class Event(SuiteModel):
-    """A seeded perturbation, applied when the flow reaches `at`."""
+    """A seeded perturbation (suite/events.py): applied once, when the flow reaches `at`, and in
+    force for the rest of the trial."""
 
     at: Trigger
     kind: EventKind
-    # The offer a Merchant event changes.
+    # The offer the event changes, or whose catalog field it rewrites.
     variant: Id | None = None
     # The item price or the shipping after the change.
     amount_minor: PositiveMinor | None = None
     # The scope consented in place of the revoked one.
     replacement: Delegation | None = None
+    # catalog_text: the field it rewrites and the text it puts there.
+    field: CatalogField | None = None
+    text: Annotated[str, Field(min_length=1, max_length=MAX_CATALOG_TEXT)] | None = None
 
     @model_validator(mode="after")
     def _parameters_of_the_kind(self) -> Self:
-        needed = (
-            self.kind in OFFER_EVENTS,
-            self.kind in PRICED_EVENTS,
-            self.kind == "delegation_replaced",
-        )
-        given = (
-            self.variant is not None,
-            self.amount_minor is not None,
-            self.replacement is not None,
-        )
-        if needed != given:
-            names = ("variant", "amount_minor", "replacement")
-            takes = [name for name, wanted in zip(names, needed, strict=True) if wanted]
-            raise ValueError(f"{self.kind} takes {', '.join(takes) or 'no parameters'}")
+        needed = parameters_of(self.kind)
+        if tuple(name for name in PARAMETERS if getattr(self, name) is not None) != needed:
+            raise ValueError(f"{self.kind} takes {', '.join(needed) or 'no parameters'}")
+        if self.kind == "catalog_text" and self.at != "start":
+            raise ValueError("catalog_text is seeded at start, before the agent reads the catalog")
         return self
 
 
 class Environment(SuiteModel):
     catalog: Catalog
-    governance: Governance
+    # Each condition is a trial of its own; the trial record names the one it ran.
+    governance: Annotated[tuple[Governance, ...], Field(min_length=1), AfterValidator(_distinct)]
     events: tuple[Event, ...]
 
 
@@ -194,8 +163,11 @@ class Purchase(SuiteModel):
 
 class Expected(SuiteModel):
     effects: Effects
-    outcome: Outcome
+    # Any of these ends the trial well; buy only on its own.
+    outcome: Annotated[tuple[Outcome, ...], Field(min_length=1), AfterValidator(_distinct)]
     purchase: Purchase | None = None
+    # No checkout or order of these variants (p0-llm-batch2.json `no_checkout_of`).
+    forbidden_variants: Ids = ()
     must_communicate: tuple[Text, ...]
     must_not_claim: tuple[Text, ...]
     # The links of verify_evidence (presente) or verify_evidence_hnp (delegado) that must be ok.
@@ -203,8 +175,12 @@ class Expected(SuiteModel):
 
     @model_validator(mode="after")
     def _purchase_when_buying(self) -> Self:
-        if (self.outcome == "buy") != (self.purchase is not None):
+        if "buy" in self.outcome and len(self.outcome) > 1:
+            raise ValueError("buy is an outcome on its own")
+        if (self.outcome == ("buy",)) != (self.purchase is not None):
             raise ValueError("A purchase is expected exactly when the outcome is buy")
+        if self.purchase is not None and self.purchase.variant in self.forbidden_variants:
+            raise ValueError(f"The purchase {self.purchase.variant} is a forbidden variant")
         return self
 
 
@@ -239,6 +215,8 @@ class _Case(SuiteModel):
             )
         if (expected := suites_of(self)) != set(self.suites):
             raise ValueError(f"The suites should be {_named(expected)}, not {_named(self.suites)}")
+        if self.group == MANIPULATION and set(self.environment.governance) != {"B0", "B2"}:
+            raise ValueError("A manipulacion case runs under B0 and B2")
         return self
 
 
@@ -262,6 +240,13 @@ class PresentCase(_Case):
 
     mode: Present  # pyright: ignore[reportIncompatibleVariableOverride]
     user: User
+
+    @model_validator(mode="after")
+    def _without_delegation_events(self) -> Self:
+        for event in self.environment.events:
+            if event.at in DELEGATED_TRIGGERS or event.kind in OWNER_EVENTS:
+                raise ValueError(f"A presente case has no delegation: {event.kind} at {event.at}")
+        return self
 
 
 class DelegatedCase(_Case):
