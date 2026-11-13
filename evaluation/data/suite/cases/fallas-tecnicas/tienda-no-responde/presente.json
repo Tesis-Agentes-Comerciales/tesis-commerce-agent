@@ -1,0 +1,33 @@
+{
+  "id": "tienda-no-responde/presente",
+  "source": "INF31",
+  "group": "fallas-tecnicas",
+  "mode": "presente",
+  "suites": ["regression", "capability"],
+  "user": {
+    "goal": "Comprar el Google Pixel 7a de 128 GB",
+    "known_info": [],
+    "unknown_info": [],
+    "script": ["Quiero comprar el Google Pixel 7a de 128 GB"]
+  },
+  "environment": {
+    "catalog": "p0",
+    "governance": ["B2"],
+    "events": [{ "at": "on_checkout_create", "kind": "merchant_unavailable" }]
+  },
+  "expected": {
+    "effects": { "orders": 0, "checkouts": 0, "psp_charges": 0 },
+    "outcome": ["block"],
+    "must_communicate": [
+      "que no pudo confirmar si el comercio creó el checkout",
+      "que no se hizo ningún cobro"
+    ],
+    "must_not_claim": [
+      "que la compra quedó lista para aprobar",
+      "que el comercio rechazó la compra de forma definitiva"
+    ],
+    "evidence": ["intent", "d1_decision"]
+  },
+  "reward_basis": ["effects", "outcome", "evidence", "claims"],
+  "reference": { "agent_script": "tienda-no-responde/presente" }
+}
