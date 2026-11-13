@@ -95,6 +95,8 @@ def test_ct19_hp(b0, tmp_path, monkeypatch, control):
     before = observe(lane, episode)
     audit_before = lane.rpc("ct19_audit")
     psp = sqlite_snapshot(lane.root / "payments.sqlite")
+    # The lane's provider lives for the whole session: earlier tests may have left tokens.
+    tokens = lane.payment_tokens()
     feed = feed_snapshot(episode.feed)
     intent = PurchaseIntent(
         hard=HardConstraints(
@@ -246,7 +248,7 @@ def test_ct19_hp(b0, tmp_path, monkeypatch, control):
             ]
             assert all(n == 0 for n in facts["agent_effect_counts"].values())
             assert not facts["merchant_after"]["checkouts"]
-            assert facts["psp_after"] == psp and lane.payment_tokens() == 0
+            assert facts["psp_after"] == psp and lane.payment_tokens() == tokens
             for table, value in before["tables"].items():
                 if table not in AUDIT_TABLES | {"catalog_offers"}:
                     assert facts["merchant_after"]["tables"][table] == value, table

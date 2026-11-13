@@ -54,6 +54,8 @@ def test_identity_retirement_fixture(b0, tmp_path):
     before = b0.rpc("ct19_capture", **command)
     merchant = observe(b0, episode)
     psp = sqlite_snapshot(b0.root / "payments.sqlite")
+    # The lane's provider lives for the whole session: earlier tests may have left tokens.
+    tokens = b0.payment_tokens()
     feed = feed_snapshot(episode.feed)
     with recorded_case(
         tmp_path,
@@ -128,5 +130,5 @@ def test_identity_retirement_fixture(b0, tmp_path):
             assert not any(c.path == CREATE_PATH for c in b0.proxy.calls)
             # HP talks directly to the real PSP (only HNP has a PSP FaultProxy).
             # Its complete SQLite snapshot above includes every token/payment table.
-            assert b0.payment_tokens() == 0
+            assert b0.payment_tokens() == tokens
             record["cleanup_verified"] = True
