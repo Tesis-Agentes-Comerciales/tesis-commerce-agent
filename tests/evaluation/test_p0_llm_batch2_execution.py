@@ -416,14 +416,6 @@ def test_execute_without_a_receipt_stops_before_any_credential(tmp_path, monkeyp
 AMENDMENT = json.loads(
     (execution.REPOSITORY / "evaluation/scenarios/p0-llm-batch2-a1.json").read_text()
 )
-# What the run executes besides the product: the executor, its live episode and its controls.
-EXECUTOR = (
-    "evaluation/src/commerce_evaluation/p0_llm_batch2.py",
-    "evaluation/src/commerce_evaluation/p0_llm_batch2_execution.py",
-    "tests/integration/p0_llm_batch2_live.py",
-    "tests/integration/test_p0_llm_batch2_controls.py",
-    "tests/integration/live_merchant_control.py",
-)
 
 
 def test_amendment_a1_fixes_the_run_ref_and_keeps_the_frozen_bytes():
@@ -456,14 +448,16 @@ def in_clone(commit: str) -> bool:
     return found.returncode == 0
 
 
-def test_the_run_ref_is_the_product_base_plus_this_executor():
-    """Where the clone has the run_ref: its product is the base's, and the executor this
-    branch carries is the one it runs. A shallow checkout without it skips."""
-    commit = AMENDMENT["run_ref"]["commit"]
-    if not in_clone(commit) or not in_clone(execution.PRODUCT_BASE):
+def test_the_run_ref_is_the_product_base_and_its_tag_names_it():
+    """Batch two is reproduced from its tag, not from main: main's executor may move on, since
+    the batch is exploratory. Where the clone has the run_ref, its product is the base's and
+    the tag names it. A shallow checkout without it skips."""
+    run_ref = AMENDMENT["run_ref"]
+    if not in_clone(run_ref["commit"]) or not in_clone(execution.PRODUCT_BASE):
         pytest.skip("run_ref or product_base not in this clone")
     repository = str(execution.REPOSITORY)
-    product = ["git", "-C", repository, "diff", "--quiet", execution.PRODUCT_BASE, commit, "--"]
+    base, commit = execution.PRODUCT_BASE, run_ref["commit"]
+    product = ["git", "-C", repository, "diff", "--quiet", base, commit, "--"]
     assert subprocess.run([*product, *execution.PRODUCT_PATHS]).returncode == 0
-    executor = ["git", "-C", repository, "diff", "--quiet", commit, "HEAD", "--", *EXECUTOR]
-    assert subprocess.run(executor).returncode == 0
+    tag = ["git", "-C", repository, "rev-parse", run_ref["tag"] + "^{commit}"]
+    assert subprocess.run(tag, capture_output=True, text=True).stdout.strip() == commit
