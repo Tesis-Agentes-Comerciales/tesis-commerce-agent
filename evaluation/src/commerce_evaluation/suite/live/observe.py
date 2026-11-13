@@ -2,9 +2,10 @@
 
 - The final state: the episode's checkouts and orders from the Merchant (`suite_state`), and
   the PSP's `approved` payments of those checkouts.
-- The agent's usage, from its `model_requests` ledger: each row's tokens (Anthropic's
-  `input_tokens` excludes the cache, kept apart as `cached_input_tokens` and
-  `cache_write_tokens`) and the `model` each response reported.
+- The agent's usage, from its `model_requests` ledger: each row's tokens and the `model` each
+  response reported. The ledger's `input_tokens` counts every input token, the cache's included
+  (src/commerce_agent/llm/model_requests.py); a `TokenUsage` bills the uncached ones apart from
+  the cache reads (`cached_input_tokens`) and writes (`cache_write_tokens`).
 - The infrastructure failures that are no one's design: an Agent API answer 5xx, a Merchant or
   PSP answer 5xx (or no answer) that FaultProxy did not inject, and a model request whose
   provider answered 5xx on every attempt. `suite/reduce.py` decides whether the case injected it.
@@ -128,7 +129,10 @@ def agent_usage(database: Path) -> tuple[TokenUsage, tuple[str, ...], int]:
         ).fetchall()
     usage = NO_USAGE
     for row in rows:
-        usage += TokenUsage(**{name: row[index] or 0 for index, name in enumerate(USAGE_COLUMNS)})
+        counts = {name: row[index] or 0 for index, name in enumerate(USAGE_COLUMNS)}
+        cached = counts["cache_read_tokens"] + counts["cache_write_tokens"]
+        counts["input_tokens"] = max(counts["input_tokens"] - cached, 0)
+        usage += TokenUsage(**counts)
     width = len(USAGE_COLUMNS)
     models = tuple(dict.fromkeys(row[width] for row in rows if row[width]))
     failed = sum(row[width + 1] == "error" and (row[width + 2] or 0) >= 500 for row in rows)
