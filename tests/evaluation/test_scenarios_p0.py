@@ -30,6 +30,24 @@ from commerce_evaluation.scenarios_p0 import (
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "evaluation" / "scenarios" / "p0"
+# The matrix also cites tests that left main with the October pilots; this tag keeps them.
+RETIRED_AT = "pilotos-octubre"
+
+
+def git(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *arguments], cwd=ROOT, capture_output=True, text=True)
+
+
+def cited_source(path: str) -> str | None:
+    """A cited test file from main or, once retired, from its tag. None only when the file left
+    main and this clone lacks the tag (a shallow clone); a path the tag lacks fails."""
+    if (ROOT / path).is_file():
+        return (ROOT / path).read_text(encoding="utf-8")
+    if git("rev-parse", "--verify", "--quiet", f"refs/tags/{RETIRED_AT}").returncode:
+        return None
+    shown = git("show", f"{RETIRED_AT}:{path}")
+    assert shown.returncode == 0, f"{path} is neither in main nor at {RETIRED_AT}"
+    return shown.stdout
 
 
 class P0ContractTests(unittest.TestCase):
@@ -46,13 +64,15 @@ class P0ContractTests(unittest.TestCase):
         for row in self.matrix["scenarios"]:
             for reference in row["coverage"]["references"]:
                 path, name = reference.split("::")
-                tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
-                functions = {
-                    node.name
-                    for node in ast.walk(tree)
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                }
+                source = cited_source(path)
                 with self.subTest(reference=reference):
+                    if source is None:
+                        self.skipTest(f"{path} left main; this clone lacks {RETIRED_AT}")
+                    functions = {
+                        node.name
+                        for node in ast.walk(ast.parse(source))
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    }
                     self.assertIn(name, functions)
 
     def test_missing_duplicate_and_relabelled_rows_are_rejected(self) -> None:

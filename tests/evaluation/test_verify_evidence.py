@@ -30,11 +30,27 @@ from commerce_evaluation.verify_evidence import (
     verify,
     verify_database,
 )
-from tests.evaluation.test_pilot_evidence import PSP_DELEGATIONS
 from tests.governance.test_d2_authorization import d2_settings, start_purchase, with_policy
 from tests.governance.test_hp_continuation import StoreMerchant, app_client, approve, ask
 from tests.governance.test_stale_terms_pending import presented
 from tests.support.ap2_purchase import Ap2Shop, ap2_shop
+
+# The PSP's own table (tesis_payment_provider/store.py), which the verifier reads for payments.
+PSP_DELEGATIONS = """CREATE TABLE IF NOT EXISTS delegations (
+    key_hash TEXT PRIMARY KEY,
+    request_hash TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    merchant_id TEXT NOT NULL,
+    checkout_id TEXT NOT NULL,
+    max_amount INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    confirmation_key_hash TEXT,
+    confirmation_hash TEXT,
+    result_json TEXT,
+    payment_mandate_hash TEXT)"""
 
 OK_B2 = dict.fromkeys(LINKS, "ok") | {"d2_decision": "not_applicable"}
 DENIED = dict.fromkeys(LINKS, "not_applicable") | {"intent": "ok", "d1_decision": "ok"}
