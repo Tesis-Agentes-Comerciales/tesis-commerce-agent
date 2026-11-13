@@ -9,7 +9,7 @@ from commerce_evaluation.suite.mapped import Coverage, summary
 from commerce_evaluation.suite.tables import attack, rate, share, table, usd
 
 if TYPE_CHECKING:
-    from commerce_evaluation.suite.report import Report
+    from commerce_evaluation.suite.report import Report, Review
 
 SUITES = {"regression": "regresión", "capability": "capacidad", "adversarial": "adversarial"}
 STATUSES = {
@@ -100,6 +100,11 @@ def _governances(report: "Report") -> str:
     ]
     text = "## Resultado por gobernanza\n\n" + table(header, rows)
     text += "\n\npass^1 y pass^k son promedios por tarea, con su intervalo de Wilson al 95 %."
+    if report.manifest["suite"] == "regression":
+        text += (
+            " En regresión cuentan como no acierto los intentos que solo esperan al juez en lo "
+            "que dice; el veredicto de la corrida sale de lo que decide el código (§8)."
+        )
     if short := sorted({task for each in report.reduction.governances for task in each.short}):
         text += f" Sin {k} intentos calificados, pass^{k} no se calcula en: {', '.join(short)}."
     return text
@@ -234,16 +239,23 @@ def _review(report: "Report") -> str:
     header = ("Tarea", "Gobernanza", "Intento", "run_id", "Calificador", "Por qué")
     told = f"{len(report.review)} intentos quedaron sin decidir y no cuentan como acierto."
     if report.manifest["suite"] == "regression":
+        waiting = sum(map(waits_for_the_judge, report.review))
         told += (
-            f" En regresión no hacen fallar la corrida (§8): {for_the_judge(report)} quedan "
-            "pendientes del juez en lo que dice."
+            f" En regresión (§8), los {waiting} que solo esperan al juez en lo que dice no hacen "
+            f"fallar la corrida; los otros {len(report.review) - waiting} sí."
         )
     return "## Para revisión humana\n\n" + told + "\n\n" + table(header, rows)
 
 
-def for_the_judge(report: "Report") -> int:
-    """The undecided trials whose `claims` code left to the judge (graders/claims.py)."""
-    return sum(each.unknown.get("claims", "").startswith(FOR_THE_JUDGE) for each in report.review)
+def waits_for_the_judge(review: "Review") -> bool:
+    """Whether the trial's only undecided grade is `claims`, and code left it to the judge
+    (graders/claims.py). The judge never settles another grader's `unknown`."""
+    reason = review.unknown.get("claims")
+    return (
+        set(review.unknown) == {"claims"}
+        and reason is not None
+        and reason.startswith(FOR_THE_JUDGE)
+    )
 
 
 def _mapped(report: "Report") -> str:

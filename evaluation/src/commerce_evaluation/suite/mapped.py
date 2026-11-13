@@ -6,12 +6,14 @@ and why, or why none does. A `why` that starts with «Parcial» covers it in par
 
 Regression runs those ids in a subprocess with the live stack (`RUN_LIVE_STACK=1`) and never with
 a live model: the variables that would call one are removed from its environment. A browser test
-needs `npm ci` in `auth/` and `ui/`; without it, it is not run and its outcome says so. This module
-is also the pytest plugin (`-p`) that writes each test's outcome to the file `OUTCOMES_ENV` names.
+needs `node` and `npm ci` in `auth/` and `ui/`; without them it is not run and its outcome says
+why. This module is also the pytest plugin (`-p`) that writes each test's outcome to the file
+`OUTCOMES_ENV` names.
 """
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable, Iterable
@@ -86,11 +88,9 @@ def run_mapped(
     cwd: Path = ROOT,
 ) -> list[MappedTask]:
     """Runs every mapped test once and writes each task's coverage and results to the run."""
-    missing = [f"{name}/" for name in NODE_PROJECTS if not (cwd / name / "node_modules").is_dir()]
+    unmet = "; ".join(browser_problems(cwd))
     blocked = {
-        test: f"falta npm ci en {' y '.join(missing)}"
-        for test in mapped_ids(entries)
-        if missing and test.startswith(BROWSER_TESTS)
+        test: unmet for test in mapped_ids(entries) if unmet and test.startswith(BROWSER_TESTS)
     }
     ids = [test for test in mapped_ids(entries) if test not in blocked]
     outcomes_path = run_dir / "regression-map.outcomes.jsonl"
@@ -122,6 +122,16 @@ def run_mapped(
     text = json.dumps(rows, ensure_ascii=False, indent=2) + "\n"
     (run_dir / MAPPED_FILE).write_text(text, encoding="utf-8")
     return tasks
+
+
+def browser_problems(cwd: Path) -> list[str]:
+    """Why a browser test cannot run here, as `browser_requirements` checks it in
+    tests/integration/live_browser.py (the package does not import tests/); empty when it can."""
+    problems = [] if shutil.which("node") else ["falta node en el PATH"]
+    missing = [f"{name}/" for name in NODE_PROJECTS if not (cwd / name / "node_modules").is_dir()]
+    if missing:
+        problems.append(f"falta npm ci en {' y '.join(missing)}")
+    return problems
 
 
 def read_mapped(run_dir: Path) -> list[MappedTask] | None:

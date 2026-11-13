@@ -405,10 +405,39 @@ def test_an_undecided_trial_does_not_fail_the_regression_and_waits_for_the_judge
     assert cli.main(["run", "--suite", "regression", "--run-id", "sin-juez"]) == 0
 
     out = capsys.readouterr().out
-    assert "1 intentos quedan sin decidir (1 pendientes del juez en lo que dice)" in out
+    assert "1 intentos quedan sin decidir: 1 solo esperan al juez en lo que dice y 0 " in out
     assert "La regresión pasa." in out
     text = (home / "runs" / "sin-juez" / "report.md").read_text()
-    assert "En regresión no hacen fallar la corrida (§8): 1 quedan pendientes del juez" in text
+    assert "los 1 que solo esperan al juez en lo que dice no hacen fallar la corrida" in text
+    assert "En regresión cuentan como no acierto los intentos que solo esperan al juez" in text
+
+
+@pytest.mark.parametrize(
+    ("mode", "final"),
+    [
+        # The chat answered a bare 500: the record has no action (outcome.py).
+        ("presente", {"action": None}),
+        # The task stopped short of an order: the outcome cannot be told.
+        ("delegado", {"task_state": "purchased"}),
+    ],
+)
+def test_a_trial_another_grader_left_undecided_fails_the_regression(
+    home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mode: str,
+    final: dict[str, Any],
+) -> None:
+    told = make_case("tienda-no-responde", mode, must_communicate=["que la tienda no responde"])
+    monkeypatch.setattr(cli, "CATALOG", write_catalog(home / "sin-accion", [told]))
+    script = {(told.id, "B2", 1): [{"final": final}]}
+    monkeypatch.setattr(cli, "load_executor", lambda: Factory(script))
+
+    assert cli.main(["run", "--suite", "regression", "--run-id", f"sin-accion-{mode}"]) == 1
+
+    captured = capsys.readouterr()
+    assert "0 solo esperan al juez en lo que dice y 1 los dejó sin decidir otro" in captured.out
+    assert "1 tareas con un intento que falla, que el código no pudo decidir" in captured.err
 
 
 def test_a_trial_the_infrastructure_left_ungraded_fails_the_regression(
@@ -448,6 +477,7 @@ def test_a_browser_test_without_npm_ci_fails_the_regression_and_says_why(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.setattr(mapped.shutil, "which", lambda name: f"/bin/{name}")
     browser = "tests/integration/test_live_browser_journeys.py::test_revoke"
     entry = {"source": "MA24", "tests": [browser], "why": "Cubre."}
     mapped.MAP_FILE.write_text(json.dumps({"revoca-antes-de-ejecutar/delegado": entry}))

@@ -20,7 +20,7 @@ from commerce_evaluation.suite.estimate import estimate
 from commerce_evaluation.suite.judging import Pending
 from commerce_evaluation.suite.plan import Plan, pending
 from commerce_evaluation.suite.report import Report
-from commerce_evaluation.suite.report_md import SUITES, for_the_judge
+from commerce_evaluation.suite.report_md import SUITES, waits_for_the_judge
 from commerce_evaluation.suite.run import resume_problem
 
 ENV_FILE = ROOT / ".env"
@@ -96,10 +96,17 @@ def judge_preview(todo: Pending, cap: Decimal | None, say: Say = print) -> None:
 
 
 def failing(report: Report) -> str | None:
-    """Why a regression does not pass, or None (§8): a trial that code failed or that the
-    infrastructure left ungraded, or a mapped test that did not pass. An `unknown` trial does not
-    fail it: without the judge, what the agent says stays `unknown` (`undecided`)."""
-    tasks = [task for task in report.reduction.tasks if task.fails or task.infra_failures]
+    """Why a regression does not pass, or None (§8): a trial that code failed, left undecided
+    on its own or the infrastructure left ungraded, or a mapped test that did not pass. A trial
+    whose only `unknown` is what the agent says, left to the judge, does not fail it."""
+    undecided = {
+        (each.case_id, each.governance) for each in report.review if not waits_for_the_judge(each)
+    }
+    tasks = [
+        task
+        for task in report.reduction.tasks
+        if task.fails or task.infra_failures or (task.case_id, task.governance) in undecided
+    ]
     tests = [
         test for task in report.mapped or () for test in task.tests if test.outcome in NOT_PASSED
     ]
@@ -107,19 +114,21 @@ def failing(report: Report) -> str | None:
         return None
     reasons = sorted({test.reason for test in tests if test.reason})
     return (
-        f"{len(tasks)} tareas con un intento que falla o que la infraestructura no dejó calificar "
-        f"y {len(tests)} pruebas del mapa que fallan o no corrieron"
-        + "".join(f"; {reason}" for reason in reasons)
+        f"{len(tasks)} tareas con un intento que falla, que el código no pudo decidir o que la "
+        f"infraestructura no dejó calificar, y {len(tests)} pruebas del mapa que fallan o no "
+        "corrieron" + "".join(f"; {reason}" for reason in reasons)
     )
 
 
 def undecided(report: Report) -> str | None:
-    """How many trials no grader failed but some left `unknown`, or None when there are none."""
+    """How many trials no grader failed but some left `unknown`, and how many of them only wait
+    for the judge; None when there are none."""
     if not report.review:
         return None
+    waiting = sum(map(waits_for_the_judge, report.review))
     return (
-        f"{len(report.review)} intentos quedan sin decidir ({for_the_judge(report)} pendientes "
-        "del juez en lo que dice)"
+        f"{len(report.review)} intentos quedan sin decidir: {waiting} solo esperan al juez en lo "
+        f"que dice y {len(report.review) - waiting} los dejó sin decidir otro calificador"
     )
 
 

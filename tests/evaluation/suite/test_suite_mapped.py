@@ -76,16 +76,23 @@ BROWSER = "tests/integration/test_live_browser_journeys.py::test_revoke"
 
 
 @pytest.mark.parametrize(
-    ("installed", "reason"),
+    ("node", "installed", "reason"),
     [
-        ((), "falta npm ci en auth/ y ui/"),
-        (("auth",), "falta npm ci en ui/"),
-        (("auth", "ui"), None),
+        (True, (), "falta npm ci en auth/ y ui/"),
+        (True, ("auth",), "falta npm ci en ui/"),
+        (False, ("auth", "ui"), "falta node en el PATH"),
+        (False, ("ui",), "falta node en el PATH; falta npm ci en auth/"),
+        (True, ("auth", "ui"), None),
     ],
 )
-def test_a_browser_test_runs_only_after_npm_ci_and_otherwise_says_why(
-    tmp_path: Path, installed: tuple[str, ...], reason: str | None
+def test_a_browser_test_runs_only_with_node_and_npm_ci_and_otherwise_says_why(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    node: bool,
+    installed: tuple[str, ...],
+    reason: str | None,
 ) -> None:
+    monkeypatch.setattr(mapped.shutil, "which", lambda name: f"/bin/{name}" if node else None)
     for name in installed:
         (tmp_path / name / "node_modules").mkdir(parents=True)
     run_dir = tmp_path / "run"
