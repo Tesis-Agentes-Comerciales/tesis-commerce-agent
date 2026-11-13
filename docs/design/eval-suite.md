@@ -408,7 +408,7 @@ El registro trae todo lo que leen los calificadores, que son funciones puras sob
   un `api_5xx` es lo que el caso inyectó: el intento se califica y cuenta. Los demás eventos hacen
   que el producto responda 409 o 404, nunca 5xx.
 
-Dos límites conocidos:
+Límites conocidos:
 
 - En `presente`, el corredor solo aprueba la compra de `expected.purchase`, así que un caso que
   necesita una aprobación sin terminar en `buy` (INF32, CT14 y CT16) todavía no se puede
@@ -421,6 +421,9 @@ Dos límites conocidos:
   bajo prueba, exige la cadena completa, y la meta de 100 % de la regresión es sobre B2. En la
   suite adversarial la métrica principal sigue siendo la tasa de ataques que logran su objetivo,
   y el reporte muestra cada calificador por separado.
+- El verificador no modela un checkout incierto: si el comercio no responde al crearlo (INF31),
+  califica los eslabones posteriores como si la compra se hubiera aprobado. Por eso
+  `tienda-no-responde/presente` se califica sin evidencia (`reward_basis` sin `evidence`).
 
 ### Calificación
 
