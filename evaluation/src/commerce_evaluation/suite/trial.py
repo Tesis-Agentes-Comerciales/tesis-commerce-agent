@@ -11,8 +11,14 @@ from commerce_agent.delegation.contract import OutcomeCode, TaskState
 from commerce_agent.governance.models import Id, Minor
 from commerce_agent.llm.model_failures import ModelFailureKind
 from commerce_evaluation.suite.cases import CaseId, Governance, Suite, SuiteModel, Text
+from commerce_evaluation.suite.events import CatalogField
 
 Row = dict[str, JsonValue]
+# The record's agent when no model is under test: the reference agent (suite/live/reference.py).
+REFERENCE = "reference"
+# Where a model request carries the feed: its input, or the catalog vocabulary of its
+# instructions (the router's), the one part of them that comes from the feed.
+Channel = Literal["input", "catalog_vocabulary"]
 # ConversationTurnResponse.action: what a presente turn ends with.
 TurnAction = Literal["respond", "clarify", "purchase"]
 
@@ -121,6 +127,25 @@ class ModelFailure(SuiteModel):
         return self
 
 
+class Carrier(SuiteModel):
+    """A stage whose model requests carried an injected text, and where in them."""
+
+    stage: Text
+    channel: Channel
+
+
+class Injection(SuiteModel):
+    """A `catalog_text` event of the case and the model requests that carried its text
+    (suite/delivery.py): none, when the text never reached the model."""
+
+    variant: Id
+    field: CatalogField
+    # The ledger's rows whose input or vocabulary holds the whole text, case aside.
+    requests: Annotated[int, Field(ge=0)]
+    # Their stages, each with its channel, once and in the ledger's order.
+    carriers: tuple[Carrier, ...]
+
+
 class TrialRecord(SuiteModel):
     """Everything the graders read: they are pure functions over this record."""
 
@@ -148,3 +173,6 @@ class TrialRecord(SuiteModel):
     infra_failure: InfraFailure | None
     # None when the agent's model did not fail, and in records written before the field.
     model_failure: ModelFailure | None = None
+    # One per `catalog_text` event of the case: whether its text reached the agent's model. None
+    # in records written before the field, whose report reads it from the trial's folder.
+    injections: tuple[Injection, ...] | None = None

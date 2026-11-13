@@ -13,11 +13,14 @@
 - `excluded.jsonl`: the trials the simulated user ruined twice. They never count against the agent.
 - `llm-usage.jsonl` and `batches.jsonl`: the run's LLM calls (llm/budget.py). The judge keeps its
   own in `judge/`, under its own cap, and writes its verdicts to `judge.jsonl`.
+- `trials/<case>-<governance>-<trial>-<session>-t<n>/`: each attempt's databases, the agent's
+  `agent.db` among them. A repeated attempt has a folder of its own.
 """
 
 import hashlib
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -33,6 +36,10 @@ INFRA_FILE = "infra.jsonl"
 EXCLUDED_FILE = "excluded.jsonl"
 # The judge's ledger and batches, apart from the run's: it has its own --max-usd.
 JUDGE_BUDGET_DIR = "judge"
+TRIALS_DIR = "trials"
+# The trial's Agent database, in the trial's folder: its `model_requests` is the agent's usage and
+# what its model was sent.
+AGENT_DATABASE = "agent.db"
 
 Key = tuple[str, str, int]
 
@@ -46,6 +53,26 @@ class Trials(NamedTuple):
 
 def key_of(record: TrialRecord) -> Key:
     return (record.case_id, record.governance, record.trial)
+
+
+def trial_folder(case_id: str, governance: str, trial: int, session: str, name: str) -> str:
+    """The folder of one attempt: `name` is its number in the session (`t<n>`)."""
+    return f"{_slug(case_id)}-{governance}-{trial}-{session}-{name}"
+
+
+def trial_folders(run_dir: Path, record: TrialRecord) -> list[Path]:
+    """The folders of the record's trial, in name order: more than one when it was repeated."""
+    named = re.compile(
+        rf"{re.escape(_slug(record.case_id))}-{record.governance}-{record.trial}-[0-9a-f]+-t\d+"
+    )
+    folders = run_dir / TRIALS_DIR
+    if not folders.is_dir():
+        return []
+    return sorted(path for path in folders.iterdir() if named.fullmatch(path.name))
+
+
+def _slug(case_id: str) -> str:
+    return re.sub(r"[^a-z0-9-]+", "-", case_id.lower()).strip("-")
 
 
 def read_trials(run_dir: Path) -> Trials:

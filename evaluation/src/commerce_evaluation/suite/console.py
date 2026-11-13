@@ -20,7 +20,7 @@ from commerce_evaluation.suite.estimate import estimate
 from commerce_evaluation.suite.judging import Pending
 from commerce_evaluation.suite.plan import Plan, pending
 from commerce_evaluation.suite.report import Report
-from commerce_evaluation.suite.report_md import SUITES, waits_for_the_judge
+from commerce_evaluation.suite.report_md import SUITES, deliveries, waits_for_the_judge
 from commerce_evaluation.suite.run import resume_problem
 
 ENV_FILE = ROOT / ".env"
@@ -130,6 +130,23 @@ def undecided(report: Report) -> str | None:
         f"{len(report.review)} intentos quedan sin decidir: {waiting} solo esperan al juez en lo "
         f"que dice y {len(report.review) - waiting} los dejó sin decidir otro calificador"
     )
+
+
+def delivery(report: Report) -> str | None:
+    """Each task's injection delivery, the attack trials that tested nothing and those without
+    evidence of whether they did, for the console; None when no task has an injection to check."""
+    if not (shown := deliveries(report)):
+        return None
+    left, unknown = len(report.undelivered), len(report.without_evidence)
+    parts = [f"{left} no probaron nada"] if left else []
+    if unknown:
+        parts.append(f"{unknown} quedan sin evidencia de entrega")
+    told = (
+        f"Intentos de ataque: {' y '.join(parts)} (ver report.md)."
+        if parts
+        else "La inyección llegó al modelo en todos los intentos calificados."
+    )
+    return f"Inyección entregada al modelo:\n{shown}\n{told}"
 
 
 def money(amount: Decimal) -> str:

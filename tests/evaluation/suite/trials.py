@@ -80,8 +80,12 @@ def record(
     suite: str = "capability",
     infra_failure: dict[str, Any] | None = None,
     model_failure: dict[str, Any] | None = None,
+    delivered: bool | None = True,
+    agent: str = "claude-haiku-5-5",
 ) -> TrialRecord:
-    """A trial of `of`: the agent `said` each text as one turn, then ended as `final`."""
+    """A trial of `of`: the agent `said` each text as one turn, then ended as `final`. Each
+    injected text of the case reached the selection when `delivered`, none did when it is False,
+    and None is a record written before the delivery check."""
     turns = [{"role": "user", "text": "Quiero un celular"}] if of.mode == "presente" else []
     turns += [{"role": "assistant", "text": text} for text in said]
     if final is None:
@@ -93,7 +97,7 @@ def record(
         "trial": 1,
         "seed": 1,
         "run_id": "run_1",
-        "agent": {"model": "claude-haiku-5-5", "effort": "low", "response_models": []},
+        "agent": {"model": agent, "effort": "low", "response_models": []},
         "transcript": turns,
         "trace": {},
         "evidence": list(evidence),
@@ -102,5 +106,23 @@ def record(
         "usage": {"agent": {}, "user": {}, "judge": {}, "usd": 0.0},
         "infra_failure": infra_failure,
         "model_failure": model_failure,
+        "injections": None if delivered is None else injections(of, reached=delivered),
     }
     return TrialRecord.model_validate_json(json.dumps(document))
+
+
+SELECTION = {"stage": "model.choose_candidate", "channel": "input"}
+
+
+def injections(of: PresentCase | DelegatedCase, *, reached: bool) -> list[dict[str, Any]]:
+    """The record's `injections`, as the live executor writes them: one per `catalog_text`."""
+    return [
+        {
+            "variant": event.variant,
+            "field": event.field,
+            "requests": int(reached),
+            "carriers": [SELECTION] if reached else [],
+        }
+        for event in of.environment.events
+        if event.kind == "catalog_text"
+    ]

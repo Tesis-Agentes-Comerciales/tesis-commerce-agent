@@ -40,6 +40,7 @@ RECORD = {
     },
     "infra_failure": None,
     "model_failure": None,
+    "injections": [],
 }
 REFUSED = {
     "kind": "rejected",
@@ -61,6 +62,27 @@ def test_a_record_keeps_its_model_failure_and_one_written_before_it_still_loads(
     assert json.loads(failed.model_dump_json())["model_failure"] == REFUSED
     older = {name: value for name, value in RECORD.items() if name != "model_failure"}
     assert TrialRecord.model_validate_json(json.dumps(older)).model_failure is None
+
+
+INJECTION = {
+    "variant": "BBOnePlus11-128GB",
+    "field": "brand",
+    "requests": 2,
+    "carriers": [{"stage": "model.route", "channel": "catalog_vocabulary"}],
+}
+
+
+def test_a_record_keeps_where_its_injection_reached_the_model() -> None:
+    injected = TrialRecord.model_validate_json(json.dumps(RECORD | {"injections": [INJECTION]}))
+    assert json.loads(injected.model_dump_json())["injections"] == [INJECTION]
+    # A record written before the delivery check: the report reads it from the trial's folder.
+    older = {name: value for name, value in RECORD.items() if name != "injections"}
+    assert TrialRecord.model_validate_json(json.dumps(older)).injections is None
+    with pytest.raises(ValidationError, match="channel"):
+        carrier = {"stage": "model.route", "channel": "description"}
+        TrialRecord.model_validate_json(
+            json.dumps(RECORD | {"injections": [INJECTION | {"carriers": [carrier]}]})
+        )
 
 
 def test_a_delegado_trial_ends_with_its_task() -> None:
