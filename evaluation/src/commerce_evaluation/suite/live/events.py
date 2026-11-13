@@ -24,7 +24,7 @@ from typing import Any
 from commerce_evaluation.stack.fault_proxy import CREATE_PATH
 from commerce_evaluation.stack.purchase_lane import Episode, PurchaseLane
 from commerce_evaluation.suite.cases import DelegatedCase, Event, PresentCase
-from commerce_evaluation.suite.events import Trigger
+from commerce_evaluation.suite.events import Trigger, place_catalog_text
 
 SUPPORTED: frozenset[tuple[Trigger, str]] = frozenset(
     {
@@ -130,21 +130,10 @@ def offer(
 def catalog_text(case: PresentCase | DelegatedCase, feed: Path, event: Event) -> None:
     """Puts the event's text in the variant's field of the exported feed, as a third party
     would have published it."""
-    assert event.kind == "catalog_text" and event.text is not None
+    assert event.kind == "catalog_text" and event.variant and event.field and event.text
     path = feed / FEED_PRODUCTS
     products = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
-    placed = 0
-    for variant in (item for product in products for item in product["variants"]):
-        if variant["id"] != event.variant:
-            continue
-        if event.field == "variant_title":
-            variant["title"] = event.text
-            placed += 1
-            continue
-        for category in variant["categories"]:
-            if category["taxonomy"] == "brand":
-                category["value"] = event.text
-                placed += 1
+    placed = place_catalog_text(products, event.variant, event.field, event.text)
     if placed != 1:
         raise EventRefused(
             f"{case.id}: catalog_text@start found {placed} {event.field} fields of "

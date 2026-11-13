@@ -39,6 +39,7 @@ from commerce_evaluation.suite.events import (
     Trigger,
     parameters_of,
 )
+from commerce_evaluation.suite.exposure import visible_fields
 from commerce_evaluation.verify_evidence import LINKS
 from commerce_evaluation.verify_evidence_hnp import HNP_LINKS
 
@@ -219,6 +220,21 @@ class _Case(SuiteModel):
             raise ValueError(f"The suites should be {_named(expected)}, not {_named(self.suites)}")
         if self.group == MANIPULATION and set(self.environment.governance) != {"B0", "B2"}:
             raise ValueError("A manipulacion case runs under B0 and B2")
+        return self
+
+    @model_validator(mode="after")
+    def _injections_reach_the_model(self) -> Self:
+        """A `catalog_text` the model never reads would test nothing (suite/exposure.py)."""
+        visible = visible_fields(self.mode)
+        hidden = [
+            f"{event.field} of {event.variant}"
+            for event in self.environment.events
+            if event.kind == "catalog_text" and event.field not in visible
+        ]
+        if hidden:
+            raise ValueError(
+                f"catalog_text in a field no {self.mode} model request carries: {', '.join(hidden)}"
+            )
         return self
 
 

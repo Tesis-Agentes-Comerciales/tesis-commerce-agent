@@ -2,9 +2,12 @@
 
 Everything comes from the run directory (suite/rundir.py): the cases as they were run, the last
 record of each trial, the attempts repeated or excluded, and the usage ledgers of the run and of
-the judge. Grading is code's (`graders.success.grade`); when the run has `judge.jsonl`, the
-judge's verdicts on what the agent says replace code's `claims` grade wherever code left it to
-the judge (`graders.judge.grades_with_judge`). A caller can pass any other `Grading` instead.
+the judge. A record written before the delivery check gets it from its trial's folder
+(`delivery.with_evidence`), and an attack trial whose injected text reached no model request is
+listed apart, out of the attack rate (`Undelivered`). Grading is code's
+(`graders.success.grade`); when the run has `judge.jsonl`, the judge's verdicts on what the agent
+says replace code's `claims` grade wherever code left it to the judge
+(`graders.judge.grades_with_judge`). A caller can pass any other `Grading` instead.
 
 The report is `report.json`, for the thesis's tables, and `report.md`, to read.
 """
@@ -19,6 +22,7 @@ from pydantic import JsonValue
 
 from commerce_evaluation.llm.budget import LEDGER_FILE, read_ledger
 from commerce_evaluation.suite.cases import Case, CaseId, Governance, Grader, SuiteModel, Text
+from commerce_evaluation.suite.delivery import delivered, with_evidence
 from commerce_evaluation.suite.graders.grade import Grade, Verdict
 from commerce_evaluation.suite.graders.judge import JUDGE_FILE, grades_with_judge, read_judged
 from commerce_evaluation.suite.graders.success import grade, strict_success
@@ -68,6 +72,17 @@ class Review(SuiteModel):
     unknown: dict[Grader, str]
 
 
+class Undelivered(SuiteModel):
+    """An attack trial whose injected text reached no request of the model under test: it
+    tested nothing, and the attack rate leaves it out."""
+
+    case_id: CaseId
+    governance: Governance
+    trial: int
+    run_id: Text
+    reason: Text
+
+
 class RoleCost(SuiteModel):
     role: Text
     calls: int
@@ -94,6 +109,7 @@ class Report(SuiteModel):
     # its kind, whom it counts against and the ledger's failed requests (trial.ModelFailure).
     model_failures: tuple[dict[str, JsonValue], ...]
     review: tuple[Review, ...]
+    undelivered: tuple[Undelivered, ...]
     # Regression only: the tasks the scripted tests cover, and how those tests ended.
     mapped: tuple[MappedTask, ...] | None
 
@@ -114,9 +130,11 @@ def build(run_dir: Path, grading: Grading | None = None) -> Report:
     scored: list[Scored] = []
     tasks: dict[tuple[str, Governance], dict[Grader, Counter[Verdict]]] = {}
     review: list[Review] = []
+    undelivered: list[Undelivered] = []
     trials = read_trials(run_dir)
-    for record in trials.kept:
-        case = cases[record.case_id]
+    for kept in trials.kept:
+        case = cases[kept.case_id]
+        record = with_evidence(run_dir, case, kept)
         grades = grader(case, record)
         success = strict_success(case, grades)
         scored.append(Scored(case, record, success))
@@ -125,6 +143,8 @@ def build(run_dir: Path, grading: Grading | None = None) -> Report:
             tally.setdefault(name, Counter())
         if is_infra_failure(case, record):
             continue
+        if delivered(case, record) is False:
+            undelivered.append(_undelivered(record))
         for given in grades:
             tally[given.grader][given.verdict] += 1
         if success == "unknown":
@@ -163,6 +183,7 @@ def build(run_dir: Path, grading: Grading | None = None) -> Report:
         excluded=tuple(read_jsonl(run_dir / EXCLUDED_FILE)),
         model_failures=_model_failures(trials, infra),
         review=tuple(review),
+        undelivered=tuple(undelivered),
         mapped=None if (mapped := read_mapped(run_dir)) is None else tuple(mapped),
     )
 
@@ -173,6 +194,21 @@ def write(run_dir: Path, grading: Grading | None = None) -> Report:
     (run_dir / REPORT_JSON).write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
     (run_dir / REPORT_MD).write_text(markdown(report), encoding="utf-8")
     return report
+
+
+def _undelivered(record: TrialRecord) -> Undelivered:
+    reason = (
+        "sin evidencia: el registro no la trae y no se encontró la base del intento"
+        if record.injections is None
+        else "ninguna solicitud al modelo llevó el texto inyectado"
+    )
+    return Undelivered(
+        case_id=record.case_id,
+        governance=record.governance,
+        trial=record.trial,
+        run_id=record.run_id,
+        reason=reason,
+    )
 
 
 def _tallies(tally: dict[Grader, Counter[Verdict]]) -> dict[Grader, Tally]:
