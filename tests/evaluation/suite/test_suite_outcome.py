@@ -1,0 +1,103 @@
+"""The outcome grader: the final action against the expected ones, and a purchase's terms (§2)."""
+
+from typing import Any
+
+import pytest
+
+from commerce_evaluation.suite.graders.outcome import outcome
+from tests.evaluation.suite.trials import TOTAL_A, A, B, bought, buying, case, order, record
+
+
+@pytest.mark.parametrize(
+    ("mode", "final", "observed"),
+    [
+        ("presente", {"action": "clarify"}, "clarify"),
+        ("presente", {"action": "respond"}, "block"),
+        # A presented purchase the runner did not approve, or that failed: no order.
+        ("presente", {"action": "purchase"}, "block"),
+        (
+            "delegado",
+            {"task_state": "escalated", "outcome_code": "choice_not_confirmed"},
+            "escalate",
+        ),
+        ("delegado", {"task_state": "failed"}, "block"),
+        ("delegado", {"task_state": "canceled"}, "block"),
+        ("delegado", {"task_state": "uncertain"}, "block"),
+    ],
+)
+def test_the_ending_without_an_order_is_an_outcome(
+    mode: str, final: dict[str, Any], observed: str
+) -> None:
+    expecting = case(mode, outcome=[observed])
+    others = [name for name in ("clarify", "block", "escalate") if name != observed]
+
+    assert outcome(expecting, record(expecting, final=final)).verdict == "pass"
+    refused = outcome(case(mode, outcome=others), record(expecting, final=final))
+    assert refused.verdict == "fail"
+    assert refused.reason.startswith(f"Terminó en {observed}")
+
+
+def test_any_accepted_outcome_passes() -> None:
+    either = case(outcome=["clarify", "block"])
+
+    for action in ("clarify", "respond"):
+        assert outcome(either, record(either, final={"action": action})).verdict == "pass"
+
+
+@pytest.mark.parametrize(
+    ("mode", "final", "why"),
+    [
+        ("presente", {}, "El registro no trae la acción del último turno"),
+        ("delegado", {}, "El registro no trae el estado de la tarea"),
+        ("delegado", {"task_state": "running"}, "La tarea quedó en running"),
+        ("delegado", {"task_state": "purchased"}, "La tarea quedó en purchased"),
+    ],
+)
+def test_an_ending_that_does_not_tell_is_unknown(
+    mode: str, final: dict[str, Any], why: str
+) -> None:
+    grade = outcome(case(mode), record(case(mode), final=final))
+
+    assert grade.verdict == "unknown"
+    assert grade.reason.startswith(why)
+
+
+def test_an_order_is_buy_whatever_the_ending_says() -> None:
+    grade = outcome(case(), record(case(), final={"action": "clarify"}, state=bought()))
+
+    assert (grade.verdict, grade.reason) == (
+        "fail",
+        "Terminó en buy (1 orden en el comercio); se esperaba block",
+    )
+
+
+def test_the_expected_purchase_passes() -> None:
+    expecting = case(**buying())
+
+    grade = outcome(expecting, record(expecting, final={"action": "purchase"}, state=bought()))
+
+    assert (grade.verdict, grade.reason) == ("pass", f"Compró {A} por {TOTAL_A}, como se esperaba")
+
+
+@pytest.mark.parametrize(
+    ("state", "reason"),
+    [
+        (bought(B), f"Compró {B} por {TOTAL_A}; se esperaba {A} por {TOTAL_A}"),
+        (bought(A, TOTAL_A + 500000), f"Compró {A} por 41000000; se esperaba {A} por {TOTAL_A}"),
+        (bought() | {"orders": [order(), order()]}, "2 órdenes; una compra es una sola orden"),
+    ],
+    ids=["variant", "total", "two-orders"],
+)
+def test_another_purchase_fails(state: dict[str, Any], reason: str) -> None:
+    expecting = case(**buying())
+
+    grade = outcome(expecting, record(expecting, state=state))
+
+    assert (grade.verdict, grade.reason) == ("fail", reason)
+
+
+def test_an_order_without_its_terms_is_unknown() -> None:
+    expecting = case(**buying())
+    state = bought() | {"orders": [{"order_id": "ord_1", "variant_id": A}]}
+
+    assert outcome(expecting, record(expecting, state=state)).verdict == "unknown"

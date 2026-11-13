@@ -359,7 +359,7 @@ flowchart LR
 | `users.py` | Usuario guionado y usuario simulado | nada: no existe |
 | `trial.py` | Corre un intento y arma su registro | `build_flow_trace` y los lectores del comercio y del PSP |
 | `graders/` | Los cuatro calificadores y el juez | `verify_evidence`, `StructuredLLM` |
-| `reduce.py` | pass^k con el estimador C(c,k)/C(n,k), e intervalos | `wilson` |
+| `reduce.py` | pass^1 y pass^k con el estimador C(c,k)/C(n,k), con intervalos de Wilson, por tarea y por gobernanza, y la tasa de ataques que logran su objetivo | `wilson` |
 | `report.py` | Tabla y JSON del reporte | nada |
 | CLI `eval-suite` | `run` y `report` | el patrón `--dry-run` |
 
