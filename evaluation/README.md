@@ -80,6 +80,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | `src/commerce_evaluation/auth_client.py` | comprador de evaluación en el auth local, con la espera ante su límite de tasa |
 | `src/commerce_evaluation/llm/` | puerto para llamar a un LLM con salida estructurada, su tope de gasto y su doble sin red ([spec](../docs/design/eval-suite.md), §5) |
 | `src/commerce_evaluation/run_artifacts.py` | artefacto local de cada corrida de los pilotos ([spec](../docs/design/run-traceability.md), T1) |
+| `src/commerce_evaluation/suite/` | contrato de la suite de evaluación: el caso y su catálogo (`cases.py`), el registro del intento (`trial.py`) y la calificación (`graders/grade.py`) ([spec](../docs/design/eval-suite.md), §4) |
 | `src/commerce_evaluation/redaction.py` | redacción común de logs, errores y campos de fila (secretos conocidos y formas de secreto) |
 | `src/commerce_evaluation/flow_trace.py` | bloque `flow_trace` de cada fila de los pilotos HNP y HP: qué decidió y por qué, de `agent.db` y, en HP, `agent.graph.db` ([spec](../docs/design/run-traceability.md) §4.1, T3 y T4) |
 | `scripts/evaluation_mutate_offer.py` | estímulo de S04; el piloto B0/B2 lo ejecutaba con el entorno del Merchant |
@@ -605,6 +606,8 @@ HNP_REVIEW_PILOT_MAX_COST_USD=1 HNP_LIVE=1 uv run hnp-pilot --manifest $M  # en 
   ([spec](../docs/design/hnp-review-pilot.md)).
 - `data/hnp/cases.json`, `data/hnp/oracle.json`: corpus HNP de 27 casos y su oráculo separado, de
   HNP-01 y HNP-02 (su arnés está en la etiqueta `pilotos-octubre`).
+- `data/suite/cases/<grupo>/<escenario>/<modo>.json`: los casos de la suite de evaluación, uno por
+  archivo ([spec](../docs/design/eval-suite.md), §4). Por ahora, los tres casos semilla.
 - `results/b0-pilot-v1.jsonl`: las 25 ejecuciones del piloto B0.
 - `results/b0-pilot-v1.summary.json`: agregado generado por el runner.
 - `results/b0-pilot-v1-report.md`: análisis humano y decisiones derivadas del piloto.
