@@ -113,6 +113,26 @@ ANSWERS: dict[str, Answer] = {
     "disconnect": disconnect(),
     "read_timeout": read_timeout(),
 }
+# The stimuli whose bodies are Anthropic's instead of the protocol's (`ON_CLAUDE`).
+ON_CLAUDE_STIMULI = ("http_429_rate_limit", "http_429_insufficient_quota")
+
+
+def amendment() -> dict[str, Any]:
+    """What a run sends and checks apart from the frozen protocol, for its summary: each amended
+    stimulus as the scripted transport answers it (status, retry headers and body), and the
+    oracle fields `ON_CLAUDE` replaces."""
+    stimuli = {}
+    for name in ON_CLAUDE_STIMULI:
+        response = ANSWERS[name]({})
+        headers = {key: response.headers.get(key) for key in ("retry-after-ms", "x-should-retry")}
+        stimuli[name] = {
+            "status": response.status_code,
+            "headers": headers,
+            "body": response.json(),
+        }
+    return {"stimuli": stimuli, "oracles": ON_CLAUDE}
+
+
 # The model_requests columns an oracle compares; payloads and hashes stay out of the summary.
 REQUEST_FIELDS = ("stage", "outcome", "error_kind", "http_status", "provider_error_code", "retries")
 # What an effect leaves in the Agent's own SQLite (`local_effects` plus these).
@@ -805,8 +825,8 @@ def summarize(cases: list[dict[str, Any]], stack: LiveStack) -> dict[str, Any]:
     return {
         "schema": "p0-model-failures-summary/1",
         "protocol": {"path": str(PROTOCOL.relative_to(ROOT)), "sha256": sha256(PROTOCOL)},
-        # What this run's oracles changed from the frozen protocol: the provider's error fields.
-        "oracle_amendment": ON_CLAUDE,
+        # What this run sent and checked apart from the frozen protocol: Anthropic's 429s.
+        "oracle_amendment": amendment(),
         "spec": {
             "path": PLAN["spec"]["path"],
             "sha256": sha256(spec),
