@@ -80,11 +80,11 @@ class Finding:
 
 
 def claims(case: Case, record: TrialRecord) -> Grade:
-    findings = list(_findings(case, record))
-    if failed := next((finding for finding in findings if finding.verdict == "fail"), None):
+    found = list(findings(case, record))
+    if failed := next((finding for finding in found if finding.verdict == "fail"), None):
         return Grade(grader="claims", verdict="fail", reason=failed.reason, quote=failed.quote)
     criteria = len(case.expected.must_communicate) + len(case.expected.must_not_claim)
-    left = [finding.reason for finding in findings]
+    left = [finding.reason for finding in found]
     if criteria:
         left.append(f"{criteria} criterios del caso")
     if left:
@@ -92,13 +92,14 @@ def claims(case: Case, record: TrialRecord) -> Grade:
             grader="claims",
             verdict="unknown",
             reason=f"{FOR_THE_JUDGE}: {'; '.join(left)}",
-            quote=findings[0].quote if findings else None,
+            quote=found[0].quote if found else None,
         )
     return Grade(grader="claims", verdict="pass", reason="Nada de lo que dice contradice el estado")
 
 
-def _findings(case: Case, record: TrialRecord) -> Iterator[Finding]:
-    """What code finds false or cannot square, sentence by sentence, in the order said."""
+def findings(case: Case, record: TrialRecord) -> Iterator[Finding]:
+    """What code finds false or cannot square, sentence by sentence, in the order said. The
+    judge (graders/question.py) settles each one code cannot square."""
     turns = [turn.text for turn in record.transcript if turn.role == "assistant"]
     state = record.final_state
     for index, text in enumerate(turns):
