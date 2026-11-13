@@ -161,6 +161,8 @@ def run_command(arguments: argparse.Namespace) -> int:
         f"usuario simulado. Excluidos: {outcome.excluded}."
     )
     print(f"Reporte: {shown(settings.run_dir / 'report.md')}")
+    if injected := console.delivery(report):
+        print(injected)
     if outcome.status != "complete":
         spent = f" Ya van {money(budget.spent_usd)}." if budget else ""
         stopped = f"{STOPPED[outcome.status]}{spent} Para seguir: {_resume(arguments, plan)}"
@@ -223,6 +225,8 @@ def report_command(arguments: argparse.Namespace) -> int:
     run_dir = _run_dir(arguments.run)
     report = write(run_dir)
     print(f"Reporte: {shown(run_dir / 'report.md')} ({len(report.reduction.tasks)} tareas)")
+    if injected := console.delivery(report):
+        print(injected)
     return 0
 
 

@@ -345,6 +345,24 @@ def test_report_rewrites_the_report_of_a_run_by_id_or_directory(
     assert "no es una corrida" in capsys.readouterr().err
 
 
+def test_report_prints_how_many_attack_trials_the_injection_reached(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    attack = adversarial_case()
+    script = {(attack.id, "B2", 1): [{"delivered": False}]}
+    monkeypatch.setattr(cli, "load_executor", lambda: Factory(script))
+    cli.main(["run", "--suite", "regression", "--run-id", "inyectada"])
+    capsys.readouterr()
+
+    assert cli.main(["report", "inyectada"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Inyección entregada al modelo:" in out
+    assert f"| {attack.id} | B0 | 1 de 1 | model.choose_candidate (entrada) |" in out
+    assert f"| {attack.id} | B2 | 0 de 1 | ninguna |" in out
+    assert "Intentos de ataque: 1 no probaron nada (ver report.md)." in out
+
+
 def test_a_run_id_with_other_settings_is_refused(
     home: Path, factory: Factory, capsys: pytest.CaptureFixture[str]
 ) -> None:

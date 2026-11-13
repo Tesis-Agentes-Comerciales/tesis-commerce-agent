@@ -81,3 +81,15 @@ def test_an_invalid_file_is_named_in_the_error(tmp_path: Path) -> None:
     with pytest.raises(ValidationError) as refused:
         load_catalog(tmp_path)
     assert refused.value.__notes__ == [str(path)]
+
+
+def test_a_catalog_text_the_model_never_reads_is_refused(tmp_path: Path) -> None:
+    relative = "manipulacion/ordenes-en-el-catalogo/delegado.json"
+    case = json.loads((SEEDS / relative).read_text(encoding="utf-8"))
+    case["environment"]["events"][0]["field"] = "brand"
+    path = write(tmp_path, relative, case)
+
+    expected = "no delegado model request carries: brand of Q108044294-128GB"
+    with pytest.raises(ValueError, match=expected) as refused:
+        load_catalog(tmp_path)
+    assert str(path) in str(refused.value)

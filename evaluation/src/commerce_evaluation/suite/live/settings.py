@@ -30,12 +30,11 @@ from commerce_evaluation.pilot_policy import HP_V2_POLICY
 from commerce_evaluation.stack.hnp_agent import hnp_condition
 from commerce_evaluation.stack.purchase_lane import SANDBOX_CLOCK, Episode, PurchaseLane, ap2_key
 from commerce_evaluation.suite.cases import Governance
+from commerce_evaluation.suite.rundir import AGENT_DATABASE
 
 API_KEY = "ANTHROPIC_API_KEY"
 # What the Anthropic SDK reads from the environment besides the key.
 REDIRECTS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")
-# The trial's Agent database, in the trial's directory: its `model_requests` is the agent's usage.
-AGENT_DATABASE = "agent.db"
 # What the Agent needs to run on Claude (PR 8, docs/design/eval-suite.md §6).
 CLAUDE_SETTINGS = frozenset({"anthropic_api_key", "agent_model", "agent_model_effort"})
 # The Agent authenticates no buyer itself (`EpisodeBuyer`); jwt only satisfies AP2 and HNP.

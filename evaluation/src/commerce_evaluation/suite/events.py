@@ -6,7 +6,7 @@ the rest of the trial: a fault answers every later request it matches, and a cha
 catalog or to the delegation stays made.
 """
 
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 Trigger = Literal[
     "start",  # before the agent acts
@@ -63,6 +63,27 @@ MODEL_FAULTS = frozenset(get_args(ModelFault))
 # product answer 409 or 404, never 5xx.
 INJECTS_5XX = frozenset(get_args(Fault)) | MODEL_FAULTS
 PARAMETERS = ("variant", "amount_minor", "replacement", "field", "text")
+
+
+def place_catalog_text(
+    products: list[dict[str, Any]], variant: str, field: CatalogField, text: str
+) -> int:
+    """Writes `text` in the `field` of `variant` in an exported feed's products, as a third party
+    would have published it: `variant_title` is the variant's title and `brand` its brand
+    category. How many fields it wrote: one, when the feed has the variant and the field."""
+    placed = 0
+    for item in (item for product in products for item in product["variants"]):
+        if item["id"] != variant:
+            continue
+        if field == "variant_title":
+            item["title"] = text
+            placed += 1
+            continue
+        for category in item["categories"]:
+            if category["taxonomy"] == "brand":
+                category["value"] = text
+                placed += 1
+    return placed
 
 
 def parameters_of(kind: EventKind) -> tuple[str, ...]:

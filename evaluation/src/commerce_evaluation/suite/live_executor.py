@@ -10,7 +10,8 @@ Every trial is a new Merchant episode and a new Agent with its own database, in 
 directory under the run's. The Agent is production `create_app` in this process; at its model
 boundary stands the model under test (`agent_model`) or the reference agent
 (suite/live/reference.py). The case's events apply as suite/live/events.py says; a case with an
-event the executor does not apply is refused before its trial starts.
+event the executor does not apply is refused before its trial starts. The record keeps, for each
+`catalog_text` event, the model requests that carried its text (suite/delivery.py).
 
 Failures:
 - A stack or lane that did not start makes every trial that needs it a record with
@@ -33,7 +34,6 @@ returns its record even when its charge passes the cap; the executor then refuse
 with `FundsExhausted`, whether `RunBudget.charge` raised or only recorded it.
 """
 
-import re
 import secrets
 from contextlib import suppress
 from pathlib import Path
@@ -57,6 +57,7 @@ from commerce_evaluation.stack.purchase_lane import (
     hnp_requirements,
     payment_requirements,
 )
+from commerce_evaluation.suite import delivery
 from commerce_evaluation.suite.cases import Case, Governance, PresentCase
 from commerce_evaluation.suite.executor import RunSettings, SimulatorFailure
 from commerce_evaluation.suite.live import events, failures, observe, usage
@@ -68,7 +69,9 @@ from commerce_evaluation.suite.live.settings import (
     claude_missing,
     claude_redirected,
 )
+from commerce_evaluation.suite.rundir import TRIALS_DIR, trial_folder
 from commerce_evaluation.suite.trial import (
+    REFERENCE,
     Agent,
     InfraFailure,
     TrialRecord,
@@ -76,8 +79,6 @@ from commerce_evaluation.suite.trial import (
 )
 from commerce_evaluation.suite.users import ScriptedUser, SimulatedUser, User
 
-# The record's agent when no model is under test.
-REFERENCE = "reference"
 STACK = "stack"
 LANES = {"presente": "b0", "delegado": "hnp"}
 
@@ -164,8 +165,8 @@ class LiveExecutor:
             return self._unobserved(case, governance, trial, seed, failure)
         self._trials += 1
         name = f"t{self._trials}"
-        folder = f"{_slug(case.id)}-{governance}-{trial}-{self.session}-{name}"
-        root = self.settings.run_dir / "trials" / folder
+        folder = trial_folder(case.id, governance, trial, self.session, name)
+        root = self.settings.run_dir / TRIALS_DIR / folder
         root.mkdir(parents=True)
         record: TrialRecord | None = None
         try:
@@ -285,6 +286,7 @@ class LiveExecutor:
                 played.api_5xx, upstream, spent.provider_5xx, played.unfinished, model_failure
             ),
             model_failure=model_failure,
+            injections=delivery.observed(case, played.agent.database),
         )
 
     def _charge(self, database: Path) -> None:
@@ -309,7 +311,3 @@ class LiveExecutor:
 
 def _effort(value: str) -> Effort | None:
     return next((effort for effort in get_args(Effort) if effort == value), None)
-
-
-def _slug(case_id: str) -> str:
-    return re.sub(r"[^a-z0-9-]+", "-", case_id.lower()).strip("-")
