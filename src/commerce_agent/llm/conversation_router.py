@@ -2,7 +2,7 @@ import json
 from typing import Annotated, Literal, Protocol, cast
 
 from anthropic import transform_schema
-from anthropic.types import MessageParam, ToolChoiceParam, ToolParam
+from anthropic.types import Message, MessageParam, ToolParam, ToolUseBlock
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -19,7 +19,7 @@ from commerce_agent.config import DEFAULT_MODEL, ModelEffort
 from commerce_agent.domain import HardConstraints, PurchaseIntent, RankedCandidate, SoftPreferences
 from commerce_agent.domain.conditional import ConditionalIntent
 from commerce_agent.llm.catalog_tool import CatalogLookupArgs, make_catalog_lookup
-from commerce_agent.llm.claude import ClaudeClient, Reply, content_params
+from commerce_agent.llm.claude import ClaudeClient, content_params
 from commerce_agent.llm.model_failures import IntentInterpretationError
 from commerce_agent.llm.model_requests import ModelRequestSink
 from commerce_agent.llm.prices import format_minor_amount
@@ -392,6 +392,18 @@ class ConversationRouter(Protocol):
     ) -> CatalogRecovery: ...
 
 
+def _emit_summaries(message: Message, *, after: bool) -> bool:
+    """Emit the summaries of an answer's thinking blocks, a blank line between two of them, and
+    before the first when `after` says an earlier answer of the same decision already emitted
+    some. Returns whether the decision has emitted any by now."""
+    summaries = [
+        block.thinking for block in message.content if block.type == "thinking" and block.thinking
+    ]
+    for index, summary in enumerate(summaries):
+        emit_reasoning(f"\n\n{summary}" if index or after else summary)
+    return after or bool(summaries)
+
+
 class ClaudeConversationRouter:
     def __init__(
         self,
@@ -427,13 +439,7 @@ class ClaudeConversationRouter:
             list[MessageParam],
             [message.model_dump(mode="json") for message in messages[first_user:]],
         )
-        parsed = self._parse(
-            instructions=self._instructions,
-            model_input=model_input,
-            text_format=CommerceDecision,
-            failure="The conversation model request failed",
-            catalog_tool=True,
-        )
+        parsed = self._decide_with_catalog(model_input)
         if parsed is None:
             raise IntentInterpretationError(
                 "The conversation model returned no decision", failure_kind="invalid_output"
@@ -539,46 +545,70 @@ class ClaudeConversationRouter:
             )
         return parsed
 
-    def _parse[ParsedT: BaseModel](
-        self,
-        *,
-        instructions: str,
-        model_input: str | list[MessageParam],
-        text_format: type[ParsedT],
-        failure: str,
-        catalog_tool: bool = False,
-    ) -> ParsedT | None:
-        """Run a structured-output request, with at most one read-only catalog tool call.
+    def _decide_with_catalog(self, conversation: list[MessageParam]) -> CommerceDecision | None:
+        """The router's decision, after at most one read-only catalog lookup, in two requests.
 
-        Reasoning summaries are requested only when enabled and a caller listens for them, so
-        ``/conversation/turn`` keeps sending the plain structured-output request.
+        The API rejects the decision schema next to a tool the model may call (llm/claude.py), so
+        the first request offers `lookup_catalog` without a schema and the decision always comes
+        from the second, which keeps the tools under `tool_choice` none. With a lookup, the second
+        request carries the call and its result; without one, the first answer (its text and its
+        thinking) is discarded and the same conversation is asked again. Both requests send the
+        same tools and instructions, so the second reads the prefix from the cache.
         """
-        tools: list[ToolParam] | None = None
-        if catalog_tool:
-            args_schema = self._catalog_tool.args_schema
-            if not isinstance(args_schema, type) or not issubclass(args_schema, BaseModel):
-                # The agent's own tool, checked before any request: no model failure to name.
-                raise IntentInterpretationError("Catalog tool schema is invalid")
-            tools = [
-                {
-                    "name": self._catalog_tool.name,
-                    "description": self._catalog_tool.description,
-                    "input_schema": transform_schema(args_schema),
-                    "strict": True,
-                }
-            ]
-        reply = self._request_model(
-            instructions=instructions,
-            model_input=model_input,
-            text_format=text_format,
-            failure=failure,
+        failure = "The conversation model request failed"
+        tools = self._catalog_tools()
+        summarize = self._summarize()
+        offered = self._claude.offer_tools(
+            instructions=self._instructions,
+            model_input=conversation,
             tools=tools,
-            tool_choice={"type": "auto", "disable_parallel_tool_use": True} if tools else None,
+            failure=failure,
+            catalog_vocabulary=self._vocabulary,
+            summarize_thinking=summarize,
         )
-        calls = [block for block in reply.message.content if block.type == "tool_use"]
-        if not calls:
-            return reply.parsed
-        if len(calls) != 1 or not isinstance(model_input, list):
+        calls = [block for block in offered.content if block.type == "tool_use"]
+        summarized = False
+        if calls:
+            # The thinking that led to the lookup belongs to the decision; that of a discarded
+            # answer does not.
+            summarized = summarize and _emit_summaries(offered, after=False)
+            conversation = self._with_lookup(conversation, offered, calls)
+        final = self._claude.parse(
+            instructions=self._instructions,
+            model_input=conversation,
+            output=CommerceDecision,
+            failure=failure,
+            catalog_vocabulary=self._vocabulary,
+            tools=tools,
+            summarize_thinking=summarize,
+        )
+        if summarize:
+            _emit_summaries(final.message, after=summarized)
+        if any(block.type == "tool_use" for block in final.message.content):
+            raise IntentInterpretationError(
+                "The catalog model exceeded the tool limit", failure_kind="invalid_output"
+            )
+        return final.parsed
+
+    def _catalog_tools(self) -> list[ToolParam]:
+        args_schema = self._catalog_tool.args_schema
+        if not isinstance(args_schema, type) or not issubclass(args_schema, BaseModel):
+            # The agent's own tool, checked before any request: no model failure to name.
+            raise IntentInterpretationError("Catalog tool schema is invalid")
+        return [
+            {
+                "name": self._catalog_tool.name,
+                "description": self._catalog_tool.description,
+                "input_schema": transform_schema(args_schema),
+                "strict": True,
+            }
+        ]
+
+    def _with_lookup(
+        self, conversation: list[MessageParam], answer: Message, calls: list[ToolUseBlock]
+    ) -> list[MessageParam]:
+        """The conversation, the model's whole answer with its one call, and the lookup's result."""
+        if len(calls) != 1:
             raise IntentInterpretationError(
                 "The catalog model returned invalid tool calls", failure_kind="invalid_output"
             )
@@ -595,61 +625,43 @@ class ClaudeConversationRouter:
                 "The catalog model returned invalid tool arguments", failure_kind="invalid_output"
             ) from error
         result = {"type": "tool_result", "tool_use_id": call.id, "content": output}
-        followup = cast(
+        return cast(
             list[MessageParam],
             [
-                *model_input,
+                *conversation,
                 # The whole answer goes back, its thinking blocks unchanged.
-                {"role": "assistant", "content": content_params(reply.message)},
+                {"role": "assistant", "content": content_params(answer)},
                 {"role": "user", "content": [result]},
             ],
         )
-        final = self._request_model(
-            instructions=instructions,
-            model_input=followup,
-            text_format=text_format,
-            failure=failure,
-            tools=tools,
-            tool_choice={"type": "none"},
-        )
-        if any(block.type == "tool_use" for block in final.message.content):
-            raise IntentInterpretationError(
-                "The catalog model exceeded the tool limit", failure_kind="invalid_output"
-            )
-        return final.parsed
 
-    def _request_model[ParsedT: BaseModel](
+    def _parse[ParsedT: BaseModel](
         self,
         *,
         instructions: str,
-        model_input: str | list[MessageParam],
+        model_input: str,
         text_format: type[ParsedT],
         failure: str,
-        tools: list[ToolParam] | None = None,
-        tool_choice: ToolChoiceParam | None = None,
-    ) -> Reply[ParsedT]:
-        summarize = self._reasoning_summary and reasoning_requested()
+    ) -> ParsedT | None:
+        """One structured-output request, without tools: the candidate choice or the recovery.
+
+        Reasoning summaries are requested only when enabled and a caller listens for them, so
+        ``/conversation/turn`` keeps sending the plain structured-output request.
+        """
+        summarize = self._summarize()
         reply = self._claude.parse(
             instructions=instructions,
             model_input=model_input,
             output=text_format,
             failure=failure,
-            # Only the router's own instructions carry the feed's vocabulary.
-            catalog_vocabulary=self._vocabulary if instructions is self._instructions else None,
-            tools=tools,
-            tool_choice=tool_choice,
             summarize_thinking=summarize,
         )
         if summarize:
-            # The summaries arrive with the answer, one per thinking block.
-            summaries = [
-                block.thinking
-                for block in reply.message.content
-                if block.type == "thinking" and block.thinking
-            ]
-            for index, summary in enumerate(summaries):
-                emit_reasoning(f"\n\n{summary}" if index else summary)
-        return reply
+            _emit_summaries(reply.message, after=False)
+        return reply.parsed
+
+    def _summarize(self) -> bool:
+        return self._reasoning_summary and reasoning_requested()
 
     def close(self) -> None:
         self._claude.close()

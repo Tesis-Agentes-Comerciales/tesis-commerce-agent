@@ -12,20 +12,28 @@ the response model, records it and turns any SDK or validation error into an
   or []. `messages.parse` builds its schema from the model, optional fields and all, so the
   clients send theirs in `output_config.format` with `messages.create` (the SDK's way for a schema
   of one's own) and validate the answer against the model themselves, as `parse` would.
+- **A schema never goes with a tool the model may call.** The API compiles the output schema and
+  the tools the model may call into one grammar, and it rejects the router's decision schema next
+  to `lookup_catalog` with `tool_choice` auto (400 `invalid_request_error`, "The compiled grammar
+  is too large"; seen on Haiku 5.5 on 13-nov-2026, with or without `strict`). So `offer_tools`
+  lets the model call a tool and asks for no schema, and `parse` sends any tools with
+  `tool_choice` none: the model sees them, and the prefix stays the one `offer_tools` sent, but it
+  cannot call them. The router makes the two requests of a turn this way (conversation_router.py).
 - **Cache.** The instructions go in `system` with a cache breakpoint, so the stable prefix (the
-  tools and the instructions) is read from the cache on the next request that repeats it. Below
-  the model's minimum (512 tokens on Haiku 5.5 and Sonnet 5.5) the API skips it silently, at no
-  cost.
+  tools and the instructions) is read from the cache on the next request that repeats it; a
+  different `tool_choice` leaves that prefix cached. Below the model's minimum (512 tokens on
+  Haiku 5.5 and Sonnet 5.5) the API skips it silently, at no cost.
 - **Thinking.** Haiku 5.5 and Sonnet 5.5 think adaptively by default and return the thinking empty
   unless `display: "summarized"` is asked for, which only the router does, for its summaries.
 """
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from anthropic import Anthropic, AnthropicError, transform_schema
-from anthropic.types import Message, MessageParam, ToolChoiceParam, ToolParam
+from anthropic.types import Message, MessageParam, OutputConfigParam, ToolChoiceParam, ToolParam
 from pydantic import BaseModel, SecretStr, ValidationError
 
 from commerce_agent.config import ModelEffort
@@ -95,13 +103,73 @@ class ClaudeClient:
         failure: str,
         catalog_vocabulary: str | None = None,
         tools: list[ToolParam] | None = None,
-        tool_choice: ToolChoiceParam | None = None,
         summarize_thinking: bool = False,
     ) -> Reply[ParsedT]:
         """One structured request. A text `model_input` is the JSON payload of one user message.
 
-        The ledger keeps `model_input` as given: the conversation, or the payload text.
+        `tools` go with `tool_choice` none: the model sees them but cannot call them. The ledger
+        keeps `model_input` as given: the conversation, or the payload text.
         """
+
+        def validate(message: Message) -> ParsedT | None:
+            # A tool call is the answer: any text before it is not the structured output.
+            if any(block.type == "tool_use" for block in message.content):
+                return None
+            texts = [block.text for block in message.content if block.type == "text"]
+            # A cut or refused answer fails here as one outside the schema.
+            return output.model_validate_json(texts[0]) if texts else None
+
+        message, parsed = self._send(
+            instructions=instructions,
+            model_input=model_input,
+            failure=failure,
+            catalog_vocabulary=catalog_vocabulary,
+            tools=tools,
+            tool_choice={"type": "none"} if tools else None,
+            output=output,
+            validate=validate,
+            summarize_thinking=summarize_thinking,
+        )
+        return Reply(message, parsed)
+
+    def offer_tools(
+        self,
+        *,
+        instructions: str,
+        model_input: list[MessageParam],
+        tools: list[ToolParam],
+        failure: str,
+        catalog_vocabulary: str | None = None,
+        summarize_thinking: bool = False,
+    ) -> Message:
+        """One request in which the model may call one of `tools`, once, and that asks for no
+        output schema: its answer is a tool call or text that no schema constrains."""
+        message, _ = self._send(
+            instructions=instructions,
+            model_input=model_input,
+            failure=failure,
+            catalog_vocabulary=catalog_vocabulary,
+            tools=tools,
+            tool_choice={"type": "auto", "disable_parallel_tool_use": True},
+            output=None,
+            validate=lambda message: None,
+            summarize_thinking=summarize_thinking,
+        )
+        return message
+
+    def _send[ParsedT: BaseModel](
+        self,
+        *,
+        instructions: str,
+        model_input: str | list[MessageParam],
+        failure: str,
+        catalog_vocabulary: str | None,
+        tools: list[ToolParam] | None,
+        tool_choice: ToolChoiceParam | None,
+        output: type[ParsedT] | None,
+        validate: Callable[[Message], ParsedT | None],
+        summarize_thinking: bool,
+    ) -> tuple[Message, ParsedT | None]:
         messages: list[MessageParam] = (
             [{"role": "user", "content": model_input}]
             if isinstance(model_input, str)
@@ -114,6 +182,9 @@ class ClaudeClient:
             options["tool_choice"] = tool_choice
         if summarize_thinking:
             options["thinking"] = {"type": "adaptive", "display": "summarized"}
+        output_config: OutputConfigParam = {"effort": self.effort}
+        if output is not None:
+            output_config["format"] = {"type": "json_schema", "schema": strict_schema(output)}
         try:
             with self._recorder.request(
                 instructions=instructions,
@@ -132,25 +203,17 @@ class ClaudeClient:
                         }
                     ],
                     messages=messages,
-                    output_config={
-                        "effort": self.effort,
-                        "format": {"type": "json_schema", "schema": strict_schema(output)},
-                    },
+                    output_config=output_config,
                     **options,
                 )
                 pending.response = message
-                parsed = None
-                # A tool call is the answer: any text before it is not the structured output.
-                if not any(block.type == "tool_use" for block in message.content):
-                    texts = [block.text for block in message.content if block.type == "text"]
-                    # A cut or refused answer fails here as one outside the schema.
-                    parsed = output.model_validate_json(texts[0]) if texts else None
+                parsed = validate(message)
                 pending.parsed = parsed
         except (AnthropicError, ValidationError) as error:
             raise IntentInterpretationError(
                 failure, failure_kind=classify_model_failure(error).kind
             ) from error
-        return Reply(message, parsed)
+        return message, parsed
 
     def close(self) -> None:
         self._client.close()

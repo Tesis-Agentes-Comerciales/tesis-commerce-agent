@@ -35,7 +35,7 @@ from tests.assistant_support import (
 from tests.delegation.test_hnp_runtime import consented, runtime
 from tests.support.hnp_dispatch import HnpMerchant, Psp
 from tests.support.hnp_executor import Bench
-from tests.support.model_server import ModelServer, shortlisted_choice, structured
+from tests.support.model_server import ModelServer, routed, shortlisted_choice, structured
 from tests.test_delegation_api import MERCHANT, hnp_settings
 
 API_KEY = "sk-test-runtime-0123456789abcdef"
@@ -75,14 +75,14 @@ def test_a_human_present_turn_records_its_requests_under_the_turn_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     database = tmp_path / "agent.db"
-    routed = CommerceDecision(
+    buys = CommerceDecision(
         action="purchase",
         assistant_message="Buscaré audífonos negros dentro de tu presupuesto.",
         purchase_request=PURCHASE_REQUEST,
         intent=purchase_intent(2_000_000_00, black=True),
     )
     greeting = CommerceDecision(action="respond", assistant_message=GREETING_REPLY)
-    server = ModelServer(structured(routed), structured(chosen), structured(greeting))
+    server = ModelServer(*routed(buys), structured(chosen), *routed(greeting))
     server.install(monkeypatch)
     app = create_app(
         settings=settings(database).model_copy(
@@ -102,11 +102,15 @@ def test_a_human_present_turn_records_its_requests_under_the_turn_run(
         assert turn(client, "turn-greets", "hola")["action"] == "respond"
 
     assert run_id == turn_run_id("turn-buys")
+    greets = turn_run_id("turn-greets")
+    # The router's first request of each turn calls no tool and asks for no schema.
     assert requests(database) == [
-        (run_id, "model.route", 1, "ok", 0, 1825, routed.assistant_message),
+        (run_id, "model.route", 1, "ok", 0, 1825, None),
+        (run_id, "model.route", 2, "ok", 0, 1825, buys.assistant_message),
         (run_id, "model.choose_candidate", 1, "ok", 0, 1825, PURCHASE_REPLY),
         # A turn without a purchase still has the run id its purchase would have had.
-        (turn_run_id("turn-greets"), "model.route", 1, "ok", 0, 1825, GREETING_REPLY),
+        (greets, "model.route", 1, "ok", 0, 1825, None),
+        (greets, "model.route", 2, "ok", 0, 1825, GREETING_REPLY),
     ]
 
 

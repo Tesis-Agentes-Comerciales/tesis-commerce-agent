@@ -30,7 +30,7 @@ from tests.assistant_support import (
     purchase_intent,
     settings,
 )
-from tests.support.model_server import Answer, ModelServer, disconnect, failure, structured
+from tests.support.model_server import Answer, ModelServer, disconnect, failure, routed
 
 API_KEY = "sk-test-surfaces-0123456789abcdef"
 CONVERSATION_FAILED = "The conversation model request failed"
@@ -186,7 +186,7 @@ def test_a_selection_that_cannot_reach_the_model_says_so_in_its_step(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The interpretation answers and the connection drops in `choose_candidate`."""
-    server = ModelServer(structured(ROUTED), disconnect(), disconnect())
+    server = ModelServer(*routed(ROUTED), disconnect(), disconnect())
     server.install(monkeypatch)
     merchant = Merchant()
 
@@ -201,7 +201,8 @@ def test_a_selection_that_cannot_reach_the_model_says_so_in_its_step(
         "error": {"code": "intent_model_error", "message": UNREACHABLE_COPY}
     }
     assert state["purchase"] is None
-    assert len(server.requests) == 3
+    # The router's two requests, then the choice and the SDK's retry of it.
+    assert len(server.requests) == 4
     assert checkouts(merchant) == 0
 
 

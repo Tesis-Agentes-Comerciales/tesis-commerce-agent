@@ -50,7 +50,7 @@ from tests.governance.test_runtime_dispatch import CREATE, LIVE_OFFER, OFFER_REA
 from tests.governance.test_shadow_integration import FIXTURE
 from tests.governance.test_stale_terms_pending import ap2
 from tests.support.ap2_purchase import BUYER, Ap2PaymentProvider, CompletingMerchant
-from tests.support.model_server import Answer, Held, ModelServer, held, structured
+from tests.support.model_server import Answer, Held, ModelServer, held, routed, structured
 
 MODEL_KEY = "sk-test-ux08-ux09-0123456789abcdef"
 REQUEST_A = "Quiero los audífonos negros"
@@ -69,9 +69,10 @@ def intent(color: str) -> PurchaseIntent:
     )
 
 
-def route(request: str, color: str) -> Answer:
-    """`route_a` / `route_b` (§4.1): the router's purchase decision for one variant."""
-    return structured(
+def route(request: str, color: str) -> tuple[Answer, Answer]:
+    """`route_a` / `route_b` (§4.1): the router's purchase decision for one variant, after the
+    turn's first request, whose model calls no tool (llm/conversation_router.py)."""
+    return routed(
         CommerceDecision(
             action="purchase",
             assistant_message=f"Busco los audífonos {color}.",
@@ -96,7 +97,7 @@ def choose(variant_id: str) -> Answer:
     return structured(answer)
 
 
-ROUTE_RESPOND = structured(CommerceDecision(action="respond", assistant_message=RESPOND))
+ROUTE_RESPOND = routed(CommerceDecision(action="respond", assistant_message=RESPOND))
 
 
 # The two conditions -----------------------------------------------------------------------------
@@ -245,9 +246,9 @@ def scripted(monkeypatch: pytest.MonkeyPatch, *answers: Answer) -> ModelServer:
 
 
 def a_and_b(condition: str) -> list[Answer]:
-    """`route_a`, `choose_a`, `route_b`, `choose_b`."""
+    """`route_a`, `choose_a`, `route_b`, `choose_b`, each route after its turn's first request."""
     (variant_a, variant_b), (a, b) = VARIANTS[condition], COLORS[condition]
-    return [route(REQUEST_A, a), choose(variant_a), route(REQUEST_B, b), choose(variant_b)]
+    return [*route(REQUEST_A, a), choose(variant_a), *route(REQUEST_B, b), choose(variant_b)]
 
 
 def rows(database: Path, query: str) -> list[tuple[Any, ...]]:
@@ -307,7 +308,7 @@ def a_to_b(shop: Shop, model: ModelServer, condition: str) -> Switch:
     terms_a = steps(first)["request_approval"]["result"]["terms"]
     assert first["purchase"]["stage"] == "awaiting_confirmation"
     assert [line["item_id"] for line in terms_a["lines"]] == [variant_a]
-    assert (len(model.requests), shop.posts()) == (2, 1)
+    assert (len(model.requests), shop.posts()) == (3, 1)
 
     # Turn 2: the guard answers before the model, on both surfaces; route_b stays queued.
     _, guarded = post_assistant(
@@ -327,7 +328,7 @@ def a_to_b(shop: Shop, model: ModelServer, condition: str) -> Switch:
         "clarify",
         PENDING_PURCHASE_MESSAGE,
     )
-    assert (len(model.requests), shop.posts()) == (2, 1)
+    assert (len(model.requests), shop.posts()) == (3, 1)
     pending = shop.client.get("/me/pending-purchase").json()
     assert pending["purchase"]["run_id"] == run_a
     assert pending["approval_terms"]["fingerprint"] == terms_a["fingerprint"]
@@ -346,7 +347,7 @@ def a_to_b(shop: Shop, model: ModelServer, condition: str) -> Switch:
     assert [line["item_id"] for line in terms_b["lines"]] == [variant_b]
     assert run_b != run_a and terms_b["checkout_id"] != terms_a["checkout_id"]
     assert terms_b["fingerprint"] != terms_a["fingerprint"]
-    assert (len(model.requests), shop.posts()) == (4, 2)
+    assert (len(model.requests), shop.posts()) == (6, 2)
     if condition == "B2-HP":
         assert terms_a["checkout_jwt"] and terms_b["checkout_jwt"]
     return Switch(run_a, run_b, terms_a, terms_b)
@@ -451,13 +452,17 @@ def stop_while(shop: Shop, answer: Held, turn_id: str) -> None:
 def test_ux09_hp_stopping_while_the_model_answers_prepares_nothing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, condition: str, held_at: str
 ) -> None:
-    """UX09-HP-a holds `route_a`; UX09-HP-b answers `route_a` and holds `choose_a`, with the
-    catalog already read. The next turn is answered by the model (`respond`), not the guard."""
-    routed, chosen = route(REQUEST_A, COLORS[condition][0]), choose(VARIANTS[condition][0])
-    answer = held(routed if held_at.startswith("a") else chosen)
+    """UX09-HP-a holds `route_a`, the turn's second request; UX09-HP-b answers `route_a` and
+    holds `choose_a`, with the catalog already read. The next turn is answered by the model
+    (`respond`, two requests), not the guard."""
+    (first, decision), chosen = (
+        route(REQUEST_A, COLORS[condition][0]),
+        choose(VARIANTS[condition][0]),
+    )
+    answer = held(decision if held_at.startswith("a") else chosen)
     # A stop while interpreting never reaches the choice: `choose_a` is not in -a's script.
-    script = [answer] if held_at.startswith("a") else [routed, answer]
-    model = scripted(monkeypatch, *script, ROUTE_RESPOND)
+    script = [first, answer] if held_at.startswith("a") else [first, decision, answer]
+    model = scripted(monkeypatch, *script, *ROUTE_RESPOND)
     with shop(tmp_path, condition) as current:
         stop_while(current, answer, "t-stop")
 
@@ -467,12 +472,12 @@ def test_ux09_hp_stopping_while_the_model_answers_prepares_nothing(
             current.database, "SELECT response FROM conversation_turns WHERE turn_id LIKE '%t-stop'"
         ) == [(None,)]
         stopped_at = len(model.requests)
-        assert stopped_at == (1 if held_at.startswith("a") else 2)
+        assert stopped_at == (2 if held_at.startswith("a") else 3)
         _, after = post_assistant(
             current.client, assistant_body([add_message("hola")], turn_id="t2")
         )
         assert texts(after) == [RESPOND]
-        assert len(model.requests) == stopped_at + 1
+        assert len(model.requests) == stopped_at + 2
         assert current.client.get("/me/pending-purchase").json() is None
     assert current.posts() == 0
     assert current.payments == []
@@ -482,7 +487,7 @@ def test_ux09_hp_stopping_while_the_model_answers_prepares_nothing(
 def test_ux09_hp_control_the_same_script_without_stopping_prepares_the_checkout(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, condition: str
 ) -> None:
-    scripted(monkeypatch, route(REQUEST_A, COLORS[condition][0]), choose(VARIANTS[condition][0]))
+    scripted(monkeypatch, *route(REQUEST_A, COLORS[condition][0]), choose(VARIANTS[condition][0]))
     with shop(tmp_path, condition) as current:
         _, state = post_assistant(
             current.client, assistant_body([add_message(REQUEST_A)], turn_id="t")
