@@ -385,6 +385,9 @@ flowchart LR
   prueba del PR 5.
 - **Tamaño.** Ningún módulo nuevo pasa de unas 300 líneas, y no se repiten clientes HTTP ni
   guardas de costo.
+- **Salida estructurada en la evaluación.** El simulador y el juez usan `messages.create` con
+  `output_config.format` y validan la respuesta con Pydantic, no `messages.parse`: `parse` lanza
+  ante una respuesta fuera del esquema y se pierde su uso, y Batch no tiene `parse`.
 
 ## 6. El agente sobre Claude
 

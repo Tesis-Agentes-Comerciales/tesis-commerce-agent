@@ -1,8 +1,10 @@
-"""Structured-output transports: the port, a spending cap and an offline fake.
+"""Structured-output transports: the port and an offline fake.
 
 Contract shared by every transport:
-- one ``parse`` call is one request and one observation: no retries, no fallback model;
+- one ``parse`` call is one observation: no fallback model, and no retries except of a request
+  the provider turned away unprocessed (``AnthropicTransport``: 429 and 529, at most twice);
 - provider and network failures raise ``TransportError`` (infrastructure, never a verdict);
+- a call the run cannot pay for raises ``FundsExhausted``, which no retry can fix;
 - an exceeded request timeout raises ``TransportTimeout`` (a ``TimeoutError``);
 - answers that are refused, truncated or off-schema come back as ``failure`` with whatever
   usage the provider reported, so their cost is still counted.
@@ -11,24 +13,34 @@ Contract shared by every transport:
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from decimal import Decimal
 from threading import Lock
 from time import sleep
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ValidationError
 
-from .cost import TokenPrices, TokenUsage, estimated_tokens
+from .cost import TokenUsage, estimated_tokens
 
 FailureKind = Literal["refusal", "incomplete", "schema_invalid"]
-ReasoningEffort = Literal["minimal", "low", "medium", "high"]
-TransportId = Literal["fake"]
+Effort = Literal["low", "medium", "high", "xhigh", "max"]
+TransportId = Literal["fake", "anthropic"]
 
 
 class TransportError(RuntimeError):
     """Provider, network or budget failure: infrastructure, never an observation of the model.
 
-    Carries the error class name, never response bodies.
+    Carries the error class name, never response bodies, and how many requests were sent.
+    """
+
+    def __init__(self, name: str, *, attempts: int = 1):
+        super().__init__(name)
+        self.attempts = attempts
+
+
+class FundsExhausted(TransportError):
+    """The run cannot pay for the call: its ``--max-usd`` cap or the account's credit balance.
+
+    Retrying never helps, so the runner stops instead of repeating the trial.
     """
 
 
@@ -39,10 +51,11 @@ class TransportTimeout(TimeoutError):
 @dataclass(frozen=True)
 class LlmRequest:
     model: str
+    # The system prompt, and the single user message after it.
     instructions: str
     input_text: str
-    temperature: float | None
-    reasoning_effort: ReasoningEffort | None
+    # None keeps the model's default effort.
+    effort: Effort | None
     max_output_tokens: int
     timeout_seconds: float
 
@@ -53,50 +66,14 @@ class LlmResult[T: BaseModel]:
     failure: FailureKind | None
     usage: TokenUsage | None
     response_model: str | None
+    # Requests sent for this one observation: more than one only after a 429 or 529.
+    attempts: int = 1
 
 
 class StructuredLLM(Protocol):
     transport_id: TransportId
 
     def parse[T: BaseModel](self, request: LlmRequest, schema: type[T]) -> LlmResult[T]: ...
-
-
-class BudgetedTransport:
-    """Refuses further provider calls once spend could pass the cap (fail closed).
-
-    Each call is admitted only if the reported spend so far plus that call's worst case
-    (estimated input, ``max_output_tokens`` output) stays within ``max_usd``. A refused call
-    is an infrastructure error, so it never counts against the model.
-    """
-
-    def __init__(self, inner: StructuredLLM, *, prices: TokenPrices, max_usd: Decimal):
-        self.transport_id: TransportId = inner.transport_id
-        self._inner = inner
-        self._prices = prices
-        self._max_usd = max_usd
-        self._lock = Lock()
-        self.spent_usd = Decimal(0)
-
-    def parse[T: BaseModel](self, request: LlmRequest, schema: type[T]) -> LlmResult[T]:
-        worst = self._prices.cost(
-            TokenUsage(
-                input_tokens=estimated_tokens(request.instructions + request.input_text),
-                output_tokens=request.max_output_tokens,
-                cached_input_tokens=0,
-                reasoning_tokens=0,
-            )
-        )
-        with self._lock:
-            if self.spent_usd + worst > self._max_usd:
-                raise TransportError("BudgetExhausted")
-            # Reserve the worst case until the provider reports actual usage.
-            self.spent_usd += worst
-        # A failed or timed-out call keeps its worst case reserved: it may have been billed.
-        result = self._inner.parse(request, schema)
-        if result.usage is not None:
-            with self._lock:
-                self.spent_usd += self._prices.cost(result.usage) - worst
-        return result
 
 
 @dataclass(frozen=True)
@@ -139,7 +116,8 @@ class FakeTransport:
         usage = TokenUsage(
             input_tokens=estimated_tokens(request.instructions + request.input_text),
             output_tokens=estimated_tokens(text),
-            cached_input_tokens=0,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
             reasoning_tokens=0,
         )
         if reply.failure is not None or reply.output is None:
