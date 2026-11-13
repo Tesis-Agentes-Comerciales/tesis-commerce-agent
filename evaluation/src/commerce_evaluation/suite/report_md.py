@@ -17,6 +17,7 @@ STATUSES = {
     "complete": "completa",
     "budget_exhausted": "detenida al llegar al tope de gasto",
     "funds_exhausted": "detenida porque una llamada no encontró fondos",
+    "misconfigured": "detenida porque la configuración del modelo del agente falla",
     "interrupted": "interrumpida",
 }
 GRADERS: dict[Grader, str] = {
@@ -26,7 +27,11 @@ GRADERS: dict[Grader, str] = {
     "claims": "Lo que dice",
 }
 ROLES = {"agent": "Agente", "simulator": "Usuario simulado", "judge": "Juez"}
-CAUSES = {"simulator": "usuario simulado", "stack_not_started": "el stack no arrancó"}
+CAUSES = {
+    "simulator": "usuario simulado",
+    "stack_not_started": "el stack no arrancó",
+    "model_setup": "configuración del modelo",
+}
 AGAINST = {"agent": "el agente", "infrastructure": "la infraestructura"}
 COVERAGE: dict[Coverage, str] = {
     "covered": "cubierta",
@@ -258,7 +263,9 @@ def _model_failures(report: "Report") -> str:
         "Cuenta el tipo que nombra el producto (`llm/model_failures.py`): `rejected` e "
         "`invalid_output` son del agente, y el intento se califica sin repetirse; "
         "`provider_error`, `unreachable`, `rate_limited` y `quota_exhausted` son de la "
-        "infraestructura, y `quota_exhausted` detiene la corrida. Solicitudes: las que fallaron "
+        "infraestructura. `quota_exhausted` detiene la corrida, y también un `rejected` con 401, "
+        "403 o 404, o el tercero seguido con la misma etapa y el mismo código; ese intento se "
+        "repite al retomar. Solicitudes: las que fallaron "
         "en `model_requests`, con su etapa, su error, su estado HTTP y el código del proveedor."
     )
     return "## Fallas del modelo del agente\n\n" + legend + "\n\n" + table(header, rows)

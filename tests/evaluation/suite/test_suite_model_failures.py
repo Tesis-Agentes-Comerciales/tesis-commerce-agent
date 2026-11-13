@@ -12,8 +12,9 @@ from typing import Any, Literal, get_args
 import pytest
 from pydantic import ValidationError
 
+from commerce_agent.api import error_response
 from commerce_agent.delegation.models import EventType
-from commerce_agent.llm.model_failures import ModelFailureKind
+from commerce_agent.llm.model_failures import IntentInterpretationError, ModelFailureKind
 from commerce_agent.persistence.delegation_sqlite import SqliteDelegationLedger, append_event
 from commerce_agent.persistence.model_requests_sqlite import ModelRequestRow, SqliteModelRequests
 from commerce_evaluation.suite.cases import PresentCase
@@ -102,6 +103,18 @@ def test_a_presente_5xx_counts_by_the_kind_of_its_model_failure(kind: ModelFailu
         }
     ]
     assert talk.action == "respond" and talk.transcript[-1].text == FAILED
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_the_kind_is_read_from_the_product_s_own_error_body(kind: ModelFailureKind):
+    """api.error_response builds the body: renaming `model_failure` there breaks this test."""
+    response = error_response(IntentInterpretationError(FAILED, failure_kind=kind))
+    answer = Answer(response.status_code, json.loads(bytes(response.body)))
+
+    talk = converse(Api(answer), ScriptedUser(CASE_), CASE_, {})
+
+    assert response.status_code == 502 and talk.model_failure == Seen(kind, TURN)
+    assert talk.api_5xx == ([] if against(kind) == "agent" else [TURN])
 
 
 @pytest.mark.parametrize(

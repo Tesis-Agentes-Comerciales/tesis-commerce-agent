@@ -249,7 +249,8 @@ def _retry(row: dict[str, Any]) -> dict[str, JsonValue]:
         named = {name: row[name] for name in ("case_id", "governance", "trial", "attempt")}
         return {"kind": "simulator", **named, "cause": "simulator", "detail": row["reason"]}
     record = row["record"]
-    failure = record.get("infra_failure") or {}
+    # An attempt that stopped the run for the model's setup broke nothing: its reason says why.
+    failure = record.get("infra_failure") or {"cause": "model_setup", "detail": row.get("reason")}
     return {
         "kind": "infra",
         "case_id": record["case_id"],

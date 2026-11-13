@@ -27,14 +27,17 @@ REFUSED_REQUEST = {
 }
 
 
-def model_failure(kind: str, source: str = "POST /conversation/turn 502") -> dict[str, Any]:
-    """A record's `model_failure`, counted as its kind says (trial.AGENT_FAILURES)."""
+def model_failure(
+    kind: str, source: str = "POST /conversation/turn 502", **request: Any
+) -> dict[str, Any]:
+    """A record's `model_failure`, counted as its kind says (trial.AGENT_FAILURES), whose one
+    failed request is the smoke run's with `request` on top."""
     against = "agent" if kind in AGENT_FAILURES else "infrastructure"
     return {
         "kind": kind,
         "counts_against": against,
         "source": source,
-        "requests": [REFUSED_REQUEST],
+        "requests": [REFUSED_REQUEST | request],
     }
 
 

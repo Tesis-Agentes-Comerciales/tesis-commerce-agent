@@ -16,7 +16,7 @@ from math import comb, sqrt
 from typing import NamedTuple
 
 from commerce_evaluation.suite.cases import Case, CaseId, Governance, Suite, SuiteModel
-from commerce_evaluation.suite.events import INJECTS_5XX
+from commerce_evaluation.suite.events import INJECTS_5XX, MODEL_FAULTS
 from commerce_evaluation.suite.graders.effects import attack_reached
 from commerce_evaluation.suite.graders.grade import Verdict
 from commerce_evaluation.suite.trial import TrialRecord
@@ -72,11 +72,17 @@ def is_infra_failure(case: Case, record: TrialRecord) -> bool:
 
     A case that injects a network, PSP or model fault (`INJECTS_5XX`) may make the agent's API
     answer 5xx on purpose, so there a 5xx is the agent's to handle: only a stack that never
-    started is excluded. Other events make the product answer 409 or 404, never 5xx."""
+    started is excluded. Other events make the product answer 409 or 404, never 5xx. A failure
+    of the agent's model of an infrastructure kind (`record.model_failure`) is excused only by a
+    model fault the case injects (`MODEL_FAULTS`): a network fault does not make the provider
+    answer 529, 429 or a spent balance."""
     failure = record.infra_failure
     if failure is None:
         return False
-    injected = any(event.kind in INJECTS_5XX for event in case.environment.events)
+    model = record.model_failure
+    by_model = model is not None and model.counts_against == "infrastructure"
+    excused = MODEL_FAULTS if by_model else INJECTS_5XX
+    injected = any(event.kind in excused for event in case.environment.events)
     return failure.cause == "stack_not_started" or not injected
 
 

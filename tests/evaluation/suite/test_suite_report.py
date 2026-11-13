@@ -135,6 +135,21 @@ def test_the_report_files_are_written_in_spanish(capability: Path) -> None:
     assert "## Fallas del modelo del agente" not in text
 
 
+def test_a_run_the_model_s_setup_stopped_says_why(tmp_path: Path) -> None:
+    refused = make_case("clave-revocada")
+    revoked = model_failure("rejected", http_status=401, provider_error_code="authentication_error")
+    done = run(tmp_path, [refused], {(refused.id, "B2", 1): [{"model_failure": revoked}]})
+
+    built = report.write(done.settings.run_dir)
+
+    [retry] = built.retries
+    reason = "la configuración del modelo falla: 401 authentication_error en model.route"
+    assert (retry["cause"], retry["detail"]) == ("model_setup", reason)
+    text = (done.settings.run_dir / "report.md").read_text()
+    assert "Estado: detenida porque la configuración del modelo del agente falla." in text
+    assert f"| clave-revocada/presente | B2 | 1 | 1 | configuración del modelo | {reason} |" in text
+
+
 def test_each_model_failure_is_reported_with_its_decision_and_evidence(tmp_path: Path) -> None:
     refused, limited = make_case("el-proveedor-rechaza"), make_case("limite-de-solicitudes")
     done = run(
