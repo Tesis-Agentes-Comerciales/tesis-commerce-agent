@@ -473,7 +473,7 @@ def test_health_reports_the_governance_condition(
         response = client.get("/health")
 
     assert response.status_code == 200
-    # The exact body the evaluation runners check (governance_pilot.verify_agent_condition).
+    # The exact body the evaluation runners check (agent_condition.verify_agent_condition).
     assert response.json() == {"status": "ok", **condition}
 
 

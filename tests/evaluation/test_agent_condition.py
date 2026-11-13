@@ -1,4 +1,4 @@
-"""The runner delivers each pilot condition to the agent and verifies it before every repetition."""
+"""Each condition reaches the agent as explicit variables, and /health confirms it took."""
 
 import json
 import os
@@ -13,14 +13,13 @@ from commerce_agent.api import create_app
 from commerce_agent.config import Settings
 from commerce_agent.governance.bootstrap import build_enforce_gate, configured_d1
 from commerce_agent.governance.evaluator import verify_artifact
-from commerce_evaluation.governance_pilot import (
-    AGENT_SECRETS,
+from commerce_evaluation.agent_condition import (
     CONDITIONS,
+    ConditionError,
     ConditionMismatchError,
     D1RunKeys,
     PilotCondition,
     agent_environment,
-    agent_log_tail,
     verify_agent_condition,
 )
 from commerce_evaluation.paths import DATA
@@ -157,32 +156,16 @@ def test_agent_started_with_the_condition_passes_the_health_check(
     ],
     ids=["b0-prime-agent", "blocked-flow", "agent-without-condition"],
 )
-def test_runner_aborts_when_health_reports_another_condition(health: dict[str, str]) -> None:
+def test_a_health_check_of_another_condition_stops_the_run(health: dict[str, str]) -> None:
     with pytest.raises(ConditionMismatchError, match="condition B2 requires"):
         verify_agent_condition(B2, health)
 
 
-def test_agent_log_tail_never_shows_the_d1_keys(tmp_path: Path) -> None:
-    log = tmp_path / "agent.log"
-    key_line = f"\nloaded {KEYS.aes_hex}\n"
-    # The last 4000 characters start in the middle of the HMAC key.
-    log.write_text(KEYS.hmac_hex + "." * (4000 - 32 - len(key_line)) + key_line, "utf-8")
+def test_a_governed_condition_needs_its_d1_keys() -> None:
+    with pytest.raises(ConditionError, match="Condition B2 requires D1 run keys"):
+        agent_environment(B2, MERCHANT, None)
 
-    tail = agent_log_tail(log, agent_environment(B2, MERCHANT, KEYS))
 
-    assert KEYS.hmac_hex[-32:] not in tail
-    assert KEYS.aes_hex not in tail
-    assert "[redacted]" in tail
+def test_the_d1_keys_never_show_in_their_repr() -> None:
     assert KEYS.hmac_hex not in repr(KEYS)
-
-
-@pytest.mark.parametrize("name", AGENT_SECRETS)
-def test_agent_log_tail_hides_every_agent_secret(tmp_path: Path, name: str) -> None:
-    secret = f"secret-value-of-{name.lower()}"
-    log = tmp_path / "agent.log"
-    log.write_text(f"starting with {secret}\n", "utf-8")
-
-    tail = agent_log_tail(log, {name: secret})
-
-    assert secret not in tail
-    assert "[redacted]" in tail
+    assert KEYS.aes_hex not in repr(KEYS)

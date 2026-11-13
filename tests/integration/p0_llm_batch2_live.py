@@ -28,8 +28,8 @@ from commerce_agent.api import create_app
 from commerce_agent.config import Settings
 from commerce_agent.trace.assembler import PurchaseTraces
 from commerce_agent.trace.models import PolicyDecisionStep
+from commerce_evaluation.agent_condition import D1RunKeys
 from commerce_evaluation.demo_stack import MODES, mode_environment
-from commerce_evaluation.governance_pilot import D1RunKeys
 from commerce_evaluation.p0_llm_batch2 import (
     PreflightError,
     Slot,

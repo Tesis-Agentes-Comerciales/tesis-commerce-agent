@@ -20,8 +20,9 @@ from commerce_agent.acp.models import ACP_VERSION, CheckoutSession
 from commerce_agent.api import create_app
 from commerce_agent.config import Settings
 from commerce_agent.domain import PurchaseIntent
+from commerce_evaluation.agent_condition import D1RunKeys
+from commerce_evaluation.auth_client import AuthClient
 from commerce_evaluation.demo_stack import MODES, mode_environment
-from commerce_evaluation.governance_pilot import AuthClient, D1RunKeys
 from commerce_evaluation.p3_protocol import (
     CheckoutWitness,
     Creation,
