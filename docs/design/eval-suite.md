@@ -426,7 +426,11 @@ flowchart LR
   clientes de `src/commerce_agent/llm/` (router, elección delegada y revisor de intención),
   además de `model_requests.py`, `model_failures.py`, `config.py`, `runtime.py`,
   `delegation/bootstrap.py` y `studio.py`.
-- **Llamadas:** usan `messages.parse` para las salidas estructuradas, con esfuerzo `low`.
+- **Llamadas:** usan `messages.create` con `output_config.format` (un `json_schema` estricto) y
+  esfuerzo `low`. No usan `messages.parse` porque arma el esquema desde el modelo de Pydantic, y
+  el de `CommerceDecision` deja 28 propiedades opcionales: la API admite 24 en total por
+  solicitud. Por eso el cliente marca como requeridas todas las propiedades antes de enviarlo, y
+  un test cuenta las opcionales (0) y las uniones (menos de 16) de cada solicitud.
 - **Registro de uso:** guarda la entrada, la salida y la caché, más el `model` que devuelve cada
   respuesta.
 - **Doble de prueba:** `tests/support/model_server.py` pasa a responder con la forma de la API
