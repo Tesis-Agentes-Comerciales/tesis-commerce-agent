@@ -661,7 +661,9 @@ carpeta existe y si se puede retomar. Una línea que una caída dejó a medias e
 llamada del agente con `RunBudget.charge` en un `finally`, también cuando una reserva del
 simulador lanza `FundsExhausted` a mitad del intento: ese uso ya se pagó, y si no se registra, el
 tope deja de ser un tope. Lanza `SimulatorFailure` cuando el simulador responde fuera del esquema
-o se niega, y deja que `FundsExhausted` suba.
+o se niega, y deja que `FundsExhausted` suba. Antes de construirlo, `run` le pide los eventos del
+plan que no aplica (`LiveExecutor.unsupported_events`) y, si hay alguno, se niega sin arrancar
+nada.
 
 **El juez.** `eval-suite judge` pregunta lo que el código dejó al juez en los intentos guardados,
 en un lote. No repite lo ya respondido: una corrida juzgada a medias se retoma con el mismo

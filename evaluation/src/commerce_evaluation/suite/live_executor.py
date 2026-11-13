@@ -79,6 +79,9 @@ LANES = {"presente": "b0", "delegado": "hnp"}
 
 
 class LiveExecutor:
+    # The plan's events this executor does not apply: the CLI refuses the run before it starts.
+    unsupported_events = staticmethod(events.unsupported_events)
+
     def __init__(self, settings: RunSettings, budget: RunBudget | None):
         self.settings = settings
         self.budget = budget
@@ -145,7 +148,7 @@ class LiveExecutor:
                 self._stack = None
 
     def run(self, case: Case, governance: Governance, trial: int, seed: int) -> TrialRecord:
-        if self._exhausted:
+        if self._exhausted or (self.budget is not None and self.budget.exhausted):
             raise FundsExhausted("BudgetExhausted", attempts=0)
         if governance not in case.environment.governance:
             raise ValueError(f"{case.id} does not run under {governance}")

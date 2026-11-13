@@ -267,6 +267,25 @@ def test_without_the_live_executor_a_run_says_so(
     assert "no_such_executor" in capsys.readouterr().err
 
 
+def test_a_plan_with_events_the_executor_does_not_apply_is_refused_before_it_starts(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Executor:
+        """Refuses the model fault: neither built nor entered."""
+
+        @staticmethod
+        def unsupported_events(cases: Any) -> list[str]:
+            return [f"{case.id}: model_quota_exhausted@on_interpretation" for case in cases]
+
+        def __init__(self, *_: Any) -> None:
+            raise AssertionError("A refused plan must not build the executor")
+
+    monkeypatch.setattr(cli, "load_executor", lambda: Executor)
+
+    assert cli.main(["run", "--suite", "regression", "--run-id", "sin-eventos"]) == 2
+    assert "llm-sin-saldo/presente: model_quota_exhausted" in capsys.readouterr().err
+
+
 def test_regression_skips_the_map_when_it_is_missing(
     home: Path, factory: Factory, capsys: pytest.CaptureFixture[str]
 ) -> None:
