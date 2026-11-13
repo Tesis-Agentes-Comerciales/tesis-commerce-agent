@@ -2,9 +2,9 @@
 
 Two passes over a text: every known secret value (as given, JSON-escaped and, for multi-line
 keys, line by line), then the shapes of a secret whose value no runner holds: JWTs (the buyer's),
-bearer tokens, PEM blocks, OpenAI keys and PostgreSQL URLs. Only the secret is replaced, so an error
-message keeps what failed. It lives apart from the runners so `demo_stack` and the pilots share it
-without importing each other.
+bearer tokens, PEM blocks, model API keys (`sk-…`, Anthropic's `sk-ant-…` and OpenAI's) and
+PostgreSQL URLs. Only the secret is replaced, so an error message keeps what failed. It lives
+apart from the runners so `demo_stack` and the pilots share it without importing each other.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ MIN_SECRET_LINE = 16
 # A PEM block up to its END line or, cut short, to the end of the text.
 PEM_BLOCK = re.compile(r"-----BEGIN [A-Z0-9 ]+-----.*?(?:-----END [A-Z0-9 ]+-----|\Z)", re.DOTALL)
 JWT = re.compile(r"eyJ[\w-]+\.[\w-]+\.[\w-]*")
-OPENAI_KEY = re.compile(r"\bsk-[\w-]{20,}")
+MODEL_KEY = re.compile(r"\bsk-[\w-]{20,}")
 DATABASE_URL = re.compile(r"postgres(?:ql)?(?:\+\w+)?://\S+")
 # Only a token-like word after `Bearer`: prose such as "missing Bearer token" stays.
 BEARER = re.compile(r"(Bearer\s+)[\w.~+/=-]{16,}")
@@ -47,7 +47,7 @@ def redact(text: str, values: Iterable[str] = (), *, marker: str = REDACTED) -> 
     """The text without any of the secret values or any secret shape."""
     for form in secret_forms(values):
         text = text.replace(form, marker)
-    for pattern in (PEM_BLOCK, JWT, OPENAI_KEY, DATABASE_URL):
+    for pattern in (PEM_BLOCK, JWT, MODEL_KEY, DATABASE_URL):
         text = pattern.sub(marker, text)
     return BEARER.sub(lambda match: match.group(1) + marker, text)
 

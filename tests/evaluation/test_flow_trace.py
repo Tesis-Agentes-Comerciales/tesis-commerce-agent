@@ -44,8 +44,8 @@ def llm(settings: Settings) -> Settings:
     return settings.model_copy(
         update={
             "agent_hnp_selector": "llm",
-            "openai_api_key": SecretStr(API_KEY),
-            "openai_model": "test-model",
+            "anthropic_api_key": SecretStr(API_KEY),
+            "agent_model": "test-model",
         }
     )
 

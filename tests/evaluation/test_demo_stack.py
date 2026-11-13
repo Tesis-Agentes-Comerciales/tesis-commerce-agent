@@ -38,8 +38,8 @@ from commerce_evaluation.demo_stack import (
     OFFER_PRICE_MINOR,
     OFFER_STOCK,
     OTHER_MERCHANT,
-    PILOT_MODEL,
     S04_PRICE_MINOR,
+    SUITE_MODEL,
     DemoError,
     DemoPlan,
     HnpKeys,
@@ -61,13 +61,13 @@ from commerce_evaluation.paths import DATA, LOCAL
 SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 MERCHANT_TOKEN = "merchant-session-" + "t" * 32
-MODEL_KEY = "sk-test-" + "k" * 40
+MODEL_KEY = "sk-ant-test-" + "k" * 40
 # What a merchant step may print when the database fails: its password must never be shown.
 MERCHANT_DSN = "postgresql+psycopg://commerce:hunter2-db-password@127.0.0.1:55432/commerce"
 # Shell variables a presenter may have exported; none of them may reach a service.
 SHELL = {
     "PATH": "/usr/bin",
-    "OPENAI_API_KEY": "sk-shell-key-that-must-not-leak",
+    "ANTHROPIC_API_KEY": "sk-shell-key-that-must-not-leak",
     "AGENT_GOVERNANCE_MODE": "off",
     "MERCHANT_BEARER_TOKEN": "shell-token",
     "DATABASE_URL": "postgresql://shell",
@@ -84,7 +84,7 @@ def plan_for(mode: str, tmp_path: Path) -> DemoPlan:
         payment_repo=tmp_path / "payment",
         env_file=tmp_path / ".env",
         secrets=StackSecrets.generate(governed=mode != "b0", hnp=demo_stack.MODES[mode].hnp),
-        model={"OPENAI_API_KEY": MODEL_KEY, "OPENAI_MODEL": "gpt-5-mini"},
+        model={"ANTHROPIC_API_KEY": MODEL_KEY, "AGENT_MODEL": "claude-haiku-5-5"},
         base=base_environment(SHELL),
     )
 
@@ -279,9 +279,10 @@ def test_only_model_settings_are_read_from_the_agent_env_file(tmp_path: Path) ->
     env_file = tmp_path / ".env"
     env_file.write_text(
         "# local\n"
-        f'OPENAI_API_KEY="{MODEL_KEY}"\n'
-        "OPENAI_MODEL=gpt-5-mini\n"
-        "OPENAI_REASONING_EFFORT=\n"
+        f'ANTHROPIC_API_KEY="{MODEL_KEY}"\n'
+        "AGENT_MODEL=claude-haiku-5-5\n"
+        "AGENT_MODEL_EFFORT=\n"
+        "OPENAI_API_KEY=sk-stale-openai-key\n"
         "AGENT_GOVERNANCE_MODE=off\n"
         "MERCHANT_BEARER_TOKEN=stale\n"
         "AGENT_D1_POLICY_PATH=/tmp/policy.json\n",
@@ -289,8 +290,8 @@ def test_only_model_settings_are_read_from_the_agent_env_file(tmp_path: Path) ->
     )
 
     assert read_model_settings(env_file) == {
-        "OPENAI_API_KEY": MODEL_KEY,
-        "OPENAI_MODEL": "gpt-5-mini",
+        "ANTHROPIC_API_KEY": MODEL_KEY,
+        "AGENT_MODEL": "claude-haiku-5-5",
     }
     assert read_model_settings(tmp_path / "missing.env") == {}
 
@@ -378,7 +379,6 @@ def test_scripted_offer_is_the_pilot_target_and_the_s04_price_fits_the_budget() 
     (stimulus, *_) = scenarios["S04"]["stimuli"]
     shipping = s01["target_shipping_minor"]
 
-    assert matrix["shared_controls"]["model"] == PILOT_MODEL
     assert s01["target_variant_id"] == s04_setup["target_variant_id"] == OFFER_ID
     assert s01["target_item_price_minor"] == s04_setup["initial_item_price_minor"]
     assert s01["target_item_price_minor"] == OFFER_PRICE_MINOR
@@ -844,11 +844,11 @@ def test_s04_edits_only_the_scripted_offer_with_the_merchant_cli(
 @pytest.mark.parametrize(
     "content",
     [
-        f'OPENAI_API_KEY="{MODEL_KEY}#not-a-comment"  # quoted\n'
-        "OPENAI_MODEL=gpt-5-mini  # the pilot model\n"
-        "OPENAI_TIMEOUT_SECONDS=45 # seconds\n"
-        "OPENAI_REASONING_EFFORT='low' # single quotes\n",
-        f"export OPENAI_API_KEY={MODEL_KEY}\nOPENAI_MODEL=gpt-5-mini#no-space-keeps-it\n",
+        f'ANTHROPIC_API_KEY="{MODEL_KEY}#not-a-comment"  # quoted\n'
+        "AGENT_MODEL=claude-haiku-5-5  # the suite's model\n"
+        "AGENT_MODEL_TIMEOUT_SECONDS=45 # seconds\n"
+        "AGENT_MODEL_EFFORT='medium' # single quotes\n",
+        f"export ANTHROPIC_API_KEY={MODEL_KEY}\nAGENT_MODEL=claude-haiku-5-5#no-space-keeps-it\n",
     ],
     ids=["inline-comments", "no-comment"],
 )
@@ -863,20 +863,22 @@ def test_model_settings_read_the_env_file_like_the_agent_settings(
     read = read_model_settings(env_file)
     settings = Settings(_env_file=env_file)  # type: ignore[call-arg]
 
-    assert settings.openai_api_key is not None
-    assert read["OPENAI_API_KEY"] == settings.openai_api_key.get_secret_value()
-    assert read["OPENAI_MODEL"] == settings.openai_model
-    assert float(read.get("OPENAI_TIMEOUT_SECONDS", "30")) == settings.openai_timeout_seconds
-    assert read.get("OPENAI_REASONING_EFFORT") == settings.openai_reasoning_effort
+    assert settings.anthropic_api_key is not None
+    assert read["ANTHROPIC_API_KEY"] == settings.anthropic_api_key.get_secret_value()
+    assert read["AGENT_MODEL"] == settings.agent_model
+    timeout = float(read.get("AGENT_MODEL_TIMEOUT_SECONDS", "30"))
+    assert timeout == settings.agent_model_timeout_seconds
+    assert read.get("AGENT_MODEL_EFFORT", "low") == settings.agent_model_effort
 
 
-def test_a_model_other_than_the_pilot_model_is_announced_but_does_not_stop_the_launch(
+def test_a_model_other_than_the_suite_model_is_announced_but_does_not_stop_the_launch(
     tmp_path: Path,
 ) -> None:
     plan = replace(
-        plan_for("b2", tmp_path), model={"OPENAI_API_KEY": MODEL_KEY, "OPENAI_MODEL": "gpt-4.1"}
+        plan_for("b2", tmp_path),
+        model={"ANTHROPIC_API_KEY": MODEL_KEY, "AGENT_MODEL": "claude-sonnet-5-5"},
     )
-    notice = f"OPENAI_MODEL=gpt-4.1 no es el modelo del piloto ({PILOT_MODEL})"
+    notice = f"AGENT_MODEL=claude-sonnet-5-5 no es el modelo de la evaluación ({SUITE_MODEL})"
     out = io.StringIO()
 
     describe(plan, [], out)

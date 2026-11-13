@@ -133,7 +133,7 @@ def startup_check(environment: Mapping[str, str], stack: Mapping[str, str]) -> d
     values = {name.lower(): value for name, value in {**stack, **environment}.items()}
     if environment.get("AGENT_HNP_SELECTOR") == "llm":
         # The agent reads its own key at startup; the check only needs one to be present.
-        values.setdefault("openai_api_key", "dry-run-placeholder")
+        values.setdefault("anthropic_api_key", "dry-run-placeholder")
     try:
         settings = _DeclaredSettings.model_validate(values)
         load_hnp_trust(settings)

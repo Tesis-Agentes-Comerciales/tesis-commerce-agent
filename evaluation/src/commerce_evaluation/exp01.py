@@ -57,6 +57,7 @@ def preflight(plan_path: Path = PLAN) -> dict[str, Any]:
         if (
             os.name != "posix"
             or any(os.environ.get(k) == "1" for k in ("HNP_LIVE", "RUN_LIVE_LLM"))
+            or os.environ.get("ANTHROPIC_API_KEY")
             or os.environ.get("OPENAI_API_KEY")
         ):
             raise ValueError("Isolated POSIX stack without model credentials/flags required")
