@@ -139,10 +139,10 @@ def test_a_model_failure_of_the_infrastructure_is_excused_only_by_a_model_fault(
 ) -> None:
     """tienda-no-responde injects a Merchant 503: a 529, 429 or spent balance of the router
     there is no part of the case, so the trial is the infrastructure's."""
-    trial = {"model_failure": failed(model)} if model else {}
     injected = with_event(**event)
+    broken = record(injected, infra_failure=API_5XX, model_failure=failed(model) if model else None)
 
-    assert is_infra_failure(injected, record(injected, infra_failure=API_5XX, **trial)) is left_out
+    assert is_infra_failure(injected, broken) is left_out
     # An agent's failure breaks nothing, whatever the case injects.
     assert not is_infra_failure(injected, record(injected, model_failure=failed("rejected")))
 
