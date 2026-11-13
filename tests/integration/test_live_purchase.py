@@ -6,9 +6,11 @@ approval, signed mandates and receipts, idempotent completion and signed order w
 September joint E2E; the mapping is in tests/integration/README.md.
 """
 
+import json
 import os
 import sqlite3
 from contextlib import closing
+from pathlib import Path
 
 import httpx
 import pytest
@@ -30,7 +32,7 @@ from commerce_evaluation.stack.purchase_agent import (
     buyer_details,
     payments,
 )
-from commerce_evaluation.stack.purchase_lane import DECLINED_CARD, PurchaseLane
+from commerce_evaluation.stack.purchase_lane import DECLINED_CARD, Episode, PurchaseLane
 
 
 def receipts(lane: PurchaseLane, run_id: str) -> tuple[str | None, str | None] | None:
@@ -171,20 +173,25 @@ def test_acp_purchase_replays_locally_and_at_the_merchant(acp):
     assert acp.store.purchase(run_id)["stage"] == "completed"  # type: ignore[index]
 
 
-def test_acp_natural_request_crosses_the_model_boundary_and_completes(acp, tmp_path):
-    episode = acp.episode("conversation")
-    settings = Settings(
-        merchant_base_url=acp.origin,
+def conversation_settings(lane: PurchaseLane, episode: Episode, database: Path) -> Settings:
+    """The Agent behind `/conversation/turn`; the model's key, if any, comes from the env."""
+    return Settings(
+        merchant_base_url=lane.origin,
         merchant_bearer_token=episode.bearer,
-        merchant_webhook_secret=acp.webhook_secret,
-        agent_approval_secret=acp.approval_secret,
-        payment_provider_url=acp.payment.origin,
-        payment_agent_bearer_token=acp.payment_token,
-        agent_database_path=tmp_path / "agent.sqlite",
+        merchant_webhook_secret=lane.webhook_secret,
+        agent_approval_secret=lane.approval_secret,
+        payment_provider_url=lane.payment.origin,
+        payment_agent_bearer_token=lane.payment_token,
+        agent_database_path=database,
         agent_feed_source="file",
         agent_feed_path=episode.feed,
         agent_principal_id="human-conversational-live",
     )
+
+
+def test_acp_natural_request_crosses_the_model_boundary_and_completes(acp, tmp_path):
+    episode = acp.episode("conversation")
+    settings = conversation_settings(acp, episode, tmp_path / "agent.sqlite")
     # RUN_LIVE_LLM=1 puts the configured Claude model behind the boundary (manual runs only).
     router = None
     if os.getenv("RUN_LIVE_LLM") != "1":
@@ -229,3 +236,34 @@ def test_acp_natural_request_crosses_the_model_boundary_and_completes(acp, tmp_p
         assert completed.status_code == 200, completed.text
         assert completed.json()["status"] == "completed"
         assert completed.json()["order"]["checkout_session_id"] == preparation["checkout"]["id"]
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_LIVE_LLM") != "1", reason="calls the configured Claude model: manual runs only"
+)
+def test_live_catalog_question_runs_the_lookup_and_answers(acp, tmp_path):
+    episode = acp.episode("catalog-question")
+    database = tmp_path / "agent.sqlite"
+    settings = conversation_settings(acp, episode, database)
+    assert settings.anthropic_api_key is not None, "RUN_LIVE_LLM=1 needs ANTHROPIC_API_KEY"
+    app = create_app(settings=settings, clock=lambda: APPROVED_AT)
+    with TestClient(app) as client:
+        answered = client.post(
+            "/conversation/turn",
+            json={
+                "turn_id": "turn-catalog-question-live",
+                "messages": [{"role": "user", "content": "¿Qué celulares tienen y a qué precio?"}],
+                "details": buyer_details("catalog").model_dump(mode="json", exclude_none=True),
+            },
+        )
+        assert answered.status_code == 200, answered.text
+    with closing(sqlite3.connect(database)) as connection:
+        rows = connection.execute(
+            "SELECT outcome, output_json FROM model_requests "
+            "WHERE stage = 'model.route' ORDER BY sequence"
+        ).fetchall()
+    # The model asked the catalog first, then answered from what the lookup returned.
+    assert len(rows) == 2, rows
+    (_, asked), (outcome, _) = rows
+    assert json.loads(asked)["function_calls"], asked
+    assert outcome == "ok"
