@@ -162,7 +162,7 @@
       "tests/test_model_failure_surfaces.py::test_the_chat_explains_the_model_failure_and_prepares_nothing[quota_exhausted]",
       "tests/integration/test_p0_model_failures.py::test_p0_hp_model_failure[INF28-HP-r1]"
     ],
-    "why": "429 insufficient_quota al interpretar: 1 solo intento, REST 502 quota_exhausted, mensaje de indisponibilidad en el chat y cero efectos (celda INF28-HP, p0-model-failures-corrida-2)."
+    "why": "La cuenta no puede pagar la llamada al interpretar: 429 enforced_spend_limit_reached de Anthropic (tope de gasto), que el hook marca para no reintentar. 1 solo intento, REST 502 quota_exhausted, mensaje de indisponibilidad en el chat y cero efectos (celda INF28-HP del protocolo de p0-model-failures-corrida-2, con el cuerpo de error de Anthropic)."
   },
   "llm-sin-saldo/delegado": {
     "source": "INF28",
@@ -171,7 +171,7 @@
       "tests/test_model_failures.py::test_a_spent_monthly_cap_is_tried_once[ledger-selector]",
       "tests/integration/test_p0_model_failures.py::test_p0_hnp_model_failure[INF28-HNP-r1]"
     ],
-    "why": "429 insufficient_quota en el selector: 1 solo intento, selection_unavailable con failure_kind=quota_exhausted y cero efectos (celda INF28-HNP, p0-model-failures-corrida-2)."
+    "why": "La cuenta no puede pagar la llamada del selector: 429 enforced_spend_limit_reached de Anthropic (tope de gasto), que el hook marca para no reintentar. 1 solo intento, selection_unavailable con failure_kind=quota_exhausted y cero efectos (celda INF28-HNP del protocolo de p0-model-failures-corrida-2, con el cuerpo de error de Anthropic)."
   },
   "sin-internet-antes-del-llm/presente": {
     "source": "INF29",

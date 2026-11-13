@@ -7,8 +7,9 @@ call a real LLM: they refuse to start without `--max-usd` and `ANTHROPIC_API_KEY
 owner launches them (AGENTS.md). The key is read from the environment or from the repository's
 `.env`, and only it is loaded from there; its value is never printed. `--dry-run` prints the plan
 and its cost and touches nothing. Regression also runs the pytest ids of the regression map, and
-fails when a trial or one of those tests does not pass. `report` rewrites the report of a run,
-and `calibrate` is `suite/calibration.py`.
+fails when code fails a trial or leaves it undecided, or one of those tests does not pass; a
+trial that only waits for the judge on what the agent says does not fail it (`console.failing`).
+`report` rewrites the report of a run, and `calibrate` is `suite/calibration.py`.
 """
 
 import argparse
@@ -161,9 +162,14 @@ def run_command(arguments: argparse.Namespace) -> int:
         stopped = f"{STOPPED[outcome.status]}{spent} Para seguir: {_resume(arguments, plan)}"
         print(stopped, file=sys.stderr)
         return 1
-    if settings.suite == "regression" and (failing := console.failing(report)):
+    if settings.suite != "regression":
+        return 0
+    if undecided := console.undecided(report):
+        print(f"{undecided}. Solo los que esperan al juez no hacen fallar la regresión.")
+    if failing := console.failing(report):
         print(f"La regresión no pasa: {failing}.", file=sys.stderr)
         return 1
+    print("La regresión pasa.")
     return 0
 
 

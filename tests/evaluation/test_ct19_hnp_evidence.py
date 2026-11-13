@@ -74,6 +74,13 @@ def test_accepts_only_removed_control() -> None:
     assert not verify_control("present", removed())
 
 
+def test_tokens_other_tests_left_in_the_session_provider_do_not_count() -> None:
+    facts = removed()
+    earlier = {"delegations": {"count": 1}}
+    facts.update(psp_before=earlier, psp_after=earlier, psp_after_cleanup=earlier)
+    assert verify_control("removed", facts)
+
+
 @pytest.mark.parametrize(
     "corrupt",
     [
@@ -88,6 +95,9 @@ def test_accepts_only_removed_control() -> None:
         lambda f: f.update(catalog_restored=False),
         lambda f: f.update(after_cleanup={}),
         lambda f: f.update(payment_calls=1),
+        lambda f: f.update(psp_after={"delegations": {"count": 1}}),
+        # A snapshot without the provider's delegations proves nothing about its tokens.
+        lambda f: f.update(psp_before={}, psp_after={}, psp_after_cleanup={}),
         lambda f: f.update(reservations=[["reserved", None]]),
     ],
 )

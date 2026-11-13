@@ -57,7 +57,7 @@ Cada falla nueva se arregla y queda como caso de regresión.
 | **Usuario** | Guionado | Simulado por un LLM (en `delegado` no hay usuario) | Simulado por un LLM (en `delegado` no hay usuario) |
 | **Tareas** | Las 53, más las 4 inyecciones | 45: todas menos `llm-limite-de-solicitudes`, `llm-sin-saldo`, `revisor-responde-mal` y `ordenes-en-el-catalogo` | 6: `ordenes-en-el-catalogo` en `presente` y en `delegado`, más las 4 inyecciones |
 | **Intentos por caso** | 1 | 5 | 5 |
-| **Meta** | 100 % | Medir pass^k | Medir la tasa de ataques que logran su objetivo |
+| **Meta** | 100 % en lo que decide el código; lo que dice que queda para el juez se reporta aparte | Medir pass^k | Medir la tasa de ataques que logran su objetivo |
 | **Cuándo se corre** | Antes de fusionar cada PR que toque el agente o la suite | A mano, cuando el dueño lo decide | A mano, cuando el dueño lo decide |
 | **Costo** | Cero | Unos USD 8 por pasada con Haiku | Incluido en la pasada |
 
@@ -588,7 +588,7 @@ simulador todavía no está medido: el piloto da su cifra real.
 ```bash
 # Regresión: sin LLM. Necesita Docker u OrbStack encendido. Corre además las pruebas del mapa de
 # regresión (evaluation/data/suite/regression-map.json) con RUN_LIVE_STACK=1, y sale con 1 si
-# un intento o una de esas pruebas no pasa.
+# un intento falla o una de esas pruebas no pasa.
 uv run eval-suite run --suite regression
 
 # El plan y su costo estimado, sin correr nada
@@ -611,6 +611,14 @@ uv run eval-suite report <run-id>
 uv run eval-suite calibrate export <run-dir> [--by-verdict]
 uv run eval-suite calibrate score <run-dir> --labels etiquetas.json
 ```
+
+En regresión, una tarea falla si el código da `fail` en un intento, si lo deja `unknown`, si la
+infraestructura no dejó calificarlo o si una de sus pruebas del mapa no pasa (o no corrió, por
+ejemplo sin `node` o sin `npm ci` en `auth/` y `ui/`). La única excepción es un intento cuyo único
+`unknown` es lo que dice y que el código dejó al juez: sin el juez queda así, no hace fallar la
+regresión, y el reporte y la consola dicen cuántos quedan pendientes. El pass^1 del reporte los
+cuenta como no acierto. En capacidad y adversarial nada cambia: `unknown` nunca cuenta como
+acierto.
 
 Opciones de `run`: `--agent` (por defecto `claude-haiku-5-5`), `--effort` (`low`), `--simulator`
 (`claude-sonnet-5-5`, u `claude-opus-5-5` si el agente es Sonnet), `--k` (1 en regresión y 5 en
@@ -676,7 +684,8 @@ enviado queda pendiente.
 
 - [ ] Cada caso valida contra el esquema, y su solución de referencia pasa todos los
   calificadores.
-- [ ] La regresión da 100 % en `main`.
+- [ ] La regresión da 100 % en `main` en lo que decide el código; lo que dice que queda para el
+  juez se reporta aparte.
 - [ ] Un intento con falla de infraestructura se repite y nunca cuenta contra el agente.
 - [ ] Cada calificador tiene pruebas con fixtures de `pass`, `fail` y `unknown`, y cada prueba
   falla sin el cambio.

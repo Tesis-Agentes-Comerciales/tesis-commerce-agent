@@ -21,6 +21,7 @@ from commerce_evaluation.suite import run as runner
 from commerce_evaluation.suite.executor import RunSettings
 from commerce_evaluation.suite.run import execute
 from tests.evaluation.suite.runs import (
+    STACK_DOWN,
     Charging,
     FakeExecutor,
     adversarial_case,
@@ -389,7 +390,64 @@ def test_a_regression_trial_that_does_not_pass_fails_the_command(
     monkeypatch.setattr(cli, "load_executor", lambda: broken)
 
     assert cli.main(["run", "--suite", "regression", "--run-id", "rota", "--cases", "llm-*"]) == 1
-    assert "La regresión no pasa: 1 tareas con intentos que no pasan" in capsys.readouterr().err
+    assert "La regresión no pasa: 1 tareas con un intento que falla" in capsys.readouterr().err
+
+
+def test_an_undecided_trial_does_not_fail_the_regression_and_waits_for_the_judge(
+    home: Path,
+    factory: Factory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    told = make_case("entrega-no-verificable", must_communicate=["que no sabe la fecha"])
+    monkeypatch.setattr(cli, "CATALOG", write_catalog(home / "con-criterio", [told]))
+
+    assert cli.main(["run", "--suite", "regression", "--run-id", "sin-juez"]) == 0
+
+    out = capsys.readouterr().out
+    assert "1 intentos quedan sin decidir: 1 solo esperan al juez en lo que dice y 0 " in out
+    assert "La regresión pasa." in out
+    text = (home / "runs" / "sin-juez" / "report.md").read_text()
+    assert "los 1 que solo esperan al juez en lo que dice no hacen fallar la corrida" in text
+    assert "En regresión cuentan como no acierto los intentos que solo esperan al juez" in text
+
+
+@pytest.mark.parametrize(
+    ("mode", "final"),
+    [
+        # The chat answered a bare 500: the record has no action (outcome.py).
+        ("presente", {"action": None}),
+        # The task stopped short of an order: the outcome cannot be told.
+        ("delegado", {"task_state": "purchased"}),
+    ],
+)
+def test_a_trial_another_grader_left_undecided_fails_the_regression(
+    home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mode: str,
+    final: dict[str, Any],
+) -> None:
+    told = make_case("tienda-no-responde", mode, must_communicate=["que la tienda no responde"])
+    monkeypatch.setattr(cli, "CATALOG", write_catalog(home / "sin-accion", [told]))
+    script = {(told.id, "B2", 1): [{"final": final}]}
+    monkeypatch.setattr(cli, "load_executor", lambda: Factory(script))
+
+    assert cli.main(["run", "--suite", "regression", "--run-id", f"sin-accion-{mode}"]) == 1
+
+    captured = capsys.readouterr()
+    assert "0 solo esperan al juez en lo que dice y 1 los dejó sin decidir otro" in captured.out
+    assert "1 tareas con un intento que falla, que el código no pudo decidir" in captured.err
+
+
+def test_a_trial_the_infrastructure_left_ungraded_fails_the_regression(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    down = Factory({(CASES[2].id, "B2", 1): [{"infra_failure": STACK_DOWN}]})
+    monkeypatch.setattr(cli, "load_executor", lambda: down)
+
+    assert cli.main(["run", "--suite", "regression", "--run-id", "caida", "--cases", "llm-*"]) == 1
+    assert "que la infraestructura no dejó calificar" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(("outcome", "code"), [("passed", 0), ("failed", 1), ("not_run", 1)])
@@ -411,6 +469,30 @@ def test_a_mapped_test_that_does_not_pass_fails_the_regression(
     )
 
     assert cli.main(["run", "--suite", "regression", "--run-id", f"mapa-{outcome}"]) == code
+
+
+def test_a_browser_test_without_npm_ci_fails_the_regression_and_says_why(
+    home: Path,
+    factory: Factory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(mapped.shutil, "which", lambda name: f"/bin/{name}")
+    browser = "tests/integration/test_live_browser_journeys.py::test_revoke"
+    entry = {"source": "MA24", "tests": [browser], "why": "Cubre."}
+    mapped.MAP_FILE.write_text(json.dumps({"revoca-antes-de-ejecutar/delegado": entry}))
+    original = mapped.run_mapped
+    monkeypatch.setattr(
+        mapped,
+        "run_mapped",
+        lambda entries, run_dir: original(entries, run_dir, runner=never, cwd=home),
+    )
+
+    assert cli.main(["run", "--suite", "regression", "--run-id", "sin-npm"]) == 1
+
+    assert "falta npm ci en auth/ y ui/" in capsys.readouterr().err
+    text = (home / "runs" / "sin-npm" / "report.md").read_text()
+    assert "| 1 | 1 no corrió: falta npm ci en auth/ y ui/ |" in text
 
 
 UNSURE = make_case("sin-stock", must_communicate=["que no hay stock"])

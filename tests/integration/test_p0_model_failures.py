@@ -7,9 +7,11 @@ no model, no request to a provider, no cost. The protocol, frozen before the fir
 evaluation/scenarios/p0-model-failures.json: cases, stimuli, scripts, oracles and repetitions.
 This module reads the oracles from it, records each case's inputs before the Agent runs
 (`recorded_case`) and then checks every oracle one by one, so a failed oracle stays failed in the
-evidence. Human Present is B2-HP on the `b0` lane through `AgentServer`; Human Not Present is
-B2-HNP on the `hnp` lane through `ModelHnpAgent` (tests/integration/live_model.py). When the
-module ends it writes `p0-model-failures/summary.json` in the run directory.
+evidence. The protocol froze OpenAI's error bodies: its 429 stimuli and the provider's fields of
+its oracles are Anthropic's here (`ON_CLAUDE`). Human Present is B2-HP on the `b0` lane through
+`AgentServer`; Human Not Present is B2-HNP on the `hnp` lane through `ModelHnpAgent`
+(tests/integration/live_model.py). When the module ends it writes
+`p0-model-failures/summary.json` in the run directory.
 """
 
 import hashlib
@@ -28,6 +30,7 @@ import pytest
 
 from commerce_agent.api import create_app
 from commerce_agent.llm import CommerceDecision
+from commerce_agent.llm.model_failures import SPEND_CAP
 from commerce_evaluation.stack.environment import AGENT, MODEL_PREFIXES, git_state
 from commerce_evaluation.stack.fault_proxy import CREATE_PATH
 from commerce_evaluation.stack.hnp_agent import EpisodeBuyer, delegation_request
@@ -58,8 +61,36 @@ from tests.support.model_server import (
 
 PROTOCOL = ROOT / "evaluation/scenarios/p0-model-failures.json"
 PLAN: dict[str, Any] = json.loads(PROTOCOL.read_text(encoding="utf-8"))
-CASES: dict[str, dict[str, Any]] = PLAN["cases"]
 REPETITIONS = range(1, PLAN["repetitions"] + 1)
+# The protocol froze OpenAI's 429 bodies, and its hash is the evidence of the runs made with them
+# (matrix-observed.json), so the file stays as it is. Since the agent runs on Claude (#208), its
+# two 429 stimuli keep their names and send Anthropic's bodies, and each oracle row that names
+# OpenAI's error names Anthropic's instead; the rest of every oracle stands as frozen.
+ON_CLAUDE: dict[str, dict[str, str]] = {
+    # A rate limit is a `rate_limit_error` with no code of its own; the SDK retries it once.
+    "rate_limit_exceeded": {"provider_error_code": "rate_limit_error"},
+    # The balance the SDK would retry is the tier's spend cap: a 429 the Agent's hook marks
+    # `x-should-retry: false` (llm/model_failures.py), so it is tried once.
+    "insufficient_quota": {
+        "error_kind": "EnforcedSpendLimitReachedError",
+        "provider_error_code": SPEND_CAP,
+    },
+}
+
+
+def on_claude(cases: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The protocol's cases, with the oracle rows of `ON_CLAUDE` amended in place."""
+    for case in cases.values():
+        oracle = case["oracle"]
+        for row in (
+            *oracle.get("model_requests", ()),
+            *oracle.get("model_requests_per_surface", ()),
+        ):
+            row.update(ON_CLAUDE.get(row["provider_error_code"], {}))
+    return cases
+
+
+CASES: dict[str, dict[str, Any]] = on_claude(PLAN["cases"])
 
 ROUTED = CommerceDecision(
     action="purchase",
@@ -77,13 +108,31 @@ ANSWERS: dict[str, Answer] = {
     "review_outside_contract": structured(
         lambda body: {"decision": "not_confirmed", "reason": "review_unavailable"}
     ),
-    "http_429_rate_limit": failure(429, code="rate_limit_exceeded", error_type="requests"),
-    "http_429_insufficient_quota": failure(
-        429, code="insufficient_quota", error_type="insufficient_quota"
-    ),
+    "http_429_rate_limit": failure(429, error_type="rate_limit_error"),
+    "http_429_insufficient_quota": failure(429, code=SPEND_CAP, error_type="rate_limit_error"),
     "disconnect": disconnect(),
     "read_timeout": read_timeout(),
 }
+# The stimuli whose bodies are Anthropic's instead of the protocol's (`ON_CLAUDE`).
+ON_CLAUDE_STIMULI = ("http_429_rate_limit", "http_429_insufficient_quota")
+
+
+def amendment() -> dict[str, Any]:
+    """What a run sends and checks apart from the frozen protocol, for its summary: each amended
+    stimulus as the scripted transport answers it (status, retry headers and body), and the
+    oracle fields `ON_CLAUDE` replaces."""
+    stimuli = {}
+    for name in ON_CLAUDE_STIMULI:
+        response = ANSWERS[name]({})
+        headers = {key: response.headers.get(key) for key in ("retry-after-ms", "x-should-retry")}
+        stimuli[name] = {
+            "status": response.status_code,
+            "headers": headers,
+            "body": response.json(),
+        }
+    return {"stimuli": stimuli, "oracles": ON_CLAUDE}
+
+
 # The model_requests columns an oracle compares; payloads and hashes stay out of the summary.
 REQUEST_FIELDS = ("stage", "outcome", "error_kind", "http_status", "provider_error_code", "retries")
 # What an effect leaves in the Agent's own SQLite (`local_effects` plus these).
@@ -776,6 +825,8 @@ def summarize(cases: list[dict[str, Any]], stack: LiveStack) -> dict[str, Any]:
     return {
         "schema": "p0-model-failures-summary/1",
         "protocol": {"path": str(PROTOCOL.relative_to(ROOT)), "sha256": sha256(PROTOCOL)},
+        # What this run sent and checked apart from the frozen protocol: Anthropic's 429s.
+        "oracle_amendment": amendment(),
         "spec": {
             "path": PLAN["spec"]["path"],
             "sha256": sha256(spec),
