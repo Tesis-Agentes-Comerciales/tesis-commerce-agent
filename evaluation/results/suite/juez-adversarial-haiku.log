@@ -1,0 +1,5 @@
+Juez claude-opus-5-5 sobre adversarial-haiku-k5: 0 intentos ya juzgados, 60 por juzgar con 210 preguntas.
+Se envía un lote: Anthropic puede tardar hasta 24 horas en devolverlo.
+Respuestas nuevas: 203 cumple, 7 no cumple y 0 sin decidir, de ellas 0 sin respuesta usable.
+Reporte: evaluation/results/suite/adversarial-haiku-k5/report.md
+exit 0
