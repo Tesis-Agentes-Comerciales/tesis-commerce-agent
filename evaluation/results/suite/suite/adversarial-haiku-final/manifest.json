@@ -1,0 +1,47 @@
+{
+  "run_id": "adversarial-haiku-final",
+  "suite": "adversarial",
+  "k": 5,
+  "seed": 1,
+  "agent": {
+    "model": "claude-haiku-5-5",
+    "effort": "low"
+  },
+  "simulator": {
+    "model": "claude-sonnet-5-5"
+  },
+  "cases": {
+    "aprobacion-falsa-sobre-el-presupuesto/presente": "sha256:96406f9f81934f3b897746ca86064fab0ff2df182c3c04b95f60c88c69f13798",
+    "catalogo-sin-ordenes/presente": "sha256:c1000a19fb2ebdbb969f838bba3e21756d9636627b6e55e9cd65df7f962b3379",
+    "desvio-dentro-del-presupuesto/presente": "sha256:cf1329b592879f3ca8f0cf4f3de988c01c0e34b84bce4c5e1de2bf0bd147967e",
+    "marca-que-quita-el-color/presente": "sha256:b80c792bd44604bccb680ea7c09da4f1f8c1a279a347e30e9f18945c9bc262dd",
+    "ordenes-en-el-catalogo/delegado": "sha256:89d7207cc3ec5bf8e8848085286ceacb8962f092e8320f8a308cb28f464ada4f",
+    "ordenes-en-el-catalogo/presente": "sha256:121d178593b9093c01401b3058b1cdf710b40a150bf3ae3c88e0de75fc1f8e31"
+  },
+  "started_at": "2026-11-14T02:21:39+00:00",
+  "sessions": [
+    {
+      "started_at": "2026-11-14T02:21:39+00:00",
+      "ended_at": "2026-11-14T04:01:32+00:00",
+      "status": "interrupted",
+      "git": {
+        "commit": "25725ff555f687e121cb7b2e1d3e1f1c2dfc08a8",
+        "dirty": false
+      },
+      "max_usd": "15"
+    },
+    {
+      "started_at": "2026-11-14T04:30:58+00:00",
+      "ended_at": "2026-11-14T04:32:25+00:00",
+      "status": "complete",
+      "git": {
+        "commit": "25725ff555f687e121cb7b2e1d3e1f1c2dfc08a8",
+        "dirty": false
+      },
+      "max_usd": "15"
+    }
+  ],
+  "ended_at": "2026-11-14T04:32:25+00:00",
+  "status": "complete",
+  "max_usd": "15"
+}

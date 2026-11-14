@@ -1,0 +1,33 @@
+{
+  "run_id": "humo-haiku-1",
+  "suite": "capability",
+  "k": 1,
+  "seed": 1,
+  "agent": {
+    "model": "claude-haiku-5-5",
+    "effort": "low"
+  },
+  "simulator": {
+    "model": "claude-sonnet-5-5"
+  },
+  "cases": {
+    "prioridad-explicita/delegado": "sha256:4aefea83100f99cde0b7bcab34c4f203951cb4f1540cca23637e6367a1e7c576",
+    "prioridad-explicita/presente": "sha256:8b734cc3a91023a23267cce00ec4e5bac8c7bcc2cfc45f0770a0d591141e9b27"
+  },
+  "started_at": "2026-11-13T20:04:26+00:00",
+  "sessions": [
+    {
+      "started_at": "2026-11-13T20:04:26+00:00",
+      "ended_at": "2026-11-13T20:04:39+00:00",
+      "status": "complete",
+      "git": {
+        "commit": "19069d6133582a4a7cbb50c2eaceeb044a5a8cf3",
+        "dirty": false
+      },
+      "max_usd": "2"
+    }
+  ],
+  "ended_at": "2026-11-13T20:04:39+00:00",
+  "status": "complete",
+  "max_usd": "2"
+}

@@ -1,0 +1,61 @@
+{
+  "run_id": "capacidad-haiku-final",
+  "suite": "capability",
+  "k": 5,
+  "seed": 1,
+  "agent": {
+    "model": "claude-haiku-5-5",
+    "effort": "low"
+  },
+  "simulator": {
+    "model": "claude-sonnet-5-5"
+  },
+  "cases": {
+    "se-agota-tras-el-permiso/delegado": "sha256:6775dc41f27e0758bafd09357f4fd7a016905f9adb542b36eb7a9a1e39624a59",
+    "tienda-no-responde/presente": "sha256:486b54b56b4c4f1501388b31adfd6fe105b36050da6e0c53426fd3665a4a2260",
+    "cambia-de-opcion/delegado": "sha256:6801e09ae070ee4b30eddb8f737316fac4a06c92814cb2612cf8aac4de7734ee",
+    "cambia-de-opcion/presente": "sha256:cfb0a73ec9d7f4cf908f043b3b428e9f27ea88f9cee78eb131f9c4ce01a3e04d",
+    "condicion-compuesta/presente": "sha256:be531b1bf503841b90cb41522d05431ced25b0584f0a25b62c46afda189d9072",
+    "entrega-no-verificable/delegado": "sha256:06098a750bd88dea2ea358156ac1f133d5a1cad15804f1068aeb3fefac34672f",
+    "entrega-no-verificable/presente": "sha256:aceda2e46785e7721bccd4db9ccb2cbcb433a5fa482a95b74306e87b0a578d6d",
+    "ninguna-opcion-cumple/delegado": "sha256:27a34f300cc4969ada6e4b02691623f5cdec5c8da1042cddf6402f56cf5affe1",
+    "ninguna-opcion-cumple/presente": "sha256:49814a111f673cad45e6ec4ab89fa8119e87fdc629ff8df6989c7380410486dc",
+    "pedido-vago/presente": "sha256:fcfb64d89d5defb62c5cf02ec7b8f1665013499e40072003b14650d899cf1b42",
+    "presupuesto-sin-moneda/presente": "sha256:eca621268c575369be91a13b52654dd13b75e2c3f65f6d53e7c5016484913ce9",
+    "prioridad-explicita/delegado": "sha256:4aefea83100f99cde0b7bcab34c4f203951cb4f1540cca23637e6367a1e7c576",
+    "prioridad-explicita/presente": "sha256:8b734cc3a91023a23267cce00ec4e5bac8c7bcc2cfc45f0770a0d591141e9b27",
+    "referencia-ambigua/presente": "sha256:1d0b91879bba3184628fb79e11c6698385a9cb7178064e0972b6ce58f40de224",
+    "respaldo-sobre-presupuesto/delegado": "sha256:c5c55506021c2603954ea14139ffdacf3921ab53b81181be57cf521291c68a7f",
+    "respaldo-sobre-presupuesto/presente": "sha256:b94e0a5d1ffba330507932574d2f57b13f83c8afb97c7d0f2c9e5d2d77fd14c7",
+    "variante-prohibida/delegado": "sha256:6f656ffcff58e56cb647deedb33eb4fe45974880b3481ec332760bc8ae47cbec",
+    "variante-prohibida/presente": "sha256:a531095362f208527253b7bc8ffee1bd91388a612f6d6776f0e2a896ea79580b",
+    "ya-no-quiere-comprar/delegado": "sha256:eb0007ced7d325022728edb49ac5544f303e20e7f47e916a5bcc6f17a9439205",
+    "ya-no-quiere-comprar/presente": "sha256:b661a22f2bdf1c2fba7ef5790053e74cca32dbdc041aa582c1231d0e6c8c5e86"
+  },
+  "started_at": "2026-11-13T23:59:16+00:00",
+  "sessions": [
+    {
+      "started_at": "2026-11-13T23:59:16+00:00",
+      "ended_at": "2026-11-14T02:21:37+00:00",
+      "status": "interrupted",
+      "git": {
+        "commit": "25725ff555f687e121cb7b2e1d3e1f1c2dfc08a8",
+        "dirty": false
+      },
+      "max_usd": "15"
+    },
+    {
+      "started_at": "2026-11-14T04:05:08+00:00",
+      "ended_at": "2026-11-14T04:30:56+00:00",
+      "status": "complete",
+      "git": {
+        "commit": "25725ff555f687e121cb7b2e1d3e1f1c2dfc08a8",
+        "dirty": false
+      },
+      "max_usd": "15"
+    }
+  ],
+  "ended_at": "2026-11-14T04:30:56+00:00",
+  "status": "complete",
+  "max_usd": "15"
+}
