@@ -140,8 +140,9 @@ sigue el guion al pie de la letra.
 final y el criterio, pero no ve la solución de referencia. Del estado final solo ve variante,
 estado, montos y cantidad. Decide con la misma rúbrica que leen quienes etiquetan.
 
-**Calibración.** Se etiquetan a ciegas 40 intentos del piloto, una hora y media para una
-persona: por cada criterio que fue al juez, la misma pregunta y la misma rúbrica, sin su
+**Calibración.** Se etiquetan a ciegas 40 intentos de la corrida oficial de capacidad con Haiku
+(`capacidad-haiku-final`), que es la que tiene más criterios que no se cumplen. Toma una hora y
+media para una persona: por cada criterio que fue al juez, la misma pregunta y la misma rúbrica, sin su
 veredicto. El juez se acepta si su κ de Cohen frente a las etiquetas humanas es de al menos 0,7,
 medido en tareas que no se usaron para ajustar la rúbrica. Lo que el juez no pudo responder
 (falla del transporte, rechazo, respuesta truncada) queda fuera del κ y se cuenta aparte. Con
@@ -662,6 +663,20 @@ respuestas del simulador de 1.500 y 300 tokens. El peor caso tiene 6 turnos, nad
 cuatro veces la salida medida y 5 respuestas del simulador con su tope de 2.000 tokens. El
 simulador todavía no está medido: el piloto da su cifra real.
 
+**Costo real.** Las corridas oficiales del 13-nov-2026 costaron USD 11,52 en total, con el juez
+incluido:
+
+| Corrida | Agente | Simulador | Juez | Total |
+| --- | --- | --- | --- | --- |
+| Capacidad, Haiku con simulador Sonnet | USD 0,15 | USD 0,58 | USD 2,19 | USD 2,92 |
+| Capacidad, Sonnet con simulador Opus | USD 1,63 | USD 0,84 | USD 2,15 | USD 4,62 |
+| Adversarial, Haiku con simulador Sonnet | USD 0,10 | USD 0,35 | USD 1,20 | USD 1,64 |
+| Adversarial, Sonnet con simulador Opus | USD 0,90 | USD 0,32 | USD 1,12 | USD 2,34 |
+
+El piloto costó unos USD 12, así que el total llevado es de unos USD 24. El juez es entre el 47 %
+y el 75 % de cada corrida. Desde #217 el router hace dos llamadas por turno, y la estimación todavía
+supone una: subestima al agente, que de todos modos es la parte más barata.
+
 ## 8. Cómo se corre
 
 ```bash
@@ -792,23 +807,35 @@ flowchart LR
 
 Cada PR es de un tema, con la compuerta local en verde y un revisor independiente.
 
-| PR | Qué entrega |
+| PR | Qué entrega | Estado al 14-nov-2026 |
+| --- | --- | --- |
+| 1 | Esta spec. También marca el lote 2 como reemplazado en `evaluation/results/p0-cierre-yair/README.md` | Hecho en #201 |
+| 2 | Contrato: `Case`, `TrialRecord` y `Grade`, con fixtures y 3 casos semilla (UX12-HP, CT13-HNP e INF31-HP) | Hecho en #202 |
+| 3 | Calificadores de código (efectos, resultado y evidencia) y pass^k, sobre fixtures y sin stack | Hecho en #204 |
+| 4 | Mover `LiveStack`, `FaultProxy` y `PurchaseLane` a `commerce_evaluation/stack/`, sin cambiar su comportamiento. También sale de `tests/` lo que el stack importa de ahí (hoy, `FakeCheckoutGateway` de `tests/test_purchase_service.py`), para que el paquete no dependa de `tests/` | Hecho en #209 |
+| 5 | Prueba chica de Inspect AI con un caso guionado. Se adopta si el adaptador cabe en unas 150 líneas, si la transcripción completa se ve en su visor y si `pass_k` da lo mismo que `reduce.py` | Hecho en #212: Inspect no entra (§5) |
+| 6 | Corredor, CLI y regresión de punta a punta con los 3 casos semilla | Hecho en #211 (CLI y reporte) y #213 (ejecutor en vivo) |
+| 7 | Agente sobre Claude, parte 1: el doble de prueba de Messages y el registro de uso | Hecho en #208, junto con el 8 |
+| 8 | Agente sobre Claude, parte 2: los tres clientes y la configuración | Hecho en #208 |
+| 9 | Retiro de los corredores de los pilotos, con la etiqueta `pilotos-octubre`. Muda `StructuredLLM`, `BudgetedTransport` y `FakeTransport` a `llm/` y actualiza `AGENTS.md` y `docs/testing.md` | Hecho en #203 |
+| 10 | Usuario simulado y transporte de Anthropic con tope de gasto | Hecho en #205 (transporte) y #207 (usuario simulado) |
+| 11 | Juez y calificador de lo que dice, por Batch | Hecho en #210 |
+| 12 | Herramienta de calibración: etiquetado ciego y κ | Hecho en #210 |
+| 13 | Catálogo completo: las 53 tareas y la suite adversarial | Hecho en #206: 26 casos con LLM y 53 tareas |
+| 14 | Piloto con LLM real y prerregistro. Lo corre el dueño | Hecho: las corridas `*-k5`. No se escribió un prerregistro aparte: los criterios son los de esta spec, fusionada antes de correr |
+| 15 | Corrida oficial | Hecho: las corridas `*-final` sobre `25725ff`. Falta la calibración del juez |
+
+Fuera del plan entraron seis PRs, todos fusionados antes de la corrida oficial. #216 y #217
+salieron del humo, y #218 y #219 del piloto:
+
+| PR | Qué arregla |
 | --- | --- |
-| 1 | Esta spec. También marca el lote 2 como reemplazado en `evaluation/results/p0-cierre-yair/README.md` |
-| 2 | Contrato: `Case`, `TrialRecord` y `Grade`, con fixtures y 3 casos semilla (UX12-HP, CT13-HNP e INF31-HP) |
-| 3 | Calificadores de código (efectos, resultado y evidencia) y pass^k, sobre fixtures y sin stack |
-| 4 | Mover `LiveStack`, `FaultProxy` y `PurchaseLane` a `commerce_evaluation/stack/`, sin cambiar su comportamiento. También sale de `tests/` lo que el stack importa de ahí (hoy, `FakeCheckoutGateway` de `tests/test_purchase_service.py`), para que el paquete no dependa de `tests/` |
-| 5 | Prueba chica de Inspect AI con un caso guionado. Se adopta si el adaptador cabe en unas 150 líneas, si la transcripción completa se ve en su visor y si `pass_k` da lo mismo que `reduce.py` |
-| 6 | Corredor, CLI y regresión de punta a punta con los 3 casos semilla |
-| 7 | Agente sobre Claude, parte 1: el doble de prueba de Messages y el registro de uso |
-| 8 | Agente sobre Claude, parte 2: los tres clientes y la configuración |
-| 9 | Retiro de los corredores de los pilotos, con la etiqueta `pilotos-octubre`. Muda `StructuredLLM`, `BudgetedTransport` y `FakeTransport` a `llm/` y actualiza `AGENTS.md` y `docs/testing.md` |
-| 10 | Usuario simulado y transporte de Anthropic con tope de gasto |
-| 11 | Juez y calificador de lo que dice, por Batch |
-| 12 | Herramienta de calibración: etiquetado ciego y κ |
-| 13 | Catálogo completo: las 53 tareas y la suite adversarial |
-| 14 | Piloto con LLM real y prerregistro. Lo corre el dueño |
-| 15 | Corrida oficial |
+| #214 | Cierra los pendientes del dueño y deja el juez pago fuera del alcance de los agentes en `AGENTS.md` |
+| #215 | La regresión pasa en `main` sin LLM: lo que queda para el juez no cuenta como falla |
+| #216 | Una falla del modelo se cuenta por su tipo. La salida inválida o el rechazo son del agente, la caída del proveedor es infraestructura, y la falta de saldo o una llave mal configurada detienen la corrida |
+| #217 | El router de `presente` hace dos llamadas por turno, porque Claude rechazaba con 400 una herramienta y un esquema en la misma solicitud |
+| #218 | Cada ataque registra si el texto inyectado llegó al modelo. La tasa de ataques cuenta solo los intentos con entrega |
+| #219 | El usuario simulado ve el aviso «La compra quedó completada…» después de la aprobación, como en el chat real. Sin él volvía a pedir la compra y se duplicaban órdenes |
 
 ## 11. Riesgos
 
@@ -819,7 +846,10 @@ Cada PR es de un tema, con la compuerta local en verde y un revisor independient
 | Inspect publica versiones casi a diario | Ya no aplica: el PR 5 lo descartó (§5) |
 | No hay CI | La compuerta es local, y el stack necesita Docker u OrbStack encendido |
 | Escribir las 53 tareas es el trabajo más grande | Los autores revisan los casos en el PR 13 |
-| Los costos son estimados | El piloto del PR 14 da la cifra real |
+| Los costos son estimados | Ya no aplica: el costo real está en §7 |
+| La Mac se duerme y corta la corrida | Pasó el 13-nov con la Mac en batería. Las corridas largas van una tras otra, con `caffeinate -i`, la Mac conectada y la tapa abierta. Una corrida cortada se retoma con el mismo `--run-id` |
+| El usuario simulado no reconoce la aprobación | Su prompt le dice que aprobar no le toca. En 1 de 320 intentos oficiales leyó el aviso de compra, contestó que no había aprobado nada y pidió otra, lo que dejó dos órdenes. Queda como limitación declarada: cambiar el prompt a mitad de las corridas oficiales las haría incomparables |
+| Un lote del juez que falla antes de enviarse deja reservas | Si `eval-suite judge` falla al crear el lote (`batch_id` vacío), sus filas en `judge/llm-usage.jsonl` reservan el peor caso sin cobrarse. Hay que apartar ese archivo antes de reintentar, o cuenta contra el tope y contra el costo del reporte |
 
 ## 12. Pendiente del dueño
 
@@ -827,3 +857,6 @@ Cada PR es de un tema, con la compuerta local en verde y un revisor independient
   repite 20 ítems para medir su propia consistencia. Que etiquete una sola persona queda como
   limitación declarada.
 - [x] Fecha de entrega de la suite: lunes 16-nov-2026.
+- [ ] Calibración: etiquetar `calibration/labeling/labeling.html` y `repeat.html` de
+  `capacidad-haiku-final`, y después correr `eval-suite calibrate score` con las dos
+  descargas.
