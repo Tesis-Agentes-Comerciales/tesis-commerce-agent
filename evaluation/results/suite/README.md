@@ -49,29 +49,38 @@ Los humos encontraron los errores que arreglan #216 y #217.
 ## Qué no está y por qué
 
 No se suben las bases de cada intento (`trials/*/agent.db` y `agent.graph.db`), los feeds, las
-bases ni los logs del Merchant en `stack/`. Pesan hasta unos 160 MB por corrida, y lo que leen
-los calificadores ya está en `trials.jsonl` y en `evidence.jsonl`. Las corridas de regresión que se usaron para
+bases ni los logs del Merchant en `stack/`. Pesan hasta unos 160 MB por corrida. En las
+oficiales, lo que lee el reporte ya está en `trials.jsonl` y en `evidence.jsonl`. En el piloto
+adversarial, en cambio, la entrega de la inyección solo se puede leer de `trials/*/agent.db`,
+porque esos registros son anteriores a #218. Las corridas de regresión que se usaron para
 verificar cada PR tampoco se suben (`verificacion-prs/`): no llaman a un LLM y se repiten con
 `eval-suite run --suite regression`. El `.gitignore` de esta carpeta deja todo eso fuera.
 
 ## Cómo se verifica
 
 `uv run eval-suite report evaluation/results/suite/<corrida>` reescribe el reporte desde estos
-archivos, sin llamar a ningún LLM. Con las cuatro oficiales sale un `report.md` idéntico. Con el
-piloto sale una columna más, «Inyección entregada», porque esos reportes se escribieron antes de
-#218. `SHA256SUMS` tiene la huella de cada archivo.
+archivos, sin llamar a ningún LLM. Con las cuatro oficiales sale un `report.md` idéntico. Con
+`capacidad-*-k5` y los humos sale el mismo resultado. Con `adversarial-*-k5` no: sin las bases, el
+reporte no ve la entrega de la inyección, deja los 50 ataques «sin evidencia» y la tasa queda sin
+datos. Para esas dos corridas vale el `report.md` subido, que se escribió con las bases.
+`SHA256SUMS` tiene la huella de cada archivo.
 
 ## Lo que pasó en las corridas oficiales
 
-- **La Mac se durmió** a las 21:15 (hora de Colombia), en batería. Cortó `capacidad-haiku-final`,
-  `capacidad-sonnet-final` y `adversarial-haiku-final` con `dispatch_webhooks:ConnectionTimeout`.
-  Se retomaron con el mismo `--run-id`, una tras otra y con `caffeinate -i`. Los logs son
+- **La Mac se durmió dos veces con la tapa cerrada y en batería** (horas de Colombia, según
+  `pmset -g log`). La primera fue de 19:07 a 21:21. Cortó `capacidad-haiku-final` y
+  `capacidad-sonnet-final`, que fallaron al despertar con `dispatch_webhooks:ConnectionTimeout`.
+  La segunda fue de 21:35 a 23:01 y cortó `adversarial-haiku-final` de la misma forma. Las tres se
+  retomaron con el mismo `--run-id`, una tras otra y con `caffeinate -i`. Los logs son
   `final-haiku.log`, `final-sonnet.log` y `final-retoma.log`.
-- **Los dos jueces de Haiku fallaron al crear el lote**, con `APIConnectionError`, cuando la Mac
-  despertó sin red. No llegaron a Anthropic: `batch_id` vacío y nada cobrado. Esas filas
+- **La tapa se volvió a cerrar de 23:23 a 23:29, ya durante la retoma.** La cadena se detuvo esos
+  minutos y siguió: `caffeinate -i` no impide el sueño por tapa cerrada.
+- **Los dos jueces de Haiku fallaron al crear el lote**, con `APIConnectionError`, segundos
+  después de que la Mac despertara a las 23:01, todavía sin red. No llegaron a Anthropic: `batch_id` vacío y nada cobrado. Esas filas
   reservaban USD 11,62 que no se gastaron, y se apartaron en
   `judge-sin-enviar-2026-11-14T0401Z.jsonl` para que no contaran contra el tope ni en el costo.
-- En los logs, las rutas absolutas de la máquina se cambiaron por `repos/`.
+- En los logs, las rutas absolutas de la máquina se cambiaron por `repos/`. `oficial-haiku.log`,
+  `oficial-sonnet.log` y `juez-*.log` son del piloto (`*-k5`), pese al nombre.
 
 ## Calibración del juez
 
