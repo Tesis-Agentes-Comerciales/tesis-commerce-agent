@@ -675,7 +675,8 @@ incluido:
 
 El piloto costó unos USD 12, así que el total llevado es de unos USD 24. El juez es entre el 47 %
 y el 75 % de cada corrida. Desde #217 el router hace dos llamadas por turno, y la estimación todavía
-supone una: subestima al agente, que de todos modos es la parte más barata.
+supone una: subestima al agente. Con Haiku el agente es la parte más barata, pero con Sonnet es
+el 35 % de la corrida de capacidad y el 39 % de la adversarial.
 
 ## 8. Cómo se corre
 
@@ -818,11 +819,11 @@ Cada PR es de un tema, con la compuerta local en verde y un revisor independient
 | 7 | Agente sobre Claude, parte 1: el doble de prueba de Messages y el registro de uso | Hecho en #208, junto con el 8 |
 | 8 | Agente sobre Claude, parte 2: los tres clientes y la configuración | Hecho en #208 |
 | 9 | Retiro de los corredores de los pilotos, con la etiqueta `pilotos-octubre`. Muda `StructuredLLM`, `BudgetedTransport` y `FakeTransport` a `llm/` y actualiza `AGENTS.md` y `docs/testing.md` | Hecho en #203 |
-| 10 | Usuario simulado y transporte de Anthropic con tope de gasto | Hecho en #205 (transporte) y #207 (usuario simulado) |
+| 10 | Usuario simulado y transporte de Anthropic con tope de gasto | Hecho en #205 (transporte; su descripción lo llama PR 7) y #207 (usuario simulado) |
 | 11 | Juez y calificador de lo que dice, por Batch | Hecho en #210 |
 | 12 | Herramienta de calibración: etiquetado ciego y κ | Hecho en #210 |
 | 13 | Catálogo completo: las 53 tareas y la suite adversarial | Hecho en #206: 26 casos con LLM y 53 tareas |
-| 14 | Piloto con LLM real y prerregistro. Lo corre el dueño | Hecho: las corridas `*-k5`. No se escribió un prerregistro aparte: los criterios son los de esta spec, fusionada antes de correr |
+| 14 | Piloto con LLM real y prerregistro. Lo corre el dueño | Hecho: las corridas `*-k5`. No se escribió un prerregistro aparte: los criterios son los de esta spec, fusionada antes de correr. Lo único que cambió después es de dónde sale la muestra de calibración (§3), que pasó del piloto a la corrida oficial, porque el piloto es anterior al aviso de #219 |
 | 15 | Corrida oficial | Hecho: las corridas `*-final` sobre `25725ff`. Falta la calibración del juez |
 
 Fuera del plan entraron seis PRs, todos fusionados antes de la corrida oficial. #216 y #217
@@ -849,7 +850,7 @@ salieron del humo, y #218 y #219 del piloto:
 | Los costos son estimados | Ya no aplica: el costo real está en §7 |
 | La Mac se duerme y corta la corrida | Pasó el 13-nov con la Mac en batería. Las corridas largas van una tras otra, con `caffeinate -i`, la Mac conectada y la tapa abierta. Una corrida cortada se retoma con el mismo `--run-id` |
 | El usuario simulado no reconoce la aprobación | Su prompt le dice que aprobar no le toca. En 1 de 320 intentos oficiales leyó el aviso de compra, contestó que no había aprobado nada y pidió otra, lo que dejó dos órdenes. Queda como limitación declarada: cambiar el prompt a mitad de las corridas oficiales las haría incomparables |
-| Un lote del juez que falla antes de enviarse deja reservas | Si `eval-suite judge` falla al crear el lote (`batch_id` vacío), sus filas en `judge/llm-usage.jsonl` reservan el peor caso sin cobrarse. Hay que apartar ese archivo antes de reintentar, o cuenta contra el tope y contra el costo del reporte |
+| Un lote del juez que falla antes de enviarse deja reservas | Si `eval-suite judge` falla al crear el lote (`batch_id` vacío), sus filas en `judge/llm-usage.jsonl` reservan el peor caso sin cobrarse. Hay que apartar esas filas antes de reintentar, o cuentan contra el tope y contra el costo del reporte. El 13-nov el archivo tenía solo filas sin enviar, y se apartó entero como `judge-sin-enviar-2026-11-14T0401Z.jsonl` |
 
 ## 12. Pendiente del dueño
 
