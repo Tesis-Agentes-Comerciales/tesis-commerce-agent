@@ -6,113 +6,170 @@
 <title>__TITLE__</title>
 <style>
   :root {
-    --bg: #f5f4f0; --card: #ffffff; --ink: #1c1c1a; --muted: #64635e; --line: #dedcd5;
-    --user: #ebe9e3; --focus: #2f5d8a; --yes: #2e6b4a; --no: #a33a2c; --unsure: #75652a;
+    --bg: #eef1f4; --panel: #ffffff; --ink: #17212b; --muted: #5b6876; --line: #d3dae2;
+    --user: #e2e7ed; --accent: #2c55c9; --accent-soft: #e6ecfa; --fill: #2c55c9;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #151514; --card: #1e1e1c; --ink: #ecebe6; --muted: #a3a29b; --line: #34332f;
-      --user: #292926; --focus: #8ab8e6; --yes: #82c9a1; --no: #f08f80; --unsure: #d8c47c;
+      --bg: #11151a; --panel: #181e25; --ink: #e5eaf0; --muted: #97a3b0; --line: #2a333d;
+      --user: #222a33; --accent: #86a6ff; --accent-soft: #1f2a44; --fill: #86a6ff;
     }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  header { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px 16px;
-    align-items: center; padding: 10px 16px; background: var(--bg);
-    border-bottom: 1px solid var(--line); }
-  header nav { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
-  .muted { color: var(--muted); }
-  button, .button { font: inherit; font-size: 14px; color: var(--ink); background: var(--card);
-    border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
-  button:focus-visible, .button:focus-within, textarea:focus-visible {
-    outline: 2px solid var(--focus); outline-offset: 2px; }
+  html { background: var(--bg); }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); }
+  button, .button { font: inherit; font-size: 14px; color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  button:disabled { opacity: .45; cursor: default; }
+  button:focus-visible, .button:focus-within, textarea:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; }
   .primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-  main { max-width: 1280px; margin: 0 auto; padding: 12px 16px 48px; }
-  .help { margin: 4px 0 16px; color: var(--muted); font-size: 14px; }
-  .layout { display: grid; gap: 24px; }
+  kbd { font: 12px/1 var(--sans); padding: 3px 6px; border: 1px solid var(--line);
+    border-radius: 5px; background: var(--bg); color: var(--muted); }
+
+  /* The bar: how far along, and the labels file. */
+  header { position: sticky; top: 0; z-index: 2; background: var(--bg);
+    border-bottom: 1px solid var(--line); }
+  .meter { height: 4px; background: var(--line); }
+  .meter span { display: block; height: 100%; width: 0; background: var(--fill); }
+  @media (prefers-reduced-motion: no-preference) { .meter span { transition: width .2s ease; } }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 16px; }
+  .bar nav { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+  #count { margin: 0; font-weight: 600; }
+  #message { margin: 0; color: var(--muted); font-size: 14px; }
+
+  main { max-width: 1320px; margin: 0 auto; padding: 16px 16px 64px; display: grid; gap: 28px; }
   @media (min-width: 960px) {
-    .layout { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
-    aside { position: sticky; top: 72px; max-height: calc(100vh - 88px); overflow: auto; }
+    main { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; }
+    .quiz { position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow: auto; }
   }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
-    margin: 20px 0 8px; }
-  .turn { padding: 10px 14px; border-radius: 10px; margin: 0 0 10px; border: 1px solid var(--line);
-    background: var(--card); white-space: pre-wrap; overflow-wrap: anywhere; }
-  .turn.user { background: var(--user); margin-right: 12%; }
-  .turn.assistant { margin-left: 4%; }
+
+  /* The conversation and the final state. */
+  .lead { margin: 0 0 14px; color: var(--muted); }
+  .turn { max-width: 88%; padding: 10px 14px; border-radius: 12px; margin: 0 0 10px;
+    white-space: pre-wrap; overflow-wrap: anywhere; }
+  .turn.user { background: var(--user); }
+  .turn.assistant { margin-left: auto; background: var(--panel); border: 1px solid var(--line); }
   .turn.purchase_update { border-style: dashed; }
-  .speaker { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
-  pre { margin: 0; padding: 12px 14px; background: var(--card); border: 1px solid var(--line);
-    border-radius: 10px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
-  ol { list-style: none; margin: 0; padding: 0; }
-  .item { padding: 12px 14px; margin: 0 0 10px; background: var(--card);
-    border: 1px solid var(--line); border-radius: 10px; }
-  .item.current { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
-  .question { margin: 0 0 10px; font-weight: 600; }
-  .options { display: flex; flex-wrap: wrap; gap: 6px; }
-  .options button[aria-pressed="true"][data-answer="pass"] {
-    background: var(--yes); border-color: var(--yes); color: var(--card); }
-  .options button[aria-pressed="true"][data-answer="fail"] {
-    background: var(--no); border-color: var(--no); color: var(--card); }
-  .options button[aria-pressed="true"][data-answer="unknown"] {
-    background: var(--unsure); border-color: var(--unsure); color: var(--card); }
-  kbd { font: 12px ui-monospace, monospace; padding: 0 4px; border: 1px solid var(--line);
-    border-radius: 4px; margin-right: 4px; }
-  textarea { width: 100%; margin-top: 8px; font: inherit; font-size: 14px; color: var(--ink);
-    background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
-    resize: vertical; min-height: 2.4em; }
-  details { margin: 0 0 12px; font-size: 14px; color: var(--muted); }
-  details p { margin: 6px 0; }
-  .rubric { margin: 6px 0; padding-left: 18px; }
-  .rubric li { margin: 4px 0; }
+  .speaker { display: block; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .state { margin-top: 22px; padding: 12px 14px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; }
+  .state summary { cursor: pointer; font-weight: 600; }
+  .kind { margin: 12px 0 0; }
+  .kind h3 { margin: 0 0 4px; font-size: 15px; }
+  .row { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 14px;
+    margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; background: var(--bg); font-size: 14px; }
+  .row dt { color: var(--muted); }
+  .row dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+
+  /* The question: the one thing to read closely. */
+  .quiz { padding: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+  .where { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 16px;
+    color: var(--muted); font-size: 14px; }
+  .dots { display: flex; gap: 6px; list-style: none; margin: 0; padding: 0; }
+  .dots li { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--muted); }
+  .dots li.answered { background: var(--muted); }
+  .dots li.current { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .dots li.current.answered { background: var(--accent); }
+  .quiz h1 { margin: 0 0 12px; font-size: 19px; line-height: 1.35; }
+  .claim { margin: 0 0 10px; padding: 0 0 0 16px; border-left: 3px solid var(--accent);
+    font: 25px/1.38 var(--serif); }
+  .hint { margin: 0 0 18px; color: var(--muted); font-size: 14px; }
+  .options { display: grid; gap: 8px; }
+  .option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px;
+    align-items: baseline; width: 100%; padding: 12px 14px; text-align: left; font-size: 16px;
+    border-radius: 10px; }
+  .option kbd { grid-row: span 2; }
+  .option .label { font-weight: 600; }
+  .option .detail { grid-column: 2; color: var(--muted); font-size: 14px; }
+  .option:hover { border-color: var(--muted); }
+  .option[aria-checked="true"] { border: 2px solid var(--accent); background: var(--accent-soft);
+    padding: 11px 13px; }
+  .option[aria-checked="true"] kbd { border-color: var(--accent); color: var(--accent); }
+  .note { margin: 14px 0 0; font-size: 14px; color: var(--muted); }
+  .note summary { cursor: pointer; }
+  textarea { width: 100%; margin-top: 8px; font: inherit; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: vertical;
+    min-height: 3em; }
+  .move { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; }
+  .keys { margin: 0 0 0 auto; color: var(--muted); font-size: 13px; }
+  .rules { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 14px;
+    color: var(--muted); }
+  .rules summary { cursor: pointer; }
+  .rules ul { margin: 8px 0 0; padding-left: 18px; }
+  .rules li { margin: 6px 0; }
+  .done h1 { font-size: 24px; }
+  .done p { color: var(--muted); }
 </style>
 </head>
 <body>
 <header>
-  <strong id="position"></strong>
-  <span id="progress" class="muted"></span>
-  <nav>
-    <button id="previous" type="button">← Anterior</button>
-    <button id="next" type="button">Siguiente →</button>
-    <button id="pending" type="button">Primero sin responder</button>
-    <label class="button">Cargar etiquetas<input id="load" type="file" accept="application/json" hidden></label>
-    <button id="download" class="primary" type="button">Descargar etiquetas</button>
-  </nav>
+  <div class="meter"><span id="fill"></span></div>
+  <div class="bar">
+    <p id="count" aria-live="polite"></p>
+    <p id="message" role="status"></p>
+    <nav>
+      <label class="button">Cargar etiquetas<input id="load" type="file" accept="application/json" hidden></label>
+      <button id="download" class="primary" type="button">Descargar etiquetas</button>
+    </nav>
+  </div>
 </header>
 <main>
-  <p class="help">Responde cada criterio solo por lo que dijo el asistente. Teclas: <kbd>1</kbd> Sí cumple, <kbd>2</kbd> No cumple, <kbd>3</kbd> No sé, <kbd>↑</kbd><kbd>↓</kbd> criterio, <kbd>←</kbd><kbd>→</kbd> intento.</p>
-  <div class="layout">
-    <section>
-      <h2>Conversación</h2>
-      <p id="delegated" class="muted" hidden>Tarea delegada: no hubo conversación. El mensaje es con el que el asistente cerró la tarea.</p>
-      <div id="turns"></div>
-      <h2>Estado final de la tienda y del pago</h2>
-      <pre id="state"></pre>
-    </section>
-    <aside>
-      <h2>Criterios</h2>
-      <details open>
-        <summary>Cómo responder</summary>
-        <ul class="rubric">__RUBRICA__</ul>
-        <p>Usa «No sé» solo si de verdad no se puede decidir. Las etiquetas se guardan en este navegador; descárgalas al terminar.</p>
+  <section aria-label="Conversación">
+    <p class="lead">Lee la conversación y responde por lo que dijo el asistente.</p>
+    <p id="delegated" class="lead" hidden>Tarea delegada: no hubo conversación. Este es el mensaje con el que el asistente cerró la tarea.</p>
+    <div id="turns"></div>
+    <details class="state" open>
+      <summary>Estado final de la tienda y del pago</summary>
+      <div id="state"></div>
+    </details>
+  </section>
+  <section class="quiz" aria-label="Pregunta">
+    <div id="ask">
+      <div class="where"><span id="where"></span><ol id="dots" class="dots" aria-hidden="true"></ol></div>
+      <h1 id="question"></h1>
+      <p id="claim" class="claim"></p>
+      <p id="hint" class="hint"></p>
+      <div id="options" class="options" role="radiogroup" aria-labelledby="question"></div>
+      <details id="note-box" class="note">
+        <summary>Agregar una nota</summary>
+        <textarea id="note" aria-label="Nota" placeholder="Opcional"></textarea>
       </details>
-      <ol id="items"></ol>
-    </aside>
-  </div>
+      <div class="move">
+        <button id="previous" type="button">Anterior</button>
+        <button id="next" type="button">Siguiente</button>
+        <p class="keys"><kbd>1</kbd> a <kbd>4</kbd> responder, <kbd>←</kbd> <kbd>→</kbd> moverse</p>
+      </div>
+    </div>
+    <div id="done" class="done" hidden>
+      <h1>Terminaste</h1>
+      <p id="done-count"></p>
+      <div class="move">
+        <button id="download-done" class="primary" type="button">Descargar etiquetas</button>
+        <button id="review" type="button">Revisar desde el principio</button>
+      </div>
+    </div>
+    <details class="rules">
+      <summary>Reglas completas</summary>
+      <ul>__RUBRICA__</ul>
+    </details>
+  </section>
 </main>
 <script id="data" type="application/json">__DATA__</script>
 <script>
 "use strict";
 const data = JSON.parse(document.getElementById("data").textContent);
-const OPTIONS = [["pass", "Sí cumple"], ["fail", "No cumple"], ["unknown", "No sé"]];
-const KEYS = { "1": "pass", "2": "fail", "3": "unknown" };
 const $ = (id) => document.getElementById(id);
-const total = data.trials.reduce((sum, trial) => sum + trial.items.length, 0);
+// One stop per criterion, in the page's order: [trial, item].
+const stops = data.trials.flatMap((trial, t) => trial.items.map((_, i) => [t, i]));
 let labels = {};
 try { labels = JSON.parse(localStorage.getItem(data.storage) || "{}") || {}; } catch (error) { labels = {}; }
-let trialIndex = 0;
-let itemIndex = 0;
+let at = 0;
+let finished = false;
+let shownTrial = -1;
+let advance = null;
 
 function save() {
   try { localStorage.setItem(data.storage, JSON.stringify(labels)); } catch (error) { /* the download keeps the work */ }
@@ -125,21 +182,22 @@ function element(tag, className, text) {
   return node;
 }
 
+function itemAt(stop) { const [t, i] = stops[stop]; return data.trials[t].items[i]; }
 function answered(item) { return Boolean(labels[item.id] && labels[item.id].answer); }
+function firstPending() { return stops.findIndex((_, stop) => !answered(itemAt(stop))); }
+function sentence(text) { return text ? text[0].toUpperCase() + text.slice(1) : text; }
 
-function firstPending() {
-  for (let t = 0; t < data.trials.length; t++) {
-    const i = data.trials[t].items.findIndex((item) => !answered(item));
-    if (i >= 0) return [t, i];
-  }
-  return [trialIndex, itemIndex];
+function chosen(item) {
+  // The option picked; a file without `choice` shows the first option with its answer.
+  const label = labels[item.id];
+  if (!label || !label.answer) return -1;
+  const options = data.asked[item.criterion].options;
+  const named = options.findIndex((option) => option.label === label.choice);
+  return named >= 0 ? named : options.findIndex((option) => option.answer === label.answer);
 }
 
-function render() {
-  const trial = data.trials[trialIndex];
-  const done = data.trials.reduce((sum, t) => sum + t.items.filter(answered).length, 0);
-  $("position").textContent = `Intento ${trialIndex + 1} de ${data.trials.length}`;
-  $("progress").textContent = `${done} de ${total} criterios respondidos`;
+function renderTrial(t) {
+  const trial = data.trials[t];
   $("delegated").hidden = !trial.delegated;
   $("turns").replaceChildren(...trial.turns.map((turn) => {
     // `speaker` is the judge's own label (graders/question.py), the chat's notice included.
@@ -147,68 +205,100 @@ function render() {
     node.append(element("span", "speaker", turn.speaker), turn.text);
     return node;
   }));
-  if (!trial.turns.length) $("turns").append(element("p", "muted", "Sin mensajes."));
-  $("state").textContent = trial.state;
-  $("items").replaceChildren(...trial.items.map(renderItem));
-  $("previous").disabled = trialIndex === 0;
-  $("next").disabled = trialIndex === data.trials.length - 1;
-}
-
-function renderItem(item, index) {
-  const label = labels[item.id] || {};
-  const node = element("li", index === itemIndex ? "item current" : "item");
-  node.addEventListener("focusin", () => select(index));
-  node.append(element("p", "question", item.question));
-  const options = element("div", "options");
-  OPTIONS.forEach(([answer, text], position) => {
-    const button = element("button");
-    button.type = "button";
-    button.dataset.answer = answer;
-    button.setAttribute("aria-pressed", String(label.answer === answer));
-    button.append(element("kbd", "", String(position + 1)), text);
-    button.addEventListener("click", () => { select(index); choose(answer); });
-    options.append(button);
-  });
-  const note = element("textarea");
-  note.rows = 1;
-  note.placeholder = "Nota (opcional)";
-  note.setAttribute("aria-label", "Nota");
-  note.value = label.note || "";
-  note.addEventListener("input", () => {
-    labels[item.id] = Object.assign({}, labels[item.id], { note: note.value });
-    save();
-  });
-  node.append(options, note);
-  return node;
-}
-
-function select(index) {
-  itemIndex = index;
-  [...$("items").children].forEach((node, i) => node.classList.toggle("current", i === index));
-}
-
-function choose(answer) {
-  const items = data.trials[trialIndex].items;
-  const item = items[itemIndex];
-  labels[item.id] = Object.assign({}, labels[item.id], { answer });
-  save();
-  if (itemIndex < items.length - 1) itemIndex += 1;
-  render();
-}
-
-function moveItem(step) {
-  const count = data.trials[trialIndex].items.length;
-  select(Math.min(Math.max(itemIndex + step, 0), count - 1));
-  $("items").children[itemIndex].scrollIntoView({ block: "nearest" });
-}
-
-function moveTrial(step) {
-  const next = trialIndex + step;
-  if (next < 0 || next >= data.trials.length) return;
-  trialIndex = next;
-  itemIndex = 0;
-  render();
+  if (!trial.turns.length) $("turns").append(element("p", "lead", "Sin mensajes."));
+  $("state").replaceChildren(...trial.state.map((kind) => {
+    const node = element("div", "kind");
+    node.append(element("h3", "", `${kind.title}: ${kind.rows.length}`));
+    for (const row of kind.rows) {
+      const list = element("dl", "row");
+      for (const [name, value] of row) list.append(element("dt", "", name), element("dd", "", value));
+      node.append(list);
+    }
+    return node;
+  }));
+  shownTrial = t;
   window.scrollTo(0, 0);
+}
+
+function render() {
+  const done = stops.filter((_, stop) => answered(itemAt(stop))).length;
+  const repeat = data.page === "repeat" ? "Repetición: " : "";
+  $("count").textContent = `${repeat}${done} de ${stops.length} respondidas`;
+  $("fill").style.width = `${(100 * done) / stops.length}%`;
+  $("ask").hidden = finished;
+  $("done").hidden = !finished;
+  if (finished) {
+    const unsure = stops.filter((_, stop) => (labels[itemAt(stop).id] || {}).answer === "unknown").length;
+    $("done-count").textContent = `Respondiste ${done} de ${stops.length}, ${unsure} con «No se puede saber». Descarga las etiquetas y envíalas.`;
+    return;
+  }
+  const [t, i] = stops[at];
+  if (t !== shownTrial) renderTrial(t);
+  const trial = data.trials[t];
+  const item = trial.items[i];
+  const asked = data.asked[item.criterion];
+  $("where").textContent = `Conversación ${t + 1} de ${data.trials.length}, pregunta ${i + 1} de ${trial.items.length}`;
+  $("dots").replaceChildren(...trial.items.map((other, j) => {
+    const dot = element("li");
+    dot.classList.toggle("answered", answered(other));
+    dot.classList.toggle("current", j === i);
+    return dot;
+  }));
+  $("question").textContent = asked.question;
+  $("claim").textContent = item.criterion === "matches_state" ? `«${item.text}»` : sentence(item.text);
+  $("hint").textContent = asked.hint;
+  const picked = chosen(item);
+  $("options").replaceChildren(...asked.options.map((option, n) => {
+    const button = element("button", "option");
+    button.type = "button";
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-checked", String(n === picked));
+    button.append(element("kbd", "", String(n + 1)), element("span", "label", option.label));
+    if (option.detail) button.append(element("span", "detail", option.detail));
+    button.addEventListener("click", () => choose(n));
+    return button;
+  }));
+  const note = (labels[item.id] || {}).note || "";
+  $("note").value = note;
+  $("note-box").open = Boolean(note);
+  $("previous").disabled = at === 0;
+}
+
+function choose(n) {
+  if (finished) return;
+  const item = itemAt(at);
+  const option = data.asked[item.criterion].options[n];
+  if (!option) return;
+  labels[item.id] = Object.assign({}, labels[item.id], { answer: option.answer, choice: option.label });
+  save();
+  render();
+  // A moment to see the choice, then the next question.
+  clearTimeout(advance);
+  const from = at;
+  advance = setTimeout(() => { if (at === from) move(1); }, 220);
+}
+
+function move(step) {
+  clearTimeout(advance);
+  if (finished) {
+    if (step < 0) { finished = false; at = stops.length - 1; render(); }
+    return;
+  }
+  const next = at + step;
+  if (next < 0) return;
+  if (next >= stops.length) {
+    const pending = firstPending();
+    if (pending >= 0) { at = pending; flash("Quedan preguntas sin responder: te llevo a la primera."); }
+    else finished = true;
+  } else {
+    at = next;
+  }
+  render();
+}
+
+function flash(text) {
+  $("message").textContent = text;
+  setTimeout(() => { if ($("message").textContent === text) $("message").textContent = ""; }, 4000);
 }
 
 function download() {
@@ -216,7 +306,9 @@ function download() {
   for (const trial of data.trials) {
     for (const item of trial.items) {
       const label = labels[item.id];
-      if (label && (label.answer || label.note)) kept[item.id] = { answer: label.answer || null, note: label.note || "" };
+      if (label && (label.answer || label.note)) {
+        kept[item.id] = { answer: label.answer || null, choice: label.choice || "", note: label.note || "" };
+      }
     }
   }
   const text = JSON.stringify({ sample: data.sample, page: data.page, labels: kept }, null, 2);
@@ -235,40 +327,50 @@ function load(file) {
     try {
       const loaded = JSON.parse(reader.result);
       if (loaded.sample !== data.sample || loaded.page !== data.page) {
-        alert("Ese archivo es de otra muestra o de otra página.");
+        flash("Ese archivo es de otra muestra o de otra página.");
         return;
       }
       labels = Object.assign({}, labels, loaded.labels);
       save();
-      [trialIndex, itemIndex] = firstPending();
+      const pending = firstPending();
+      finished = pending < 0;
+      at = finished ? 0 : pending;
+      shownTrial = -1;
       render();
+      flash("Etiquetas cargadas.");
     } catch (error) {
-      alert("No se pudo leer el archivo de etiquetas.");
+      flash("No se pudo leer el archivo de etiquetas.");
     }
   };
   reader.readAsText(file);
 }
 
+$("note").addEventListener("input", (event) => {
+  const item = itemAt(at);
+  labels[item.id] = Object.assign({}, labels[item.id], { note: event.target.value });
+  save();
+});
 document.addEventListener("keydown", (event) => {
   if (event.target instanceof HTMLTextAreaElement) {
     if (event.key === "Escape") event.target.blur();
     return;
   }
   if (event.metaKey || event.ctrlKey || event.altKey) return;
-  if (KEYS[event.key]) choose(KEYS[event.key]);
-  else if (event.key === "ArrowDown") moveItem(1);
-  else if (event.key === "ArrowUp") moveItem(-1);
-  else if (event.key === "ArrowRight") moveTrial(1);
-  else if (event.key === "ArrowLeft") moveTrial(-1);
+  if (/^[1-9]$/.test(event.key)) choose(Number(event.key) - 1);
+  else if (event.key === "ArrowRight") move(1);
+  else if (event.key === "ArrowLeft") move(-1);
   else return;
   event.preventDefault();
 });
-$("previous").addEventListener("click", () => moveTrial(-1));
-$("next").addEventListener("click", () => moveTrial(1));
-$("pending").addEventListener("click", () => { [trialIndex, itemIndex] = firstPending(); render(); });
+$("previous").addEventListener("click", () => move(-1));
+$("next").addEventListener("click", () => move(1));
+$("review").addEventListener("click", () => { finished = false; at = 0; render(); });
 $("download").addEventListener("click", download);
+$("download-done").addEventListener("click", download);
 $("load").addEventListener("change", (event) => { if (event.target.files[0]) load(event.target.files[0]); event.target.value = ""; });
-[trialIndex, itemIndex] = firstPending();
+const pending = firstPending();
+finished = pending < 0;
+at = finished ? 0 : pending;
 render();
 </script>
 </body>

@@ -86,6 +86,6 @@ datos. Para esas dos corridas vale el `report.md` subido, que se escribió con l
 
 `capacidad-haiku-final/calibration/` tiene la muestra (`sample.json`) y las páginas de
 etiquetado a ciegas: 158 criterios en `labeling/labeling.html` y 20 repetidos en
-`labeling/repeat.html`. El etiquetado está pendiente. Con las dos descargas se corre
+`labeling/repeat.html`, en forma de cuestionario. El etiquetado está pendiente. Con las dos descargas se corre
 `eval-suite calibrate score evaluation/results/suite/capacidad-haiku-final --labels
 etiquetas.json --repeat-labels etiquetas-repeticion.json`.

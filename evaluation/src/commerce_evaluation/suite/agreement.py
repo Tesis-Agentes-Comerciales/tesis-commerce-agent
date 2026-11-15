@@ -49,6 +49,8 @@ class Sample(SuiteModel):
 
 class Label(SuiteModel):
     answer: Verdict | None = None
+    # The option the labeler picked (calibration.ASKED), which `answer` stands for.
+    choice: str = ""
     note: str = ""
 
 

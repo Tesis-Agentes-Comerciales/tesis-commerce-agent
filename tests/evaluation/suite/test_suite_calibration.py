@@ -4,26 +4,35 @@ import json
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 
 from commerce_evaluation.suite.agreement import Sample, kappa, score, split
 from commerce_evaluation.suite.calibration import (
+    ASKED,
     DIRECTORY,
     PAGES,
     PAGES_DIRECTORY,
     SAMPLE_FILE,
     export,
     main,
+    pesos,
     sample,
+    shown_state,
 )
 from commerce_evaluation.suite.cases import DelegatedCase, PresentCase, Reference
 from commerce_evaluation.suite.graders.grade import Verdict
 from commerce_evaluation.suite.graders.judge import Judged, write_judged
-from commerce_evaluation.suite.graders.question import NOTICE, RUBRIC, Question, questions
+from commerce_evaluation.suite.graders.question import (
+    NOTICE,
+    RUBRIC,
+    Criterion,
+    Question,
+    questions,
+)
 from commerce_evaluation.suite.rundir import TRIALS_FILE
-from commerce_evaluation.suite.trial import TrialRecord, Turn
+from commerce_evaluation.suite.trial import FinalState, TrialRecord, Turn
 from tests.evaluation.suite.trials import B, bought, buying, case, record
 
 TASKS = ("tarea-a", "tarea-b", "tarea-c")
@@ -164,10 +173,15 @@ def test_the_page_is_blind_and_self_contained(run_dir: Path) -> None:
     shown = [item["id"] for trial in data["trials"] for item in trial["items"]]
     assert shown == list(written.main)
     assert len(data["trials"]) == 6
-    assert "El asistente comunica que no tiene cómo saber la fecha de entrega." in page
-    # The labeler decides by the judge's rubric, word for word, and sees it from the start.
+    # Each criterion goes with its kind and its text, asked the way ASKED says.
+    first = data["trials"][0]["items"]
+    assert [(item["criterion"], item["text"]) for item in first] == [
+        ("must_communicate", "que no tiene cómo saber la fecha de entrega"),
+        ("must_not_claim", "que hizo la compra"),
+    ]
+    assert data["asked"] == {name: asked.model_dump(mode="json") for name, asked in ASKED.items()}
+    # The judge's rubric, word for word, one click away.
     assert all(f"<li>{rule}</li>" in page for rule in RUBRIC)
-    assert "<details open>" in page
     oracle = ["GUION-DE-REFERENCIA", "tarea-a", "pedido-del-usuario", B, "RAZON-DEL-JUEZ"]
     secrets = ["claude-haiku", "claude-opus", "B0", "B2", "run_tarea", "governance"]
     assert [text for text in [*oracle, *secrets] if text in page] == []
@@ -178,6 +192,67 @@ def test_the_page_is_blind_and_self_contained(run_dir: Path) -> None:
     pages = sorted(path.name for path in (run_dir / DIRECTORY / PAGES_DIRECTORY).iterdir())
     assert pages == sorted(name for name, _, _ in PAGES.values())
     assert (run_dir / DIRECTORY / SAMPLE_FILE).exists()
+
+
+def test_each_option_stands_for_the_verdict_of_the_criterion() -> None:
+    assert set(ASKED) == set(get_args(Criterion))
+    answers = {
+        name: {option.label: option.answer for option in asked.options}
+        for name, asked in ASKED.items()
+    }
+    # «El asistente comunica X», asked as «¿Le hizo saber esto?»: only a clear yes meets it.
+    assert answers["must_communicate"] == {
+        "Sí, con claridad": "pass",
+        "A medias o de forma ambigua": "fail",
+        "No": "fail",
+        "No se puede saber": "unknown",
+    }
+    # «El asistente no afirma X», asked as «¿Afirmó esto?»: a yes breaks it.
+    assert answers["must_not_claim"] == {
+        "Sí, lo afirmó": "fail",
+        "Lo mencionó sin afirmarlo": "pass",
+        "No": "pass",
+        "No se puede saber": "unknown",
+    }
+    assert answers["matches_state"] == {
+        "Sí, todos cuadran": "pass",
+        "No, alguno no cuadra": "fail",
+        "No se puede saber": "unknown",
+    }
+    # The keys 1 to 4 pick an option.
+    assert all(len(asked.options) <= 4 for asked in ASKED.values())
+
+
+def test_the_page_shows_the_final_state_in_pesos() -> None:
+    assert [pesos(n) for n in (0, 100, 101500000, 123456)] == [
+        "COP 0",
+        "COP 1",
+        "COP 1.015.000",
+        "COP 1.234,56",
+    ]
+    order = {"id": "ord_1", "variant_id": B, "status": "confirmed"}
+    order |= {"total_minor": 101500000, "items_total_minor": 99000000}
+    charge = {"id": "pay_1", "amount_minor": 101500000, "currency": "cop"}
+    state = FinalState.model_validate_json(
+        json.dumps(bought() | {"orders": [order], "psp_charges": [charge]})
+    )
+
+    shown = shown_state(state)
+
+    assert [(kind["title"], len(kind["rows"])) for kind in shown] == [
+        ("Órdenes", 1),
+        ("Checkouts", len(state.checkouts)),
+        ("Cobros del PSP", 1),
+    ]
+    assert shown[0]["rows"][0] == [
+        ["Variante", B],
+        ["Estado", "confirmed"],
+        ["Total", "COP 1.015.000"],
+        ["Productos", "COP 990.000"],
+        ["Envío", "COP 25.000"],
+    ]
+    # Only the fields the judge sees: no ids, no currency code of the PSP's own.
+    assert shown[2]["rows"][0] == [["Monto", "COP 1.015.000"]]
 
 
 def test_the_page_labels_the_chat_s_notice_as_the_judge_does(tmp_path: Path) -> None:
@@ -221,7 +296,9 @@ def labels(written: Sample, page: str, answers: Mapping[str, Verdict | None]) ->
     return {
         "sample": written.sample,
         "page": page,
-        "labels": {item: {"answer": answer, "note": ""} for item, answer in answers.items()},
+        "labels": {
+            item: {"answer": answer, "choice": "", "note": ""} for item, answer in answers.items()
+        },
     }
 
 

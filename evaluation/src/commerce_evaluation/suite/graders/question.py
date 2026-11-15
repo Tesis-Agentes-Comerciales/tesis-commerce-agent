@@ -3,10 +3,11 @@
 The claims grader leaves to the judge (`claims.FOR_THE_JUDGE`) every `must_communicate` and
 `must_not_claim` criterion of the case, and each sentence about the purchase whose amounts code
 cannot square. Each becomes one question, a sentence about what the agent said. The judge
-(graders/judge.py) and the labelers (suite/calibration.py) read the same sentence and the same
-rubric (`RUBRIC`) over the same transcript and final state, and nothing else of the case. Only
-the final state's fields in `SHOWN` are rendered, so whatever else a runner stores in its rows
-never reaches them.
+(graders/judge.py) and the labelers (suite/calibration.py) decide the same criterion by the same
+rubric (`RUBRIC`) over the same transcript and final state, and nothing else of the case; the
+labelers' page asks it in the positive, with the rubric's rules as options (`calibration.ASKED`).
+Only the final state's fields in `SHOWN` are rendered, so whatever else a runner stores in its
+rows never reaches them.
 """
 
 import json
