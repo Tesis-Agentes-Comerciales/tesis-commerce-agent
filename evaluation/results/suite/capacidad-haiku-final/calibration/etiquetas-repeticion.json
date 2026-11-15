@@ -1,0 +1,106 @@
+{
+  "sample": "77b9270e3062",
+  "page": "repeat",
+  "labels": {
+    "j1b6d53dc22f2cd549be83814": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "ja49d8651e06eec6d20e12236": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j1608b0b467d49ba2e67ae2a8": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j4612ea9f35d90b14c0e87615": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j5a51ef7fe1cebfd0896cdeba": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j4335a25d7b77c607a52a81a3": {
+      "answer": "fail",
+      "choice": "A medias o ambiguo",
+      "note": ""
+    },
+    "j1025eeff10fee4becd9e0208": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j745c753c945a6a2dc41f57ab": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "je4180654ede6df7ac942ae9b": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "ja5ac5e43d519a45e7947fa60": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "ja74e948d82c65498a7457cd1": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "jd331bf027ca533e5089b44d9": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j93791a9f00a080c2a1951400": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j075f49b8d6f31c2c03caa89b": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jd6df522ae2245da7d7abbce7": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j0e18413368575020dbcfa1ae": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j9583e2111be412a4a292ff65": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jeb89e4883255647987041537": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "jc58b543ddc906ee40cbdbc37": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j7d86845116b9b6426dcdcf52": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    }
+  }
+}

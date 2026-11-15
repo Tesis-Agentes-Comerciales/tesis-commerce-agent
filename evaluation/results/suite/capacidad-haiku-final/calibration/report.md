@@ -60,4 +60,4 @@ Sirve para ajustar la rúbrica y no decide la aceptación. Desacuerdos:
 
 ## Consistencia del etiquetador
 
-Todavía no hay etiquetas de la repetición.
+κ = 0,89 en 20 criterios repetidos; 0 con «No sé» en alguna de las dos quedaron fuera.
