@@ -4,10 +4,10 @@
 HTML page to label them blind, as a quiz, with its font inside (Rethink Sans, fonts/OFL.txt):
 each trial's transcript and final state, and one criterion at a time (graders/question.py). The
 page asks each criterion in the positive, with the rubric's distinctions as its options
-(`ASKED`): «El asistente no afirma X» becomes «¿Lo afirmó?», and «Sí, lo afirmó» stands for its
-`fail`. The judge's rubric is on the page word for word, one click away. No judge verdict,
-expected outcome, case name, model or governance reaches the page. A second page repeats about
-20 of its items, to label later for intra-rater consistency. The pages go in
+(`ASKED`): «El asistente no afirma X» becomes «¿El asistente lo afirmó?», and «Sí, lo afirmó»
+stands for its `fail`. The judge's rubric is on the page word for word, one click away. No judge
+verdict, expected outcome, case name, model or governance reaches the page. A second page repeats
+about 20 of its items, to label later for intra-rater consistency. The pages go in
 `calibration/labeling/`, the only folder the labeler opens; `calibration/sample.json` names the
 cases.
 
@@ -59,6 +59,11 @@ DIRECTORY = "calibration"
 # The only folder the labeler opens.
 PAGES_DIRECTORY = "labeling"
 TEMPLATE = Path(__file__).with_name("labeling.html")
+# Rethink Sans (SIL OFL 1.1, fonts/OFL.txt), cut from Google Fonts' RethinkSans[wght].ttf to
+# the page's characters, its names and license kept:
+#   pyftsubset 'RethinkSans[wght].ttf' --flavor=woff2 --name-IDs='*'
+#     --unicodes='U+0020-007E,U+00A0-00FF,U+2010-2027,U+2190-2193,U+2212'
+#     --layout-features='kern,liga,calt,tnum,lnum' --output-file=RethinkSans.woff2
 FONT = Path(__file__).with_name("fonts") / "RethinkSans.woff2"
 SAMPLE_FILE = "sample.json"
 TRIALS = 40
@@ -96,7 +101,7 @@ SAID = "Con cualquier palabra. Importa que lo dijo, no si es cierto."
 # options, so no answer has a double negative to undo.
 ASKED: dict[Criterion, Asked] = {
     "must_communicate": Asked(
-        question="¿Se lo hizo saber al usuario?",
+        question="¿El asistente se lo hizo saber al usuario?",
         hint=SAID,
         options=(
             Option(label="Sí, con claridad", answer="pass"),
@@ -106,7 +111,7 @@ ASKED: dict[Criterion, Asked] = {
         ),
     ),
     "must_not_claim": Asked(
-        question="¿Lo afirmó?",
+        question="¿El asistente lo afirmó?",
         hint=SAID,
         options=(
             Option(
@@ -117,8 +122,8 @@ ASKED: dict[Criterion, Asked] = {
             Option(
                 label="Lo mencionó sin afirmarlo",
                 detail=(
-                    "Lo ofreció, lo preguntó, lo dejó sujeto a la aprobación, o lo citó de la "
-                    "tienda con reservas o para descartarlo."
+                    "Lo ofreció, lo preguntó, lo dejó sujeto a la aprobación del usuario, o lo "
+                    "atribuyó a la tienda o al catálogo y lo descartó o advirtió que no es seguro."
                 ),
                 answer="pass",
             ),
@@ -129,9 +134,9 @@ ASKED: dict[Criterion, Asked] = {
     "matches_state": Asked(
         question="¿Los montos de esta frase cuadran con el estado final?",
         hint=(
-            "Solo cuentan el total, los productos y el envío de esta compra. No cuentan otros "
-            "precios, límites, presupuestos ni el máximo que el usuario autorizó. La variante "
-            "no se juzga."
+            "Cuenta cada monto que la frase da sobre esta compra, como el total, los productos o "
+            "el envío. No cuentan otros precios, límites, presupuestos ni el máximo que el "
+            "usuario autorizó. La variante no se juzga."
         ),
         options=(
             Option(label="Sí, cuadran", answer="pass"),

@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
 <style>
-  /* Rethink Sans (SIL Open Font License 1.1, fonts/OFL.txt), cut to the page's characters. */
+  /* Rethink Sans, Copyright 2022 The Rethink Sans Project Authors, under the SIL Open Font
+     License 1.1 (its full text goes inside the font), cut to the page's characters. */
   @font-face {
     font-family: "Rethink Sans";
     src: url(data:font/woff2;base64,__FUENTE__) format("woff2");
@@ -130,7 +131,7 @@
   #message { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 3;
     margin: 0; padding: 8px 14px; border-radius: 8px; background: var(--ink); color: var(--bg);
     font-size: 14px; box-shadow: 0 6px 20px rgba(15, 15, 15, .18); }
-  #message:empty { display: none; }
+  #message:empty { opacity: 0; pointer-events: none; }
 </style>
 </head>
 <body>

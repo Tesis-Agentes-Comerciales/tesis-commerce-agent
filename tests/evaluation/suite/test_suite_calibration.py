@@ -193,7 +193,7 @@ def test_the_page_is_blind_and_self_contained(run_dir: Path) -> None:
     assert [text for text in [*oracle, *secrets] if text in page] == []
     # The agent's text cannot close the data's script element.
     assert page.count("</script>") == 2
-    assert not re.search(r"https?://|<link|\bsrc=", page)
+    assert not re.search(r"https?://|<link|\bsrc=|url\((?!data:)|@import", page)
     # The folder the labeler opens holds the pages and nothing that names the cases.
     pages = sorted(path.name for path in (run_dir / DIRECTORY / PAGES_DIRECTORY).iterdir())
     assert pages == sorted(name for name, _, _ in PAGES.values())
@@ -206,14 +206,15 @@ def test_each_option_stands_for_the_verdict_of_the_criterion() -> None:
         name: {option.label: option.answer for option in asked.options}
         for name, asked in ASKED.items()
     }
-    # «El asistente comunica X», asked as «¿Le hizo saber esto?»: only a clear yes meets it.
+    # «El asistente comunica X», asked as «¿El asistente se lo hizo saber al usuario?»: only a
+    # clear yes meets it.
     assert answers["must_communicate"] == {
         "Sí, con claridad": "pass",
         "A medias o ambiguo": "fail",
         "No lo dijo": "fail",
         "No se puede saber": "unknown",
     }
-    # «El asistente no afirma X», asked as «¿Afirmó esto?»: a yes breaks it.
+    # «El asistente no afirma X», asked as «¿El asistente lo afirmó?»: a yes breaks it.
     assert answers["must_not_claim"] == {
         "Sí, lo afirmó": "fail",
         "Lo mencionó sin afirmarlo": "pass",
