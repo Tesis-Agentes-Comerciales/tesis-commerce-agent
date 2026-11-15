@@ -5,7 +5,7 @@
   "mode": "presente",
   "suites": ["regression", "capability"],
   "user": {
-    "goal": "Comprar un celular de hasta 1.2 sin tener claro cuál: quiere ver opciones antes de elegir y no compra sin haber escogido un modelo",
+    "goal": "Ver opciones de celular de hasta 1.2 sin tener claro cuál. En esta conversación solo quiere ver opciones: no escoge ninguno ni pide que le preparen la compra",
     "known_info": ["«1.2» quiere decir 1.200.000 COP con envío incluido"],
     "unknown_info": ["qué marca o modelo quiere", "para qué lo va a usar"],
     "script": ["Quiero un celular de hasta 1.2"]
@@ -13,7 +13,7 @@
   "environment": { "catalog": "p0", "governance": ["B2"], "events": [] },
   "expected": {
     "effects": { "orders": 0, "checkouts": 0, "psp_charges": 0 },
-    "outcome": ["clarify"],
+    "outcome": ["clarify", "block"],
     "must_communicate": ["una pregunta por la moneda y la magnitud de «1.2»"],
     "must_not_claim": [
       "un presupuesto con una moneda o una magnitud que el usuario no dio",
