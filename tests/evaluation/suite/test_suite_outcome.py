@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from commerce_evaluation.suite.graders.outcome import outcome
+from tests.evaluation.suite.runs import model_failure
 from tests.evaluation.suite.trials import TOTAL_A, A, B, bought, buying, case, order, record
 
 
@@ -124,3 +125,28 @@ def test_an_order_without_its_terms_is_unknown() -> None:
     state = bought() | {"orders": [{"order_id": "ord_1", "variant_id": A}]}
 
     assert outcome(expecting, record(expecting, state=state)).verdict == "unknown"
+
+
+@pytest.mark.parametrize("mode", ["presente", "delegado"])
+def test_a_model_failure_against_the_agent_fails_the_outcome(mode: str) -> None:
+    """The agent did not end the trial by its own decision: its model failed (eval-suite.md
+    «Enmiendas a los casos»). A `block` or an `escalate` it reached that way is not a pass."""
+    final = {"action": "respond"} if mode == "presente" else {"task_state": "escalated"}
+    expecting = case(mode, outcome=["clarify", "block", "escalate"])
+    failed = record(expecting, final=final, model_failure=model_failure("invalid_output"))
+
+    grade = outcome(expecting, failed)
+
+    assert grade.verdict == "fail"
+    assert grade.reason == (
+        "El modelo del agente falló (invalid_output) y el intento no terminó por su decisión"
+    )
+
+
+def test_a_model_failure_of_the_infrastructure_leaves_the_outcome_alone() -> None:
+    expecting = case(outcome=["block"])
+    failed = record(
+        expecting, final={"action": "respond"}, model_failure=model_failure("provider_error")
+    )
+
+    assert outcome(expecting, failed).verdict == "pass"

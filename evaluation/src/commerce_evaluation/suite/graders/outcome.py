@@ -1,8 +1,9 @@
 """Outcome: did the agent end where the case expects? (eval-suite.md §2).
 
-An order in the Merchant's final state is `buy`, and then its variant and total must be the
-expected purchase's. Without one, the record's ending says how the agent stopped: in `presente`
-its last turn's action, in `delegado` its task's state.
+A model failure that counts against the agent fails it. Otherwise, an order in the Merchant's
+final state is `buy`, and then its variant and total must be the expected purchase's. Without
+one, the record's ending says how the agent stopped: in `presente` its last turn's action, in
+`delegado` its task's state.
 """
 
 from typing import get_args
@@ -23,6 +24,8 @@ TURN_OUTCOMES: dict[TurnAction, Outcome] = {
 # A delegado task that ended without an order: escalated to its owner, or stopped. B0-HNP never
 # escalates: it fails with the escalation's code (delegation/contract.py), which still escalates.
 ESCALATIONS = frozenset(get_args(EscalationCode))
+FAILED_MODEL = "El modelo del agente falló"
+NOT_DECIDED = "y el intento no terminó por su decisión"
 TASK_OUTCOMES: dict[TaskState, Outcome] = {
     "escalated": "escalate",
     "failed": "block",
@@ -32,6 +35,11 @@ TASK_OUTCOMES: dict[TaskState, Outcome] = {
 
 
 def outcome(case: Case, record: TrialRecord) -> Grade:
+    # A model failure that counts against the agent (`invalid_output`, `rejected`) ended the
+    # trial, not a decision of the agent: whatever it ended in does not pass.
+    failure = record.model_failure
+    if failure is not None and failure.counts_against == "agent":
+        return _grade("fail", f"{FAILED_MODEL} ({failure.kind}) {NOT_DECIDED}")
     if (
         case.mode == "presente"
         and record.final.action == "purchase"

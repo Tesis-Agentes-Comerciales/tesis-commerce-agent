@@ -9,8 +9,8 @@ juez `claude-opus-5-5` por Batch.
 
 | Corrida | Agente | Simulador | pass^1 | pass^5 | Ataques logrados | USD |
 | --- | --- | --- | --- | --- | --- | --- |
-| `capacidad-haiku-final` | Haiku 5.5 | Sonnet 5.5 | B2 64,0 % | B2 60,0 % | | 2,92 |
-| `capacidad-sonnet-final` | Sonnet 5.5 | Opus 5.5 | B2 82,0 % | B2 75,0 % | | 4,62 |
+| `capacidad-haiku-final` | Haiku 5.5 | Sonnet 5.5 | B2 62,0 % | B2 55,0 % | | 2,92 |
+| `capacidad-sonnet-final` | Sonnet 5.5 | Opus 5.5 | B2 80,0 % | B2 75,0 % | | 4,62 |
 | `adversarial-haiku-final` | Haiku 5.5 | Sonnet 5.5 | B0 90,0 %, B2 80,0 % | B0 66,7 %, B2 33,3 % | B0 0 de 21, B2 0 de 22 | 1,64 |
 | `adversarial-sonnet-final` | Sonnet 5.5 | Opus 5.5 | B0 y B2 100 % | B0 y B2 100 % | B0 0 de 25, B2 0 de 25 | 2,34 |
 
@@ -19,12 +19,18 @@ costo por rol están en el `report.md` de cada corrida. El costo incluye al juez
 `adversarial-haiku-final`, 7 intentos de ataque no cuentan en la tasa porque el texto inyectado
 no llegó al modelo.
 
+**Reportes regenerados el 15-nov-2026.** El calificador de resultado dejaba pasar un intento que
+terminaba en una falla del modelo contada contra el agente («The conversation model request
+failed»), si el caso aceptaba `block`. Se corrigió (`docs/design/eval-suite.md`, «Enmiendas a los
+casos») y se regeneraron todos los reportes que se pueden regenerar. En capacidad bajan 2 intentos
+por corrida oficial: Haiku de 64 % a 62 % y Sonnet de 82 % a 80 %. Las adversariales no cambian.
+
 ## Piloto y humo
 
 | Corrida | Commit | pass^1 | USD |
 | --- | --- | --- | --- |
-| `capacidad-haiku-k5` | `2f6ea3d` | B2 64,0 % | 2,73 |
-| `capacidad-sonnet-k5` | `2f6ea3d` | B2 80,0 % | 4,40 |
+| `capacidad-haiku-k5` | `2f6ea3d` | B2 63,0 % | 2,73 |
+| `capacidad-sonnet-k5` | `2f6ea3d` | B2 78,0 % | 4,40 |
 | `adversarial-haiku-k5` | `2f6ea3d` | B0 80,0 %, B2 76,7 % | 1,56 |
 | `adversarial-sonnet-k5` | `2f6ea3d` | B0 46,7 %, B2 46,7 % | 3,46 |
 | `humo-haiku-1`, `-2` y `-3` | `19069d6` y `2f6ea3d` | sin juez | 0,01 |
@@ -59,8 +65,8 @@ verificar cada PR tampoco se suben (`verificacion-prs/`): no llaman a un LLM y s
 ## Cómo se verifica
 
 `uv run eval-suite report evaluation/results/suite/<corrida>` reescribe el reporte desde estos
-archivos, sin llamar a ningún LLM. Con las cuatro oficiales sale un `report.md` idéntico. Con
-`capacidad-*-k5` y los humos sale el mismo resultado. Con `adversarial-*-k5` no: sin las bases, el
+archivos, sin llamar a ningún LLM. Con las cuatro oficiales, `capacidad-*-k5` y los humos sale un
+`report.md` idéntico al subido. Con `adversarial-*-k5` no: sin las bases, el
 reporte no ve la entrega de la inyección, deja los 50 ataques «sin evidencia» y la tasa queda sin
 datos. Para esas dos corridas vale el `report.md` subido, que se escribió con las bases.
 `SHA256SUMS` tiene la huella de cada archivo.

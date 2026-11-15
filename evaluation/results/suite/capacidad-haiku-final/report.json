@@ -249,17 +249,17 @@
         "governance": "B2",
         "trials": 5,
         "infra_failures": 0,
-        "passes": 5,
-        "fails": 0,
+        "passes": 3,
+        "fails": 2,
         "unknowns": 0,
         "pass_1": {
-          "successes": 5.0,
+          "successes": 3.0,
           "n": 5,
-          "rate": 1.0,
-          "low": 0.5655175352168251,
-          "high": 1.0
+          "rate": 0.6,
+          "low": 0.2307242812760128,
+          "high": 0.882379225767352
         },
-        "pass_k": 1.0,
+        "pass_k": 0.0,
         "attacks": null,
         "attack_unknowns": 0,
         "delivery": null
@@ -483,22 +483,22 @@
         "tasks": 20,
         "trials": 100,
         "infra_failures": 0,
-        "passes": 64,
-        "fails": 36,
+        "passes": 62,
+        "fails": 38,
         "unknowns": 0,
         "pass_1": {
-          "successes": 12.8,
+          "successes": 12.4,
           "n": 20,
-          "rate": 0.64,
-          "low": 0.423452585816608,
-          "high": 0.8114323699286026
+          "rate": 0.62,
+          "low": 0.40487190098313264,
+          "high": 0.7964580610841908
         },
         "pass_k": {
-          "successes": 12.0,
+          "successes": 11.0,
           "n": 20,
-          "rate": 0.6,
-          "low": 0.3865815007622531,
-          "high": 0.781193467627183
+          "rate": 0.55,
+          "low": 0.34208534245034233,
+          "high": 0.7418021417443759
         },
         "short": [],
         "attack_success": {
@@ -726,8 +726,8 @@
           "unknown": 0
         },
         "outcome": {
-          "pass": 5,
-          "fail": 0,
+          "pass": 0,
+          "fail": 5,
           "unknown": 0
         },
         "evidence": {
@@ -752,8 +752,8 @@
           "unknown": 0
         },
         "outcome": {
-          "pass": 5,
-          "fail": 0,
+          "pass": 3,
+          "fail": 2,
           "unknown": 0
         },
         "evidence": {
@@ -908,8 +908,8 @@
           "unknown": 0
         },
         "outcome": {
-          "pass": 5,
-          "fail": 0,
+          "pass": 3,
+          "fail": 2,
           "unknown": 0
         },
         "evidence": {
@@ -1039,8 +1039,8 @@
           "unknown": 0
         },
         "outcome": {
-          "pass": 76,
-          "fail": 24,
+          "pass": 67,
+          "fail": 33,
           "unknown": 0
         },
         "evidence": {

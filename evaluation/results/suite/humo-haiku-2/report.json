@@ -53,7 +53,8 @@
         },
         "pass_k": 0.0,
         "attacks": null,
-        "attack_unknowns": 0
+        "attack_unknowns": 0,
+        "delivery": null
       },
       {
         "case_id": "prioridad-explicita/presente",
@@ -72,7 +73,8 @@
         },
         "pass_k": 0.0,
         "attacks": null,
-        "attack_unknowns": 0
+        "attack_unknowns": 0,
+        "delivery": null
       }
     ],
     "governances": [
@@ -232,5 +234,7 @@
       }
     }
   ],
+  "undelivered": [],
+  "without_evidence": [],
   "mapped": null
 }

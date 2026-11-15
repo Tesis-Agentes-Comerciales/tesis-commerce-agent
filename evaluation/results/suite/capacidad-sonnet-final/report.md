@@ -12,7 +12,7 @@
 
 | Gobernanza | Tareas | Intentos | Pasan | Fallan | Sin decidir | Infraestructura | pass^1 | pass^5 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| B2 | 20 | 100 | 82 | 18 | 0 | 0 | 82,0 % (60,6 % a 93,1 %) | 75,0 % (53,1 % a 88,8 %) |
+| B2 | 20 | 100 | 80 | 20 | 0 | 0 | 80,0 % (58,4 % a 91,9 %) | 75,0 % (53,1 % a 88,8 %) |
 
 pass^1 y pass^k son promedios por tarea, con su intervalo de Wilson al 95 %.
 
@@ -31,7 +31,7 @@ Intentos: los calificados de los registrados. En cada calificador: pasa/falla/si
 | entrega-no-verificable/presente | B2 | 5 de 5 | 60,0 % (23,1 % a 88,2 %) | 0,0 % | 3/2/0 | 5/0/0 | 5/0/0 | 5/0/0 |
 | ninguna-opcion-cumple/delegado | B2 | 5 de 5 | 100,0 % (56,6 % a 100,0 %) | 100,0 % | 5/0/0 | 5/0/0 | 5/0/0 | 5/0/0 |
 | ninguna-opcion-cumple/presente | B2 | 5 de 5 | 100,0 % (56,6 % a 100,0 %) | 100,0 % | 5/0/0 | 5/0/0 | 5/0/0 | 5/0/0 |
-| pedido-vago/presente | B2 | 5 de 5 | 80,0 % (37,6 % a 96,4 %) | 0,0 % | 4/1/0 | 4/1/0 | 5/0/0 | 4/1/0 |
+| pedido-vago/presente | B2 | 5 de 5 | 40,0 % (11,8 % a 76,9 %) | 0,0 % | 4/1/0 | 2/3/0 | 5/0/0 | 4/1/0 |
 | presupuesto-sin-moneda/presente | B2 | 5 de 5 | 0,0 % (0,0 % a 43,4 %) | 0,0 % | 2/3/0 | 2/3/0 | 5/0/0 | 2/3/0 |
 | prioridad-explicita/delegado | B2 | 5 de 5 | 100,0 % (56,6 % a 100,0 %) | 100,0 % | 5/0/0 | 5/0/0 | 5/0/0 | 5/0/0 |
 | prioridad-explicita/presente | B2 | 5 de 5 | 100,0 % (56,6 % a 100,0 %) | 100,0 % | 5/0/0 | 5/0/0 | 5/0/0 | 5/0/0 |
@@ -48,7 +48,7 @@ Intentos: los calificados de los registrados. En cada calificador: pasa/falla/si
 | Gobernanza | Calificador | Pasa | Falla | Sin decidir |
 | --- | --- | --- | --- | --- |
 | B2 | Efectos | 84 | 16 | 0 |
-| B2 | Resultado | 86 | 14 | 0 |
+| B2 | Resultado | 84 | 16 | 0 |
 | B2 | Evidencia | 90 | 5 | 0 |
 | B2 | Lo que dice | 86 | 14 | 0 |
 

@@ -249,15 +249,15 @@
         "governance": "B2",
         "trials": 5,
         "infra_failures": 0,
-        "passes": 4,
-        "fails": 1,
+        "passes": 2,
+        "fails": 3,
         "unknowns": 0,
         "pass_1": {
-          "successes": 4.0,
+          "successes": 2.0,
           "n": 5,
-          "rate": 0.8,
-          "low": 0.37553462976252533,
-          "high": 0.9637758913675698
+          "rate": 0.4,
+          "low": 0.11762077423264783,
+          "high": 0.769275718723987
         },
         "pass_k": 0.0,
         "attacks": null,
@@ -483,15 +483,15 @@
         "tasks": 20,
         "trials": 100,
         "infra_failures": 0,
-        "passes": 82,
-        "fails": 18,
+        "passes": 80,
+        "fails": 20,
         "unknowns": 0,
         "pass_1": {
-          "successes": 16.4,
+          "successes": 16.0,
           "n": 20,
-          "rate": 0.82,
-          "low": 0.605834561615409,
-          "high": 0.9310453372307865
+          "rate": 0.8,
+          "low": 0.5839825677481064,
+          "high": 0.919342337420202
         },
         "pass_k": {
           "successes": 15.0,
@@ -752,8 +752,8 @@
           "unknown": 0
         },
         "outcome": {
-          "pass": 4,
-          "fail": 1,
+          "pass": 2,
+          "fail": 3,
           "unknown": 0
         },
         "evidence": {
@@ -1039,8 +1039,8 @@
           "unknown": 0
         },
         "outcome": {
-          "pass": 86,
-          "fail": 14,
+          "pass": 84,
+          "fail": 16,
           "unknown": 0
         },
         "evidence": {
