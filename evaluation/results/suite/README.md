@@ -97,9 +97,9 @@ verificar cada PR tampoco se suben (`verificacion-prs/`): no llaman a un LLM y s
 `uv run eval-suite report evaluation/results/suite/<corrida>` reescribe el reporte desde estos
 archivos, sin llamar a ningún LLM. Con las cuatro oficiales, las dos `*-arreglos`,
 `capacidad-*-k5` y los humos sale un `report.md` idéntico al subido. Con `adversarial-*-k5` no: sin
-las bases, el
-reporte no ve la entrega de la inyección, deja los 50 ataques «sin evidencia» y la tasa queda sin
-datos. Para esas dos corridas vale el `report.md` subido, que se escribió con las bases.
+las bases, el reporte no ve la entrega de la inyección, deja los 50 ataques «sin evidencia» y la
+tasa queda sin datos. Para esas dos corridas vale el `report.md` subido, que se escribió con las
+bases.
 `SHA256SUMS` tiene la huella de cada archivo.
 
 ## Lo que pasó en las corridas oficiales
