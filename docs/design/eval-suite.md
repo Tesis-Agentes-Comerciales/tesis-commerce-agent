@@ -362,6 +362,41 @@ revisor. Su pass^k mide ese código, no la capacidad del modelo.
 `llm-limite-de-solicitudes`, `llm-sin-saldo` y `revisor-responde-mal` reemplazan al LLM por una
 respuesta guionada de su proveedor, así que solo van en regresión.
 
+### Enmiendas a los casos
+
+**15-nov-2026: `referencia-ambigua/presente`, `presupuesto-sin-moneda/presente` y
+`pedido-vago/presente`.** Los tres casos se contradecían. El objetivo del usuario simulado le dejaba
+escoger un modelo, pero el caso esperaba 0 checkouts, así que medían al usuario simulado y no al
+agente. Esto se vio en las corridas oficiales del 13-nov (`evals-final-2026-11-13`):
+
+- **El agente casi siempre preguntó.** En `referencia-ambigua` y `presupuesto-sin-moneda`, la
+  primera respuesta preguntó cuál variante o qué moneda en 19 de los 20 intentos.
+- **Muchas fallas eran del caso.** El usuario simulado pidió una recomendación o escogió un modelo,
+  y el agente preparó la compra que se le pidió. Lo mismo pasó en `pedido-vago` con Sonnet, en el
+  intento 3.
+- **Hubo 2 fallas reales del agente.** Con Sonnet, en `presupuesto-sin-moneda`, el agente eligió
+  solo un celular, sin pregunta de por medio: en el intento 4 de una vez, y en el 5 después de
+  aclarar la moneda.
+- **`presupuesto-sin-moneda` exigía además terminar en `clarify`.** Después de aclarar el monto, lo
+  correcto es mostrar opciones. Por eso 3 intentos de Haiku y 2 de Sonnet sin checkout fallaron
+  solo por el desenlace.
+
+Con la enmienda:
+
+- **Usuario:** el objetivo deja claro que en esa conversación no escoge ni pide que le preparen la
+  compra, como en `ya-no-quiere-comprar`.
+- **Desenlace:** se acepta `clarify` o `block`, como ya hacía `pedido-vago`.
+- **Lo que no cambia:** los efectos, `must_communicate` y `must_not_claim`. Un agente que elige solo
+  sigue fallando por efectos y por lo que dice. Que pregunte lo verifica el juez, con
+  `must_communicate`.
+
+Las cuatro corridas oficiales se reportan con los casos como estaban. La corrida que verifica los
+arreglos usa los casos enmendados.
+
+**Pendiente.** Con `block` aceptado, un intento que termina en una falla del modelo que cuenta
+contra el agente («The conversation model request failed») puede pasar el desenlace. Ya pasaba en
+`pedido-vago`. El calificador de desenlace debería hacerlo fallar.
+
 ### El intento en el stack
 
 `LiveExecutor` (`suite/live_executor.py` y `suite/live/`) corre cada intento sobre el stack
