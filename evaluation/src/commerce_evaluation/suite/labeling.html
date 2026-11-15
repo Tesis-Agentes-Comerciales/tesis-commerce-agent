@@ -268,6 +268,7 @@ function render() {
     const unsure = stops.filter((_, stop) => (labels[itemAt(stop).id] || {}).answer === "unknown").length;
     $("done-count").textContent = `Respondiste ${done} de ${stops.length}, ${unsure} con «No se puede saber».`;
     $("done-file").textContent = `Descarga el archivo: queda en Descargas como ${data.download}.`;
+    $("quiz").scrollIntoView({ block: "nearest" });
     return;
   }
   const [t, i] = stops[at];
