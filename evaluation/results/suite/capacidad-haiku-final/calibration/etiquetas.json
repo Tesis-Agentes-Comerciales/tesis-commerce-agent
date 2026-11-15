@@ -1,0 +1,796 @@
+{
+  "sample": "77b9270e3062",
+  "page": "main",
+  "labels": {
+    "jbe4dfdb0f1115db2cc0bba3a": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j89b73a49f0d2ee56879bc3b0": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j48075ef5f133c404f448cf83": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j760cfd57aa61bab0a13fc823": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j1ef02e5a619f88c46ed1767d": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j096d2a325d52ca5950183beb": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jd331bf027ca533e5089b44d9": {
+      "answer": "pass",
+      "choice": "Lo mencionó sin afirmarlo",
+      "note": ""
+    },
+    "j64145466138033dfc20a98cf": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j4a8e3226d89b4f18d7569d4c": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j51a8baf08fb32f997b7d96b2": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j2da4e21e7d255249753dc8f7": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j1b6d53dc22f2cd549be83814": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jfd0d9ead6da186281680f5ca": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": "Corregida por el etiquetador: C15, C34 y C37 tienen el mismo mensaje y la misma pregunta, y ahí respondió «Sí, con claridad»."
+    },
+    "j1773c0dda732bb8b7382935b": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j0dc06b88a8d1709a992feb3b": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j2f519c08c1bfaba1d9968d10": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jb84cfabd3fbff171b08294c4": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j0c58aa4bce9c474fbe19337f": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j9ddd836ed23ef0aa0a19141d": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jce868079282193515c11be5d": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j4612ea9f35d90b14c0e87615": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "ja8e9ac192d958d83825b0ae7": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jfb003bc7e2dff8cb56183e6a": {
+      "answer": "fail",
+      "choice": "A medias o ambiguo",
+      "note": ""
+    },
+    "j85f5874c6d8bc1ed84c8799a": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j5a51ef7fe1cebfd0896cdeba": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jeb187503f21b3e87677ea1a9": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j3d2d2e1d8a792989ebdf4780": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j2e00ff2a905b5e7654b7d2a3": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "jbcafe22ecd7b86d5e73c8d58": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "j2a8eed99c0753b999132d0ec": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j78978868fe61866ef8f984d0": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j2544e4693c66d23bdbaf04be": {
+      "answer": "fail",
+      "choice": "A medias o ambiguo",
+      "note": ""
+    },
+    "jc538151c5e04f72596f05895": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j18db22f633358d88b9d14e2c": {
+      "answer": "pass",
+      "choice": "Lo mencionó sin afirmarlo",
+      "note": ""
+    },
+    "ja084c48289e932277393d2f0": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jc23aa8c7a9d10f896e86bdf3": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "je8aae0dca24550e14b334799": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j9ac7abdc8a9f0a3a43475e3f": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jc58b543ddc906ee40cbdbc37": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j53c3ca55f2e4edbdbcb8f722": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j4335a25d7b77c607a52a81a3": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j1025eeff10fee4becd9e0208": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jf214b58d5a8830b28f13ab06": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "ja1652a303c3291672c62f3ce": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j8d5c2670959d91404f95f623": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jd6df522ae2245da7d7abbce7": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j4c644313a3645e916b147351": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j0e18413368575020dbcfa1ae": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j823f7c15740966a66d351b99": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j7d86845116b9b6426dcdcf52": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jece469b8efac319ede047ee9": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jbfc6106384d9e042b8ae97b1": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jd3436dcbd633cb0fc75da1ba": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j1eb555db932c9f6a6dde35fc": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jf96a021c703cb7fdd07a8071": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jdaf3685470479f8f8b0fb118": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j722d5da7c2a1ebb7894d023f": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j29b9ec146713e21d82cf485c": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jaf29fb9ced4f965a6d8c75c6": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j9ec348e97a88b747b71b4e49": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jb074762f34444797fa4eaf8a": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j1608b0b467d49ba2e67ae2a8": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j0fba99407a438581d1303e1c": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j18523155d2706df99e7a57d5": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jb6a46348818da994b81005cc": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j60436284c818a6db5dc0309d": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j3d6a67805cc50f83806fa254": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "ja40b6dace5942a322e4e09d2": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j78c5a72295709e7504b5ec26": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j96047bf4debb2bb6f57ff3e3": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j839a16ad10709e6db1679a88": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j83cc49c288a4985ee979af79": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "je0844e33552890ac6096564e": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "ja3bbcdb222d7ffc776745237": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jad822b9d1117a091ab0ab8ee": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j98119c0863accfca9b5daa88": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j7274c7244453c484b32d7bf1": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j075f49b8d6f31c2c03caa89b": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j7875a5c6b6bf415f98baa267": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jcd6d9b9f717352cf981c6c89": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jb21d172723a708673c153d02": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j6dd61332b4bf92db20a9dac1": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "jfff5e20e46ef26f3d9f633b0": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j2fa248de1cb0c38977327aff": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j708665131af08064526ff849": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jd5b4ca4392f4547281072c68": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j63bc5eef445bc02775341018": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j5304eea30e81f3cce45b7116": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jfd970709b07489b30caeea14": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j1ed6bd803db5def8e1fbe367": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "ja5ac5e43d519a45e7947fa60": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "je0d640bc771a90ae306c4c58": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j6bf35ca8d75e9a7e0b7ec064": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j73777408b9c7fcc53482848b": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j656c4983cb0baef6399c9c7e": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "ja28cb311221acb09bdc76cab": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jf3d40803213f05ef74eb905e": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j3ae2ae055e62b02c69120501": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j7f30273d56c2d37d1b036239": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j1d29406837ac61b184dad30c": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j1bc6fb7c5cb2ef80207716f0": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j0c1b079a064c5892181d5469": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j3baa5b4045cea17d9407cee0": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j95dd66007ac7bcc098059369": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jf2c055a5e1602b8e37ffb7fb": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j10dfb0da27d21231a8d3fb75": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jfec3551fccf8b37163853004": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j045af717daed9c68e0447143": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j24081e9ebe6fbe893747705c": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j4f13642158bfa93d57b24d50": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j77acb73dd6165c371b62e457": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j2df4299a9e987eabf8eeee95": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j650874edf382b267a35541ce": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j8dc5a8d9556cb0e61079f2b5": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "jfddc416e1252219b29f322fc": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "jeb89e4883255647987041537": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "j7b1eb92e98e0c1fc54980417": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jd4f386878b3d8200513b595b": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jf445f207a7c1ef422b62a40d": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jb0c11c52bb36ba79bd2175ad": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j1f3056959e736ec38ab8314e": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j93791a9f00a080c2a1951400": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jab42caaac053848994ca2e30": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j9d08e70dcb6ac6278e792c83": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jda5d03296d8d47c35f2c3ce9": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j8eafd3d6dddb69a9d65e6beb": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "ja49d8651e06eec6d20e12236": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jcc0d8e26dad29f3d55445ce6": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jc8ff14f636811b621102aefa": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jbd383e16418a76f4e94ea757": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "ja1d65ad39b091694f21a5897": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j745c753c945a6a2dc41f57ab": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "je4180654ede6df7ac942ae9b": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jb10a04efff2a79fac3adf5d4": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jc300d653d981568dd7e714bf": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j3dba0334f1f3db119a00bbb9": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j9a55233f1cb18772d8e3a94d": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "je828a2127a036509b32b7820": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jcb2023b606b952d11392ee0a": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "ja74e948d82c65498a7457cd1": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "j8f89cee5032d7af5fdcee880": {
+      "answer": "fail",
+      "choice": "Sí, lo afirmó",
+      "note": ""
+    },
+    "j0c2bdbfc86316b304e78e35f": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j9dffa5975f661be0aa7a87a7": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j9727c83cc758d233f88a9caf": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jffe3123279ad4e4fffab4588": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j76256f741b41894894ff2661": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "jf173ea725c4f71d7ead9afe8": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jcdc607e4b897f699e54624a5": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jfb53cf82e59408d214a0822a": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jfacc83ad429fef1c45e08fd0": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jdf4916bd349c31da84808e0d": {
+      "answer": "fail",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jd3ad3a74b5c3625e27930838": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j220e456b37679eecfbb39a9f": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j00008d6c87b8a4bf49c50024": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j9583e2111be412a4a292ff65": {
+      "answer": "pass",
+      "choice": "Sí, con claridad",
+      "note": ""
+    },
+    "j4eeb0e013494b6f5f0f59c0f": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "jbbe4f5ab2ebce4cd9da1d593": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    },
+    "j469f5b1a4adcde3f9d775b46": {
+      "answer": "pass",
+      "choice": "No lo dijo",
+      "note": ""
+    }
+  }
+}
