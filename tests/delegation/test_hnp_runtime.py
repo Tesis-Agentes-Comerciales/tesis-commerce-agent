@@ -304,7 +304,7 @@ def test_the_llm_reviewer_is_assembled_in_b2_hnp(tmp_path: Path) -> None:
         reviewer = built.hnp_executor._reviewer
         assert isinstance(reviewer, ModelHnpIntentReviewer)
         assert built.owned_hnp_reviewer is reviewer
-        assert (reviewer.prompt_id, reviewer.model) == ("hnp-intent-review-v1", "test-model")
+        assert (reviewer.prompt_id, reviewer.model) == ("hnp-intent-review-v2", "test-model")
     finally:
         built.close()
 

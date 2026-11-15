@@ -32,6 +32,7 @@ import pytest
 
 from commerce_agent.api import create_app
 from commerce_agent.llm import CommerceDecision
+from commerce_agent.llm.intent_review import PROMPT_ID
 from commerce_agent.llm.model_failures import SPEND_CAP
 from commerce_evaluation.stack.environment import AGENT, MODEL_PREFIXES, git_state
 from commerce_evaluation.stack.fault_proxy import CREATE_PATH
@@ -132,7 +133,18 @@ def on_router_first(cases: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any
     return cases
 
 
-CASES: dict[str, dict[str, Any]] = on_router_first(on_claude(PLAN["cases"]))
+def on_review_v2(cases: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The protocol froze the reviewer's prompt `hnp-intent-review-v1`; the real reviewer now
+    sends `PROMPT_ID` (v2, docs/design/hnp-intent-review.md §2), so its `choice_reviewed` oracles
+    are amended in place."""
+    for case in cases.values():
+        for review in case["oracle"].get("choice_reviewed", ()):
+            if review.get("prompt_id") == "hnp-intent-review-v1":
+                review["prompt_id"] = PROMPT_ID
+    return cases
+
+
+CASES: dict[str, dict[str, Any]] = on_review_v2(on_router_first(on_claude(PLAN["cases"])))
 
 ROUTED = CommerceDecision(
     action="purchase",

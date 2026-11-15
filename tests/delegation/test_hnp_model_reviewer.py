@@ -103,7 +103,25 @@ def test_it_is_an_intent_reviewer_named_by_its_prompt_and_model(
     model: HnpIntentReviewer = reviewer(tmp_path / "agent.db", monkeypatch)
 
     assert (model.prompt_id, model.model) == (PROMPT_ID, "test-model")
-    assert PROMPT_ID == "hnp-intent-review-v1"
+    assert PROMPT_ID == "hnp-intent-review-v2"
+
+
+def test_a_condition_the_catalog_cannot_show_is_not_confirmed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§2: a delivery deadline is not in the catalog observations and no component checks it."""
+    server = ModelServer(verdict("not_confirmed", "unclear"))
+    model = reviewer(tmp_path / "agent.db", monkeypatch, server)
+
+    assert review(model) == IntentReview("not_confirmed", "unclear")
+
+    (body,) = server.bodies()
+    instructions = " ".join(body["system"][0]["text"].split())
+    assert "delivery date or a delivery deadline" in instructions
+    assert "cannot be confirmed: answer not_confirmed / unclear" in instructions
+    # Limits stay out of it: D3 checks the total with shipping after the checkout.
+    assert "Price, total and shipping limits are not such conditions" in instructions
+    assert "a fallback for a sold-out product" in instructions
 
 
 def test_the_request_is_strict_and_answers_one_of_four_reasons(

@@ -17,7 +17,13 @@ queda es justo ese: una elección dentro del grant que contradice lo pedido.
 ## 2. Qué cubre y qué no
 
 - **Cubre:** si la variante que eligió el selector honra lo que pidió el comprador en
-  `preference_text`, dentro de la lista corta.
+  `preference_text`, dentro de la lista corta. Una condición que el catálogo no muestra y que
+  ningún componente revisa, como una fecha o un plazo de entrega («solo si llega antes del
+  viernes»), no se puede confirmar: el revisor responde `not_confirmed` / `unclear` y la compra se
+  escala. Los límites de precio, total y envío no son de este tipo, porque los revisan D1 y D3, y
+  tampoco la disponibilidad: la lista corta es lo que el comercio ofrece ahora (prompt
+  v2, 15-nov-2026: la suite mostró que v1 confirmaba la compra en `entrega-no-verificable/delegado`
+  en los 5 intentos de Haiku y en los 5 de Sonnet).
 - **No cubre:** los límites. El revisor no decide ni reemplaza a D1/D2/D3, al presupuesto ni al
   cierre; una elección fuera de la lista corta sigue siendo de K12 (POL-01 en B2-HNP), y el revisor
   ni siquiera se llama. Tampoco elige otra variante ni reintenta: solo confirma o detiene.
@@ -47,7 +53,7 @@ ReviewReason = "matches_request" | "contradicts_preference" | "outside_request" 
 `confirmed` va solo con `matches_request`, y `not_confirmed` con cualquiera de los otros cuatro.
 `review_unavailable` nunca sale del modelo: lo pone el ejecutor.
 
-`ModelHnpIntentReviewer` (`llm/intent_review.py`), prompt `hnp-intent-review-v1`: salida
+`ModelHnpIntentReviewer` (`llm/intent_review.py`), prompt `hnp-intent-review-v2`: salida
 estructurada con `decision` y `reason` (sin `review_unavailable`), `extra="forbid"`, `strict`. Un par
 incoherente, una respuesta sin salida, un error del SDK o un timeout levantan
 `IntentInterpretationError`.
@@ -141,6 +147,8 @@ la UI, y el resumen dice «revisor llm».
 - Un revisor que confirma: la compra sigue, `choice_reviewed(confirmed)` y el paso en su lugar.
 - Uno que no confirma: `escalated(choice_not_confirmed)`, 0 checkouts y 0 POST, con evento y paso.
 - Excepción o resultado inválido: `not_confirmed` / `review_unavailable`.
+- El prompt pide `not_confirmed` / `unclear` ante una condición de entrega, y excluye los límites
+  de precio, total y envío y la disponibilidad.
 - El revisor no recibe el razonamiento del selector ni descripciones libres del catálogo.
 - Arranque y `/health`, `ModelHnpIntentReviewer` con transporte falso, `demo-stack` y el contrato
   UI/backend con la fixture nueva.
