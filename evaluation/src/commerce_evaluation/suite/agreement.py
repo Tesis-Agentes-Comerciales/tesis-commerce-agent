@@ -49,6 +49,8 @@ class Sample(SuiteModel):
 
 class Label(SuiteModel):
     answer: Verdict | None = None
+    # The option the labeler picked (calibration.ASKED), which `answer` stands for.
+    choice: str = ""
     note: str = ""
 
 
@@ -68,6 +70,12 @@ def read_labels(path: Path, sample: Sample, page: Page) -> dict[str, Label]:
     items = set(sample.main if page == "main" else sample.repeat)
     if stray := sorted(set(labels.labels) - items):
         raise ValueError(f"{path} labels items outside its page: {', '.join(stray[:3])}")
+    # The quiz names the option behind each answer; the earlier page, which asked «no afirma X»
+    # as is, did not, and its answers are not to be mixed in.
+    if bare := sorted(
+        item for item, label in labels.labels.items() if label.answer and not label.choice
+    ):
+        raise ValueError(f"{path} has answers without the option picked: {', '.join(bare[:3])}")
     return {item: label for item, label in labels.labels.items() if label.answer is not None}
 
 

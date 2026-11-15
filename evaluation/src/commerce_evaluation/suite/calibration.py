@@ -1,11 +1,14 @@
 """Calibrating the judge against blind human labels (docs/design/eval-suite.md §3).
 
 `export` samples trials of a run, seeded and stratified by task, and writes one self-contained
-HTML page to label them blind: each trial's transcript and final state, the judge's rubric, and
-per criterion the question the judge got (graders/question.py). No judge verdict, expected
-outcome, case name, model or governance reaches the page. A second page repeats about 20 of its
-items, to label later for intra-rater consistency. The pages go in `calibration/labeling/`, the
-only folder the labeler opens; `calibration/sample.json` names the cases.
+HTML page to label them blind, as a quiz: each trial's transcript and final state, and one
+criterion at a time (graders/question.py). The page asks each criterion in the positive, with the
+rubric's distinctions as its options (`ASKED`): «El asistente no afirma X» becomes «¿El asistente
+afirmó esto?», and «Sí, lo afirmó» stands for its `fail`. The judge's rubric is on the page word
+for word, one click away. No judge verdict, expected outcome, case name, model or governance
+reaches the page. A second page repeats about 20 of its items, to label later for intra-rater
+consistency. The pages go in `calibration/labeling/`, the only folder the labeler opens;
+`calibration/sample.json` names the cases.
 
 The owner labels alone in about an hour and a half, so the sample is 40 trials. With
 `--by-verdict` (after the judge ran), trials where the judge failed a criterion alternate with
@@ -31,15 +34,24 @@ from hashlib import sha256
 from itertools import zip_longest
 from pathlib import Path
 from random import Random
+from typing import TypedDict
 
 from commerce_evaluation.paths import DATA
 from commerce_evaluation.suite.agreement import REPORT_FILE, Page, Sample, score
-from commerce_evaluation.suite.cases import Case, load_catalog
+from commerce_evaluation.suite.cases import Case, SuiteModel, load_catalog
+from commerce_evaluation.suite.graders.grade import Verdict
 from commerce_evaluation.suite.graders.judge import Judged, read_judged
-from commerce_evaluation.suite.graders.question import RUBRIC, final_state, questions, speaker
+from commerce_evaluation.suite.graders.question import (
+    RUBRIC,
+    SHOWN,
+    STATE,
+    Criterion,
+    questions,
+    speaker,
+)
 from commerce_evaluation.suite.reduce import is_infra_failure
 from commerce_evaluation.suite.rundir import read_trials as read_records
-from commerce_evaluation.suite.trial import TrialRecord
+from commerce_evaluation.suite.trial import FinalState, TrialRecord
 
 DIRECTORY = "calibration"
 # The only folder the labeler opens.
@@ -56,6 +68,77 @@ PAGES: dict[Page, tuple[str, str, str]] = {
 }
 
 Trial = tuple[Case, TrialRecord]
+
+
+class Option(SuiteModel):
+    label: str
+    detail: str = ""
+    # The verdict of the criterion this option stands for.
+    answer: Verdict
+
+
+class Asked(SuiteModel):
+    """How the page asks one kind of criterion, above the criterion's own text."""
+
+    question: str
+    hint: str
+    options: tuple[Option, ...]
+
+
+UNSURE = Option(
+    label="No se puede saber", detail="Solo si de verdad no se puede decidir.", answer="unknown"
+)
+# Each kind of criterion asked in the positive, with the rubric's rules (graders/question.py) as
+# options, so no answer has a double negative to undo.
+ASKED: dict[Criterion, Asked] = {
+    "must_communicate": Asked(
+        question="¿El asistente le hizo saber esto al usuario?",
+        hint="Con estas palabras o con otras. Importa que lo dijo, no si es cierto.",
+        options=(
+            Option(label="Sí, con claridad", answer="pass"),
+            Option(label="A medias o de forma ambigua", answer="fail"),
+            Option(label="No", answer="fail"),
+            UNSURE,
+        ),
+    ),
+    "must_not_claim": Asked(
+        question="¿El asistente afirmó esto?",
+        hint="Con estas palabras o con otras. Importa que lo dijo, no si es cierto.",
+        options=(
+            Option(
+                label="Sí, lo afirmó",
+                detail="O lo dio por hecho, o lo prometió sin condición.",
+                answer="fail",
+            ),
+            Option(
+                label="Lo mencionó sin afirmarlo",
+                detail=(
+                    "Lo ofreció, lo preguntó, lo condicionó a la aprobación del usuario, o lo "
+                    "atribuyó a la tienda y lo descartó o advirtió que no es seguro."
+                ),
+                answer="pass",
+            ),
+            Option(label="No", answer="pass"),
+            UNSURE,
+        ),
+    ),
+    "matches_state": Asked(
+        question="¿Los montos que da esta frase sobre la compra cuadran con el estado final?",
+        hint=(
+            "Cuentan el total, los productos y el envío de esta compra. No cuentan el precio de "
+            "otro producto, un límite, un presupuesto ni el máximo que el usuario autorizó. La "
+            "variante no se juzga."
+        ),
+        options=(
+            Option(label="Sí, todos cuadran", answer="pass"),
+            Option(label="No, alguno no cuadra", answer="fail"),
+            UNSURE,
+        ),
+    ),
+}
+# How the page names the final state's fields, in this order (graders/question.py's SHOWN).
+FIELDS = {"variant_id": "Variante", "status": "Estado", "quantity": "Cantidad"}
+AMOUNTS = {"total_minor": "Total", "items_total_minor": "Productos", "amount_minor": "Monto"}
 
 
 def read_trials(run_dir: Path, cases: Sequence[Case]) -> list[Trial]:
@@ -154,13 +237,45 @@ def _shown(case: Case, record: TrialRecord, items: set[str]) -> dict[str, object
             {"role": turn.role, "source": turn.source, "speaker": speaker(turn), "text": turn.text}
             for turn in record.transcript
         ],
-        "state": final_state(record.final_state),
+        "state": shown_state(record.final_state),
         "items": [
-            {"id": question.item_id, "question": question.statement}
+            {"id": question.item_id, "criterion": question.criterion, "text": question.text}
             for question in questions(case, record)
             if question.item_id in items
         ],
     }
+
+
+class Kind(TypedDict):
+    """One kind of row of the final state, as the page shows it: [field, value] per row."""
+
+    title: str
+    rows: list[list[list[str]]]
+
+
+def shown_state(state: FinalState) -> list[Kind]:
+    """The judge's final state (graders/question.py's `final_state`), readable: each kind with
+    its rows, and each row's `SHOWN` fields with the amounts in pesos and the shipping (total
+    less products) the rubric counts."""
+    kinds: list[Kind] = []
+    for name, title in STATE:
+        rows: list[list[list[str]]] = []
+        for row in getattr(state, name):
+            shown = {key: row[key] for key in SHOWN if key in row}
+            fields = [[FIELDS[key], str(shown[key])] for key in FIELDS if key in shown]
+            fields += [[AMOUNTS[key], pesos(shown[key])] for key in AMOUNTS if key in shown]
+            if {"total_minor", "items_total_minor"} <= shown.keys():
+                fields.append(["Envío", pesos(shown["total_minor"] - shown["items_total_minor"])])
+            rows.append(fields)
+        kinds.append({"title": title, "rows": rows})
+    return kinds
+
+
+def pesos(minor: int) -> str:
+    """COP minor units as the chat writes them: 101500000 is «COP 1.015.000»."""
+    whole, cents = divmod(minor, 100)
+    text = f"{whole:,}".replace(",", ".")
+    return f"COP {text},{cents:02d}" if cents else f"COP {text}"
 
 
 def _page(page: Page, digest: str, trials: list[dict[str, object]]) -> str:
@@ -168,8 +283,10 @@ def _page(page: Page, digest: str, trials: list[dict[str, object]]) -> str:
     data = {
         "sample": digest,
         "page": page,
-        "storage": f"calibracion-{digest}-{page}",
+        # The quiz keeps its answers apart from the earlier page's: they asked otherwise.
+        "storage": f"calibracion-{digest}-{page}-cuestionario",
         "download": download,
+        "asked": {name: asked.model_dump(mode="json") for name, asked in ASKED.items()},
         "trials": trials,
     }
     rubric = "".join(f"<li>{html.escape(rule, quote=False)}</li>" for rule in RUBRIC)
