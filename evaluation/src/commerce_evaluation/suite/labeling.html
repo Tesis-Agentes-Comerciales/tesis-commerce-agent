@@ -54,6 +54,7 @@
   .turn.assistant { margin-left: auto; background: var(--panel); border: 1px solid var(--line); }
   .turn.purchase_update { border-style: dashed; }
   .speaker { display: block; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .aside { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
   .state { margin-top: 22px; padding: 12px 14px; background: var(--panel);
     border: 1px solid var(--line); border-radius: 12px; }
   .state summary { cursor: pointer; font-weight: 600; }
@@ -140,7 +141,7 @@
       <div class="move">
         <button id="previous" type="button">Anterior</button>
         <button id="next" type="button">Siguiente</button>
-        <p class="keys"><kbd>1</kbd> a <kbd>4</kbd> responder, <kbd>←</kbd> <kbd>→</kbd> moverse</p>
+        <p class="keys"><kbd id="keys">1 a 4</kbd> responder, <kbd>←</kbd> <kbd>→</kbd> moverse</p>
       </div>
     </div>
     <div id="done" class="done" hidden>
@@ -164,11 +165,13 @@ const data = JSON.parse(document.getElementById("data").textContent);
 const $ = (id) => document.getElementById(id);
 // One stop per criterion, in the page's order: [trial, item].
 const stops = data.trials.flatMap((trial, t) => trial.items.map((_, i) => [t, i]));
+const byId = Object.fromEntries(data.trials.flatMap((trial) => trial.items.map((item) => [item.id, item])));
 let labels = {};
 try { labels = JSON.parse(localStorage.getItem(data.storage) || "{}") || {}; } catch (error) { labels = {}; }
 let at = 0;
 let finished = false;
 let shownTrial = -1;
+let shownStop = -1;
 let advance = null;
 
 function save() {
@@ -183,17 +186,15 @@ function element(tag, className, text) {
 }
 
 function itemAt(stop) { const [t, i] = stops[stop]; return data.trials[t].items[i]; }
-function answered(item) { return Boolean(labels[item.id] && labels[item.id].answer); }
+function answered(item) { return picked(item, labels[item.id]) >= 0; }
 function firstPending() { return stops.findIndex((_, stop) => !answered(itemAt(stop))); }
 function sentence(text) { return text ? text[0].toUpperCase() + text.slice(1) : text; }
 
-function chosen(item) {
-  // The option picked; a file without `choice` shows the first option with its answer.
-  const label = labels[item.id];
+function picked(item, label) {
+  // The option behind an answer; an answer without one (the earlier page's) is no answer.
   if (!label || !label.answer) return -1;
-  const options = data.asked[item.criterion].options;
-  const named = options.findIndex((option) => option.label === label.choice);
-  return named >= 0 ? named : options.findIndex((option) => option.answer === label.answer);
+  return data.asked[item.criterion].options.findIndex(
+    (option) => option.label === label.choice && option.answer === label.answer);
 }
 
 function renderTrial(t) {
@@ -203,6 +204,7 @@ function renderTrial(t) {
     // `speaker` is the judge's own label (graders/question.py), the chat's notice included.
     const node = element("div", turn.source ? `turn ${turn.role} ${turn.source}` : `turn ${turn.role}`);
     node.append(element("span", "speaker", turn.speaker), turn.text);
+    if (turn.source === "purchase_update") node.append(element("span", "aside", "Cuenta como dicho por el asistente."));
     return node;
   }));
   if (!trial.turns.length) $("turns").append(element("p", "lead", "Sin mensajes."));
@@ -247,20 +249,25 @@ function render() {
   $("question").textContent = asked.question;
   $("claim").textContent = item.criterion === "matches_state" ? `«${item.text}»` : sentence(item.text);
   $("hint").textContent = asked.hint;
-  const picked = chosen(item);
+  const selected = picked(item, labels[item.id]);
+  $("keys").textContent = `1 a ${asked.options.length}`;
   $("options").replaceChildren(...asked.options.map((option, n) => {
     const button = element("button", "option");
     button.type = "button";
     button.setAttribute("role", "radio");
-    button.setAttribute("aria-checked", String(n === picked));
+    button.setAttribute("aria-checked", String(n === selected));
     button.append(element("kbd", "", String(n + 1)), element("span", "label", option.label));
     if (option.detail) button.append(element("span", "detail", option.detail));
     button.addEventListener("click", () => choose(n));
     return button;
   }));
-  const note = (labels[item.id] || {}).note || "";
-  $("note").value = note;
-  $("note-box").open = Boolean(note);
+  if (at !== shownStop) {
+    // A new question opens its note only if it has one; answering keeps the box as it is.
+    const note = (labels[item.id] || {}).note || "";
+    $("note").value = note;
+    $("note-box").open = Boolean(note);
+    shownStop = at;
+  }
   $("previous").disabled = at === 0;
 }
 
@@ -272,8 +279,9 @@ function choose(n) {
   labels[item.id] = Object.assign({}, labels[item.id], { answer: option.answer, choice: option.label });
   save();
   render();
-  // A moment to see the choice, then the next question.
+  // A moment to see the choice, then the next question; with the note open, stay to write it.
   clearTimeout(advance);
+  if ($("note-box").open) return;
   const from = at;
   advance = setTimeout(() => { if (at === from) move(1); }, 220);
 }
@@ -330,12 +338,22 @@ function load(file) {
         flash("Ese archivo es de otra muestra o de otra página.");
         return;
       }
+      const entries = Object.entries(loaded.labels || {});
+      if (entries.some(([id]) => !byId[id])) {
+        flash("Ese archivo tiene preguntas que no son de esta página.");
+        return;
+      }
+      if (entries.some(([id, label]) => label.answer && picked(byId[id], label) < 0)) {
+        flash("Ese archivo es de la página anterior, que preguntaba de otra forma: no se puede cargar.");
+        return;
+      }
       labels = Object.assign({}, labels, loaded.labels);
       save();
       const pending = firstPending();
       finished = pending < 0;
       at = finished ? 0 : pending;
       shownTrial = -1;
+      shownStop = -1;
       render();
       flash("Etiquetas cargadas.");
     } catch (error) {
@@ -364,7 +382,7 @@ document.addEventListener("keydown", (event) => {
 });
 $("previous").addEventListener("click", () => move(-1));
 $("next").addEventListener("click", () => move(1));
-$("review").addEventListener("click", () => { finished = false; at = 0; render(); });
+$("review").addEventListener("click", () => { finished = false; at = 0; shownStop = -1; render(); });
 $("download").addEventListener("click", download);
 $("download-done").addEventListener("click", download);
 $("load").addEventListener("change", (event) => { if (event.target.files[0]) load(event.target.files[0]); event.target.value = ""; });

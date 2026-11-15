@@ -297,7 +297,8 @@ def labels(written: Sample, page: str, answers: Mapping[str, Verdict | None]) ->
         "sample": written.sample,
         "page": page,
         "labels": {
-            item: {"answer": answer, "choice": "", "note": ""} for item, answer in answers.items()
+            item: {"answer": answer, "choice": "una opción" if answer else "", "note": ""}
+            for item, answer in answers.items()
         },
     }
 
@@ -365,6 +366,20 @@ def test_labels_of_another_sample_are_refused(run_dir: Path, tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="not the main page"):
         score(run_dir, written, stray)
+
+
+def test_labels_of_the_earlier_page_are_refused(run_dir: Path, tmp_path: Path) -> None:
+    # The earlier page asked «El asistente no afirma X» as is and kept no option: its answers are
+    # the ones the double negative confused.
+    written = export(run_dir, catalog(), size=6, repeated=4, seed=3)
+    write_judged(run_dir, [])
+    earlier = labels(written, "main", {written.main[0]: "fail"})
+    earlier["labels"][written.main[0]]["choice"] = ""
+    path = tmp_path / "etiquetas.json"
+    path.write_text(json.dumps(earlier), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="without the option picked"):
+        score(run_dir, written, path)
 
 
 def test_the_command_exports_and_scores(run_dir: Path, tmp_path: Path) -> None:

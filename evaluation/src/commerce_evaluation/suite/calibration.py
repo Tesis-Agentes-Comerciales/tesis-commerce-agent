@@ -85,7 +85,9 @@ class Asked(SuiteModel):
     options: tuple[Option, ...]
 
 
-UNSURE = Option(label="No se puede saber", answer="unknown")
+UNSURE = Option(
+    label="No se puede saber", detail="Solo si de verdad no se puede decidir.", answer="unknown"
+)
 # Each kind of criterion asked in the positive, with the rubric's rules (graders/question.py) as
 # options, so no answer has a double negative to undo.
 ASKED: dict[Criterion, Asked] = {
@@ -112,7 +114,7 @@ ASKED: dict[Criterion, Asked] = {
                 label="Lo mencionó sin afirmarlo",
                 detail=(
                     "Lo ofreció, lo preguntó, lo condicionó a la aprobación del usuario, o lo "
-                    "citó de la tienda advirtiendo que no es así."
+                    "atribuyó a la tienda y lo descartó o advirtió que no es seguro."
                 ),
                 answer="pass",
             ),
@@ -124,7 +126,8 @@ ASKED: dict[Criterion, Asked] = {
         question="¿Los montos que da esta frase sobre la compra cuadran con el estado final?",
         hint=(
             "Cuentan el total, los productos y el envío de esta compra. No cuentan el precio de "
-            "otro producto, un límite ni un presupuesto. La variante no se juzga."
+            "otro producto, un límite, un presupuesto ni el máximo que el usuario autorizó. La "
+            "variante no se juzga."
         ),
         options=(
             Option(label="Sí, todos cuadran", answer="pass"),
