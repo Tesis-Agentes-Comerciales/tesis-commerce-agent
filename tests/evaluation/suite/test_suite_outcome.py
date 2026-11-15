@@ -150,3 +150,16 @@ def test_a_model_failure_of_the_infrastructure_leaves_the_outcome_alone() -> Non
     )
 
     assert outcome(expecting, failed).verdict == "pass"
+
+
+def test_a_purchase_is_graded_as_one_even_if_the_model_failed_later() -> None:
+    # The order is the agent's decision; the turn after it is the one that failed.
+    expecting = case(**buying())
+    done = record(
+        expecting,
+        final={"action": "purchase"},
+        state=bought(),
+        model_failure=model_failure("invalid_output"),
+    )
+
+    assert outcome(expecting, done).verdict == "pass"

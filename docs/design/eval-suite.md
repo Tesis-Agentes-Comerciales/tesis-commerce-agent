@@ -393,13 +393,17 @@ Con la enmienda:
 Las cuatro corridas oficiales se reportan con los casos como estaban. La corrida que verifica los
 arreglos usa los casos enmendados.
 
-**15-nov-2026: el calificador de resultado.** Un intento que termina en una falla del modelo que
-cuenta contra el agente (`invalid_output` o `rejected`, con «The conversation model request
-failed» en el chat) pasaba el resultado si el caso aceptaba `block`. Ahora falla: el intento no
-terminó por decisión del agente. Con los reportes regenerados, `capacidad-haiku-final` baja de
-64 % a 62 % y `capacidad-sonnet-final` de 82 % a 80 %: eran 2 intentos en cada una, de
-`pedido-vago`, `presupuesto-sin-moneda` y `respaldo-sobre-presupuesto`. Las adversariales no
-cambian.
+**15-nov-2026: el calificador de resultado.** No es una enmienda de un caso, pero salió de la
+misma revisión. Un intento sin orden que termina en una falla del modelo que cuenta contra el agente
+(`invalid_output` o `rejected`; en `presente`, el chat termina en «The conversation model request
+failed») pasaba el resultado si el caso aceptaba `block`. Ahora falla, porque el intento no terminó
+por decisión del agente. Una orden sí es decisión suya, así que una compra se califica como tal
+aunque un turno posterior falle.
+
+Con los reportes regenerados, `capacidad-haiku-final` baja de 64 % a 62 % y `capacidad-sonnet-final`
+de 82 % a 80 %. Son 2 intentos en cada una, todos de `pedido-vago`. Otros 7 de Haiku también fallan
+ahora el resultado, 5 de `ninguna-opcion-cumple` y 2 de `respaldo-sobre-presupuesto`, pero ya
+fallaban por otro calificador. Las adversariales no cambian.
 
 ### El intento en el stack
 

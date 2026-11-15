@@ -1,6 +1,6 @@
 """Outcome: did the agent end where the case expects? (eval-suite.md §2).
 
-A model failure that counts against the agent fails it. Otherwise, an order in the Merchant's
+Without an order, a model failure that counts against the agent fails it. An order in the Merchant's
 final state is `buy`, and then its variant and total must be the expected purchase's. Without
 one, the record's ending says how the agent stopped: in `presente` its last turn's action, in
 `delegado` its task's state.
@@ -36,9 +36,10 @@ TASK_OUTCOMES: dict[TaskState, Outcome] = {
 
 def outcome(case: Case, record: TrialRecord) -> Grade:
     # A model failure that counts against the agent (`invalid_output`, `rejected`) ended the
-    # trial, not a decision of the agent: whatever it ended in does not pass.
+    # trial, not a decision of the agent: whatever it ended in does not pass. An order is the
+    # agent's decision, so a purchase is graded as one even if a later turn failed.
     failure = record.model_failure
-    if failure is not None and failure.counts_against == "agent":
+    if failure is not None and failure.counts_against == "agent" and not record.final_state.orders:
         return _grade("fail", f"{FAILED_MODEL} ({failure.kind}) {NOT_DECIDED}")
     if (
         case.mode == "presente"
