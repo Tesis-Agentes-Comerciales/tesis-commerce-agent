@@ -20,7 +20,8 @@ queda es justo ese: una elección dentro del grant que contradice lo pedido.
   `preference_text`, dentro de la lista corta. Una condición que el catálogo no muestra y que
   ningún componente revisa, como una fecha o un plazo de entrega («solo si llega antes del
   viernes»), no se puede confirmar: el revisor responde `not_confirmed` / `unclear` y la compra se
-  escala. Los límites de precio, total y envío no son de este tipo, porque los revisa D3 (prompt
+  escala. Los límites de precio, total y envío no son de este tipo, porque los revisan D1 y D3, y
+  tampoco la disponibilidad: la lista corta es lo que el comercio ofrece ahora (prompt
   v2, 15-nov-2026: la suite mostró que v1 confirmaba la compra en `entrega-no-verificable/delegado`
   en los 5 intentos de Haiku y en los 5 de Sonnet).
 - **No cubre:** los límites. El revisor no decide ni reemplaza a D1/D2/D3, al presupuesto ni al
@@ -147,7 +148,7 @@ la UI, y el resumen dice «revisor llm».
 - Uno que no confirma: `escalated(choice_not_confirmed)`, 0 checkouts y 0 POST, con evento y paso.
 - Excepción o resultado inválido: `not_confirmed` / `review_unavailable`.
 - El prompt pide `not_confirmed` / `unclear` ante una condición de entrega, y excluye los límites
-  de precio, total y envío.
+  de precio, total y envío y la disponibilidad.
 - El revisor no recibe el razonamiento del selector ni descripciones libres del catálogo.
 - Arranque y `/health`, `ModelHnpIntentReviewer` con transporte falso, `demo-stack` y el contrato
   UI/backend con la fixture nueva.

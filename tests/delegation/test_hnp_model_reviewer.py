@@ -121,6 +121,7 @@ def test_a_condition_the_catalog_cannot_show_is_not_confirmed(
     assert "cannot be confirmed: answer not_confirmed / unclear" in instructions
     # Limits stay out of it: D3 checks the total with shipping after the checkout.
     assert "Price, total and shipping limits are not such conditions" in instructions
+    assert "a fallback for a sold-out product" in instructions
 
 
 def test_the_request_is_strict_and_answers_one_of_four_reasons(
