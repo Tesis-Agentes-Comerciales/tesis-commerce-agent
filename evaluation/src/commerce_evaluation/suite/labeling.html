@@ -5,125 +5,154 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
 <style>
+  /* Rethink Sans (SIL Open Font License 1.1, fonts/OFL.txt), cut to the page's characters. */
+  @font-face {
+    font-family: "Rethink Sans";
+    src: url(data:font/woff2;base64,__FUENTE__) format("woff2");
+    font-weight: 400 800;
+    font-display: block;
+  }
   :root {
-    --bg: #eef1f4; --panel: #ffffff; --ink: #17212b; --muted: #5b6876; --line: #d3dae2;
-    --user: #e2e7ed; --accent: #2c55c9; --accent-soft: #e6ecfa; --fill: #2c55c9;
-    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
+    --bg: #ffffff; --soft: #f7f6f3; --hover: #efeeeb; --ink: #37352f; --muted: #787774;
+    --faint: #a5a29c; --line: #e9e9e7; --accent: #2383e2; --accent-soft: #e7f0fb;
+    --font: "Rethink Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #11151a; --panel: #181e25; --ink: #e5eaf0; --muted: #97a3b0; --line: #2a333d;
-      --user: #222a33; --accent: #86a6ff; --accent-soft: #1f2a44; --fill: #86a6ff;
+      --bg: #191919; --soft: #232323; --hover: #2c2c2c; --ink: #e3e2df; --muted: #9b9a97;
+      --faint: #6f6e6b; --line: #2f2f2f; --accent: #529cca; --accent-soft: #1d2f3d;
     }
   }
   * { box-sizing: border-box; }
   html { background: var(--bg); }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); }
-  button, .button { font: inherit; font-size: 14px; color: var(--ink); background: var(--panel);
-    border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
-  button:disabled { opacity: .45; cursor: default; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--font);
+    -webkit-font-smoothing: antialiased; }
+  button, .button { font: inherit; font-size: 14px; font-weight: 500; color: var(--ink);
+    background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px;
+    cursor: pointer; }
+  button:hover, .button:hover { background: var(--hover); }
+  button:disabled { opacity: .4; cursor: default; background: transparent; }
   button:focus-visible, .button:focus-within, textarea:focus-visible, summary:focus-visible {
     outline: 2px solid var(--accent); outline-offset: 2px; }
-  .primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-  kbd { font: 12px/1 var(--sans); padding: 3px 6px; border: 1px solid var(--line);
-    border-radius: 5px; background: var(--bg); color: var(--muted); }
+  .primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .primary:hover { background: var(--accent); filter: brightness(1.08); }
+  .quiet { border-color: transparent; color: var(--muted); }
+  kbd { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px;
+    font: 600 12px/1 var(--font); color: var(--muted); border: 1px solid var(--line);
+    border-radius: 4px; background: var(--bg); }
 
   /* The bar: how far along, and the labels file. */
   header { position: sticky; top: 0; z-index: 2; background: var(--bg);
     border-bottom: 1px solid var(--line); }
-  .meter { height: 4px; background: var(--line); }
-  .meter span { display: block; height: 100%; width: 0; background: var(--fill); }
-  @media (prefers-reduced-motion: no-preference) { .meter span { transition: width .2s ease; } }
-  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 16px; }
-  .bar nav { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
-  #count { margin: 0; font-weight: 600; }
-  #message { margin: 0; color: var(--muted); font-size: 14px; }
+  .meter { height: 3px; background: var(--line); }
+  .meter span { display: block; height: 100%; width: 0; background: var(--accent); }
+  @media (prefers-reduced-motion: no-preference) { .meter span { transition: width .25s ease; } }
+  .bar { display: flex; align-items: center; gap: 12px; max-width: 1240px; margin: 0 auto;
+    padding: 10px 24px; }
+  #page-title { margin: 0; font-size: 15px; font-weight: 650; }
+  #count { margin: 0; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .bar nav { display: flex; gap: 6px; margin-left: auto; }
 
-  main { max-width: 1320px; margin: 0 auto; padding: 16px 16px 64px; display: grid; gap: 28px; }
-  @media (min-width: 960px) {
-    main { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; }
-    .quiz { position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow: auto; }
+  main { max-width: 1240px; margin: 0 auto; padding: 28px 24px 80px; display: grid; gap: 40px; }
+  @media (min-width: 980px) {
+    main { grid-template-columns: minmax(0, 1fr) 460px; align-items: start; }
+    .quiz { position: sticky; top: 76px; max-height: calc(100vh - 96px); overflow: auto; }
   }
+  @media (max-width: 600px) { .bar, main { padding-left: 16px; padding-right: 16px; } }
 
   /* The conversation and the final state. */
-  .lead { margin: 0 0 14px; color: var(--muted); }
-  .turn { max-width: 88%; padding: 10px 14px; border-radius: 12px; margin: 0 0 10px;
-    white-space: pre-wrap; overflow-wrap: anywhere; }
-  .turn.user { background: var(--user); }
-  .turn.assistant { margin-left: auto; background: var(--panel); border: 1px solid var(--line); }
-  .turn.purchase_update { border-style: dashed; }
-  .speaker { display: block; font-size: 13px; font-weight: 600; color: var(--muted); }
-  .aside { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
-  .state { margin-top: 22px; padding: 12px 14px; background: var(--panel);
-    border: 1px solid var(--line); border-radius: 12px; }
-  .state summary { cursor: pointer; font-weight: 600; }
-  .kind { margin: 12px 0 0; }
-  .kind h3 { margin: 0 0 4px; font-size: 15px; }
-  .row { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 14px;
-    margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; background: var(--bg); font-size: 14px; }
+  h2 { margin: 0 0 4px; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+  .lead { margin: 0 0 4px; color: var(--muted); font-size: 14px; }
+  #turns { margin-top: 20px; }
+  .turn { width: fit-content; max-width: 86%; margin: 0 0 14px; }
+  .turn.assistant { margin-left: auto; }
+  .speaker { display: block; margin: 0 0 3px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+  .turn.assistant .speaker { text-align: right; }
+  .bubble { padding: 10px 14px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .turn.user .bubble { background: var(--soft); border-top-left-radius: 4px; }
+  .turn.assistant .bubble { border: 1px solid var(--line); border-top-right-radius: 4px; }
+  .turn.purchase_update .bubble { border-style: dashed; }
+  .aside { display: block; margin-top: 4px; font-size: 12.5px; color: var(--muted); text-align: right; }
+  .state { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .state summary { cursor: pointer; font-weight: 600; font-size: 15px; padding: 4px 0; }
+  .state summary span { font-weight: 400; color: var(--muted); margin-left: 8px; }
+  .kind { margin: 14px 0 0; }
+  .kind h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 4px 12px;
+    margin: 0 0 8px; padding: 10px 12px; border-radius: 6px; background: var(--soft); font-size: 14px; }
   .row dt { color: var(--muted); }
   .row dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .empty { color: var(--faint); font-size: 14px; }
 
   /* The question: the one thing to read closely. */
-  .quiz { padding: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
-  .where { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 16px;
-    color: var(--muted); font-size: 14px; }
-  .dots { display: flex; gap: 6px; list-style: none; margin: 0; padding: 0; }
-  .dots li { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--muted); }
-  .dots li.answered { background: var(--muted); }
-  .dots li.current { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-  .dots li.current.answered { background: var(--accent); }
-  .quiz h1 { margin: 0 0 12px; font-size: 19px; line-height: 1.35; }
-  .claim { margin: 0 0 10px; padding: 0 0 0 16px; border-left: 3px solid var(--accent);
-    font: 25px/1.38 var(--serif); }
-  .hint { margin: 0 0 18px; color: var(--muted); font-size: 14px; }
-  .options { display: grid; gap: 8px; }
-  .option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px;
-    align-items: baseline; width: 100%; padding: 12px 14px; text-align: left; font-size: 16px;
-    border-radius: 10px; }
-  .option kbd { grid-row: span 2; }
-  .option .label { font-weight: 600; }
-  .option .detail { grid-column: 2; color: var(--muted); font-size: 14px; }
-  .option:hover { border-color: var(--muted); }
-  .option[aria-checked="true"] { border: 2px solid var(--accent); background: var(--accent-soft);
-    padding: 11px 13px; }
-  .option[aria-checked="true"] kbd { border-color: var(--accent); color: var(--accent); }
-  .note { margin: 14px 0 0; font-size: 14px; color: var(--muted); }
-  .note summary { cursor: pointer; }
-  textarea { width: 100%; margin-top: 8px; font: inherit; color: var(--ink); background: var(--bg);
-    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: vertical;
-    min-height: 3em; }
-  .move { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; }
-  .keys { margin: 0 0 0 auto; color: var(--muted); font-size: 13px; }
-  .rules { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 14px;
+  .quiz { padding: 24px; border: 1px solid var(--line); border-radius: 12px; }
+  .where { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; color: var(--muted);
+    font-size: 13px; }
+  .dots { display: flex; gap: 5px; list-style: none; margin: 0; padding: 0; }
+  .dots li { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+  .dots li.answered { background: var(--faint); }
+  .dots li.current { background: var(--accent); }
+  .quiz h1 { margin: 0 0 10px; font-size: 17px; font-weight: 650; line-height: 1.35; }
+  .claim { margin: 0 0 8px; padding: 14px 16px; border-radius: 8px; background: var(--soft);
+    font-size: 21px; font-weight: 550; line-height: 1.38; letter-spacing: -.005em; }
+  .hint { margin: 0 0 18px; color: var(--muted); font-size: 13.5px; line-height: 1.45; }
+  .options { display: grid; gap: 6px; }
+  .option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1px 12px;
+    align-items: center; width: 100%; padding: 10px 12px; text-align: left; font-size: 15px;
+    border-color: var(--line); border-radius: 8px; }
+  .option kbd { grid-row: span 2; align-self: start; margin-top: 1px; }
+  .option .label { font-weight: 550; }
+  .option .detail { grid-column: 2; color: var(--muted); font-size: 13px; font-weight: 400;
+    line-height: 1.4; }
+  .option[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px var(--accent); }
+  .option[aria-checked="true"] kbd { background: var(--accent); border-color: var(--accent);
+    color: #fff; }
+  .note { margin: 12px 0 0; font-size: 14px; color: var(--muted); }
+  .note summary { cursor: pointer; list-style: none; width: max-content; padding: 2px 0; }
+  .note summary::-webkit-details-marker { display: none; }
+  .note[open] summary { color: var(--ink); }
+  textarea { width: 100%; margin-top: 6px; font: inherit; font-size: 14px; color: var(--ink);
+    background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+    resize: vertical; min-height: 3.2em; }
+  .move { display: flex; align-items: center; gap: 6px; margin-top: 20px; }
+  .keys { margin: 0 0 0 auto; color: var(--faint); font-size: 12.5px; display: flex;
+    align-items: center; gap: 4px; }
+  .rules { margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13.5px;
     color: var(--muted); }
   .rules summary { cursor: pointer; }
-  .rules ul { margin: 8px 0 0; padding-left: 18px; }
+  .rules ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
   .rules li { margin: 6px 0; }
-  .done h1 { font-size: 24px; }
-  .done p { color: var(--muted); }
+  .done h1 { font-size: 24px; margin-bottom: 6px; }
+  .done p { margin: 0 0 4px; color: var(--muted); }
+
+  /* A short notice, then it goes. */
+  #message { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 3;
+    margin: 0; padding: 8px 14px; border-radius: 8px; background: var(--ink); color: var(--bg);
+    font-size: 14px; box-shadow: 0 6px 20px rgba(15, 15, 15, .18); }
+  #message:empty { display: none; }
 </style>
 </head>
 <body>
 <header>
   <div class="meter"><span id="fill"></span></div>
   <div class="bar">
+    <p id="page-title"></p>
     <p id="count" aria-live="polite"></p>
-    <p id="message" role="status"></p>
     <nav>
-      <label class="button">Cargar etiquetas<input id="load" type="file" accept="application/json" hidden></label>
-      <button id="download" class="primary" type="button">Descargar etiquetas</button>
+      <label class="button quiet">Cargar<input id="load" type="file" accept="application/json" hidden></label>
+      <button id="download" type="button">Descargar etiquetas</button>
     </nav>
   </div>
 </header>
+<p id="message" role="status"></p>
 <main>
   <section aria-label="Conversación">
-    <p class="lead">Lee la conversación y responde por lo que dijo el asistente.</p>
-    <p id="delegated" class="lead" hidden>Tarea delegada: no hubo conversación. Este es el mensaje con el que el asistente cerró la tarea.</p>
+    <h2 id="conversation"></h2>
+    <p id="delegated" class="lead" hidden>Delegada: no hubo chat. Este es el mensaje con el que el asistente cerró la tarea.</p>
     <div id="turns"></div>
-    <details class="state" open>
-      <summary>Estado final de la tienda y del pago</summary>
+    <details id="state-box" class="state">
+      <summary>Estado final<span id="state-count"></span></summary>
       <div id="state"></div>
     </details>
   </section>
@@ -135,25 +164,26 @@
       <p id="hint" class="hint"></p>
       <div id="options" class="options" role="radiogroup" aria-labelledby="question"></div>
       <details id="note-box" class="note">
-        <summary>Agregar una nota</summary>
+        <summary>+ Nota</summary>
         <textarea id="note" aria-label="Nota" placeholder="Opcional"></textarea>
       </details>
       <div class="move">
         <button id="previous" type="button">Anterior</button>
         <button id="next" type="button">Siguiente</button>
-        <p class="keys"><kbd id="keys">1 a 4</kbd> responder, <kbd>←</kbd> <kbd>→</kbd> moverse</p>
+        <p class="keys"><kbd>←</kbd><kbd>→</kbd></p>
       </div>
     </div>
     <div id="done" class="done" hidden>
-      <h1>Terminaste</h1>
+      <h1>Listo</h1>
       <p id="done-count"></p>
+      <p id="done-file"></p>
       <div class="move">
         <button id="download-done" class="primary" type="button">Descargar etiquetas</button>
         <button id="review" type="button">Revisar desde el principio</button>
       </div>
     </div>
     <details class="rules">
-      <summary>Reglas completas</summary>
+      <summary>Ver la rúbrica completa</summary>
       <ul>__RUBRICA__</ul>
     </details>
   </section>
@@ -191,7 +221,7 @@ function firstPending() { return stops.findIndex((_, stop) => !answered(itemAt(s
 function sentence(text) { return text ? text[0].toUpperCase() + text.slice(1) : text; }
 
 function picked(item, label) {
-  // The option behind an answer; an answer without one (the earlier page's) is no answer.
+  // The option behind an answer; an answer without one (an earlier page's) is no answer.
   if (!label || !label.answer) return -1;
   return data.asked[item.criterion].options.findIndex(
     (option) => option.label === label.choice && option.answer === label.answer);
@@ -199,18 +229,20 @@ function picked(item, label) {
 
 function renderTrial(t) {
   const trial = data.trials[t];
+  $("conversation").textContent = `Conversación ${t + 1} de ${data.trials.length}`;
   $("delegated").hidden = !trial.delegated;
   $("turns").replaceChildren(...trial.turns.map((turn) => {
     // `speaker` is the judge's own label (graders/question.py), the chat's notice included.
     const node = element("div", turn.source ? `turn ${turn.role} ${turn.source}` : `turn ${turn.role}`);
-    node.append(element("span", "speaker", turn.speaker), turn.text);
+    node.append(element("span", "speaker", turn.speaker), element("div", "bubble", turn.text));
     if (turn.source === "purchase_update") node.append(element("span", "aside", "Cuenta como dicho por el asistente."));
     return node;
   }));
-  if (!trial.turns.length) $("turns").append(element("p", "lead", "Sin mensajes."));
-  $("state").replaceChildren(...trial.state.map((kind) => {
+  if (!trial.turns.length) $("turns").append(element("p", "empty", "Sin mensajes."));
+  $("state-count").textContent = trial.state.map((kind) => `${kind.title} ${kind.rows.length}`).join(", ");
+  $("state").replaceChildren(...trial.state.filter((kind) => kind.rows.length).map((kind) => {
     const node = element("div", "kind");
-    node.append(element("h3", "", `${kind.title}: ${kind.rows.length}`));
+    node.append(element("h3", "", kind.title));
     for (const row of kind.rows) {
       const list = element("dl", "row");
       for (const [name, value] of row) list.append(element("dt", "", name), element("dd", "", value));
@@ -218,20 +250,25 @@ function renderTrial(t) {
     }
     return node;
   }));
+  if (!trial.state.some((kind) => kind.rows.length)) $("state").append(element("p", "empty", "Nada: ni órdenes, ni checkouts, ni cobros."));
+  // Folded until a question is about the amounts; then it opens and stays open.
+  $("state-box").open = false;
   shownTrial = t;
   window.scrollTo(0, 0);
 }
 
 function render() {
   const done = stops.filter((_, stop) => answered(itemAt(stop))).length;
-  const repeat = data.page === "repeat" ? "Repetición: " : "";
-  $("count").textContent = `${repeat}${done} de ${stops.length} respondidas`;
+  $("page-title").textContent = data.page === "repeat" ? "Repetición" : "Etiquetado";
+  $("count").textContent = `${done} de ${stops.length}`;
   $("fill").style.width = `${(100 * done) / stops.length}%`;
+  $("download").className = finished ? "primary" : "";
   $("ask").hidden = finished;
   $("done").hidden = !finished;
   if (finished) {
     const unsure = stops.filter((_, stop) => (labels[itemAt(stop).id] || {}).answer === "unknown").length;
-    $("done-count").textContent = `Respondiste ${done} de ${stops.length}, ${unsure} con «No se puede saber». Descarga las etiquetas y envíalas.`;
+    $("done-count").textContent = `Respondiste ${done} de ${stops.length}, ${unsure} con «No se puede saber».`;
+    $("done-file").textContent = `Descarga el archivo: queda en Descargas como ${data.download}.`;
     return;
   }
   const [t, i] = stops[at];
@@ -239,7 +276,8 @@ function render() {
   const trial = data.trials[t];
   const item = trial.items[i];
   const asked = data.asked[item.criterion];
-  $("where").textContent = `Conversación ${t + 1} de ${data.trials.length}, pregunta ${i + 1} de ${trial.items.length}`;
+  if (item.criterion === "matches_state") $("state-box").open = true;
+  $("where").textContent = `Pregunta ${i + 1} de ${trial.items.length}`;
   $("dots").replaceChildren(...trial.items.map((other, j) => {
     const dot = element("li");
     dot.classList.toggle("answered", answered(other));
@@ -250,7 +288,6 @@ function render() {
   $("claim").textContent = item.criterion === "matches_state" ? `«${item.text}»` : sentence(item.text);
   $("hint").textContent = asked.hint;
   const selected = picked(item, labels[item.id]);
-  $("keys").textContent = `1 a ${asked.options.length}`;
   $("options").replaceChildren(...asked.options.map((option, n) => {
     const button = element("button", "option");
     button.type = "button";
@@ -344,7 +381,7 @@ function load(file) {
         return;
       }
       if (entries.some(([id, label]) => label.answer && picked(byId[id], label) < 0)) {
-        flash("Ese archivo es de la página anterior, que preguntaba de otra forma: no se puede cargar.");
+        flash("Ese archivo es de una página anterior, que preguntaba de otra forma: no se puede cargar.");
         return;
       }
       labels = Object.assign({}, labels, loaded.labels);
