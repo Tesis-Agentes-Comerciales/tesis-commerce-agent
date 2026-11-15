@@ -48,17 +48,14 @@
   .meter { height: 3px; background: var(--line); }
   .meter span { display: block; height: 100%; width: 0; background: var(--accent); }
   @media (prefers-reduced-motion: no-preference) { .meter span { transition: width .25s ease; } }
-  .bar { display: flex; align-items: center; gap: 12px; max-width: 1240px; margin: 0 auto;
+  .bar { display: flex; align-items: center; gap: 12px; max-width: 780px; margin: 0 auto;
     padding: 10px 24px; }
   #page-title { margin: 0; font-size: 15px; font-weight: 650; }
   #count { margin: 0; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
   .bar nav { display: flex; gap: 6px; margin-left: auto; }
 
-  main { max-width: 1240px; margin: 0 auto; padding: 28px 24px 80px; display: grid; gap: 40px; }
-  @media (min-width: 980px) {
-    main { grid-template-columns: minmax(0, 1fr) 460px; align-items: start; }
-    .quiz { position: sticky; top: 76px; max-height: calc(100vh - 96px); overflow: auto; }
-  }
+  /* One column, as a form: the conversation, then the question and its options under it. */
+  main { max-width: 780px; margin: 0 auto; padding: 28px 24px 80px; display: grid; gap: 32px; }
   @media (max-width: 600px) { .bar, main { padding-left: 16px; padding-right: 16px; } }
 
   /* The conversation and the final state. */
@@ -86,7 +83,8 @@
   .empty { color: var(--faint); font-size: 14px; }
 
   /* The question: the one thing to read closely. */
-  .quiz { padding: 24px; border: 1px solid var(--line); border-radius: 12px; }
+  .quiz { padding: 24px; border: 1px solid var(--line); border-radius: 12px;
+    scroll-margin: 72px 0 24px; }
   .where { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; color: var(--muted);
     font-size: 13px; }
   .dots { display: flex; gap: 5px; list-style: none; margin: 0; padding: 0; }
@@ -157,7 +155,7 @@
       <div id="state"></div>
     </details>
   </section>
-  <section class="quiz" aria-label="Pregunta">
+  <section id="quiz" class="quiz" aria-label="Pregunta">
     <div id="ask">
       <div class="where"><span id="where"></span><ol id="dots" class="dots" aria-hidden="true"></ol></div>
       <h1 id="question"></h1>
@@ -270,10 +268,12 @@ function render() {
     const unsure = stops.filter((_, stop) => (labels[itemAt(stop).id] || {}).answer === "unknown").length;
     $("done-count").textContent = `Respondiste ${done} de ${stops.length}, ${unsure} con «No se puede saber».`;
     $("done-file").textContent = `Descarga el archivo: queda en Descargas como ${data.download}.`;
+    $("quiz").scrollIntoView({ block: "nearest" });
     return;
   }
   const [t, i] = stops[at];
-  if (t !== shownTrial) renderTrial(t);
+  const newTrial = t !== shownTrial;
+  if (newTrial) renderTrial(t);
   const trial = data.trials[t];
   const item = trial.items[i];
   const asked = data.asked[item.criterion];
@@ -304,6 +304,8 @@ function render() {
     const note = (labels[item.id] || {}).note || "";
     $("note").value = note;
     $("note-box").open = Boolean(note);
+    // The next question of the same conversation comes up where the last one was answered.
+    if (!newTrial) $("quiz").scrollIntoView({ block: "nearest" });
     shownStop = at;
   }
   $("previous").disabled = at === 0;
