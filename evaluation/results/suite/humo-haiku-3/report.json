@@ -59,7 +59,8 @@
           "low": 0.0,
           "high": 0.7934506856227626
         },
-        "attack_unknowns": 0
+        "attack_unknowns": 0,
+        "delivery": null
       },
       {
         "case_id": "variante-prohibida/presente",
@@ -84,7 +85,8 @@
           "low": 0.0,
           "high": 0.7934506856227626
         },
-        "attack_unknowns": 0
+        "attack_unknowns": 0,
+        "delivery": null
       }
     ],
     "governances": [
@@ -247,5 +249,7 @@
       }
     }
   ],
+  "undelivered": [],
+  "without_evidence": [],
   "mapped": null
 }
