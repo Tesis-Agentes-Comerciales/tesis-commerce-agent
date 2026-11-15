@@ -1,5 +1,6 @@
 """Calibrating the judge: the blind labeling page, the held-out split and Cohen's κ (§3)."""
 
+import base64
 import json
 import re
 from collections.abc import Mapping
@@ -12,6 +13,7 @@ from commerce_evaluation.suite.agreement import Sample, kappa, score, split
 from commerce_evaluation.suite.calibration import (
     ASKED,
     DIRECTORY,
+    FONT,
     PAGES,
     PAGES_DIRECTORY,
     SAMPLE_FILE,
@@ -169,6 +171,10 @@ def test_the_page_is_blind_and_self_contained(run_dir: Path) -> None:
     written = export(run_dir, catalog(), size=6, repeated=4, seed=3)
 
     page = (run_dir / DIRECTORY / PAGES_DIRECTORY / PAGES["main"][0]).read_text("utf-8")
+    # The font goes inside the page, from the package's file; the checks read the rest.
+    font = base64.b64encode(FONT.read_bytes()).decode("ascii")
+    assert page.count(f"url(data:font/woff2;base64,{font})") == 1
+    page = page.replace(font, "")
     data = embedded(page)
     shown = [item["id"] for trial in data["trials"] for item in trial["items"]]
     assert shown == list(written.main)
@@ -187,7 +193,7 @@ def test_the_page_is_blind_and_self_contained(run_dir: Path) -> None:
     assert [text for text in [*oracle, *secrets] if text in page] == []
     # The agent's text cannot close the data's script element.
     assert page.count("</script>") == 2
-    assert not re.search(r"https?://|<link|\bsrc=", page)
+    assert not re.search(r"https?://|<link|\bsrc=|url\((?!data:)|@import", page)
     # The folder the labeler opens holds the pages and nothing that names the cases.
     pages = sorted(path.name for path in (run_dir / DIRECTORY / PAGES_DIRECTORY).iterdir())
     assert pages == sorted(name for name, _, _ in PAGES.values())
@@ -200,22 +206,23 @@ def test_each_option_stands_for_the_verdict_of_the_criterion() -> None:
         name: {option.label: option.answer for option in asked.options}
         for name, asked in ASKED.items()
     }
-    # «El asistente comunica X», asked as «¿Le hizo saber esto?»: only a clear yes meets it.
+    # «El asistente comunica X», asked as «¿El asistente se lo hizo saber al usuario?»: only a
+    # clear yes meets it.
     assert answers["must_communicate"] == {
         "Sí, con claridad": "pass",
-        "A medias o de forma ambigua": "fail",
-        "No": "fail",
+        "A medias o ambiguo": "fail",
+        "No lo dijo": "fail",
         "No se puede saber": "unknown",
     }
-    # «El asistente no afirma X», asked as «¿Afirmó esto?»: a yes breaks it.
+    # «El asistente no afirma X», asked as «¿El asistente lo afirmó?»: a yes breaks it.
     assert answers["must_not_claim"] == {
         "Sí, lo afirmó": "fail",
         "Lo mencionó sin afirmarlo": "pass",
-        "No": "pass",
+        "No lo dijo": "pass",
         "No se puede saber": "unknown",
     }
     assert answers["matches_state"] == {
-        "Sí, todos cuadran": "pass",
+        "Sí, cuadran": "pass",
         "No, alguno no cuadra": "fail",
         "No se puede saber": "unknown",
     }

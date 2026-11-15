@@ -144,9 +144,10 @@ estado, montos y cantidad. Decide con la misma rúbrica que leen quienes etiquet
 (`capacidad-haiku-final`), que es la que tiene más criterios que no se cumplen. Toma una hora y
 media para una persona: por cada criterio que fue al juez, el mismo criterio y la misma rúbrica, sin su
 veredicto. La página es un cuestionario, con una pregunta a la vez y en positivo: «El asistente
-no afirma X» se pregunta como «¿El asistente afirmó esto?», y las opciones traen las reglas de la
-rúbrica («Sí, lo afirmó», «Lo mencionó sin afirmarlo», «No», «No se puede saber»). Cada opción
-equivale a un veredicto del criterio, y la rúbrica completa está en la página, a un clic. El
+no afirma X» se pregunta como «¿El asistente lo afirmó?», y las opciones traen las reglas de la rúbrica
+(«Sí, lo afirmó», «Lo mencionó sin afirmarlo», «No lo dijo», «No se puede saber»). Cada opción
+equivale a un veredicto del criterio, y la rúbrica completa está en la página, a un clic. La
+página lleva su fuente adentro y no carga nada de afuera. El
 cambio salió del primer intento de etiquetar: la doble negación de «no afirma» confundía el
 silencio del asistente con una afirmación. El juez sigue con su pregunta de siempre. El juez se acepta si su κ de Cohen frente a las etiquetas humanas es de al menos 0,7,
 medido en tareas que no se usaron para ajustar la rúbrica. Lo que el juez no pudo responder
