@@ -5,7 +5,7 @@
   "mode": "presente",
   "suites": ["regression", "capability"],
   "user": {
-    "goal": "Comprar un celular sin tener claro cuál: quiere ver opciones antes de elegir y no compra sin haber escogido un modelo",
+    "goal": "Ver opciones de celular sin tener claro cuál. En esta conversación solo quiere ver opciones: no escoge ninguno ni pide que le preparen la compra",
     "known_info": [],
     "unknown_info": ["qué marca o modelo quiere", "cuál es su presupuesto", "para qué lo va a usar"],
     "script": ["Quiero un celular"]
