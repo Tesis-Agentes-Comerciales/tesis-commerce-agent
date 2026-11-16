@@ -27,6 +27,10 @@ La aplicación queda en `http://127.0.0.1:5173` y espera la API del agente en
   traducen a mensajes en español; el texto crudo del backend nunca se muestra.
   `AgentRuntime` está memoizado a propósito: un re-render del componente que llama al hook reinicia
   el thread, así que todas sus props deben ser estables (el perfil se lee por referencia).
+- Los datos de entrega se guardan en `localStorage`, con una clave por cuenta
+  (`src/lib/buyer-profile-storage.ts`). Cada lectura y escritura va en `try/catch`; sin
+  almacenamiento o con un valor que no tiene la forma del perfil, se usa `DEMO_PROFILE`. Viajan al
+  backend para el checkout y nunca al modelo.
 - `src/features/agent-toolkit.ts` registra un renderer `type: "backend"` por cada paso del backend.
   `select_product` y `request_approval` se muestran destacados; el resto, junto con el razonamiento,
   se agrupa en el bloque plegable "Pensando…" del thread.
