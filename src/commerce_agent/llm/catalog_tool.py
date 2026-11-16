@@ -6,7 +6,9 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, ConfigDict, Field
 
 from commerce_agent.acp.feed import ProductFeed
+from commerce_agent.application.offer_freshness import OfferReader
 from commerce_agent.llm.prices import format_minor_amount
+from commerce_agent.llm.shipping import shipping_by_variant
 
 MAX_TOOL_CANDIDATES = 10
 
@@ -23,7 +25,11 @@ def _search_terms(value: str) -> set[str]:
     return set(re.findall(r"\w+", plain))
 
 
-def make_catalog_lookup(feed: ProductFeed) -> BaseTool:
+def make_catalog_lookup(feed: ProductFeed, offers: OfferReader | None = None) -> BaseTool:
+    """The router's one tool. With `offers` (the ACP client), each product it returns also
+    carries the merchant's shipping and the total with it (llm/shipping.py); without, or when a
+    read fails, both are null."""
+
     @tool("lookup_catalog", args_schema=CatalogLookupArgs)
     def lookup_catalog(query: str) -> str:
         """Find products in the validated feed. Display prices are not checkout totals."""
@@ -47,6 +53,8 @@ def make_catalog_lookup(feed: ProductFeed) -> BaseTool:
                 ranked.append((score, candidate))
         ranked.sort(key=lambda item: -item[0])
         candidates = [candidate for _, candidate in ranked] if ranked else list(available)
+        returned = candidates[:MAX_TOOL_CANDIDATES]
+        shipping = shipping_by_variant(offers, returned)
         result = {
             "exact_text_matches": sum(score == len(terms) for score, _ in ranked),
             "partial_matches": len(ranked),
@@ -60,11 +68,12 @@ def make_catalog_lookup(feed: ProductFeed) -> BaseTool:
                     "display_amount": format_minor_amount(
                         candidate.observed_unit_amount_minor, candidate.currency
                     ),
+                    **shipping[candidate.variant_id],
                     "categories": candidate.categories,
                     "conditions": candidate.conditions,
                     "options": candidate.options,
                 }
-                for candidate in candidates[:MAX_TOOL_CANDIDATES]
+                for candidate in returned
             ],
             "prices_are_authoritative": False,
         }

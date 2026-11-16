@@ -236,6 +236,8 @@ def build_runtime(
                 timeout_seconds=configuration.agent_model_timeout_seconds,
                 reasoning_summary=configuration.agent_model_reasoning_summary,
                 model_requests=model_requests,
+                # Each candidate's shipping, from its merchant offer (hp-shipping-before-choice).
+                offers=client,
             )
 
         if published_feed is None:

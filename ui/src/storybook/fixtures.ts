@@ -71,7 +71,9 @@ export const TERMS: ApprovalTerms = {
   ],
   selected_fulfillment_options: [{ type: "shipping", option_id: "ship_1", item_ids: ["li_1"] }],
   buyer: { email: "ana@example.test" },
-  fulfillment_details: { address: { city: "Bogotá", country: "CO" } },
+  fulfillment_details: {
+    address: { name: "Ana Demo", line_one: "Calle 100 # 10-20", city: "Bogota", country: "CO" },
+  },
   payment_handler: "tesis_sandbox",
   action: "complete_purchase",
   expires_at: "2099-09-20T13:00:00Z",

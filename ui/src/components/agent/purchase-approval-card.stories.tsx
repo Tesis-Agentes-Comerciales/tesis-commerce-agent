@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useEffect, useRef, useState } from "react"
 import { expect, fn, waitFor } from "storybook/test"
 
-import { formatMoneyParts } from "@/components/agent/agent-format"
+import { formatMoney, formatMoneyParts } from "@/components/agent/agent-format"
 import { expectFitsPhoneColumn, PHONE_COLUMN } from "@/components/delegation/story-helpers"
 import {
   PurchaseApprovalCard,
@@ -14,10 +14,12 @@ import {
   ORDER,
   SONORA,
   SONORA_LONG,
+  TERMS_FREE_SHIPPING,
   TERMS_MILLIONS,
   TERMS_MULTIPLE_LINES,
   TERMS_NO_ADDRESS,
   TERMS_PRICE_CHANGED,
+  TERMS_TWO_ADDRESS_LINES,
 } from "@/storybook/agent-fixtures"
 import { TERMS } from "@/storybook/fixtures"
 import { mouseClick } from "@/storybook/interactions"
@@ -142,6 +144,12 @@ async function expectBusy({ args, canvas, canvasElement, userEvent }: PlayContex
   }
   await expect(args.onApprove).not.toHaveBeenCalled()
   await expect(args.onCancel).not.toHaveBeenCalled()
+}
+
+/** El valor de la fila con esa etiqueta; Intl separa el símbolo con un espacio duro. */
+async function expectRow({ canvas }: PlayContext, label: string, value: string) {
+  const term = canvas.getByText(label, { selector: "dt" })
+  await expect(term.nextElementSibling).toHaveTextContent(value.replace(/\s+/g, " "))
 }
 
 /** Tabula hasta el control, como lo haría alguien con teclado. */
@@ -405,8 +413,45 @@ export const PriceChanged: Story = {
   },
 }
 
+/**
+ * Subtotal, envío y total de los términos: la diferencia entre el total y las líneas es el envío,
+ * porque el comercio no cobra otros cargos y el impuesto va incluido. Con una sola línea, su fila
+ * repetiría el subtotal y no se muestra.
+ */
+export const ShippingBreakdown: Story = {
+  play: async (context) => {
+    const { args, canvas } = context
+    const line = args.terms.lines[0]!
+    await expectRow(context, "Subtotal", formatMoney(line.unit_amount_minor, args.terms.currency))
+    await expectRow(
+      context,
+      "Envío",
+      formatMoney(args.terms.total_minor - line.unit_amount_minor, args.terms.currency),
+    )
+    await expectRow(context, "Total", formatMoney(args.terms.total_minor, args.terms.currency))
+    await expect(canvas.queryByText(/^1 × /)).toBeNull()
+    await expect(canvas.queryByText(/otros cargos/)).toBeNull()
+  },
+}
+
+/** Desde 2.000.000 COP el envío es gratis: la fila lo dice en vez de esconderse. */
+export const FreeShipping: Story = {
+  args: { terms: TERMS_FREE_SHIPPING },
+  play: async (context) => {
+    await expectRow(context, "Envío", "Gratis")
+    await expectRow(context, "Total", formatMoney(210000000, "cop"))
+  },
+}
+
+/** Varias líneas se listan, y después el subtotal, el envío y el total. */
 export const MultipleLines: Story = {
   args: { terms: TERMS_MULTIPLE_LINES },
+  play: async (context) => {
+    const { canvas } = context
+    await expect(canvas.getByText("2 × Estuche rígido Sonora con cable de repuesto y adaptador de avión")).toBeVisible()
+    await expectRow(context, "Subtotal", formatMoney(144000, "cop"))
+    await expectRow(context, "Envío", formatMoney(14000, "cop"))
+  },
 }
 
 export const LongProductName: Story = {
@@ -426,6 +471,37 @@ export const WithoutAddress: Story = {
   args: { terms: TERMS_NO_ADDRESS },
   play: async ({ canvas }) => {
     await expect(canvas.getByText("Sin dirección")).toBeVisible()
+  },
+}
+
+/** La dirección completa que devolvió el comercio: destinatario, dos líneas y ciudad. */
+export const FullDeliveryAddress: Story = {
+  args: { terms: TERMS_TWO_ADDRESS_LINES },
+  play: async (context) => {
+    const { canvas } = context
+    await expectRow(
+      context,
+      "Entrega",
+      "Lucía Fernández RestrepoCarrera 7 # 72-41Torre 2, apartamento 1503Bogota",
+    )
+    for (const line of ["Lucía Fernández Restrepo", "Torre 2, apartamento 1503"]) {
+      await expect(canvas.getByText(line)).toBeVisible()
+    }
+  },
+}
+
+/** En el teléfono la dirección se parte en líneas y no desborda la tarjeta. */
+export const FullDeliveryAddressPhone320: Story = {
+  args: { terms: TERMS_TWO_ADDRESS_LINES },
+  render: (args) => (
+    <div className={`${PHONE_COLUMN} px-2`} data-testid="phone-column">
+      <PurchaseApprovalCard {...args} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const card = canvasElement.querySelector<HTMLElement>("[data-testid=purchase-approval-card]")!
+    await expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth)
+    await expectFitsPhoneColumn(canvasElement)
   },
 }
 

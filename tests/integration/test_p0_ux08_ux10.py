@@ -70,8 +70,10 @@ from tests.integration.test_p0_model_failures import (
     last_request,
     ledger,
     model_requests,
+    offer_reads,
     outside,
     projected,
+    without_run_events,
 )
 from tests.support.model_server import Answer, Held, held, shortlisted_choice, structured
 from tests.test_ux08_ux09_hp import choose, steps, texts
@@ -277,13 +279,17 @@ def zero_effects(
     merchant_calls: list[list[Any]],
     psp_calls: list[list[Any]] | None,
 ) -> tuple[dict[str, bool], dict[str, Any]]:
-    """The two halves of «0 efectos» (spec §4.3): outside the Agent and in its ledger."""
+    """The two halves of «0 efectos» (spec §4.3): outside the Agent and in its ledger. The HP
+    selection's offer reads are counted apart (`OFFER_READ` in test_p0_model_failures.py)."""
     grown = {name: ledger_after[name] - ledger_before[name] for name in LEDGER}
     posts = [call for call in merchant_calls if call[0] == "POST"]
+    reads, new_events, only_reads = offer_reads(before, after, posts)
     facts = {
         "merchant_posts": [call[1] for call in posts],
+        "offer_reads": reads,
+        "merchant_new_run_events": new_events,
         "merchant_checkouts": [before["merchant_checkouts"], after["merchant_checkouts"]],
-        "merchant_snapshot_equal": before["merchant_tables"] == after["merchant_tables"],
+        "merchant_snapshot_equal": without_run_events(before) == without_run_events(after),
         "psp_tokens_delta": after["psp_tokens"] - before["psp_tokens"],
         "psp_snapshot_equal": before["psp"] == after["psp"],
         "ledger_delta": grown,
@@ -292,6 +298,7 @@ def zero_effects(
         "zero_effects.merchant_no_checkout_post": not any(
             call[1].startswith(CREATE_PATH) for call in posts
         ),
+        "zero_effects.merchant_only_offer_reads": only_reads,
         "zero_effects.merchant_no_checkout": facts["merchant_checkouts"] == [[], []],
         "zero_effects.merchant_snapshot_equal": facts["merchant_snapshot_equal"],
         "zero_effects.psp_no_token": facts["psp_tokens_delta"] == 0,

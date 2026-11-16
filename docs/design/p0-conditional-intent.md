@@ -239,7 +239,10 @@ Resolver no hace ninguna llamada al Merchant. Ni un `clarify` ni una lectura dej
 
 **Sin ramas** (solo exclusiones, como en UX07) no se evalúa nada y no se lee ninguna oferta. La
 decisión es `exclusions_only`: la selección normal sigue con el feed filtrado (§3.6), y la fila de
-`conditional_decisions` lleva los IDs excluidos.
+`conditional_decisions` lleva los IDs excluidos. Desde `hp-router-v2`, esa selección lee en HP la
+oferta de cada candidato para mostrarle el envío al modelo
+([hp-shipping-before-choice.md](hp-shipping-before-choice.md)); son lecturas de la selección, no
+de la evaluación.
 
 Con ramas, para cada rama `i`, en orden:
 

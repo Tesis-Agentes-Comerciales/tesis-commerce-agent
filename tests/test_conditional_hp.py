@@ -520,8 +520,9 @@ def test_ux07_hp_a_removes_b_from_the_shortlist_and_from_d1(
     assert turn.decision.outcome == "exclusions_only"
     assert turn.decision.body["excluded_variant_ids"] == [B]
     assert turn.decision.body["branches"] == []
-    # No decision read: only the governed freshness read of the checkout, after its creation.
-    assert turn.merchant.reads_before_creation() == []
+    # No decision read: before the checkout, only the shipping the selection shows, one read per
+    # shortlisted variant (hp-shipping-before-choice.md); after it, the governed freshness read.
+    assert turn.merchant.reads_before_creation() == selection_enum(turn.server)
     assert B not in turn.merchant.offer_reads
     assert B not in selection_enum(turn.server) and selection_enum(turn.server)[0] == A
     (d1,) = d1_decisions(turn.database)
@@ -544,7 +545,8 @@ def test_ux07_hp_b_a_selector_that_names_b_gets_the_governed_explanation(
 
     assert B not in selection_enum(turn.server)
     assert turn.merchant.created_variants == [] and turn.merchant.effects() == []
-    assert turn.merchant.offer_reads == []
+    # Only the shortlist's shipping, for the selection; B, excluded, is never read.
+    assert turn.merchant.offer_reads == selection_enum(turn.server)
     assert turn.decision.outcome == "exclusions_only"
     assert "verificadas" in turn.text and TITLE[B] not in turn.text
     if surface == "rest":
@@ -985,7 +987,8 @@ def test_a_draft_with_an_unresolved_branch_proposes_no_order(tmp_path: Path) -> 
 def test_the_feed_without_exclusions_keeps_every_other_turn_as_it_was(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A purchase without `conditional` reads no offer to decide and writes no row."""
+    """A purchase without `conditional` reads no offer to decide and writes no row: the reads
+    before its checkout are the shortlist's shipping, for the selection model."""
     decision = CommerceDecision(
         action="purchase",
         assistant_message="Busco audífonos negros.",
@@ -1003,5 +1006,5 @@ def test_the_feed_without_exclusions_keeps_every_other_turn_as_it_was(
 
     assert turn.status == 200 and turn.body["action"] == "purchase"
     assert turn.records == ()
-    assert turn.merchant.reads_before_creation() == []
+    assert turn.merchant.reads_before_creation() == selection_enum(turn.server)
     assert json.dumps(turn.body).count("excluded") == 0

@@ -85,7 +85,9 @@ tipada con una intención estructurada. Puede invocar `lookup_catalog`, una herr
 sobre la instantánea validada del feed, para responder preguntas sobre productos y precios
 observados; la herramienta y el esquema de la decisión van en peticiones distintas, así que cada
 turno hace a lo sumo dos. Después puede elegir o aclarar entre candidatos que ya
-pasaron los filtros deterministas. No recibe datos de entrega, Bearer, secretos, token de pago,
+pasaron los filtros deterministas. En los dos casos ve el envío de cada producto y su total con
+envío, leídos de la oferta del comercio, o `null` si no se pudieron leer
+([spec](docs/design/hp-shipping-before-choice.md)). No recibe datos de entrega, Bearer, secretos, token de pago,
 actor, Request ID, clave idempotente, fingerprint de aprobación ni acceso al método de completion.
 El navegador tampoco construye ni envía `PurchaseIntent`.
 
@@ -302,7 +304,7 @@ npm run dev
 ```
 
 Abra `http://127.0.0.1:5173` con la API del agente y `auth/` activos. El perfil incluido es
-sintético y editable; el chat prepara el checkout, pero la compra solo se completa al pulsar el
+sintético y editable, y se guarda en el navegador por cuenta; el chat prepara el checkout, pero la compra solo se completa al pulsar el
 botón que muestra el total y el fingerprint autoritativos. Storybook y pruebas en
 [ui/README.md](ui/README.md).
 

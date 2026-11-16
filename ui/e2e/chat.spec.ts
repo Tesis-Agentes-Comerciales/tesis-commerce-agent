@@ -315,6 +315,30 @@ test("prepara, aprueba y completa una compra; la aprobación solo viaja por REST
   }
 })
 
+test("los datos de entrega editados sobreviven a una recarga y viajan en el turno siguiente", async ({
+  page,
+}) => {
+  await routeSession(page)
+  const calls = await routeAgent(page)
+  await page.goto("/")
+  const edited = "Carrera 7 # 72-41, apto 501"
+
+  await page.getByRole("button", { name: "Datos de entrega" }).click()
+  await page.getByLabel("Dirección").fill(edited)
+  await page.keyboard.press("Escape")
+  await page.reload()
+  await page.getByRole("button", { name: "Datos de entrega" }).click()
+  await expect(page.getByLabel("Dirección")).toHaveValue(edited)
+  await expect(page.getByLabel("Ciudad")).toHaveValue(DEMO_PROFILE.city)
+  await page.keyboard.press("Escape")
+
+  await preparePurchase(page)
+  const [turn] = assistantBodies(calls)
+  expect(turn.details.fulfillment.address.line_one).toBe(edited)
+  // El perfil va al backend para el checkout; el mensaje para el modelo no lo lleva.
+  expect(JSON.stringify(turn.commands)).not.toContain(edited)
+})
+
 test.describe("actividad de la compra", () => {
   test("modo observando: la fila pasa de esperar la aprobación a completada y muestra la política permitida con sus dos reglas", async ({
     page,

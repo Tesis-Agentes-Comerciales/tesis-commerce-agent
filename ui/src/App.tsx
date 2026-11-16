@@ -16,8 +16,9 @@ import { DelegationsHostContext } from "@/features/delegations-host"
 import { staleApprovalPart } from "@/features/stale-terms"
 import { authClient } from "@/lib/auth-client"
 import { INITIAL_AGENT_STATE, type AgentAssistantPart, type AgentState } from "@/lib/agent-contract"
+import { loadBuyerProfile, saveBuyerProfile } from "@/lib/buyer-profile-storage"
 import { AGENT_API_URL, health, pendingPurchase, type PendingPurchase } from "@/lib/commerce-api"
-import { DEMO_PROFILE } from "@/lib/commerce-types"
+import type { BuyerProfile } from "@/lib/commerce-types"
 import { ListChecksIcon, Settings2Icon } from "lucide-react"
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react"
 
@@ -87,7 +88,8 @@ function restoredState(pending: PendingPurchase | null): AgentState {
 }
 
 function CommerceApp({ userId }: { userId: string }) {
-  const [profile, setProfile] = useState(DEMO_PROFILE)
+  // Los datos de entrega de esta cuenta en este navegador; si no hay, los de demo.
+  const [profile, setProfile] = useState(() => loadBuyerProfile(userId))
   const [session, setSession] = useState(0)
   const [connection, setConnection] = useState<ConnectionStatus>("checking")
   const [profileOpen, setProfileOpen] = useState(false)
@@ -138,6 +140,14 @@ function CommerceApp({ userId }: { userId: string }) {
       active = false
     }
   }, [userId])
+
+  const updateProfile = useCallback(
+    (next: BuyerProfile) => {
+      setProfile(next)
+      saveBuyerProfile(userId, next)
+    },
+    [userId],
+  )
 
   // "Nueva compra" reinicia la conversación; la compra anterior ya quedó registrada en el backend.
   const startNewPurchase = useCallback(() => {
@@ -230,7 +240,7 @@ function CommerceApp({ userId }: { userId: string }) {
             Configura el perfil sintético utilizado para el checkout sandbox.
           </DialogDescription>
           <Suspense fallback={<div className="p-6 text-sm">Cargando…</div>}>
-            <BuyerProfileCard profile={profile} onChange={setProfile} />
+            <BuyerProfileCard profile={profile} onChange={updateProfile} />
           </Suspense>
         </DialogContent>
       </Dialog>

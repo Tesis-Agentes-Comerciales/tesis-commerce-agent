@@ -270,6 +270,27 @@ export const TERMS_MULTIPLE_LINES: ApprovalTerms = {
 
 export const TERMS_NO_ADDRESS: ApprovalTerms = { ...TERMS, fulfillment_details: null }
 
+/** Desde 2.000.000 COP el comercio no cobra envío: el total es el de la línea. */
+export const TERMS_FREE_SHIPPING: ApprovalTerms = {
+  ...TERMS,
+  total_minor: 210000000,
+  lines: [{ ...TERMS.lines[0]!, unit_amount_minor: 210000000 }],
+}
+
+/** Una dirección con segunda línea, como la puede escribir quien compra. */
+export const TERMS_TWO_ADDRESS_LINES: ApprovalTerms = {
+  ...TERMS,
+  fulfillment_details: {
+    address: {
+      name: "Lucía Fernández Restrepo",
+      line_one: "Carrera 7 # 72-41",
+      line_two: "Torre 2, apartamento 1503",
+      city: "Bogota",
+      country: "CO",
+    },
+  },
+}
+
 /** Un precio real en pesos, «$ 1.924.000,00 COP»: el total más ancho que ve la tarjeta. */
 export const TERMS_MILLIONS: ApprovalTerms = {
   ...TERMS,
