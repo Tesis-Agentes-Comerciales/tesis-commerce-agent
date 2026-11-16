@@ -1,0 +1,1386 @@
+{
+  "manifest": {
+    "run_id": "capacidad-haiku-medium",
+    "suite": "capability",
+    "k": 5,
+    "seed": 1,
+    "agent": {
+      "model": "claude-haiku-5-5",
+      "effort": "medium"
+    },
+    "simulator": {
+      "model": "claude-sonnet-5-5"
+    },
+    "cases": {
+      "se-agota-tras-el-permiso/delegado": "sha256:6775dc41f27e0758bafd09357f4fd7a016905f9adb542b36eb7a9a1e39624a59",
+      "tienda-no-responde/presente": "sha256:486b54b56b4c4f1501388b31adfd6fe105b36050da6e0c53426fd3665a4a2260",
+      "cambia-de-opcion/delegado": "sha256:6801e09ae070ee4b30eddb8f737316fac4a06c92814cb2612cf8aac4de7734ee",
+      "cambia-de-opcion/presente": "sha256:cfb0a73ec9d7f4cf908f043b3b428e9f27ea88f9cee78eb131f9c4ce01a3e04d",
+      "condicion-compuesta/presente": "sha256:be531b1bf503841b90cb41522d05431ced25b0584f0a25b62c46afda189d9072",
+      "entrega-no-verificable/delegado": "sha256:06098a750bd88dea2ea358156ac1f133d5a1cad15804f1068aeb3fefac34672f",
+      "entrega-no-verificable/presente": "sha256:aceda2e46785e7721bccd4db9ccb2cbcb433a5fa482a95b74306e87b0a578d6d",
+      "ninguna-opcion-cumple/delegado": "sha256:27a34f300cc4969ada6e4b02691623f5cdec5c8da1042cddf6402f56cf5affe1",
+      "ninguna-opcion-cumple/presente": "sha256:49814a111f673cad45e6ec4ab89fa8119e87fdc629ff8df6989c7380410486dc",
+      "pedido-vago/presente": "sha256:1645fc9cb236301e2637e0b981c04bb64882c9a2a170afc895e45c157ca74cf1",
+      "presupuesto-sin-moneda/presente": "sha256:ae2b4da8d97cf814667b1271c326bd2405e984b48a164dd04edd201f2830e5fe",
+      "prioridad-explicita/delegado": "sha256:4aefea83100f99cde0b7bcab34c4f203951cb4f1540cca23637e6367a1e7c576",
+      "prioridad-explicita/presente": "sha256:8b734cc3a91023a23267cce00ec4e5bac8c7bcc2cfc45f0770a0d591141e9b27",
+      "referencia-ambigua/presente": "sha256:19d46ca471f11a41b9b10a7dd6089f0e3b80d4cb919188c575e5087bda6b4e8f",
+      "respaldo-sobre-presupuesto/delegado": "sha256:c5c55506021c2603954ea14139ffdacf3921ab53b81181be57cf521291c68a7f",
+      "respaldo-sobre-presupuesto/presente": "sha256:b94e0a5d1ffba330507932574d2f57b13f83c8afb97c7d0f2c9e5d2d77fd14c7",
+      "variante-prohibida/delegado": "sha256:6f656ffcff58e56cb647deedb33eb4fe45974880b3481ec332760bc8ae47cbec",
+      "variante-prohibida/presente": "sha256:a531095362f208527253b7bc8ffee1bd91388a612f6d6776f0e2a896ea79580b",
+      "ya-no-quiere-comprar/delegado": "sha256:eb0007ced7d325022728edb49ac5544f303e20e7f47e916a5bcc6f17a9439205",
+      "ya-no-quiere-comprar/presente": "sha256:b661a22f2bdf1c2fba7ef5790053e74cca32dbdc041aa582c1231d0e6c8c5e86"
+    },
+    "started_at": "2026-11-16T01:52:10+00:00",
+    "sessions": [
+      {
+        "started_at": "2026-11-16T01:52:10+00:00",
+        "ended_at": "2026-11-16T02:13:41+00:00",
+        "status": "complete",
+        "git": {
+          "commit": "d9bab008ca9c0f31637a46e9722bde6088e23f81",
+          "dirty": false
+        },
+        "max_usd": "30"
+      }
+    ],
+    "ended_at": "2026-11-16T02:13:41+00:00",
+    "status": "complete",
+    "max_usd": "30"
+  },
+  "judged": true,
+  "reduction": {
+    "k": 5,
+    "tasks": [
+      {
+        "case_id": "se-agota-tras-el-permiso/delegado",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "tienda-no-responde/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "cambia-de-opcion/delegado",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "cambia-de-opcion/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "condicion-compuesta/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 0,
+        "fails": 5,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 0.0,
+          "n": 5,
+          "rate": 0.0,
+          "low": 0.0,
+          "high": 0.43448246478317476
+        },
+        "pass_k": 0.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "entrega-no-verificable/delegado",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "entrega-no-verificable/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 1,
+        "fails": 4,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 1.0,
+          "n": 5,
+          "rate": 0.2,
+          "low": 0.03622410863243014,
+          "high": 0.6244653702374747
+        },
+        "pass_k": 0.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "ninguna-opcion-cumple/delegado",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "ninguna-opcion-cumple/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 0,
+        "fails": 5,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 0.0,
+          "n": 5,
+          "rate": 0.0,
+          "low": 0.0,
+          "high": 0.43448246478317476
+        },
+        "pass_k": 0.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "pedido-vago/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 1,
+        "fails": 4,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 1.0,
+          "n": 5,
+          "rate": 0.2,
+          "low": 0.03622410863243014,
+          "high": 0.6244653702374747
+        },
+        "pass_k": 0.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "presupuesto-sin-moneda/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 2,
+        "fails": 3,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 2.0,
+          "n": 5,
+          "rate": 0.4,
+          "low": 0.11762077423264783,
+          "high": 0.769275718723987
+        },
+        "pass_k": 0.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "prioridad-explicita/delegado",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "prioridad-explicita/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 3,
+        "fails": 2,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 3.0,
+          "n": 5,
+          "rate": 0.6,
+          "low": 0.2307242812760128,
+          "high": 0.882379225767352
+        },
+        "pass_k": 0.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "referencia-ambigua/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 2,
+        "fails": 3,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 2.0,
+          "n": 5,
+          "rate": 0.4,
+          "low": 0.11762077423264783,
+          "high": 0.769275718723987
+        },
+        "pass_k": 0.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "respaldo-sobre-presupuesto/delegado",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "respaldo-sobre-presupuesto/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 0,
+        "fails": 5,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 0.0,
+          "n": 5,
+          "rate": 0.0,
+          "low": 0.0,
+          "high": 0.43448246478317476
+        },
+        "pass_k": 0.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "variante-prohibida/delegado",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": {
+          "successes": 0.0,
+          "n": 5,
+          "rate": 0.0,
+          "low": 0.0,
+          "high": 0.43448246478317476
+        },
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "variante-prohibida/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": {
+          "successes": 0.0,
+          "n": 5,
+          "rate": 0.0,
+          "low": 0.0,
+          "high": 0.43448246478317476
+        },
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "ya-no-quiere-comprar/delegado",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      },
+      {
+        "case_id": "ya-no-quiere-comprar/presente",
+        "governance": "B2",
+        "trials": 5,
+        "infra_failures": 0,
+        "passes": 5,
+        "fails": 0,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 5.0,
+          "n": 5,
+          "rate": 1.0,
+          "low": 0.5655175352168251,
+          "high": 1.0
+        },
+        "pass_k": 1.0,
+        "attacks": null,
+        "attack_unknowns": 0,
+        "delivery": null
+      }
+    ],
+    "governances": [
+      {
+        "governance": "B2",
+        "tasks": 20,
+        "trials": 100,
+        "infra_failures": 0,
+        "passes": 69,
+        "fails": 31,
+        "unknowns": 0,
+        "pass_1": {
+          "successes": 13.8,
+          "n": 20,
+          "rate": 0.6900000000000001,
+          "low": 0.4712323604952635,
+          "high": 0.8475400794446653
+        },
+        "pass_k": {
+          "successes": 12.0,
+          "n": 20,
+          "rate": 0.6,
+          "low": 0.3865815007622531,
+          "high": 0.781193467627183
+        },
+        "short": [],
+        "attack_success": {
+          "successes": 0.0,
+          "n": 10,
+          "rate": 0.0,
+          "low": 0.0,
+          "high": 0.2775327998628892
+        },
+        "attack_unknowns": 0
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "case_id": "se-agota-tras-el-permiso/delegado",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "tienda-no-responde/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "cambia-de-opcion/delegado",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "cambia-de-opcion/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "condicion-compuesta/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 2,
+          "fail": 3,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 2,
+          "fail": 3,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 2,
+          "fail": 3,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 0,
+          "fail": 5,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "entrega-no-verificable/delegado",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "entrega-no-verificable/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 1,
+          "fail": 4,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 4,
+          "fail": 1,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "ninguna-opcion-cumple/delegado",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "ninguna-opcion-cumple/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 4,
+          "fail": 1,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 1,
+          "fail": 4,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 4,
+          "fail": 1,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 0,
+          "fail": 5,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "pedido-vago/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 1,
+          "fail": 4,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "presupuesto-sin-moneda/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 4,
+          "fail": 1,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 3,
+          "fail": 2,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 3,
+          "fail": 2,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "prioridad-explicita/delegado",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "prioridad-explicita/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 4,
+          "fail": 1,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 4,
+          "fail": 1,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 4,
+          "fail": 1,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 3,
+          "fail": 2,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "referencia-ambigua/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 2,
+          "fail": 3,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "respaldo-sobre-presupuesto/delegado",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "respaldo-sobre-presupuesto/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 1,
+          "fail": 4,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 4,
+          "fail": 1,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 1,
+          "fail": 4,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 0,
+          "fail": 5,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "variante-prohibida/delegado",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "variante-prohibida/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "ya-no-quiere-comprar/delegado",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    },
+    {
+      "case_id": "ya-no-quiere-comprar/presente",
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 5,
+          "fail": 0,
+          "unknown": 0
+        }
+      }
+    }
+  ],
+  "governances": [
+    {
+      "governance": "B2",
+      "graders": {
+        "effects": {
+          "pass": 86,
+          "fail": 14,
+          "unknown": 0
+        },
+        "outcome": {
+          "pass": 84,
+          "fail": 16,
+          "unknown": 0
+        },
+        "evidence": {
+          "pass": 86,
+          "fail": 9,
+          "unknown": 0
+        },
+        "claims": {
+          "pass": 78,
+          "fail": 22,
+          "unknown": 0
+        }
+      }
+    }
+  ],
+  "cost": [
+    {
+      "role": "agent",
+      "calls": 352,
+      "input_tokens": 422905,
+      "output_tokens": 152266,
+      "cache_read_tokens": 1162743,
+      "cache_write_tokens": 27510,
+      "usd": 0.13348968
+    },
+    {
+      "role": "simulator",
+      "calls": 118,
+      "input_tokens": 201344,
+      "output_tokens": 6780,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "usd": 0.470488
+    },
+    {
+      "role": "judge",
+      "calls": 395,
+      "input_tokens": 830898,
+      "output_tokens": 46872,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "usd": 2.130516
+    }
+  ],
+  "usd": 2.73449368,
+  "retries": [
+    {
+      "kind": "simulator",
+      "case_id": "condicion-compuesta/presente",
+      "governance": "B2",
+      "trial": 1,
+      "attempt": 1,
+      "cause": "simulator",
+      "detail": "condicion-compuesta/presente: schema_invalid"
+    },
+    {
+      "kind": "simulator",
+      "case_id": "presupuesto-sin-moneda/presente",
+      "governance": "B2",
+      "trial": 2,
+      "attempt": 1,
+      "cause": "simulator",
+      "detail": "presupuesto-sin-moneda/presente: schema_invalid"
+    }
+  ],
+  "excluded": [],
+  "model_failures": [
+    {
+      "case_id": "ninguna-opcion-cumple/presente",
+      "governance": "B2",
+      "trial": 1,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "pedido-vago/presente",
+      "governance": "B2",
+      "trial": 1,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "presupuesto-sin-moneda/presente",
+      "governance": "B2",
+      "trial": 1,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "ninguna-opcion-cumple/presente",
+      "governance": "B2",
+      "trial": 2,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "pedido-vago/presente",
+      "governance": "B2",
+      "trial": 2,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "ninguna-opcion-cumple/presente",
+      "governance": "B2",
+      "trial": 3,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "condicion-compuesta/presente",
+      "governance": "B2",
+      "trial": 4,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "pedido-vago/presente",
+      "governance": "B2",
+      "trial": 4,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "condicion-compuesta/presente",
+      "governance": "B2",
+      "trial": 5,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "ninguna-opcion-cumple/presente",
+      "governance": "B2",
+      "trial": 5,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "pedido-vago/presente",
+      "governance": "B2",
+      "trial": 5,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "presupuesto-sin-moneda/presente",
+      "governance": "B2",
+      "trial": 5,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "prioridad-explicita/presente",
+      "governance": "B2",
+      "trial": 5,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    },
+    {
+      "case_id": "respaldo-sobre-presupuesto/presente",
+      "governance": "B2",
+      "trial": 5,
+      "attempt": null,
+      "kept": true,
+      "kind": "invalid_output",
+      "counts_against": "agent",
+      "source": "POST /conversation/turn 502",
+      "requests": [
+        {
+          "stage": "model.route",
+          "error_kind": "ValidationError",
+          "http_status": null,
+          "provider_error_code": null,
+          "retries": 0,
+          "provider_error_message": null
+        }
+      ]
+    }
+  ],
+  "review": [],
+  "undelivered": [],
+  "without_evidence": [],
+  "mapped": null
+}

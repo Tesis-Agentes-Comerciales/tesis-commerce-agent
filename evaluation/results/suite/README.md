@@ -3,7 +3,8 @@
 Aquí están las corridas pagadas de la suite de `docs/design/eval-suite.md`, del 13-nov-2026. Las
 oficiales son las cuatro `*-final`, sobre `25725ff`. Las `*-k5` son el piloto y las `humo-*`, las
 pruebas de humo. Las `*-arreglos`, del 15-nov-2026, repiten capacidad después de los arreglos de
-#227 y #228. Todas usan Claude: el agente con esfuerzo `low`, el simulador según la tabla y el
+#227 y #228. Las tres de la comparación de modelos, del mismo día, cambian el agente, su esfuerzo o
+el comprador simulado. Todas usan Claude: el agente con esfuerzo `low`, el simulador según la tabla y el
 juez `claude-opus-5-5` por Batch.
 
 ## Corridas oficiales
@@ -55,6 +56,38 @@ eligió el celular sin preguntar; en el 1 falló el modelo (`invalid_output`). H
 Los logs son `arreglos-haiku.log`, `arreglos-sonnet.log` y `juez-arreglos-*.log`. Un primer
 intento no arrancó el stack (`stack_not_started`, sin `MERCHANT_REPO`) y no gastó nada; se borró.
 
+## Comparación de modelos
+
+Sobre `d9bab00`, con el sistema ya arreglado, k = 5 y juzgadas como las demás. Cada una cambia una
+sola cosa frente a una corrida con los arreglos.
+
+| Corrida | Agente | Esfuerzo | Comprador | pass^1 | pass^5 | Fallas del modelo | USD |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `capacidad-haiku-arreglos` | Haiku 5.5 | `low` | Sonnet 5.5 | 75,0 % | 60,0 % | 12 | 2,70 |
+| `capacidad-haiku-medium` | Haiku 5.5 | `medium` | Sonnet 5.5 | 69,0 % | 60,0 % | 14 | 2,73 |
+| `capacidad-haiku-simopus` | Haiku 5.5 | `low` | Opus 5.5 | 67,0 % | 55,0 % | 15 | 3,09 |
+| `capacidad-sonnet-arreglos` | Sonnet 5.5 | `low` | Opus 5.5 | 95,0 % | 85,0 % | 2 | 4,40 |
+| `capacidad-opus` | Opus 5.5 | `low` | Sonnet 5.5 | 95,0 % | 90,0 % | 2 | 5,15 |
+
+«Fallas del modelo» son los intentos con una falla contada contra el agente (`invalid_output`). La
+suite no deja que agente y comprador sean el mismo modelo, así que con Opus de agente el comprador
+es Sonnet, el mismo de las corridas de Haiku. Los intervalos de las tres corridas de Haiku se cruzan.
+
+- **Más esfuerzo no ayuda a Haiku.** Con `medium` pasa el 69 % y tiene 14 fallas del modelo, contra
+  75 % y 12 con `low`: pensar más no evita las salidas inválidas.
+- **Opus no supera a Sonnet:** los dos pasan el 95 %. La suite ya no tiene margen arriba.
+- **Tres tareas son el límite de Haiku.** `condicion-compuesta`, `ninguna-opcion-cumple` y
+  `respaldo-sobre-presupuesto`, en `presente`, pasan 0 de 5 con Haiku en las tres configuraciones
+  (salvo 1 de 5 en la última con Opus de comprador) y 5 de 5 con Sonnet y con Opus.
+- **`presupuesto-sin-moneda` falla también con los modelos fuertes:** pasa 2 de 5 con Sonnet y 2 de 5
+  con Opus. En los que abren un checkout, 2 con Sonnet y 3 con Opus, el agente pregunta la moneda,
+  pero el celular lo elige sin preguntar. Haiku con Opus de comprador pasa 1 de 5, y en 3 intentos eligió
+  de entrada, sin preguntar ni la moneda. Es la falla del agente que queda.
+- **El comprador mueve a Haiku de 75 % a 67 %,** sobre todo en `referencia-ambigua` (4 a 1, con 2
+  intentos sin decidir) y `presupuesto-sin-moneda` (4 a 1).
+
+Los logs son `haiku-medium.log`, `haiku-simopus.log`, `opus.log` y sus `juez-*.log`.
+
 ## Piloto y humo
 
 | Corrida | Commit | pass^1 | USD |
@@ -95,8 +128,8 @@ verificar cada PR tampoco se suben (`verificacion-prs/`): no llaman a un LLM y s
 ## Cómo se verifica
 
 `uv run eval-suite report evaluation/results/suite/<corrida>` reescribe el reporte desde estos
-archivos, sin llamar a ningún LLM. Con las cuatro oficiales, las dos `*-arreglos`,
-`capacidad-*-k5` y los humos sale un `report.md` idéntico al subido. Con `adversarial-*-k5` no: sin
+archivos, sin llamar a ningún LLM. Con las cuatro oficiales, las dos `*-arreglos`, las tres de la
+comparación de modelos, `capacidad-*-k5` y los humos sale un `report.md` idéntico al subido. Con `adversarial-*-k5` no: sin
 las bases, el reporte no ve la entrega de la inyección, deja los 50 ataques «sin evidencia» y la
 tasa queda sin datos. Para esas dos corridas vale el `report.md` subido, que se escribió con las
 bases.
