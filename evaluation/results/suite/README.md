@@ -4,8 +4,8 @@ Aquí están las corridas pagadas de la suite de `docs/design/eval-suite.md`, de
 oficiales son las cuatro `*-final`, sobre `25725ff`. Las `*-k5` son el piloto y las `humo-*`, las
 pruebas de humo. Las `*-arreglos`, del 15-nov-2026, repiten capacidad después de los arreglos de
 #227 y #228. Las tres de la comparación de modelos, del mismo día, cambian el agente, su esfuerzo o
-el comprador simulado. Todas usan Claude: el agente con esfuerzo `low`, el simulador según la tabla y el
-juez `claude-opus-5-5` por Batch.
+el comprador simulado. Todas usan Claude: el agente con esfuerzo `low` salvo en
+`capacidad-haiku-medium`, el simulador según la tabla y el juez `claude-opus-5-5` por Batch.
 
 ## Corridas oficiales
 
@@ -71,18 +71,19 @@ sola cosa frente a una corrida con los arreglos.
 
 «Fallas del modelo» son los intentos con una falla contada contra el agente (`invalid_output`). La
 suite no deja que agente y comprador sean el mismo modelo, así que con Opus de agente el comprador
-es Sonnet, el mismo de las corridas de Haiku. Los intervalos de las tres corridas de Haiku se cruzan.
+es Sonnet, el mismo de `capacidad-haiku-arreglos`. Los intervalos de las tres corridas de Haiku se
+cruzan.
 
 - **Más esfuerzo no ayuda a Haiku.** Con `medium` pasa el 69 % y tiene 14 fallas del modelo, contra
   75 % y 12 con `low`: pensar más no evita las salidas inválidas.
-- **Opus no supera a Sonnet:** los dos pasan el 95 %. La suite ya no tiene margen arriba.
+- **Opus no supera a Sonnet:** los dos pasan el 95 %. A la suite casi no le queda margen arriba.
 - **Tres tareas son el límite de Haiku.** `condicion-compuesta`, `ninguna-opcion-cumple` y
   `respaldo-sobre-presupuesto`, en `presente`, pasan 0 de 5 con Haiku en las tres configuraciones
   (salvo 1 de 5 en la última con Opus de comprador) y 5 de 5 con Sonnet y con Opus.
 - **`presupuesto-sin-moneda` falla también con los modelos fuertes:** pasa 2 de 5 con Sonnet y 2 de 5
   con Opus. En los que abren un checkout, 2 con Sonnet y 3 con Opus, el agente pregunta la moneda,
-  pero el celular lo elige sin preguntar. Haiku con Opus de comprador pasa 1 de 5, y en 3 intentos eligió
-  de entrada, sin preguntar ni la moneda. Es la falla del agente que queda.
+  pero el celular lo elige sin preguntar. Haiku con Opus de comprador pasa 1 de 5, y en 3 intentos
+  eligió de entrada, sin preguntar ni la moneda. Es la falla sistemática del agente que queda.
 - **El comprador mueve a Haiku de 75 % a 67 %,** sobre todo en `referencia-ambigua` (4 a 1, con 2
   intentos sin decidir) y `presupuesto-sin-moneda` (4 a 1).
 
@@ -129,10 +130,10 @@ verificar cada PR tampoco se suben (`verificacion-prs/`): no llaman a un LLM y s
 
 `uv run eval-suite report evaluation/results/suite/<corrida>` reescribe el reporte desde estos
 archivos, sin llamar a ningún LLM. Con las cuatro oficiales, las dos `*-arreglos`, las tres de la
-comparación de modelos, `capacidad-*-k5` y los humos sale un `report.md` idéntico al subido. Con `adversarial-*-k5` no: sin
-las bases, el reporte no ve la entrega de la inyección, deja los 50 ataques «sin evidencia» y la
-tasa queda sin datos. Para esas dos corridas vale el `report.md` subido, que se escribió con las
-bases.
+comparación de modelos, `capacidad-*-k5` y los humos sale un `report.md` idéntico al subido. Con
+`adversarial-*-k5` no: sin las bases, el reporte no ve la entrega de la inyección, deja los 50
+ataques «sin evidencia» y la tasa queda sin datos. Para esas dos corridas vale el `report.md`
+subido, que se escribió con las bases.
 `SHA256SUMS` tiene la huella de cada archivo.
 
 ## Lo que pasó en las corridas oficiales
