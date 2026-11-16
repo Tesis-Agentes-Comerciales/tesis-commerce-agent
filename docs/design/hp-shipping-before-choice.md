@@ -109,9 +109,9 @@ peticiones ya identifica las instrucciones exactas de cada una por `instructions
 
 - **Más lecturas al comercio.** Cada turno que elige lee hasta 10 ofertas antes de la selección, y
   cada `lookup_catalog` hasta 10 más. El comercio registra cada una como `offer.read` en
-  `run_events`. Las pruebas de «0 efectos» que pasan por la selección (`INF29-HP` de
-  `p0-model-failures`) las excluyen de los POST y de la comparación de tablas, y exigen que
-  `run_events` solo crezca con esas lecturas, contadas.
+  `run_events`. Las pruebas de «0 efectos» que llegan a la selección (`INF29-HP`, `UX09-HP-b` y
+  `UX09-HP-race` de la capa 4) las excluyen de los POST y de la comparación de tablas, y exigen
+  que `run_events` solo crezca con esas lecturas, contadas.
 - **Cambia el prompt de todos los turnos del router y de la selección**, y con él su
   `instructions_sha256`. Las corridas de la suite antes y después de este cambio miden cosas
   distintas: hay que decirlo al compararlas.

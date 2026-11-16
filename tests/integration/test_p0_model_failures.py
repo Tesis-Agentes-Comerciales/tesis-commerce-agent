@@ -306,12 +306,30 @@ def calls(proxy_calls: list[Any]) -> list[list[Any]]:
 
 
 # Since hp-router-v2 (docs/design/hp-shipping-before-choice.md) the selection reads the shipping
-# of each shortlisted offer before its request, so INF29-HP, whose selection request fails, reads
-# them first: one `POST /lab/offers/get` each, which the Merchant records as an `offer.read` run
-# event. A read is not a commercial effect (p0-conditional-intent.md §4.4): «0 efectos» leaves
-# those POSTs and `run_events` out of its two checks and requires the run's new events to be
-# exactly those reads.
+# of each shortlisted offer before its request, so a case whose selection request fails or is
+# stopped (INF29-HP here, UX09-HP-b and -race in test_p0_ux08_ux10.py) reads them first: one
+# `POST /lab/offers/get` each, which the Merchant records as an `offer.read` run event. A read is
+# not a commercial effect (p0-conditional-intent.md §4.4): «0 efectos» leaves those POSTs and
+# `run_events` out of its checks and requires the run's new events to be exactly those reads.
 OFFER_READ = ["POST", "/lab/offers/get"]
+
+
+def offer_reads(
+    before: dict[str, Any], after: dict[str, Any], posts: list[list[Any]]
+) -> tuple[int, dict[str, int], bool]:
+    """The run's offer reads, its new Merchant events and whether those are only the reads."""
+    reads = sum(call[:2] == OFFER_READ for call in posts)
+    events_before, events_after = before["merchant_run_events"], after["merchant_run_events"]
+    new_events = {
+        kind: events_after.get(kind, 0) - events_before.get(kind, 0)
+        for kind in events_before.keys() | events_after.keys()
+        if events_after.get(kind, 0) != events_before.get(kind, 0)
+    }
+    return reads, new_events, new_events == ({"offer.read": reads} if reads else {})
+
+
+def without_run_events(state: dict[str, Any]) -> dict[str, Any]:
+    return {name: table for name, table in state["merchant_tables"].items() if name != "run_events"}
 
 
 def outside(lane: PurchaseLane, episode: Episode) -> dict[str, Any]:
@@ -383,13 +401,7 @@ def zero_effects(
     are counted apart (`OFFER_READ`)."""
     grown = {name: ledger_after[name] - ledger_before[name] for name in LEDGER}
     posts = [call for call in merchant_calls if call[0] == "POST"]
-    reads = sum(call[:2] == OFFER_READ for call in posts)
-    events_before, events_after = before["merchant_run_events"], after["merchant_run_events"]
-    new_events = {
-        kind: events_after.get(kind, 0) - events_before.get(kind, 0)
-        for kind in events_before.keys() | events_after.keys()
-        if events_after.get(kind, 0) != events_before.get(kind, 0)
-    }
+    reads, new_events, only_reads = offer_reads(before, after, posts)
     facts = {
         "merchant_posts": len(posts) - reads,
         "offer_reads": reads,
@@ -402,8 +414,7 @@ def zero_effects(
     }
     checks = {
         "zero_effects.merchant_no_post": facts["merchant_posts"] == 0,
-        "zero_effects.merchant_only_offer_reads": new_events
-        == ({"offer.read": reads} if reads else {}),
+        "zero_effects.merchant_only_offer_reads": only_reads,
         "zero_effects.merchant_no_checkout": facts["merchant_checkouts"] == [[], []],
         "zero_effects.merchant_snapshot_equal": facts["merchant_snapshot_equal"],
         "zero_effects.psp_no_token": facts["psp_tokens_delta"] == 0,
@@ -414,10 +425,6 @@ def zero_effects(
         facts["psp_posts"] = sum(call[0] == "POST" for call in psp_calls)
         checks["zero_effects.psp_no_post"] = facts["psp_posts"] == 0
     return checks, facts
-
-
-def without_run_events(state: dict[str, Any]) -> dict[str, Any]:
-    return {name: table for name, table in state["merchant_tables"].items() if name != "run_events"}
 
 
 def scripted_429(oracle: dict[str, Any], seen: dict[str, Any]) -> bool:
