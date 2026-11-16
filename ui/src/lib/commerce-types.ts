@@ -35,6 +35,15 @@ export type PurchasePreparation = {
   price_changed: boolean
 }
 
+/** La dirección que el comercio devuelve en el checkout. La tarjeta solo la muestra. */
+export type DeliveryAddress = {
+  name?: string
+  line_one?: string
+  line_two?: string
+  city?: string
+  country?: string
+}
+
 export type ApprovalTerms = {
   merchant_origin: string
   checkout_id: string
@@ -49,7 +58,7 @@ export type ApprovalTerms = {
   selected_fulfillment_options: Array<Record<string, unknown>>
   buyer: Record<string, unknown> | null
   fulfillment_details: {
-    address?: { city?: string; country?: string }
+    address?: DeliveryAddress
   } | null
   payment_handler: string
   action: string

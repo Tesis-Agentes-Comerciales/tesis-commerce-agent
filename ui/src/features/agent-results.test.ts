@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
 
-import { asDelegationDraft, asSelectResult } from "@/features/agent-results"
+import { asApprovalResult, asDelegationDraft, asSelectResult } from "@/features/agent-results"
 import { fixtureState } from "@/storybook/assistant-transport"
+import { TERMS } from "@/storybook/fixtures"
 import CONDITIONAL from "@/storybook/fixtures/conditional-views.json"
 
 // Los `result` del stream son no confiables (docs/agent-ui-contract.md): lo que no cumple el
@@ -63,5 +64,45 @@ describe("el orden del borrador de delegación", () => {
     ["null", null],
   ])("%s: se descarta", (_, priority) => {
     expect(asDelegationDraft({ ...raw, priority })).not.toHaveProperty("priority")
+  })
+})
+
+describe("la dirección de los términos", () => {
+  const withAddress = (address: unknown) => ({
+    run_id: "run_1",
+    stage: "awaiting_confirmation",
+    terms: { ...TERMS, fulfillment_details: { name: "Ana Demo", address } },
+  })
+
+  it("trae lo que muestra la tarjeta: destinatario, las dos líneas, ciudad y país", () => {
+    const address = {
+      name: "Ana Demo",
+      line_one: "Calle 100 # 10-20",
+      line_two: "Apartamento 302",
+      city: "Bogota",
+      state: "DC",
+      country: "CO",
+      postal_code: "110111",
+    }
+    expect(asApprovalResult(withAddress(address))?.terms.fulfillment_details).toEqual({
+      address: {
+        name: "Ana Demo",
+        line_one: "Calle 100 # 10-20",
+        line_two: "Apartamento 302",
+        city: "Bogota",
+        country: "CO",
+      },
+    })
+  })
+
+  it("descarta lo que no es texto", () => {
+    const address = { name: 7, line_one: "Calle 100 # 10-20", line_two: null, city: ["Bogota"] }
+    expect(asApprovalResult(withAddress(address))?.terms.fulfillment_details).toEqual({
+      address: { line_one: "Calle 100 # 10-20" },
+    })
+  })
+
+  it("sin dirección no hay detalles de entrega", () => {
+    expect(asApprovalResult(withAddress("Calle 100"))?.terms.fulfillment_details).toBeNull()
   })
 })

@@ -11,6 +11,7 @@ import {
   type SearchCatalogResult,
   type SelectProductResult,
 } from "@/lib/agent-contract"
+import type { DeliveryAddress } from "@/lib/commerce-types"
 import { MAX_PRIORITY_VARIANTS } from "@/lib/delegation-draft"
 
 // Validación de los `result` de cada paso. El backend los genera, pero el contrato los trata como no
@@ -161,6 +162,18 @@ export function asPrepareResult(value: unknown): PrepareCheckoutResult | null {
   }
 }
 
+const ADDRESS_FIELDS = ["name", "line_one", "line_two", "city", "country"] as const
+
+/** Solo los campos de texto que muestra la tarjeta; cualquier otro valor se descarta. */
+function deliveryAddress(address: Record<string, unknown>): DeliveryAddress {
+  const shown: DeliveryAddress = {}
+  for (const field of ADDRESS_FIELDS) {
+    const value = address[field]
+    if (isString(value)) shown[field] = value
+  }
+  return shown
+}
+
 function asTerms(value: unknown): ApprovalTerms | null {
   if (!isRecord(value)) return null
   const { merchant_origin, checkout_id, currency, total_minor, fingerprint, lines } = value
@@ -192,14 +205,7 @@ function asTerms(value: unknown): ApprovalTerms | null {
       ? value.selected_fulfillment_options.filter(isRecord)
       : [],
     buyer: isRecord(value.buyer) ? value.buyer : null,
-    fulfillment_details: isRecord(address)
-      ? {
-          address: {
-            city: isString(address.city) ? address.city : undefined,
-            country: isString(address.country) ? address.country : undefined,
-          },
-        }
-      : null,
+    fulfillment_details: isRecord(address) ? { address: deliveryAddress(address) } : null,
     payment_handler: isString(value.payment_handler) ? value.payment_handler : "",
     action: isString(value.action) ? value.action : "",
     expires_at: isString(value.expires_at) ? value.expires_at : "",

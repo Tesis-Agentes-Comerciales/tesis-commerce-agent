@@ -92,20 +92,24 @@ function Row({
   children,
   strong = false,
   mono = false,
+  wrap = false,
 }: {
   label: ReactNode
   children: ReactNode
   strong?: boolean
   mono?: boolean
+  /** Un valor de varias líneas, como la dirección: se parte en vez de desbordar la tarjeta. */
+  wrap?: boolean
 }) {
   return (
     <div className="flex items-baseline justify-between gap-4">
-      <dt className="min-w-0 text-[#6b6b6b] wrap-break-word">{label}</dt>
+      <dt className={cn("min-w-0 text-[#6b6b6b] wrap-break-word", wrap && "shrink-0")}>{label}</dt>
       <dd
         className={cn(
           "shrink-0 text-right tabular-nums",
           strong ? "font-semibold" : "font-medium",
           mono && "max-w-[60%] shrink font-mono text-xs break-all",
+          wrap && "min-w-0 shrink wrap-break-word",
         )}
       >
         {children}
@@ -114,10 +118,68 @@ function Row({
   )
 }
 
-function deliveryText(terms: ApprovalTerms) {
+const DELIVERY_FIELDS = ["name", "line_one", "line_two", "city"] as const
+
+/** Destinatario, dirección (con su segunda línea si la hay) y ciudad, como las devolvió el comercio. */
+function deliveryLines(terms: ApprovalTerms) {
   const address = terms.fulfillment_details?.address
-  const parts = [address?.city, address?.country].filter(Boolean)
-  return parts.length > 0 ? parts.join(", ") : "Sin dirección"
+  return DELIVERY_FIELDS.map((field) => ({ field, text: address?.[field]?.trim() ?? "" })).filter(
+    (line) => line.text.length > 0,
+  )
+}
+
+function Delivery({ terms }: { terms: ApprovalTerms }) {
+  const lines = deliveryLines(terms)
+  return (
+    <Row label="Entrega" wrap>
+      {lines.length > 0
+        ? lines.map((line) => (
+            <span key={line.field} className="block">
+              {line.text}
+            </span>
+          ))
+        : "Sin dirección"}
+    </Row>
+  )
+}
+
+/**
+ * Subtotal, envío y total de los términos. El comercio no cobra otros cargos y el impuesto va
+ * incluido, así que la diferencia entre el total y las líneas es el envío. Las líneas se listan solo
+ * si hay varias o alguna lleva más de una unidad: con una sola, repetirían el subtotal.
+ */
+function Breakdown({ terms }: { terms: ApprovalTerms }) {
+  const subtotal = terms.lines.reduce(
+    (sum, line) => sum + line.quantity * line.unit_amount_minor,
+    0,
+  )
+  const shipping = terms.total_minor - subtotal
+  const itemized = terms.lines.length > 1 || terms.lines.some((line) => line.quantity !== 1)
+  return (
+    <>
+      {itemized &&
+        terms.lines.map((line) => (
+          <Row key={line.item_id} label={`${line.quantity} × ${line.name}`}>
+            {formatMoney(line.quantity * line.unit_amount_minor, terms.currency)}
+          </Row>
+        ))}
+      {terms.lines.length > 0 && (
+        <>
+          <Row label="Subtotal">{formatMoney(subtotal, terms.currency)}</Row>
+          {shipping < 0 ? (
+            <Row label="Descuentos">{formatMoney(shipping, terms.currency)}</Row>
+          ) : (
+            <Row label="Envío">
+              {shipping === 0 ? "Gratis" : formatMoney(shipping, terms.currency)}
+            </Row>
+          )}
+        </>
+      )}
+      <Row label="Total" strong>
+        {formatMoney(terms.total_minor, terms.currency)}
+      </Row>
+    </>
+  )
 }
 
 const APPROVE_FOOTER = "Aprobar autoriza únicamente estos términos. No mueve dinero real."
@@ -295,8 +357,6 @@ export function PurchaseApprovalCard({
   const copy = statusCopy(status, recorded, terminal)
   const total = formatMoneyParts(terms.total_minor, terms.currency)
   const productTitle = product?.title ?? terms.lines[0]?.name ?? "Compra"
-  const lineSum = terms.lines.reduce((sum, line) => sum + line.quantity * line.unit_amount_minor, 0)
-  const extra = terms.total_minor - lineSum
   const orderUrl = safeLinkUrl(order?.permalink_url)
   // Sin «Aprobar» ni «Cancelar»: el botón que se pulsó ya no está y el foco pasa al título.
   const controlsGone = settled || !onApprove
@@ -388,22 +448,13 @@ export function PurchaseApprovalCard({
               {order.status && (
                 <Row label="Estado">{ORDER_STATUS_LABELS[order.status] ?? order.status}</Row>
               )}
-              <Row label="Entrega">{deliveryText(terms)}</Row>
+              <Delivery terms={terms} />
               <Row label="Pago">Sandbox</Row>
             </Rows>
           ) : (
             <Rows className="border-t border-[#ececec] pt-4">
-              {terms.lines.map((line) => (
-                <Row key={line.item_id} label={`${line.quantity} × ${line.name}`}>
-                  {formatMoney(line.quantity * line.unit_amount_minor, terms.currency)}
-                </Row>
-              ))}
-              {extra !== 0 && (
-                <Row label={extra > 0 ? "Envío y otros cargos" : "Descuentos"}>
-                  {formatMoney(extra, terms.currency)}
-                </Row>
-              )}
-              <Row label="Entrega">{deliveryText(terms)}</Row>
+              <Breakdown terms={terms} />
+              <Delivery terms={terms} />
               <Row label="Pago">
                 <span className={chip({ tone: "neutral", size: "sm" })}>Sandbox</span>
               </Row>
