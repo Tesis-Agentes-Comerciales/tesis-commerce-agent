@@ -1,0 +1,2 @@
+{"kind": "simulator", "case_id": "condicion-compuesta/presente", "governance": "B2", "trial": 1, "seed": 4196423794, "attempt": 1, "reason": "condicion-compuesta/presente: schema_invalid"}
+{"kind": "simulator", "case_id": "presupuesto-sin-moneda/presente", "governance": "B2", "trial": 2, "seed": 3192262425, "attempt": 1, "reason": "presupuesto-sin-moneda/presente: schema_invalid"}
