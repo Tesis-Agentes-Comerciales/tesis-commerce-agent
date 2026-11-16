@@ -148,7 +148,8 @@ La compra delegada dentro del chat (`docs/design/hnp-chat-delegate.md`). Con `mo
 
 Son nodos que orquesta LangGraph y que el backend representa como tool calls en la UI. Son distintos
 de `lookup_catalog`, la única herramienta que puede invocar el modelo: consulta la instantánea
-validada del feed de solo lectura y no puede preparar checkout ni ejecutar pagos.
+validada del feed de solo lectura, más el envío de la oferta de cada producto que devuelve, y no
+puede preparar checkout ni ejecutar pagos.
 
 | `toolName` | Cuándo | `args` | `result` |
 | --- | --- | --- | --- |
