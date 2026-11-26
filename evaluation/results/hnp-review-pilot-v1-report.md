@@ -270,7 +270,7 @@ La variante revisada solo queda en `model_requests.input_json` del `agent.db` (`
 
 ## 7. Relación con HNP-02
 
-**Qué mostró HNP-02** (20-oct, offline, [`hnp02/hnp02-live-20261020T180845Z-s20261022/`](hnp02/hnp02-live-20261020T180845Z-s20261022/)). Evaluó un validador LLM que replicaba las reglas. Capturó las 75 propuestas inválidas, pero **0 de esas capturas eran únicas**: el backend determinista ya las bloqueaba. Además, sumaba 7,7 s de mediana por llamada.
+**Qué mostró HNP-02** (20-oct, offline, [`hnp02/hnp02-live-20261020T180845Z-s20261022/`](archive/hnp02/hnp02-live-20261020T180845Z-s20261022/)). Evaluó un validador LLM que replicaba las reglas. Capturó las 75 propuestas inválidas, pero **0 de esas capturas eran únicas**: el backend determinista ya las bloqueaba. Además, sumaba 7,7 s de mediana por llamada.
 
 **Este revisor cubre otro hueco: la intención dentro del grant.**
 - D1, D2 y D3 cuidan los límites del grant (variante, comercio, monto y vigencia), y en HR02 dejaron pasar el OnePlus 11 en 10/10 en `B2-HNP`, porque está dentro de esos límites.
