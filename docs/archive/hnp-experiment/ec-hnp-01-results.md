@@ -166,7 +166,8 @@ sobre propuestas válidas; no se debe presentar como una ventaja.
 >
 > El PR #16 corrige el arnés: vistas públicas para el validador, deadline real y fallas de
 > infraestructura separadas. Conserva los códigos, efectos y checks de los 54 episodios. La
-> Fase 1 de EC-HNP-02 ([README](../../evaluation/src/commerce_evaluation/hnp/llm/README.md)) declara
+> Fase 1 de EC-HNP-02 (su README, `evaluation/src/commerce_evaluation/hnp/llm/README.md` en la
+> etiqueta `pilotos-octubre`) declara
 > estas amenazas: B ⊆ A, y `unique_captures` como única fuente posible de ganancia.
 
 Latencia medida en Windows 11/Python 3.12.6; una pasada, orden A luego B por caso,

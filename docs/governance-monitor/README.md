@@ -66,7 +66,8 @@ consentimiento humano.
   D1, no conecta negocio y no representa dos LLM independientes.
 - **HNP-02 es dry-run.** Las cifras salen de FakeTransport y no miden ningún modelo. Una corrida con
   proveedor requiere oráculos preregistrados, roles independientes y tope de costo; ver
-  [evaluation/src/commerce_evaluation/hnp/llm/README.md](../../evaluation/src/commerce_evaluation/hnp/llm/README.md).
+  `evaluation/src/commerce_evaluation/hnp/llm/README.md` en la etiqueta `pilotos-octubre`, donde
+  quedó el código de HNP-02.
 
 ## Historia
 
