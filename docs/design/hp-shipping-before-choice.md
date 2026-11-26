@@ -1,7 +1,7 @@
 # Envío visible antes de elegir (Human Present)
 
-Estado: **implementado** en la rama `feat/envio-al-modelo`, 16 de noviembre de 2026. El prompt del
-router pasa a `hp-router-v2`.
+Estado: **implementado** y fusionado en `main` (#232). El prompt del router pasa a
+`hp-router-v2`.
 
 ## Problema
 
