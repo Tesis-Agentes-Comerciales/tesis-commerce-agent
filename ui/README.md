@@ -11,7 +11,7 @@ Desde este directorio:
 
 ```sh
 cp -n .env.example .env.local
-npm install
+npm ci
 npm run dev
 ```
 
@@ -55,7 +55,7 @@ La aplicación queda en `http://127.0.0.1:5173` y espera la API del agente en
   recuperación gobernada (por qué el agente no siguió).
 - Los `result` de cada paso se validan antes de dibujarlos (`src/features/agent-results.ts`): el feed
   y las respuestas ACP no son confiables.
-- Compra delegada (Human Not Present, HNP-10 y
+- Compra delegada (Human Not Present,
   [`docs/design/hnp-chat-delegate.md`](../docs/design/hnp-chat-delegate.md)): el selector «Modo de
   compra» de la cabecera (`src/components/purchase-mode-switch.tsx`, radios nativos: Tab y flechas)
   y el botón «Mis delegaciones» solo aparecen si `GET /health` trae `hnp_enabled: true`; apagado, la
@@ -130,14 +130,13 @@ carga: `sb.mock` cambia `src/lib/auth-client.ts` por `src/lib/__mocks__/auth-cli
 (`@storybook/addon-vitest`, `vitest.config.ts`): render, `play` y axe de `addon-a11y`. Cualquier
 violación de accesibilidad hace fallar la historia (`a11y.test: "error"`); una historia solo puede
 bajarla a `"todo"` con una razón escrita. No necesita Storybook levantado. La primera vez hace falta el
-navegador de Playwright: `npx playwright install chromium` (en Linux/CI, `--with-deps`). También corre
-el proyecto `unit` de Vitest (`src/**/*.test.ts` en Node; solo él con `npm test`), así el job `ui` de
-CI lo ejecuta sin un paso nuevo.
+navegador de Playwright: `npx playwright install chromium` (en Linux, `--with-deps`). También corre
+el proyecto `unit` de Vitest (`src/**/*.test.ts` en Node; solo él con `npm test`).
 
 La UI usa la fuente del sistema (`ui-sans-serif, system-ui, sans-serif`): SF Pro en macOS y DejaVu
-Sans, bastante más ancha, en el Chromium del CI (Linux). Las historias «Phone 320» miden contra el
+Sans, bastante más ancha, en el Chromium de Linux. Las historias «Phone 320» miden contra el
 ancho real de un teléfono de 320 px (272 px para una tarjeta del hilo, 254 para una del diálogo
-«Delegaciones»), así que un monto que cabe justo en macOS puede desbordar en CI: un texto sin
+«Delegaciones»), así que un monto que cabe justo en macOS puede desbordar en Linux: un texto sin
 espacios necesita un tamaño que baje con la tarjeta o un punto de corte (`totalAmount` en
 `agent-styles.ts`).
 

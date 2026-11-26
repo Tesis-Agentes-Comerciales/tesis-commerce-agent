@@ -1,6 +1,6 @@
 """Human Present conditional intent end to end (docs/design/p0-conditional-intent.md §3.2-§3.8).
 
-The production app over the real SDK and the scripted Responses API of
+The production app over the real SDK and the scripted Anthropic Messages API of
 tests/support/model_server.py, real SQLite in tmp_path and the lab merchant of
 tests/assistant_support.py, which serves `POST /lab/offers/get` and counts reads by offer and
 creations. The router (and, in UX07, the selector) is scripted, so these tests prove the product

@@ -382,7 +382,7 @@ export type AgentTextPart = {
   text: string;
 };
 
-/** Resumen de razonamiento de la Responses API; nunca razonamiento crudo. */
+/** Resumen del razonamiento de Claude; nunca el razonamiento crudo. */
 export type AgentReasoningPart = {
   type: "reasoning";
   text: string;
