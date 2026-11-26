@@ -171,8 +171,9 @@ UI → FastAPI → LangGraph (hilo y checkpoints en SQLite)
 - El checkout del comercio es la autoridad de precio y stock. La aprobación queda ligada a los
   términos exactos (comercio, líneas, total, entrega y vencimiento), y el pago lo hace el
   proveedor sandbox con un token delegado, fuera del modelo.
-- La política de compra (`AGENT_GOVERNANCE_MODE`) es opcional y está apagada por defecto. La
-  compra delegada (`AGENT_HNP_ENABLED`) también.
+- En el arranque manual, la política de compra (`AGENT_GOVERNANCE_MODE`) y la compra delegada
+  (`AGENT_HNP_ENABLED`) están apagadas por defecto; `demo-stack` enciende la política salvo con
+  `--mode b0`.
 - Límites deliberados: un solo comercio registrado por configuración, una moneda, cantidad uno,
   SQLite y pago sandbox. La matriz de contrato, amenazas e hipótesis está en
   [docs/compatibility.md](docs/compatibility.md).
@@ -300,7 +301,7 @@ Abre [LangGraph Studio](https://smith.langchain.com/studio/?baseUrl=http://127.0
 
 ```json
 {
-  "incoming_messages": [{"role": "user", "content": "¿Qué audífonos Sonora tienes?"}],
+  "incoming_messages": [{"role": "user", "content": "¿Qué teléfonos Pixel tienes?"}],
   "turn_id": "demo-1"
 }
 ```
