@@ -1,9 +1,0 @@
-node_modules
-dist
-dist-e2e
-storybook-static
-test-results
-playwright-report
-.env
-.env.*
-*.log
