@@ -126,6 +126,8 @@ WEBHOOK_BATCH = 20
 # One dispatcher pass delivers at most WEBHOOK_BATCH events; past this it is stuck and is killed.
 WEBHOOK_DISPATCH_TIMEOUT_SECONDS = 10.0
 STOP_TIMEOUT_SECONDS = 10.0
+# `docker info` answers in well under a second when the daemon runs; past this it does not.
+DOCKER_INFO_TIMEOUT_SECONDS = 15.0
 GROUP_POLL_SECONDS = 0.05
 # Closing the terminal (SIGHUP) or `kill` (SIGTERM) shut the stack down like Ctrl-C.
 SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
@@ -654,6 +656,22 @@ def port_in_use(port: int) -> bool:
     return False
 
 
+def docker_responds() -> bool:
+    """Whether the Docker daemon answers, not only whether its CLI is installed: `docker compose
+    up` needs it, and a Docker Desktop that is closed leaves the CLI in the PATH."""
+    try:
+        result = subprocess.run(
+            ("docker", "info", "--format", "{{.ServerVersion}}"),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=DOCKER_INFO_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def hnp_problems(plan: DemoPlan) -> list[str]:
     """Whether the agent's HNP startup accepts this launch (`load_hnp_trust` and the enforce D1
     configuration), checked like the HNP pilot's dry run: nothing starts and nothing is written."""
@@ -689,6 +707,11 @@ def preflight(plan: DemoPlan) -> list[str]:
     ]
     tools = ("uv", "node") if plan.skip_postgres_start else ("uv", "node", "docker")
     problems += [f"{tool} no está en el PATH" for tool in tools if shutil.which(tool) is None]
+    if "docker" in tools and shutil.which("docker") is not None and not docker_responds():
+        problems.append(
+            "Docker está instalado pero no responde: abre Docker Desktop (o arranca el daemon) y "
+            "vuelve a intentarlo"
+        )
     problems += [
         f"falta `npm ci` en {directory.name}/"
         for directory in (AUTH, UI)

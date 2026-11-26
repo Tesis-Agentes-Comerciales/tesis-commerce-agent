@@ -786,8 +786,10 @@ def test_dry_run_names_the_intent_reviewer_when_it_is_on(tmp_path: Path) -> None
 
 
 def test_the_preflight_runs_the_agents_hnp_startup_check_without_starting_it(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The real daemon is never asked here; its check has tests of its own below.
+    monkeypatch.setattr(demo_stack, "docker_responds", lambda: True)
     plan = plan_for("b2-hnp", tmp_path)
     keys = plan.secrets.hnp
     assert keys is not None
@@ -803,6 +805,91 @@ def test_the_preflight_runs_the_agents_hnp_startup_check_without_starting_it(
     assert problem in preflight(broken)
     assert_no_secret(problem, broken)
     assert not plan.run_dir.exists()
+
+
+def ready_checkouts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DemoPlan:
+    """A b2 plan whose checkouts, tools, `npm ci` and ports are all in place, so the preflight
+    can only complain about Docker."""
+    plan = plan_for("b2", tmp_path)
+    (plan.merchant_repo / "src" / "commerce_lab").mkdir(parents=True)
+    (plan.payment_repo / "src" / "tesis_payment_provider").mkdir(parents=True)
+    monkeypatch.setattr(demo_stack.shutil, "which", lambda tool: f"/usr/local/bin/{tool}")
+    monkeypatch.setattr(demo_stack, "port_in_use", lambda port: False)
+    return plan
+
+
+def test_the_preflight_stops_when_docker_is_installed_but_its_daemon_does_not_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = ready_checkouts(tmp_path, monkeypatch)
+    monkeypatch.setattr(demo_stack, "docker_responds", lambda: False)
+
+    problems = preflight(plan)
+
+    assert "Docker está instalado pero no responde" in "\n".join(problems)
+    assert "abre Docker Desktop" in "\n".join(problems)
+    assert not any("PATH" in problem for problem in problems)
+
+
+def test_the_preflight_accepts_a_docker_daemon_that_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = ready_checkouts(tmp_path, monkeypatch)
+    monkeypatch.setattr(demo_stack, "docker_responds", lambda: True)
+
+    assert not any("Docker" in problem for problem in preflight(plan))
+
+
+def test_the_preflight_never_asks_docker_when_it_is_not_needed_or_not_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = ready_checkouts(tmp_path, monkeypatch)
+
+    def never() -> bool:
+        raise AssertionError("the daemon was asked without a reason")
+
+    monkeypatch.setattr(demo_stack, "docker_responds", never)
+
+    # With --skip-postgres-start the merchant's PostgreSQL is already running.
+    skipped = preflight(replace(plan, skip_postgres_start=True))
+    assert not any("docker" in problem.lower() for problem in skipped)
+    # Without the CLI, the missing tool is the problem, not a daemon nobody can ask.
+    monkeypatch.setattr(
+        demo_stack.shutil, "which", lambda tool: None if tool == "docker" else f"/bin/{tool}"
+    )
+    problems = preflight(plan)
+    assert "docker no está en el PATH" in problems
+    assert not any("no responde" in problem for problem in problems)
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected"),
+    [
+        (0, True),
+        (1, False),
+        (subprocess.TimeoutExpired(["docker", "info"], 15.0), False),
+        (FileNotFoundError("docker"), False),
+    ],
+    ids=["answers", "daemon-down", "hangs", "cannot-start"],
+)
+def test_docker_responds_asks_the_daemon_with_a_timeout(
+    outcome: int | Exception, expected: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[Sequence[str], Mapping[str, Any]]] = []
+
+    def run(command: Sequence[str], **options: Any) -> Any:
+        calls.append((command, options))
+        if isinstance(outcome, Exception):
+            raise outcome
+        return Namespace(returncode=outcome, stdout="", stderr="")
+
+    monkeypatch.setattr(demo_stack.subprocess, "run", run)
+
+    assert demo_stack.docker_responds() is expected
+    [(command, options)] = calls
+    assert tuple(command[:2]) == ("docker", "info")
+    assert options["timeout"] == demo_stack.DOCKER_INFO_TIMEOUT_SECONDS
+    assert options["stdin"] is subprocess.DEVNULL
 
 
 @pytest.mark.parametrize(
