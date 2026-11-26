@@ -54,12 +54,12 @@ con estado tipado y se evalúan mediante reglas deterministas fuera del modelo. 
 capa de autorización y evidencia de la transacción; la gobernanza B2 decide si el flujo puede llegar
 a esa capa.
 
-![Arquitectura B2 con gobernanza Human Present](../../diagrams/architecture-b2-hp.svg)
+![Arquitectura B2 con gobernanza Human Present](../diagrams/architecture-b2-hp.svg)
 
 Arquitectura vigente en `org/main` al 20 de octubre, después del piloto B2: lo hecho, lo
 planificado (piezas en `main` que el flujo todavía no usa) y lo futuro. El índice de diagramas está en [docs/diagrams](../../diagrams/README.md). El diagrama
 P1–P5 original (OPA, Trusted State) quedó como histórico en
-[`historico/b2-architecture-p1-p5.svg`](../../diagrams/historico/b2-architecture-p1-p5.svg).
+[`historico/b2-architecture-p1-p5.svg`](../diagrams/historico/b2-architecture-p1-p5.svg).
 
 ## Decisión principal
 
