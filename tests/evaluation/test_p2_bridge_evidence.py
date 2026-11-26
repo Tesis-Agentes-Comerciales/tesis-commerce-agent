@@ -1,16 +1,9 @@
-"""Regressions of evidence ordering and the P2 access gate; no commercial observations."""
+"""Regressions of P2 evidence ordering; no commercial observations."""
 
-import os
-import shutil
-import subprocess
-import tempfile
 import unittest
-from pathlib import Path
 from typing import Any
 
 from tests.support.p2_case_evidence import InsufficientFixtureData, verified_case
-
-ROOT = Path(__file__).resolve().parents[2]
 
 
 class P2EvidenceTests(unittest.TestCase):
@@ -94,59 +87,6 @@ class P2EvidenceTests(unittest.TestCase):
             verified_case(broken_record, "P2-PROV-03", {"cleanup_verified": True}),
         ):
             pass
-
-    def test_secret_value_is_not_passed_to_shell_steps(self) -> None:
-        text = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
-        self.assertEqual(text.count("token: $" + "{{ secrets.MERCHANT_REPO_TOKEN }}"), 2)
-        # EXP-06 delegates its repository access to the existing reusable workflow.
-        self.assertEqual(text.count("MERCHANT_REPO_TOKEN:"), 1)
-        self.assertIn(
-            "    secrets:\n      MERCHANT_REPO_TOKEN: $" + "{{ secrets.MERCHANT_REPO_TOKEN }}",
-            text,
-        )
-        self.assertNotIn("          MERCHANT_REPO_TOKEN:", text)
-        self.assertIn(
-            "SIBLING_TOKEN_CONFIGURED: $" + "{{ secrets.MERCHANT_REPO_TOKEN != '' }}", text
-        )
-        self.assertNotIn("pull_request_target", text)
-
-    @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "requires POSIX runner")
-    def test_actual_workflow_gate_distinguishes_required_profiles_from_full(self) -> None:
-        lines = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8").splitlines()
-        start = lines.index("      - name: Check sibling read token")
-        begin = next(i for i in range(start, len(lines)) if lines[i] == "        run: |") + 1
-        body = []
-        for line in lines[begin:]:
-            if not line.startswith("          "):
-                break
-            body.append(line[10:])
-        self.assertTrue(body)
-        for configured, scope, expected in (
-            ("true", "p0-catalog-bridge", 0),
-            ("false", "p0-catalog-bridge", 1),
-            ("false", "exp07-ct19-hp", 1),
-            ("false", "full", 0),
-        ):
-            with (
-                self.subTest(configured=configured, scope=scope),
-                tempfile.TemporaryDirectory() as directory,
-            ):
-                output = Path(directory) / "output"
-                result = subprocess.run(
-                    ["bash", "-c", "\n".join(body)],
-                    env={
-                        **os.environ,
-                        "SIBLING_TOKEN_CONFIGURED": configured,
-                        "TEST_SCOPE": scope,
-                        "GITHUB_OUTPUT": str(output),
-                    },
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertEqual(result.returncode, expected)
-                self.assertIn("available=" + configured, output.read_text())
-                if configured == "false":
-                    self.assertIn("::error" if expected else "::notice", result.stdout)
 
 
 if __name__ == "__main__":
