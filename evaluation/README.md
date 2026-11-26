@@ -18,8 +18,8 @@ de `uv sync --frozen --all-groups`.
 
 Rutas relativas a `evaluation/`. Los pilotos de los capítulos 4 y 6 corrieron con gpt-5-mini y la
 suite, con Claude. El código que corrió los pilotos salió de `main`: está en la etiqueta
-`pilotos-octubre`, junto con este README en su versión completa. Ninguna verificación de abajo
-llama a un LLM.
+`pilotos-octubre`, y la versión larga de este README queda en el historial de git. Ninguna
+verificación de abajo llama a un LLM.
 
 | Resultado | Archivos | Verificación |
 | --- | --- | --- |
@@ -100,11 +100,11 @@ delegada y no llama a ningún modelo.
 ## Histórico
 
 Lo exploratorio, que no respalda la tesis. Casi todo queda en su lugar porque pruebas o hashes lo
-fijan; lo que nada fija pasó a `results/archive/` y a `results/suite/archivo/`.
+fijan; solo el piloto de la suite pasó a `results/suite/archivo/`.
 
 - **Primer piloto de gobernanza:** `results/b0prime-b2-20261020T201055Z.*`, `b2-pilot-v1-report.md` y `data/b2-pilot-v1.json`; lo reemplazó el segundo.
 - **Campaña de escenarios P0:** `results/exp-01-first-batch/` a `exp-05/`, `exp-08-inf31-hp/`, `exp-09-ct19-hnp/`, `ct19-hp/`, `p0-model-failures/`, `p0-ux08-ux10/`, `p0-cierre-yair/`, `p2-merchant-provenance/`, `p3-point5/` y `p3-v01-offer-checkout/`, con `scenarios/`.
 - **Escenarios conversacionales con gpt-5-mini:** `results/exp06-*`, con su revisión en `exp06-review/`.
 - **Piloto de la suite:** `results/suite/archivo/`, las cuatro corridas `*-k5` y sus logs.
-- **Validador de la compra delegada (HNP-02):** `results/archive/hnp02/`, una corrida offline con un validador LLM.
+- **Validador de la compra delegada (HNP-02):** `results/hnp02/`, una corrida offline con un validador LLM.
 - **Borradores y diseño previo:** `data/injection-pilot-v1.json`, `data/b2-design.json` y el corpus `data/hnp/`.

@@ -16,7 +16,6 @@ Lo vigente describe el agente tal como está en `main`. Lo histórico con valor 
 | [Diagramas](diagrams/README.md) | El contexto y los componentes en C4, las secuencias de la compra y su ciclo de vida. |
 | [Estrategia de pruebas](testing.md) | Qué se prueba, dónde vive cada prueba, cuándo corre y cómo correrla en local. |
 | [Flujo de trabajo](workflow.md) | Los pasos de cada cambio: spec, contrato, Storybook, pruebas, integración y PR. |
-| [Despliegue en Railway](deployment-railway.md) | El despliegue sandbox, con datos y dinero sintéticos. |
 
 ## Evidencia que se queda en su lugar
 

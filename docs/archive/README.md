@@ -26,5 +26,5 @@ actualizaron.
   hash.
 - Las specs históricas siguen en [`docs/design/`](../design/README.md), rotuladas, porque el código y
   la evidencia las citan por su ruta.
-- Los resultados exploratorios de la evaluación están en `evaluation/results/archive/` y en
-  `evaluation/results/suite/archivo/`; los describe [`evaluation/README.md`](../../evaluation/README.md).
+- Los resultados exploratorios de la evaluación siguen en `evaluation/results/`, salvo el piloto de
+  la suite, que pasó a `evaluation/results/suite/archivo/`; los describe [`evaluation/README.md`](../../evaluation/README.md).
