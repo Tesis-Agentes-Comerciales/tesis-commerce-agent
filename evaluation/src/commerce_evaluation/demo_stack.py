@@ -14,7 +14,7 @@ of the service token, runs each scheduled task once a few seconds after the buye
 
 Secrets live only in this process and in the children that need them: they are never printed and
 never written. Each launch gets its own directory under .local/demo/ with a new agent database,
-the auth and payment databases and every log. Script: docs/demo/guion-2026-10-23.md.
+the auth and payment databases and every log. How to run it: «Probar la demo» in README.md.
 """
 
 from __future__ import annotations
@@ -1206,11 +1206,29 @@ def _up_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="demo-stack",
         description=(
-            "Levanta el stack local de la demo (guion: docs/demo/guion-2026-10-23.md). "
-            "`demo-stack s04 --help` cambia el precio de la oferta durante la demo."
+            "Levanta en local todo lo que necesita la demo: el comercio con su PostgreSQL, el "
+            "proveedor de pagos, el servicio de cuentas, el agente y la interfaz web. Los pasos "
+            "están en el README («Probar la demo»)."
+        ),
+        epilog=(
+            "Con la demo corriendo, `uv run demo-stack s04` en otra terminal sube el precio del "
+            "teléfono de la demo después de que el agente mostró los términos, para ver que la "
+            "compra no sigue con un precio distinto; `uv run demo-stack s04 --restore` lo "
+            "devuelve. Detalles: `uv run demo-stack s04 --help`."
         ),
     )
-    parser.add_argument("--mode", choices=tuple(MODES), default="b2")
+    parser.add_argument(
+        "--mode",
+        choices=tuple(MODES),
+        default="b2",
+        help=(
+            "cómo compra el agente: b2, con gobernanza (por defecto); b0, el mismo agente sin "
+            "gobernanza; pol02-deny, con gobernanza y una lista de comercios permitidos que deja "
+            "fuera al de la demo, así que la política niega la compra antes de crear el "
+            "checkout; b2-hnp, con gobernanza y además compra delegada: la persona deja "
+            "autorizada una compra y el agente la hace después, sin que ella esté presente"
+        ),
+    )
     parser.add_argument("--merchant-port", type=int, default=defaults.merchant)
     parser.add_argument("--payment-port", type=int, default=defaults.payment)
     parser.add_argument("--agent-port", type=int, default=defaults.agent)
@@ -1374,9 +1392,11 @@ def _s04_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="demo-stack s04",
         description=(
-            f"S04: cambia el precio de {OFFER_TITLE} ({OFFER_ID}) en el catálogo administrado del "
-            "comercio con `python -m commerce_lab.managed_catalog update-offer`, después de que "
-            "el agente presentó los términos."
+            f"Cambia el precio de {OFFER_TITLE} ({OFFER_ID}) en el catálogo del comercio mientras "
+            "la demo corre. Úsalo después de que el agente mostró los términos de la compra y "
+            "antes de aprobarla: al aprobar, el agente ve que el precio cambió, no cobra y pide "
+            "cancelar y volver a pedir la compra con el precio nuevo. El nombre viene del "
+            "escenario de cambio de precio de la evaluación."
         ),
     )
     parser.add_argument(
