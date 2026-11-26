@@ -3,7 +3,7 @@
 `DelegationScope`, `ConsentScope`, its canonical form and `scope_digest` are the shared names of
 docs/design/hnp-governed.md §4.2: the delegation API proposes and consents with them and the
 evidence verifier recomputes the digest from the stored bytes. The grant, usage, reservation and
-mandate-proof facts are the types of docs/b2-governance/policy-v1.md §4, assembled by the
+mandate-proof facts are the types of docs/archive/b2-governance/policy-v1.md §4, assembled by the
 backend and never by the model.
 
 This module imports only `models` and `canonical`: the D2/D3 boundary (`evaluator.py`) may import
