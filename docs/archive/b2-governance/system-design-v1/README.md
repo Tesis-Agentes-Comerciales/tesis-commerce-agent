@@ -8,7 +8,7 @@ Investigación: [protocol-research.md](../protocol-research.md).
 
 > **Nota 2026-10-20.** El diseño es del 11 de octubre y no se reescribe. El runner
 > `scripts/run_joint_e2e.py` que el roadmap y el plan citan como punto de partida E2E se retiró;
-> su cobertura es la suite de sistema de [tests/integration](../../../tests/integration/README.md).
+> su cobertura es la suite de sistema de [tests/integration](../../../../tests/integration/README.md).
 > `src/commerce_agent/governance/ports.py` era un archivo propuesto: `PolicyEvaluator` quedó en
 > `src/commerce_agent/governance/evaluator.py`.
 

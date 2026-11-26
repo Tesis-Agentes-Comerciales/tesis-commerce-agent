@@ -14,7 +14,7 @@ Se leyeron en orden el [roadmap HP/HNP](system-design-v1/roadmap.md), el
 [revisión D1/D2](design-review.md), el [contrato anterior](policy-contract.md),
 las [amenazas](threat-model.md), el [plan de evaluación](evaluation-plan.md),
 el [cierre de diseño](design-closure-2026-10-11.md) y el
-[manifiesto anterior](../../evaluation/data/b2-design.json).
+[manifiesto anterior](../../../evaluation/data/b2-design.json).
 El roadmap del 11 de octubre prima como propuesta reciente. Este contrato concreta
 D10/D12/D13/D15/D16/D30/D31; no cambia el estado del registro ni cierra D38.
 Complementos: [aceptación](policy-acceptance-v1.md) y [ADR del motor](adr-policy-engine-v1.md).
@@ -515,16 +515,16 @@ artefacto fijado. Los casos P/N/F referidos están en la matriz de aceptación.
 
 | Componente | Verifica / aplica | No sustituye | Estado/ruta |
 | --- | --- | --- | --- |
-| ConversationService | Clarificación, cero candidatos y presentación; no interpreta deny como aprobación | Consentimiento, política, cripto | Existe: [conversation.py](../../src/commerce_agent/application/conversation.py); `_recover_no_candidate` aún usa router |
-| PurchaseService | Elegibilidad común, presupuesto y D1 cerca de create; D2 antes de approve | Autoridad comercial ni atomicidad remota | Existe: [purchase.py](../../src/commerce_agent/application/purchase.py) |
+| ConversationService | Clarificación, cero candidatos y presentación; no interpreta deny como aprobación | Consentimiento, política, cripto | Existe: [conversation.py](../../../src/commerce_agent/application/conversation.py); `_recover_no_candidate` aún usa router |
+| PurchaseService | Elegibilidad común, presupuesto y D1 cerca de create; D2 antes de approve | Autoridad comercial ni atomicidad remota | Existe: [purchase.py](../../../src/commerce_agent/application/purchase.py) |
 | PolicyEvaluator | POL aplicables, resultado puro versionado | JWT, AP2, frescura, reserva CAS | Puerto y adaptadores nuevos; [ADR](adr-policy-engine-v1.md) |
-| ApprovalService | Aprobación HP exacta, expiración y firma después de D2 | Delegación HNP ni PDP | Existe: [approval.py](../../src/commerce_agent/approval.py) |
+| ApprovalService | Aprobación HP exacta, expiración y firma después de D2 | Delegación HNP ni PDP | Existe: [approval.py](../../../src/commerce_agent/approval.py) |
 | OfferFreshnessGuard | Obtener términos actuales, clasificar materialidad y vincular presentación | Recotización autoritativa ni CAS de merchant | Nuevo: `application/offer_freshness.py`; D17 abierto |
-| CompletionService | Evidencia de autorización, claim, idempotencia, recibos/reconciliación | Commit HNP mediante solo claim HP | Existe: [completion.py](../../src/commerce_agent/completion.py); pago delegado ocurre antes de claim y debe revisarse para HNP |
-| GovernanceEvidenceStore | Historial, replay y enlace transaccional con transición | Logs OPA ni checkpoints como autoridad | Nuevo; adaptar [sqlite.py](../../src/commerce_agent/persistence/sqlite.py) con UoW |
-| Merchant | Precio/stock/términos y revisión actual, orden e idempotencia; verificación propia AP2 | Decisión del agente ni PSP | Servicio externo; frontera local [ACPClient](../../src/commerce_agent/acp/client.py) |
-| Payment Provider | Alcance/uso del token sintético, confirmación/recibo, mandato de pago | Orden/stock ni delegación HNP por existir HP | Servicio externo; frontera [delegated_payment.py](../../src/commerce_agent/delegated_payment.py) |
-| Verificadores AP2 | Firmas, trusts, vigencia, hashes, vínculos y constraints perfilados | Readiness OPA ni estado de revocación local | HP existe: [ap2.py](../../src/commerce_agent/ap2.py); HNP pendiente H01/H03 |
+| CompletionService | Evidencia de autorización, claim, idempotencia, recibos/reconciliación | Commit HNP mediante solo claim HP | Existe: [completion.py](../../../src/commerce_agent/completion.py); pago delegado ocurre antes de claim y debe revisarse para HNP |
+| GovernanceEvidenceStore | Historial, replay y enlace transaccional con transición | Logs OPA ni checkpoints como autoridad | Nuevo; adaptar [sqlite.py](../../../src/commerce_agent/persistence/sqlite.py) con UoW |
+| Merchant | Precio/stock/términos y revisión actual, orden e idempotencia; verificación propia AP2 | Decisión del agente ni PSP | Servicio externo; frontera local [ACPClient](../../../src/commerce_agent/acp/client.py) |
+| Payment Provider | Alcance/uso del token sintético, confirmación/recibo, mandato de pago | Orden/stock ni delegación HNP por existir HP | Servicio externo; frontera [delegated_payment.py](../../../src/commerce_agent/delegated_payment.py) |
+| Verificadores AP2 | Firmas, trusts, vigencia, hashes, vínculos y constraints perfilados | Readiness OPA ni estado de revocación local | HP existe: [ap2.py](../../../src/commerce_agent/ap2.py); HNP pendiente H01/H03 |
 | Store transaccional de delegaciones | Consentimiento versionado, epoch, reserva, uso y compromiso/CAS | Un allow de política ni transacción global | Nuevo; único dueño local de autoridad HNP |
 
 No se propone otro repositorio ni acceso del agente a la base de merchant/proveedor.
@@ -581,11 +581,11 @@ Mapa para tickets posteriores, no autorización de código en EC-GOV-01:
    y evaluador de referencia de prueba POL-01/02. Rutas nuevas propuestas
    `governance/{models,ports,reasons,canonical}.py` y pruebas nuevas offline.
    Ninguna importación desde runtime ni cambio de compra, DB o B0. Fuente reutilizada:
-   [intención](../../src/commerce_agent/domain/intent.py) y
-   [selección](../../src/commerce_agent/domain/selection.py). La referencia Python
+   [intención](../../../src/commerce_agent/domain/intent.py) y
+   [selección](../../../src/commerce_agent/domain/selection.py). La referencia Python
    es oráculo de contrato, no elección de motor para producción experimental.
 2. Tras revisión del contrato, D11/D18/D23: ledger/UoW y ensamblado D1; composición
-   en [runtime.py](../../src/commerce_agent/runtime.py) e inserción en start;
+   en [runtime.py](../../../src/commerce_agent/runtime.py) e inserción en start;
    empezar offline/shadow con preservación de base. No afirmar que D38 esté cerrado.
 3. D17/D19 y D23 HP: intentos, frescura y D2 antes de approve; luego completion
    con evidencia correlacionada. No esperar H01 para trabajos HP independientes,

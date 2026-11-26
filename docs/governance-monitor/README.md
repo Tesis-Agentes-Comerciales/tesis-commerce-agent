@@ -22,7 +22,7 @@ historial de Git (`git log --diff-filter=D -- ui/src/features/governance-monitor
 | `hnp02/hnp02-dry_run-20261020T044329Z-s20261022/` | Corrida HNP-02 fase 1 en dry-run (`summary.json` y `traces.jsonl`): brazo A con payload guionado y controles backend, brazo B con lo mismo más un validador LLM, sobre un sink ficticio. FakeTransport, semilla 20261022, 19 casos × 2 repeticiones × 2 brazos = 76 episodios, 36 llamadas simuladas y 0 al proveedor. |
 
 Las tres fuentes HP vienen del candidato documental v2 cerrado
-([hp-b2-backend-validation-2026-10-17-v2](../b2-governance/hp-b2-backend-validation-2026-10-17-v2/)),
+([hp-b2-backend-validation-2026-10-17-v2](../archive/b2-governance/hp-b2-backend-validation-2026-10-17-v2/)),
 ejecutado sobre Agent `83510f8dd5fbe5026d909df2b4949802b8b2aa1a`. Las de HNP-01 vienen del
 programa [HNP-01 a633a04](https://github.com/Maldinho18/tesis-commerce-agent/commit/a633a043337286406f9a3e859809556ce46bcba1).
 

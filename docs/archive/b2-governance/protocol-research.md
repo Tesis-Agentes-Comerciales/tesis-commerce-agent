@@ -28,7 +28,7 @@ esto no obliga al proyecto a implementar los tres.
 ## Lo que ya existe y debe distinguirse del estándar
 
 Estas observaciones proceden de los README de los tres repositorios, del
-[perfil AP2 local](../ap2-profile.md) y de la procedencia del bundle ACP. No sustituyen pruebas E2E.
+[perfil AP2 local](../../ap2-profile.md) y de la procedencia del bundle ACP. No sustituyen pruebas E2E.
 
 | Pieza existente | Naturaleza | Trabajo pendiente del perfil final |
 |---|---|---|
@@ -164,7 +164,7 @@ y digest de esquemas/SDK. Una versión nueva no reemplaza automáticamente el ba
 6. Visa: [Trusted Agent Protocol, especificaciones](https://developer.visa.com/capabilities/trusted-agent-protocol/trusted-agent-protocol-specifications/).
 7. ACP: [OpenAPI `2026-04-17`, commit del bundle local](https://github.com/agentic-commerce-protocol/agentic-commerce-protocol/blob/7fdd78df677a94dce04c770644b0fbbb1401272b/spec/2026-04-17/openapi/openapi.agentic_checkout.yaml).
 
-Fuentes de la implementación: [README del agente](../../README.md),
-[perfil AP2](../ap2-profile.md), [compatibilidad](../compatibility.md),
-[provenance ACP](../../src/commerce_agent/vendor/acp/provenance.json),
+Fuentes de la implementación: [README del agente](../../../README.md),
+[perfil AP2](../../ap2-profile.md), [compatibilidad](../../compatibility.md),
+[provenance ACP](../../../src/commerce_agent/vendor/acp/provenance.json),
 `tesis-commerce-merchant/README.md` y `tesis-payment-provider-sandbox/README.md`.

@@ -3,7 +3,7 @@
 Cada diagrama tiene una fuente editable (`.drawio`) y dos exportaciones: `.svg` y `.png` de
 1920 px de ancho. Los de una sola diapositiva (`b0-vs-b2-delta`, `purchase-sequence-slide`,
 `policy-map` y `pilot-results`) miden exactamente 1920 × 1080. La convención visual, incluida la de estado (hecho, planificado, futuro), está
-en [`docs/b2-governance/visual-style.md`](../b2-governance/visual-style.md). El estado que muestran
+en [`docs/b2-governance/visual-style.md`](../archive/b2-governance/visual-style.md). El estado que muestran
 los diagramas de gobernanza es el de `org/main` al cierre del 20 de octubre de 2026 (hora de
 Bogotá), con el piloto B2 ya corrido y la ola «HP al 100 %» fusionada (POL-11, D2-HP y la cadena de
 evidencia hasta los recibos): hecho es lo que está en `main` y usa el flujo; planificado, las piezas

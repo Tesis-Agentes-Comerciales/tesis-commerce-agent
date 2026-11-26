@@ -7,8 +7,8 @@ No son resultados B2 ni una validación AP2/HNP. Fuente normativa propuesta:
 [ADR](adr-policy-engine-v1.md). Trazabilidad original:
 [roadmap](system-design-v1/roadmap.md), [decisiones](system-design-v1/decisions.json),
 [amenazas](threat-model.md), [evaluación anterior](evaluation-plan.md),
-[matriz piloto histórica](../../evaluation/data/pilot-matrix.md) y
-[escenarios congelados](../../evaluation/data/pilot-scenarios.json).
+[matriz piloto histórica](../../../evaluation/data/pilot-matrix.md) y
+[escenarios congelados](../../../evaluation/data/pilot-scenarios.json).
 
 ## 1. Oráculos, fixture de referencia y observación
 
@@ -150,7 +150,7 @@ afirmación de conformidad HNP procede de parsear modelos o simular status=valid
 
 ### 5.1 Mapeo de HNP01–HNP10 a los PRs de HNP
 
-Agregado el 20-oct-2026 con la spec [`hnp-governed.md`](../design/hnp-governed.md) (HNP-00). No
+Agregado el 20-oct-2026 con la spec [`hnp-governed.md`](../../design/hnp-governed.md) (HNP-00). No
 cambia ningún caso ni oráculo: dice qué PR cubre cada caso y en qué capa. Los ids son los del plan
 de PRs de esa spec (`HNP-0x`, con guion), distintos de los casos de esta tabla (`HNP0x`, sin guion)
 y de los experimentos offline «HNP-01/HNP-02» del validador; «I1» es la prueba en vivo (`tests/integration`, a mano con `RUN_LIVE_STACK=1`),

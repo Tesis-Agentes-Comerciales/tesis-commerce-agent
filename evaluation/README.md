@@ -47,7 +47,7 @@ Las ejecuciones históricas conservan su identidad. No se ejecutaron nuevas celd
 
 El diseño final incluye HP y HNP. Este directorio conserva el piloto **HP** y el
 manifiesto B2 original como antecedentes; no acredita implementación HNP ni B2.
-El [roadmap vigente](../docs/b2-governance/system-design-v1/roadmap.md) requiere
+El [roadmap vigente](../docs/archive/b2-governance/system-design-v1/roadmap.md) requiere
 una base HNP equivalente y corpus separado antes de comparar por modo. No mezclar
 HP y HNP ni atribuir cambios de autonomía/protocolo a gobernanza.
 

@@ -43,7 +43,7 @@ autorización. B0 y B2 se distinguen mediante el texto de tipo (`[Componente B0]
 
 La propuesta original P1–P5 (`Trusted State`, `Policy Gateway`, OPA, `OfferFreshnessGuard`,
 `Decision Evidence`) quedó como histórica en
-[`docs/diagrams/historico/b2-architecture-p1-p5.svg`](../diagrams/historico/b2-architecture-p1-p5.svg).
+[`docs/diagrams/historico/b2-architecture-p1-p5.svg`](../../diagrams/historico/b2-architecture-p1-p5.svg).
 
 ## Estado de implementación
 

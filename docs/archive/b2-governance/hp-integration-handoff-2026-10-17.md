@@ -13,7 +13,7 @@ Base de Agent de la organización: `598aab7003c263aa55f84d282fd82d5952b74bc1` (`
 
 > **Actualización 2026-10-19.** Lo anterior describe `main` al 17-oct. Cambios posteriores:
 >
-> - **Enforce opt-in (PR #13).** `enforce` existe en el runtime como opt-in, con allowlist de merchants ([guía](d1-enforce-runtime-optin.md)). Deniega en vivo POL-02. Un allow termina en `d1_dispatch_blocked`, sin despacho de producción, así que D17 sigue sin conectarse al flujo público. POL-01 nunca deniega en el flujo integrado, porque la guarda B0 corre antes.
+> - **Enforce opt-in (PR #13).** `enforce` existe en el runtime como opt-in, con allowlist de merchants ([guía](../../d1-enforce-runtime-optin.md)). Deniega en vivo POL-02. Un allow termina en `d1_dispatch_blocked`, sin despacho de producción, así que D17 sigue sin conectarse al flujo público. POL-01 nunca deniega en el flujo integrado, porque la guarda B0 corre antes.
 > - **Reintento D1 (PR #12).** Un reintento después de un deny o un fallo abre un intento D1 nuevo. Antes, el run quedaba en `d1_unavailable`.
 > - **Idempotency-Key D17 (PR #12).** La clave se deriva de la intención: un HMAC sobre run, owner, origen y cuerpo ACP. Antes era aleatoria, y perder `applied.sqlite` permitía un segundo POST.
 > - **Decisión D2 por términos (PR #15).** D2 admite una sola decisión terminal por (`checkout_id`, `terms_fingerprint`), no solo una por presentación.
@@ -66,7 +66,7 @@ La factoría requiere una instancia `SqliteHumanConsent` configurada por backend
 - Pruebas HTTP y UI de aceptación y rechazo con una **sesión real de prueba** y casos adversariales; distinguirlas de identidades sintéticas unitarias.
 - Coordinar con el dueño de la UI antes de tocar React o `src/commerce_agent/api.py`; no cambiar runtime `enforce`.
 
-> **Actualización 2026-10-19.** El runtime ya tiene `enforce` como opt-in experimental (PR #13). El default sigue en `off`. Ver la [guía](d1-enforce-runtime-optin.md). La indicación de no cambiarlo regía para este handoff. Cualquier uso posterior sigue esa guía. El opt-in no habilita despacho D17 ni D2 con UI real.
+> **Actualización 2026-10-19.** El runtime ya tiene `enforce` como opt-in experimental (PR #13). El default sigue en `off`. Ver la [guía](../../d1-enforce-runtime-optin.md). La indicación de no cambiarlo regía para este handoff. Cualquier uso posterior sigue esa guía. El opt-in no habilita despacho D17 ni D2 con UI real.
 
 ## 5. Decisiones y dependencias que quedan abiertas
 
@@ -83,7 +83,7 @@ La factoría requiere una instancia `SqliteHumanConsent` configurada por backend
 >
 > - **Runtime `enforce`.** Pasó a opt-in experimental (PR #13). Es solo deny y no tiene despacho de producción.
 > - **Demo B2 reproducible.** La evidencia live (06D-C, 07A, D17 y los tres casos finales del paquete HP/B2 v2) se ejecutó una vez en Windows. Los casos finales usaron un worker de inyección de fallos que no está en ningún repositorio. 06D-C y 07A exigen además Windows y su commit auditado. Por eso esa evidencia no es reproducible desde `main`.
-> - **Suites live.** El PR #15 quitó las rutas `C:/` fijas: las suites leen `MERCHANT_REPO` y `PG_BIN_DIR` ([tests/integration/README.md](../../tests/integration/README.md)). 07B-P y 07B-B recolectan en macOS y Linux, todavía sin una corrida real. Otra rama está construyendo una suite live portable con Docker (en curso).
+> - **Suites live.** El PR #15 quitó las rutas `C:/` fijas: las suites leen `MERCHANT_REPO` y `PG_BIN_DIR` ([tests/integration/README.md](../../../tests/integration/README.md)). 07B-P y 07B-B recolectan en macOS y Linux, todavía sin una corrida real. Otra rama está construyendo una suite live portable con Docker (en curso).
 
 ## 6. Validaciones mínimas antes de dar por integrada la demo
 
@@ -94,9 +94,9 @@ La factoría requiere una instancia `SqliteHumanConsent` configurada por backend
 
 ## 7. Documentación de respaldo
 
-- [07B-P — preselección](../archive/b2-governance/ec-gov-07b-p-preselection-authority-results.md)
-- [07B-Q — shadow binding](../archive/b2-governance/ec-gov-07b-q-preselection-d1-binding-results.md)
-- [07B-B — D1 aplicado / D17](../archive/b2-governance/ec-gov-07b-b-d17-integration-results.md)
-- [07C — D2-HP acotado](../archive/b2-governance/ec-gov-07c-d2-hp-consent-results.md)
+- [07B-P — preselección](ec-gov-07b-p-preselection-authority-results.md)
+- [07B-Q — shadow binding](ec-gov-07b-q-preselection-d1-binding-results.md)
+- [07B-B — D1 aplicado / D17](ec-gov-07b-b-d17-integration-results.md)
+- [07C — D2-HP acotado](ec-gov-07c-d2-hp-consent-results.md)
 
 Este documento es un **handoff de integración**, no una afirmación de que la integración/UI real ya esté implementada. No habilita ninguna capacidad comercial.
