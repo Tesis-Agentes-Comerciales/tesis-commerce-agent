@@ -1,7 +1,7 @@
 # Specs de diseño
 
-Cada cambio no trivial empieza con una spec aprobada en esta carpeta ([flujo de trabajo](../workflow.md)).
-Ninguna se mueve: el código, las pruebas y la evidencia las citan por su ruta. Cada una lleva un
+Cada cambio no trivial empieza con una spec aprobada en esta carpeta
+([flujo de trabajo](../workflow.md)). Ninguna se mueve: el código, las pruebas y la evidencia las citan por su ruta. Cada una lleva un
 rótulo:
 
 - **Respalda la tesis:** el diseño de un resultado que la tesis reporta.
@@ -55,8 +55,9 @@ verificarlos están en [`evaluation/README.md`](../../evaluation/README.md).
 
 ### Campaña de escenarios P0
 
-La campaña probó los 33 escenarios de la matriz [`scenarios/p0/matrix.json`](../../evaluation/scenarios/p0/matrix.json)
-contra el comercio y el proveedor de pagos reales, casi siempre sin modelo. Su evidencia está en
+La campaña de pruebas sobre los 33 escenarios de la matriz
+[`scenarios/p0/matrix.json`](../../evaluation/scenarios/p0/matrix.json) corrió contra el comercio y
+el proveedor de pagos reales, casi siempre sin modelo. Su evidencia está en
 `evaluation/results/`, y varios de sus README, fijados por hash, enlazan estas specs.
 
 | Spec | Qué fue |
