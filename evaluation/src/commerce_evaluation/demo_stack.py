@@ -12,6 +12,11 @@ s04` changes the scripted offer's price during the demo.
 the governed chat purchase and delegations. HNP has no scheduler, so the launcher, the only holder
 of the service token, runs each scheduled task once a few seconds after the buyer's consent.
 
+No service reads a developer .env: the merchant and the payment provider run from the launch
+directory under their own interpreter and lock (`uv run --project`), the agent from the same
+directory, and each one gets every setting it needs explicitly. From the agent's .env only the
+model settings are read, and only for the agent.
+
 Secrets live only in this process and in the children that need them: they are never printed and
 never written. Each launch gets its own directory under .local/demo/ with a new agent database,
 the auth and payment databases and every log. How to run it: «Probar la demo» in README.md.
@@ -30,6 +35,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import closing, suppress
@@ -75,8 +81,15 @@ OFFER_STOCK = 13
 # S04: still within the 1.700.000 COP budget, so asking again reaches a new checkout.
 S04_PRICE_MINOR = 162_000_000
 SESSION_TTL_SECONDS = 12 * 3600
-# Merchant steps run in its checkout, so it reads its own .env or defaults (DATABASE_URL).
-MERCHANT_CLI = ("uv", "run", "--frozen", "python", "-m")
+# The merchant's local PostgreSQL as its compose.yaml publishes it and its Settings default names
+# it (synthetic, loopback-only credentials). Both are passed explicitly, so neither the merchant
+# nor docker compose takes them from a .env in the merchant's checkout.
+MERCHANT_PG_PORT = "55433"
+MERCHANT_DATABASE_URL = (
+    f"postgresql://tesis_dev:tesis_local_only@127.0.0.1:{MERCHANT_PG_PORT}/tesis_lab"
+)
+# The merchant's id at the payment provider: the same value for both, whatever their .env says.
+PAYMENT_MERCHANT_ID = "tesis_merchant"
 # Only these model settings leave the agent's .env, and only for the agent process.
 MODEL_SETTINGS = (
     "ANTHROPIC_API_KEY",
@@ -437,17 +450,31 @@ class DemoPlan:
             steps.append(
                 ("PostgreSQL del comercio", ("docker", "compose", "up", "-d", "--wait", "postgres"))
             )
-        steps.append(("Migraciones del comercio", merchant_cli("commerce_lab.db", "migrate")))
+        steps.append(
+            (
+                "Migraciones del comercio",
+                merchant_cli(self.merchant_repo, "commerce_lab.db", "migrate"),
+            )
+        )
         return steps
 
+    def step_context(self, command: Sequence[str]) -> tuple[Path, dict[str, str]]:
+        """Where and with what a merchant step runs. docker compose needs the merchant's checkout
+        (its compose.yaml), with the published port named so the checkout's .env cannot move it;
+        every merchant module runs from the launch directory with its database named."""
+        if tuple(command[:2]) == ("docker", "compose"):
+            return self.merchant_repo, dict(self.base) | {"MERCHANT_PG_PORT": MERCHANT_PG_PORT}
+        return self.run_dir, merchant_cli_environment(self.base)
+
     def import_catalog(self) -> tuple[str, ...]:
-        return merchant_cli("commerce_lab.managed_catalog", "import-current")
+        return merchant_cli(self.merchant_repo, "commerce_lab.managed_catalog", "import-current")
 
     def reset_offer(self) -> tuple[str, ...]:
-        return update_offer_command(OFFER_PRICE_MINOR, stock=OFFER_STOCK)
+        return update_offer_command(self.merchant_repo, OFFER_PRICE_MINOR, stock=OFFER_STOCK)
 
     def issue_session(self, catalog_run_id: str) -> tuple[str, ...]:
         return merchant_cli(
+            self.merchant_repo,
             "commerce_lab.db",
             "issue-session",
             catalog_run_id,
@@ -463,6 +490,7 @@ class DemoPlan:
             "PAYMENT_AGENT_BEARER_TOKEN": keys.payment_agent_token,
             "PAYMENT_MERCHANT_BEARER_TOKEN": keys.payment_merchant_token,
             "PAYMENT_TOKEN_SECRET": keys.payment_token_secret,
+            "PAYMENT_MERCHANT_ID": PAYMENT_MERCHANT_ID,
             "PAYMENT_AP2_REQUIRED": "true",
             "PAYMENT_AP2_AGENT_JWK_JSON": keys.agent_jwk,
             "PAYMENT_AP2_MERCHANT_JWK_JSON": keys.merchant_jwk,
@@ -471,15 +499,17 @@ class DemoPlan:
         }
 
     def webhook_env(self) -> dict[str, str]:
-        """Only what the merchant's dispatcher reads: the agent's origin, without the webhook
-        path, and the secret the agent verifies."""
-        return dict(self.base) | {
+        """Only what the merchant's dispatcher reads: its database, the agent's origin without
+        the webhook path, and the secret the agent verifies."""
+        return merchant_cli_environment(self.base) | {
             "WEBHOOK_RECEIVER_URL": self.ports.origin("agent"),
             "MERCHANT_WEBHOOK_SECRET": self.secrets.merchant_webhook,
         }
 
     def dispatch_webhooks(self) -> tuple[str, ...]:
-        return merchant_cli("commerce_lab.db", "webhook-dispatch", "--limit", str(WEBHOOK_BATCH))
+        return merchant_cli(
+            self.merchant_repo, "commerce_lab.db", "webhook-dispatch", "--limit", str(WEBHOOK_BATCH)
+        )
 
     def merchant_env(self) -> dict[str, str]:
         keys = self.secrets
@@ -487,6 +517,7 @@ class DemoPlan:
             "ACP_API_BASE_URL": self.merchant_origin,
             "PAYMENT_PROVIDER_URL": self.ports.origin("payment"),
             "PAYMENT_MERCHANT_BEARER_TOKEN": keys.payment_merchant_token,
+            "PAYMENT_MERCHANT_ID": PAYMENT_MERCHANT_ID,
             "MERCHANT_AP2_REQUIRED": "true",
             "MERCHANT_AP2_PRIVATE_KEY_PEM": keys.merchant_ap2_pem,
             "MERCHANT_AP2_AGENT_JWK_JSON": keys.agent_jwk,
@@ -533,15 +564,19 @@ class DemoPlan:
 
     def services(self, merchant_token: str) -> list[Service]:
         """In start order; each one only needs the ones before it."""
-        ports, uv = self.ports, ("uv", "run", "--frozen")
+        ports = self.ports
         payment_app = "tesis_payment_provider.api:app_factory"
         vite = ("node", "node_modules/vite/bin/vite.js", "--strictPort")
         return [
             Service(
                 "payment",
                 "Proveedor de pagos",
-                (*uv, *uvicorn(payment_app, ports.payment, factory=True)),
-                self.payment_repo,
+                (
+                    *uv_project(self.payment_repo),
+                    *uvicorn(payment_app, ports.payment, factory=True),
+                ),
+                # The run directory, never the checkout: no service reads a developer .env.
+                self.run_dir,
                 self.payment_env(),
                 ports.origin("payment"),
                 "/health",
@@ -550,8 +585,11 @@ class DemoPlan:
             Service(
                 "merchant",
                 "Comercio",
-                (*uv, *uvicorn("commerce_lab.api:app", ports.merchant, factory=False)),
-                self.merchant_repo,
+                (
+                    *uv_project(self.merchant_repo),
+                    *uvicorn("commerce_lab.api:app", ports.merchant, factory=False),
+                ),
+                self.run_dir,
                 self.merchant_env(),
                 self.merchant_origin,
                 "/health/ready",
@@ -603,15 +641,33 @@ def uvicorn(app: str, port: int, *, factory: bool) -> tuple[str, ...]:
     )
 
 
-def merchant_cli(*arguments: str) -> tuple[str, ...]:
-    """A merchant module, run in its checkout: its interpreter and its DATABASE_URL."""
-    return (*MERCHANT_CLI, *arguments)
+def uv_project(project: Path) -> tuple[str, ...]:
+    """`uv run` under a sibling's interpreter and lock, from whatever directory the caller
+    gives the process; uv itself reads no .env."""
+    return ("uv", "run", "--frozen", "--project", str(project))
 
 
-def update_offer_command(price_minor: int, *, stock: int | None = None) -> tuple[str, ...]:
+def merchant_cli(merchant_repo: Path, *arguments: str) -> tuple[str, ...]:
+    """A merchant module under its interpreter; the caller runs it outside the checkout."""
+    return (*uv_project(merchant_repo), "python", "-m", *arguments)
+
+
+def merchant_cli_environment(base: Mapping[str, str]) -> dict[str, str]:
+    """What every merchant module reads besides its defaults: its database."""
+    return dict(base) | {"DATABASE_URL": MERCHANT_DATABASE_URL}
+
+
+def update_offer_command(
+    merchant_repo: Path, price_minor: int, *, stock: int | None = None
+) -> tuple[str, ...]:
     """The merchant's managed-catalog edit (`changed_offer`): new revision, same offer id."""
     command = merchant_cli(
-        "commerce_lab.managed_catalog", "update-offer", OFFER_ID, "--price-minor", str(price_minor)
+        merchant_repo,
+        "commerce_lab.managed_catalog",
+        "update-offer",
+        OFFER_ID,
+        "--price-minor",
+        str(price_minor),
     )
     return command if stock is None else (*command, "--stock", str(stock))
 
@@ -871,7 +927,7 @@ class Launcher:
     # Steps.
     def command(self, label: str, command: Sequence[str], *, json_output: bool = False) -> Any:
         """A one-shot merchant step; its stdout is parsed, never printed or logged."""
-        code, stdout, stderr = self._run(command, self.plan.merchant_repo, self.plan.base)
+        code, stdout, stderr = self._run(command, *self.plan.step_context(command))
         result: Any = None
         if code == 0 and json_output:
             try:
@@ -1021,7 +1077,7 @@ class Launcher:
         plan = self.plan
         try:
             code, stdout, stderr = self._dispatch(
-                plan.dispatch_webhooks(), plan.merchant_repo, plan.webhook_env()
+                plan.dispatch_webhooks(), plan.run_dir, plan.webhook_env()
             )
         except subprocess.TimeoutExpired:
             self._relay_failed(
@@ -1445,19 +1501,21 @@ def s04(argv: Sequence[str], out: TextIO | None = None) -> int:
         print(f"--merchant-repo: {merchant} no es un checkout del comercio", file=sys.stderr)
         return 2
     command = (
-        update_offer_command(OFFER_PRICE_MINOR, stock=OFFER_STOCK)
+        update_offer_command(merchant, OFFER_PRICE_MINOR, stock=OFFER_STOCK)
         if arguments.restore
-        else update_offer_command(arguments.price_minor)
+        else update_offer_command(merchant, arguments.price_minor)
     )
-    result = subprocess.run(
-        list(command),
-        cwd=merchant,
-        env=base_environment(),
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    # An empty directory, never the checkout: the merchant reads no developer .env.
+    with tempfile.TemporaryDirectory(prefix="demo-stack-s04-") as directory:
+        result = subprocess.run(
+            list(command),
+            cwd=directory,
+            env=merchant_cli_environment(base_environment()),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     # No launch secret exists here; the merchant's DSN is still redacted.
     details = tail(result.stderr, (), lines=15)
     if result.returncode != 0:

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, get_args
 
 import pytest
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from commerce_agent.config import Settings
 from commerce_agent.delegation.bootstrap import load_hnp_trust
@@ -412,6 +413,8 @@ class FakeLauncher(Launcher):
 
     def __init__(self, plan: DemoPlan, *, health: dict[str, Any], failing: str | None = None):
         self.calls: list[tuple[str, ...]] = []
+        # Every merchant step with its working directory and environment, in order.
+        self.contexts: list[tuple[tuple[str, ...], Path, dict[str, str]]] = []
         self.spawned: dict[str, FakeProcess] = {}
         self.fake_health = health
         self.failing = failing
@@ -426,6 +429,7 @@ class FakeLauncher(Launcher):
         self, command: Sequence[str], cwd: Path, env: Mapping[str, str]
     ) -> tuple[int, str, str]:
         self.calls.append(tuple(command))
+        self.contexts.append((tuple(command), cwd, dict(env)))
         # Merchant steps that echo secrets or the DSN on stderr: the launcher must not repeat them.
         stderr = f"warning {self.plan.secrets.merchant_webhook} at {MERCHANT_DSN}"
         if "webhook-dispatch" in command:
@@ -512,9 +516,9 @@ def test_a_full_launch_prints_urls_and_mode_but_never_a_secret(tmp_path: Path) -
     assert all(process.signals for process in launcher.spawned.values())
     assert not any(call[:2] == ("docker", "compose") and "down" in call for call in launcher.calls)
     assert launcher.calls[0] == ("docker", "compose", "up", "-d", "--wait", "postgres")
-    assert (*demo_stack.update_offer_command(OFFER_PRICE_MINOR, stock=OFFER_STOCK),) in (
-        launcher.calls
-    )
+    assert (
+        *demo_stack.update_offer_command(plan.merchant_repo, OFFER_PRICE_MINOR, stock=OFFER_STOCK),
+    ) in launcher.calls
 
 
 def test_a_failing_step_is_reported_without_its_secrets(tmp_path: Path) -> None:
@@ -542,6 +546,81 @@ def test_the_launch_stops_if_the_agent_reports_another_condition(tmp_path: Path)
 
     assert "ui" not in launcher.spawned
     assert launcher.spawned["agent"].signals
+
+
+class SiblingSettings(BaseSettings):
+    """How the merchant's and the payment provider's Settings read: the process environment
+    first, then a .env in the working directory."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    database_url: str = "postgresql://default"
+    payment_merchant_id: str = "tesis_merchant"
+    payment_sandbox_clock_at: str | None = None
+
+
+# What a developer may keep in the .env of a sibling checkout: a fixed clock breaks the mandates.
+DEVELOPER_ENV = (
+    "PAYMENT_SANDBOX_CLOCK_AT=2026-09-10T14:05:00Z\n"
+    "PAYMENT_MERCHANT_ID=another_merchant\n"
+    "DATABASE_URL=postgresql://developer:secret@127.0.0.1:5999/elsewhere\n"
+)
+
+
+def test_the_merchant_and_the_payment_provider_never_read_a_developer_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = plan_for("b2", tmp_path)
+    for checkout in (plan.merchant_repo, plan.payment_repo):
+        checkout.mkdir(parents=True)
+        (checkout / ".env").write_text(DEVELOPER_ENV, encoding="utf-8")
+    plan.run_dir.mkdir(parents=True)
+    services = {service.name: service for service in plan.services(MERCHANT_TOKEN)}
+
+    for name, checkout in (("payment", plan.payment_repo), ("merchant", plan.merchant_repo)):
+        service = services[name]
+        # Its interpreter and lock, from the launch directory.
+        assert service.cwd == plan.run_dir
+        assert service.command[:5] == ("uv", "run", "--frozen", "--project", str(checkout))
+        # The settings it would build there, with exactly the environment it gets.
+        monkeypatch.chdir(service.cwd)
+        for variable in list(os.environ):
+            monkeypatch.delenv(variable)
+        for variable, value in service.env.items():
+            monkeypatch.setenv(variable, value)
+        settings = SiblingSettings()
+        assert settings.payment_sandbox_clock_at is None
+        assert settings.payment_merchant_id == demo_stack.PAYMENT_MERCHANT_ID
+        if name == "merchant":
+            assert settings.database_url == demo_stack.MERCHANT_DATABASE_URL
+    assert services["agent"].cwd == plan.run_dir
+    assert (
+        services["merchant"].env["PAYMENT_MERCHANT_ID"]
+        == services["payment"].env["PAYMENT_MERCHANT_ID"]
+    )
+
+
+def test_every_merchant_step_runs_outside_the_checkout_with_its_database_named(
+    tmp_path: Path,
+) -> None:
+    plan = plan_for("b2", tmp_path)
+    launcher = FakeLauncher(plan, health={"governance_mode": "enforce", "hp_flow": "governed"})
+    launcher.start()
+    launcher.relay_webhooks()
+    launcher.stop()
+    launcher.close()
+
+    [compose, *modules] = launcher.contexts
+    # docker compose needs the checkout's compose.yaml; its port is named, not read from .env.
+    assert compose[0][:2] == ("docker", "compose") and compose[1] == plan.merchant_repo
+    assert compose[2]["MERCHANT_PG_PORT"] == demo_stack.MERCHANT_PG_PORT
+    assert f"127.0.0.1:{demo_stack.MERCHANT_PG_PORT}/" in demo_stack.MERCHANT_DATABASE_URL
+    steps = ["migrate", "import-current", "update-offer", "issue-session", "webhook-dispatch"]
+    assert [command[8] for command, _, _ in modules] == steps
+    for command, cwd, env in modules:
+        assert command[:5] == ("uv", "run", "--frozen", "--project", str(plan.merchant_repo))
+        assert cwd == plan.run_dir
+        assert env["DATABASE_URL"] == demo_stack.MERCHANT_DATABASE_URL
 
 
 def delivery(outcome: str = "delivered", error: str | None = None) -> dict[str, Any]:
@@ -572,9 +651,14 @@ def test_the_merchant_dispatcher_gets_only_the_agent_origin_and_the_shared_secre
     )
     others = set(plan.secret_values(MERCHANT_TOKEN)) - {plan.secrets.merchant_webhook}
     assert not others & set(dispatcher.values())
-    assert set(dispatcher) - set(plan.base) == {"WEBHOOK_RECEIVER_URL", "MERCHANT_WEBHOOK_SECRET"}
+    assert set(dispatcher) - set(plan.base) == {
+        "DATABASE_URL",
+        "WEBHOOK_RECEIVER_URL",
+        "MERCHANT_WEBHOOK_SECRET",
+    }
+    assert dispatcher["DATABASE_URL"] == demo_stack.MERCHANT_DATABASE_URL
     assert plan.dispatch_webhooks() == (
-        *demo_stack.MERCHANT_CLI,
+        *("uv", "run", "--frozen", "--project", str(plan.merchant_repo), "python", "-m"),
         "commerce_lab.db",
         "webhook-dispatch",
         "--limit",
@@ -605,7 +689,7 @@ def test_watch_relays_merchant_webhooks_to_the_agent_until_a_service_stops(
     launcher.stop()
     launcher.close()
 
-    assert [cwd for cwd, _ in launcher.dispatched] == [plan.merchant_repo] * 3
+    assert [cwd for cwd, _ in launcher.dispatched] == [plan.run_dir] * 3
     assert all(env == plan.webhook_env() for _, env in launcher.dispatched)
     output = shown(launcher)
     log = (plan.run_dir / "webhooks.log").read_text("utf-8")
@@ -910,10 +994,12 @@ def test_s04_edits_only_the_scripted_offer_with_the_merchant_cli(
 ) -> None:
     merchant = tmp_path / "merchant"
     (merchant / "src" / "commerce_lab").mkdir(parents=True)
-    calls: list[tuple[list[str], Path]] = []
+    calls: list[tuple[list[str], Path, Mapping[str, str]]] = []
 
-    def run(command: list[str], *, cwd: Path, **_: object) -> Any:
-        calls.append((command, cwd))
+    def run(command: list[str], *, cwd: str, env: Mapping[str, str], **_: object) -> Any:
+        # The merchant runs from an empty directory, never from its checkout and its .env.
+        assert list(Path(cwd).iterdir()) == []
+        calls.append((command, Path(cwd), env))
         offer = {"offer_id": OFFER_ID, "revision": 8, "price_minor": price, "stock": 13}
         return Namespace(returncode=0, stdout=json.dumps(offer) + "\n", stderr="")
 
@@ -922,9 +1008,13 @@ def test_s04_edits_only_the_scripted_offer_with_the_merchant_cli(
 
     assert s04([*arguments, "--merchant-repo", str(merchant)], out) == 0
 
-    command = [*demo_stack.MERCHANT_CLI, "commerce_lab.managed_catalog", "update-offer", OFFER_ID]
+    command = ["uv", "run", "--frozen", "--project", str(merchant), "python", "-m"]
+    command += ["commerce_lab.managed_catalog", "update-offer", OFFER_ID]
     command += ["--price-minor", str(price)] + (["--stock", str(stock)] if stock else [])
-    assert calls == [(command, merchant)]
+    [(called, cwd, env)] = calls
+    assert called == command
+    assert not cwd.is_relative_to(merchant)
+    assert env["DATABASE_URL"] == demo_stack.MERCHANT_DATABASE_URL
     assert shown_price in out.getvalue()
 
 
