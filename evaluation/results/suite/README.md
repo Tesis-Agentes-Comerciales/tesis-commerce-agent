@@ -1,10 +1,11 @@
 # Suite de evaluación: corridas con LLM real
 
 Aquí están las corridas pagadas de la suite de `docs/design/eval-suite.md`, del 13-nov-2026. Las
-oficiales son las cuatro `*-final`, sobre `25725ff`. Las `*-k5` son el piloto. Las `*-arreglos`,
-del 15-nov-2026, repiten capacidad después de los arreglos de #227 y #228. Las tres de la comparación de modelos, del mismo día, cambian el agente, su esfuerzo o
-el comprador simulado. Todas usan Claude: el agente con esfuerzo `low` salvo en
-`capacidad-haiku-medium`, el simulador según la tabla y el juez `claude-opus-5-5` por Batch.
+oficiales son las cuatro `*-final`, sobre `25725ff`. Las `*-k5`, el piloto, están en `archivo/`.
+Las `*-arreglos`, del 15-nov-2026, repiten capacidad después de los arreglos de #227 y #228. Las
+tres de la comparación de modelos, del mismo día, cambian el agente, su esfuerzo o el comprador
+simulado. Todas usan Claude: el agente con esfuerzo `low` salvo en `capacidad-haiku-medium`, el
+simulador según la tabla y el juez `claude-opus-5-5` por Batch.
 
 ## Corridas oficiales
 
@@ -88,7 +89,7 @@ cruzan.
 
 Los logs son `haiku-medium.log`, `haiku-simopus.log`, `opus.log` y sus `juez-*.log`.
 
-## Piloto
+## Piloto, en `archivo/`
 
 | Corrida | Commit | pass^1 | USD |
 | --- | --- | --- | --- |
@@ -97,10 +98,12 @@ Los logs son `haiku-medium.log`, `haiku-simopus.log`, `opus.log` y sus `juez-*.l
 | `adversarial-haiku-k5` | `2f6ea3d` | B0 80,0 %, B2 76,7 % | 1,56 |
 | `adversarial-sonnet-k5` | `2f6ea3d` | B0 46,7 %, B2 46,7 % | 3,46 |
 
-El piloto no se compara con las oficiales. Sin el aviso de compra de #219, el usuario simulado
-volvía a pedir la compra y se duplicaban órdenes: 32 de los 50 intentos en `presente` de `adversarial-sonnet-k5`.
-Las pruebas de humo previas, que encontraron los errores que arreglan #216 y #217, se
-borraron: no contaban y no tenían juez.
+El piloto no se compara con las oficiales y no respalda la tesis. Sin el aviso de compra de
+#219, el usuario simulado volvía a pedir la compra y se duplicaban órdenes: 32 de los 50 intentos
+en `presente` de `adversarial-sonnet-k5`. Las cuatro corridas están en `archivo/`, con sus logs:
+`oficial-haiku.log` y `oficial-sonnet.log`, que pese al nombre son del piloto, y
+`juez-capacidad-haiku.log` y `juez-adversarial-haiku.log`. Las pruebas de humo previas, que
+encontraron los errores que arreglan #216 y #217, se borraron: no contaban y no tenían juez.
 
 ## Qué hay en cada corrida
 
@@ -120,18 +123,21 @@ borraron: no contaban y no tenían juez.
 No se suben las bases de cada intento (`trials/*/agent.db` y `agent.graph.db`), los feeds, las
 bases ni los logs del Merchant en `stack/`. Pesan hasta unos 160 MB por corrida. En las
 oficiales, lo que lee el reporte ya está en `trials.jsonl` y en `evidence.jsonl`. En el piloto
-adversarial, en cambio, la entrega de la inyección solo se puede leer de `trials/*/agent.db`,
-porque esos registros son anteriores a #218. Las corridas de regresión que se usaron para
-verificar cada PR tampoco se suben (`verificacion-prs/`): no llaman a un LLM y se repiten con
-`eval-suite run --suite regression`. El `.gitignore` de esta carpeta deja todo eso fuera.
+adversarial (`archivo/adversarial-*-k5`), en cambio, la entrega de la inyección solo se puede leer
+de `trials/*/agent.db`, porque esos registros son anteriores a #218. Las corridas de regresión
+que se usaron para verificar cada PR tampoco se suben (`verificacion-prs/`): no llaman a un LLM y
+se repiten con `eval-suite run --suite regression`. El `.gitignore` de esta carpeta deja todo eso
+fuera, también dentro de `archivo/`: quien tenga las bases locales del piloto las puede mover a
+`archivo/<corrida>/trials/`.
 
 ## Cómo se verifica
 
-`uv run eval-suite report evaluation/results/suite/<corrida>` reescribe el reporte desde estos
-archivos, sin llamar a ningún LLM. Con las cuatro oficiales, las dos `*-arreglos`, las tres de la
-comparación de modelos y `capacidad-*-k5` sale un `report.md` idéntico al subido. Con
-`adversarial-*-k5` no: sin las bases, el reporte no ve la entrega de la inyección, deja los 50
-ataques «sin evidencia» y la tasa queda sin datos. Para esas dos corridas vale el `report.md`
+`uv run eval-suite report <carpeta>` reescribe el reporte desde estos archivos, sin llamar a
+ningún LLM. Como escribe en la carpeta, se corre sobre una copia y se compara con el subido (ver
+[`evaluation/README.md`](../../README.md)). Con las cuatro oficiales, las dos `*-arreglos`, las tres
+de la comparación de modelos y `archivo/capacidad-*-k5` sale un `report.md` idéntico al subido.
+Con `archivo/adversarial-*-k5` no: sin las bases, el reporte no ve la entrega de la inyección, deja
+los 50 ataques «sin evidencia» y la tasa queda sin datos. Para esas dos corridas vale el `report.md`
 subido, que se escribió con las bases.
 `SHA256SUMS` tiene la huella de cada archivo.
 
@@ -149,8 +155,7 @@ subido, que se escribió con las bases.
   después de que la Mac despertara a las 23:01, todavía sin red. No llegaron a Anthropic: `batch_id` vacío y nada cobrado. Esas filas
   reservaban USD 11,62 que no se gastaron, y se apartaron en
   `judge-sin-enviar-2026-11-14T0401Z.jsonl` para que no contaran contra el tope ni en el costo.
-- En los logs, las rutas absolutas de la máquina se cambiaron por `repos/`. `oficial-haiku.log`,
-  `oficial-sonnet.log` y `juez-*.log` son del piloto (`*-k5`), pese al nombre.
+- En los logs, las rutas absolutas de la máquina se cambiaron por `repos/`.
 
 ## Calibración del juez
 
@@ -160,5 +165,6 @@ etiquetado a ciegas: 158 criterios en `labeling/labeling.html` y 20 repetidos en
 `etiquetas-repeticion.json`. `etiquetas-original.json` guarda la primera descarga, antes de
 corregir la etiqueta que él señaló como errada. `report.md` da κ = 0,85 en el conjunto reservado
 (umbral 0,70), así que el juez se acepta, y κ = 0,89 entre las dos pasadas del etiquetador. Se
-reproduce con `eval-suite calibrate score evaluation/results/suite/capacidad-haiku-final --labels
-etiquetas.json --repeat-labels etiquetas-repeticion.json`.
+reproduce con `eval-suite calibrate score <carpeta> --labels <carpeta>/calibration/etiquetas.json
+--repeat-labels <carpeta>/calibration/etiquetas-repeticion.json`. Reescribe
+`calibration/report.md`, así que también se corre sobre una copia de la corrida.
