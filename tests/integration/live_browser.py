@@ -313,7 +313,7 @@ def agent_errors(page: Page, origin: str) -> list[str]:
 class Journey:
     """A journey on video in its own browser context. `step` leaves a numbered full-page
     screenshot and sanitized Playwright trace (`trace.zip`). The last screen also goes to
-    `evidence/browser.png`, the run directory the nightly artifact uploads."""
+    `evidence/browser.png`, in the lane's run directory."""
 
     def __init__(self, playwright: Playwright, name: str, evidence: Path, *, phone: bool = False):
         self.evidence = evidence
@@ -374,7 +374,7 @@ class Journey:
         try:
             with suppress(Exception):
                 self.observe("close-failed" if failed else "close-passed")
-            # Evidence for the nightly artifact; the run directory holds no secret.
+            # Evidence in the lane's run directory, which holds no secret.
             with suppress(Exception):
                 self.page.screenshot(path=self.evidence / "browser.png", full_page=True)
             raw = self.directory / "trace.raw.zip"

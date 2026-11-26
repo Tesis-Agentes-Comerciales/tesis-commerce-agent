@@ -8,11 +8,13 @@ dependencies = [
   "anthropic>=2.8,<3",
   "ap2 @ git+https://github.com/google-agentic-commerce/AP2.git@e1ea56db72a6385bce3e5c1112b3a56ce60acb43",
   "assistant-stream>=0.0.36,<0.0.37",
+  "cryptography>=46,<47",
   "fastapi>=0.116,<1",
   "httpx>=0.28,<1",
   # The HTTP client the Anthropic SDK runs on (llm/model_requests.py hooks into it).
   "httpx2>=2.13,<3",
   "jsonschema[format]>=4.25,<5",
+  "jwcrypto>=1.5,<2",
   "langchain-core>=1.6.4,<2",
   "langgraph>=1.2.12,<2",
   "langgraph-checkpoint-sqlite>=3.1.1,<4",
@@ -20,6 +22,7 @@ dependencies = [
   "pydantic-settings>=2.10,<3",
   "pyjwt[crypto]>=2.10,<3",
   "referencing>=0.36,<1",
+  "sd-jwt>=0.10.4,<0.11",
   "uvicorn>=0.35,<1",
 ]
 
@@ -31,7 +34,7 @@ dev = [
   "pytest>=8.4,<10",
   "pytest-cov>=7.1,<8",
   "ruff>=0.12,<1",
-  # Experiments live in their own workspace member, outside the product wheel and image.
+  # Experiments live in their own workspace member, outside the product wheel.
   "tesis-commerce-evaluation",
 ]
 
@@ -92,6 +95,5 @@ src = [".", "src", "evaluation/src"]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101"]
-# Shared verbatim with the live executor's PR: its docstring runs two characters long.
+# One docstring there runs two characters over the line length.
 "evaluation/src/commerce_evaluation/suite/executor.py" = ["E501"]

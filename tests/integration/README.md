@@ -2,14 +2,14 @@
 
 Es la capa 4 de [`docs/testing.md`](../../docs/testing.md): la única suite de sistema del Agent.
 Estos módulos levantan un stack propio y desechable en cada ejecución: PostgreSQL en Docker con
-la misma imagen y digest que el CI del Merchant (`postgres:18.4-alpine@sha256:9a8a…5de15`), el
+la misma imagen y digest que el `compose.yaml` del Merchant (`postgres:18.4-alpine@sha256:9a8a…5de15`), el
 Merchant real (`uvicorn commerce_lab.api:app`, lanzado con `uv run --project $MERCHANT_REPO` y
 su propio intérprete y lock), el proveedor de pagos real (`tesis_payment_provider`, desde
 `$PAYMENT_REPO`) y procesos del Agent de este checkout, incluidos su servicio de autenticación
 (`auth/`) y su UI (`ui/`) en las pruebas del navegador. Todo el tráfico del Agent al Merchant
 pasa por HTTP real de loopback a través de `FaultProxy`, que es transparente salvo cuando una
-prueba arma un fallo etiquetado. La suite normal y `ci.yml` los omiten; el workflow
-`nightly.yml` los ejecuta cada noche y a pedido.
+prueba arma un fallo etiquetado. La suite normal y la compuerta local (`scripts/check.sh`) los
+omiten; se corren a mano con `RUN_LIVE_STACK=1`.
 
 El stack vive en [`commerce_evaluation.stack`](../../evaluation/src/commerce_evaluation/stack)
 ([piezas](#piezas)), porque el corredor de la suite de evaluación arranca con él un entorno
@@ -114,8 +114,8 @@ P0, mutación administrada con revisión, y preparación/cancelación por create
 La interpretación de ese control positivo es simulada; no valida alternativas UX03.
 La [ficha](../../evaluation/scenarios/p0/merchant-provenance.md) fija los SHAs, hashes,
 reglas A/B, efectos permitidos y bloqueos. Los checkouts pertenecen a episodios nuevos;
-no hay aprobación, pago ni orden. El nightly permite test_scope=p0-catalog-bridge
-por workflow_dispatch, con los refs auditados. P2 queda fuera de la colección de full para
+no hay aprobación, pago ni orden. Exige los checkouts hermanos limpios y en los SHAs
+auditados de la ficha. P2 queda fuera de la colección de full para
 preservar el alcance y las fuentes del perfil de regresión vigente.
 
 ## Requisitos
@@ -173,13 +173,11 @@ Un módulo o un escenario: pase su archivo, o filtre por el identificador que ll
 `-k "b2 and not hnp"` las deja fuera. Con `--basetemp=<dir>` la evidencia queda en un lugar
 conocido.
 
-La suite completa (92 pruebas) tarda unos 13 minutos en macOS con OrbStack. Casi todo es 07B-B
-(marker `slow`): cada escenario hace una selección nueva sobre el catálogo completo del Merchant
-(cientos de lecturas de Offer por fase) y el Merchant reconstruye el catálogo en cada lectura.
-`-m "not slow"` deja 81 pruebas representativas (gobernanza 06D-C/07A/07B-P, las cinco compras,
-las ocho gobernadas B2, las dieciséis HNP y los siete recorridos del navegador) en unos 3 minutos.
-`test_live_hnp.py` solo (16 pruebas) tarda alrededor de 1 minuto y `-k browser` (7 recorridos)
-menos de 1 minuto.
+La suite completa tiene 268 pruebas. Lo más lento es 07B-B (marker `slow`): cada escenario hace
+una selección nueva sobre el catálogo completo del Merchant (cientos de lecturas de Offer por fase)
+y el Merchant reconstruye el catálogo en cada lectura. `-m "not slow"` deja fuera esas pruebas y
+una regresión larga de 06D-C (11 en total). `test_live_hnp.py` solo (16 pruebas) tarda alrededor
+de 1 minuto y `-k browser` (7 recorridos) menos de 1 minuto.
 
 ## Evidencia y limpieza
 
@@ -195,7 +193,7 @@ Cada ejecución deja bajo `<basetemp>/live-stack0/`:
   carril, sus feeds exportados y sus SQLite (Agent y proveedor). En `hnp/agent-<actor>/` quedan
   el `agent.log` y la SQLite del Agent HNP de cada prueba. Cada recorrido del navegador deja en
   `b0/browser-<actor>/` o `hnp/browser-<actor>/` el `auth.log`, el `ui.log`, sus SQLite y
-  `browser.png`, la captura final (la que sube el artefacto de `nightly.yml`).
+  `browser.png`, la captura final.
 
 ### Recorridos grabados
 
@@ -220,11 +218,9 @@ macOS, `xdg-open` en Linux) y la traza con el visor de Playwright:
 uv run playwright show-trace .local/browser-journeys/hnp-escala/trace.zip
 ```
 
-El artefacto de `nightly.yml` solo lleva la captura final de cada recorrido (`browser.png`, en el
+El directorio de la ejecución solo guarda la captura final de cada recorrido (`browser.png`, en el
 directorio de su carril); el video y las capturas por paso quedan en el checkout que corrió la
-suite. La rama temporal `codex/ui-01-validation` del diagnóstico UI-01 amplía la subida para
-conservar explícitamente trazas sanitizadas, vídeos, controles y capturas. No cambia la puerta de
-95 casos de P2: una reproducción del módulo deja los otros 89 como `not_executed` y no valida full.
+suite.
 
 Al terminar la sesión se detiene el Merchant (SIGTERM al grupo de procesos) y se elimina el
 contenedor con sus volúmenes. Si pytest muere con `kill -9`, la limpieza no corre; los restos se
@@ -245,7 +241,7 @@ En `commerce_evaluation.stack`:
 
 - `environment.py`: requisitos (`missing_requirements`), puertos libres, `wait_until`,
   `clean_environment` (los hijos no heredan credenciales ni el virtualenv) y `git_state`.
-- `postgres.py`: `PostgresContainer`, el PostgreSQL desechable con la imagen del CI del Merchant.
+- `postgres.py`: `PostgresContainer`, el PostgreSQL desechable con la misma imagen que el `compose.yaml` del comercio.
 - `service_server.py`: `ServiceServer` (Merchant, proveedor o Agent HNP bajo uvicorn, con
   listener heredado y, si tiene proxy, detrás de él aunque se reinicie).
 - `fault_proxy.py`: `FaultProxy` (rutas exactas o con `*` por segmento), `await_call` y

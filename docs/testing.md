@@ -21,32 +21,32 @@ clasificada por dónde se crea, sin `pytestmark` ni `skipif` propios:
 | `tests/evaluation/` | `evaluation` | Corre siempre, sin red ni modelo. |
 | El resto de `tests/` | — | Unitarias y de contrato. |
 
-`slow` lo pone cada módulo vivo que tarda minutos (hoy 07B-B y la regresión del Merchant en
-06D-C).
+`slow` lo pone cada prueba viva que tarda minutos: hoy `test_live_07bb_guarded_d1.py` y una
+regresión del Merchant en `test_live_06dc_creation_recovery.py`.
 
 ## Capas
 
 | Capa | Qué verifica | Dónde | Cuándo | En local |
 | --- | --- | --- | --- | --- |
-| 1. Unitarias y contratos | Dominio, aplicación, gobernanza, persistencia, ACP/AP2 congelados, hashes de la evidencia histórica de gobernanza, frontera del repositorio | `tests/` sin `integration/` | Cada PR (`python-tests`) | `uv run pytest` |
-| 1. Autenticación | Registro, sesión y JWT verificable con JWKS contra el servidor real | `auth/test/` | Cada PR (`auth`) | `cd auth && npm ci && npm test` |
-| 2. Merchant + PostgreSQL | Persistencia, D17, ACP HTTP del Merchant | Repositorio del Merchant | Cada PR del Merchant | Ver su `docs/testing.md` |
-| 3. UI | Lint, build, historias de Storybook con interacción y axe en Chromium, y pruebas unitarias de Vitest en Node (`src/**/*.test.ts`, dentro de `test-storybook`) | `ui/` | Cada PR (`ui`) | `cd ui && npm ci && npm run lint && npm test && npm run build && npm run test-storybook` |
-| 4. Sistema | Agent ↔ Merchant ↔ proveedor de pagos con PostgreSQL desechable; gobernanza con fallos inyectados, compras B0 y ACP, compras Human Not Present (B0-HNP y B2-HNP), recorridos grabados de una persona en el navegador (compra B0, compra B2 gobernada, delegaciones HNP, también en teléfono) | `tests/integration/` | Cada noche y a pedido (`nightly.yml`) | [`tests/integration/README.md`](../tests/integration/README.md) |
-| 3. UI E2E | Recorridos de chat y de delegaciones en el navegador con Playwright, sobre el build y con backends simulados (las delegaciones reproducen secuencias reales de la API) | `ui/e2e/` | Cada PR (`ui`) | `cd ui && npm run e2e` |
-| 5. Evaluación | Sin red ni modelo: `verify-evidence` HP y HNP sobre bases SQLite de corridas con el código del producto, el arranque de `demo-stack`, el bloque `flow_trace`, los escenarios P0 y P3, el puerto LLM (sus dobles, el tope de gasto con su registro de uso, y el transporte de Anthropic y su Batch contra el SDK con un `MockTransport`), y los bytes de los resultados archivados | `tests/evaluation/` | Cada PR, dentro de `python-tests` | `uv run pytest -m evaluation` |
+| 1. Unitarias y contratos | Dominio, aplicación, gobernanza, persistencia, ACP/AP2 congelados, hashes de la evidencia histórica de gobernanza, frontera del repositorio | `tests/` sin `integration/` | Compuerta local | `uv run pytest` |
+| 1. Autenticación | Registro, sesión y JWT verificable con JWKS contra el servidor real | `auth/test/` | Compuerta local | `cd auth && npm ci && npm test` |
+| 2. Merchant + PostgreSQL | Persistencia y ACP HTTP del Merchant | Repositorio del Merchant | En el repositorio del Merchant | Ver su `docs/testing.md` |
+| 3. UI | Lint, build, historias de Storybook con interacción y axe en Chromium, y pruebas unitarias de Vitest en Node (`src/**/*.test.ts`, dentro de `test-storybook`) | `ui/` | Lint y build en la compuerta; el resto al tocar `ui/` | `cd ui && npm ci && npm run lint && npm test && npm run build && npm run test-storybook` |
+| 3. UI E2E | Recorridos de chat y de delegaciones en el navegador con Playwright, sobre el build y con backends simulados (las delegaciones reproducen secuencias reales de la API) | `ui/e2e/` | Al tocar `ui/` | `cd ui && npm run e2e` |
+| 4. Sistema | Agent ↔ Merchant ↔ proveedor de pagos con PostgreSQL desechable; gobernanza con fallos inyectados, compras sin gobernanza y por ACP, compras delegadas con y sin gobernanza, y recorridos grabados de una persona en el navegador (compra sin gobernanza, compra gobernada y delegaciones, también en teléfono) | `tests/integration/` | A mano, con `RUN_LIVE_STACK=1` | [`tests/integration/README.md`](../tests/integration/README.md) |
+| 5. Evaluación | Sin red ni modelo: `verify-evidence` sobre bases SQLite de corridas con el código del producto (con la persona presente y en compras delegadas), el arranque de `demo-stack`, el bloque `flow_trace`, los escenarios de la evaluación, el puerto LLM (sus dobles, el tope de gasto con su registro de uso, y el transporte de Anthropic y su Batch contra el SDK con un `MockTransport`), y los bytes de los resultados archivados | `tests/evaluation/` | Compuerta local, dentro de `pytest` | `uv run pytest -m evaluation` |
 
-Las corridas reales de evaluación (modelo pagado) nunca corren en CI: las lanza el dueño a mano,
-con su tope de gasto. Los corredores de los pilotos de octubre (B0/B2, HNP, HNP-01, HNP-02, EXP-06
-y el lote 2 de P0) salieron de `main`: se reproducen desde la etiqueta `pilotos-octubre`, y sus
-datos y resultados siguen en `evaluation/`.
+Las corridas reales de evaluación (modelo pagado) nunca corren en la compuerta: las lanza el dueño
+a mano, con su tope de gasto. Los corredores de los pilotos de gobernanza de octubre salieron de
+`main`: se reproducen desde la etiqueta `pilotos-octubre`, y sus datos y resultados siguen en
+`evaluation/`.
 
 Selecciones útiles:
 
 ```sh
 uv run pytest -m "not evaluation"     # solo producto
 uv run pytest -m evaluation           # solo evaluación (dry-run)
-uv run pytest --cov --cov-report=term # con cobertura, como el CI
+uv run pytest --cov --cov-report=term # con cobertura, como la compuerta
 ```
 
 ## Variables
@@ -55,77 +55,70 @@ uv run pytest --cov --cov-report=term # con cobertura, como el CI
 | --- | --- |
 | `RUN_LIVE_STACK` | `1` activa la capa 4. Si falta un requisito, la suite falla con la lista; no omite en silencio. |
 | `MERCHANT_REPO`, `PAYMENT_REPO` | Checkouts del Merchant y del proveedor de pagos para la capa 4. |
-| `RUN_LIVE_LLM` | Manual: pone el modelo de OpenAI del entorno detrás de la prueba conversacional y de la compra B0 en el navegador de la capa 4 (los demás recorridos siempre usan el router guionado). Gasta dinero. |
-| `HNP_LIVE` | Manual, solo en los corredores HNP de la etiqueta `pilotos-octubre`: habilita sus llamadas reales. En `main`, EXP-01 y la evidencia nocturna se niegan a correr con él. |
+| `RUN_LIVE_LLM` | Manual: pone Claude (`ANTHROPIC_API_KEY` exportada) detrás de la prueba conversacional y de la compra sin gobernanza en el navegador de la capa 4; los demás recorridos siempre usan el router guionado. Gasta dinero. |
+| `HNP_LIVE` | Solo para los corredores de los pilotos de octubre, en la etiqueta `pilotos-octubre`: habilita sus llamadas reales. En `main` no activa nada, y las herramientas de evaluación se niegan a correr si lo ven, igual que con `RUN_LIVE_LLM`. |
 
-No hay otras activaciones: las del E2E conjunto de septiembre y las de las suites live por ticket
-se retiraron y su cobertura es ahora la capa 4 con `RUN_LIVE_STACK`. La correspondencia prueba por
+No hay otras activaciones: las suites vivas anteriores se retiraron y su cobertura es ahora la
+capa 4 con `RUN_LIVE_STACK`. La correspondencia prueba por
 prueba está en las secciones de equivalencia de [`tests/integration/README.md`](../tests/integration/README.md).
 
-## Workflows
+## Compuerta local
 
-`ci.yml` corre en cada PR y en `main`:
+No hay CI alojado: cada cambio pasa por `scripts/check.sh` antes de fusionarse. Necesita
+`uv sync --frozen --all-groups` y `npm ci` en `auth/` y `ui/`, no usa servicios externos ni el
+modelo, y tarda unos cuatro minutos. En orden:
 
-- `python-lint`: `ruff format --check`, `ruff check`, `pyright` y `uv build`; falla si
-  `commerce_evaluation` aparece dentro del wheel.
-- `python-tests`: `uv run pytest --cov` (capas 1 y 5; la 4 se recoge y se omite), el umbral de
-  cobertura del producto y un resumen de cobertura en la página del job. Su paso «Evaluation
-  dry-runs» todavía llama a `hnp-matrix` y `governance-pilot`, que salieron de `main`: falla hasta
-  que el dueño lo quite de `ci.yml`.
-- `auth`: `npm ci` y `npm test` en `auth/`.
-- `ui`: `npm ci`, lint, build, `build-storybook`, `test-storybook` (historias y el proyecto `unit`)
-  y `npm run e2e` en Chromium.
-  Playwright sale de `ui/package-lock.json` (`npx --no-install`), nunca de una versión sin fijar.
+1. `uv lock --check`: el lock coincide con `pyproject.toml`.
+2. `ruff format --check`, `ruff check` y `pyright`.
+3. `uv build`: falla si `commerce_evaluation` aparece dentro del wheel del producto.
+4. `pytest --cov` (capas 1 y 5; la 4 se recoge y se omite) y el piso de cobertura del producto.
+5. `npm test` en `auth/`.
+6. `npm run lint` y `npm run build` en `ui/`.
 
-`nightly.yml` corre a las 06:23 UTC y con `workflow_dispatch`, donde se puede elegir la rama o
-commit del Merchant (`merchant_ref`) y del proveedor (`payment_ref`). Su job `live-stack` clona
-el Merchant y el proveedor, instala los tres proyectos, `auth/`, `ui/` y el Chromium de
-Playwright, corre `tests/integration` completo y sube la evidencia (JSONL, logs, la captura final
-de cada recorrido del navegador y JUnit) como artefacto por 14 días. Los videos y las capturas por
-paso de los recorridos quedan en `.local/browser-journeys/` de quien los corre.
-
-El Merchant y el proveedor son privados: `live-stack` necesita el secreto
-`MERCHANT_REPO_TOKEN`, un token de solo lectura (`contents: read`) sobre
-`Tesis-Agentes-Comerciales/tesis-commerce-merchant` y
-`Tesis-Agentes-Comerciales/tesis-payment-provider-sandbox`. Sin él, el job se omite con un
-aviso visible en la ejecución.
+Cada paso muestra los segundos transcurridos. Al tocar `ui/` se corren además
+`npm run test-storybook` y `npm run e2e`, que necesitan el Chromium de Playwright
+(`npx --no-install playwright install chromium`, la versión de `ui/package-lock.json`). La capa 4
+corre a mano (ver [`tests/integration/README.md`](../tests/integration/README.md)); los videos y
+las capturas por paso de sus recorridos quedan en `.local/browser-journeys/` de quien la corre.
 
 ## Cobertura
 
 Se mide con `pytest-cov` sobre `commerce_agent` y `commerce_evaluation`, con ramas
-(`[tool.coverage.*]` en `pyproject.toml`). Línea base del 2026-10-20: el producto (`src/`)
-tiene **89.1 %** (líneas 92.2 %, ramas 77.4 %).
+(`[tool.coverage.*]` en `pyproject.toml`). El producto (`src/`) tiene **92.9 %** (líneas 95.0 %,
+ramas 84.0 %).
 
 | Paquete | Cobertura |
 | --- | --- |
-| `commerce_agent.domain` | 96.1 % |
-| `commerce_agent.governance` | 91.9 % |
-| `commerce_agent.persistence` | 90.5 % |
-| `commerce_agent.application` | 88.8 % |
-| `commerce_agent.llm` | 87.1 % |
+| `commerce_agent.domain` | 97.3 % |
+| `commerce_agent.delegation` | 97.0 % |
+| `commerce_agent.llm` | 96.7 % |
+| `commerce_agent.trace` | 95.1 % |
+| `commerce_agent.application` | 93.8 % |
+| `commerce_agent.governance` | 92.4 % |
+| `commerce_agent.persistence` | 92.4 % |
+| `commerce_agent` (módulos raíz: API, runtime, grafo, aprobación, pagos) | 91.3 % |
+| `commerce_agent.acp` | 89.4 % |
 | `commerce_agent.webhooks` | 86.3 % |
-| `commerce_agent` (módulos raíz: API, runtime, grafo, aprobación, pagos) | 85.5 % |
-| `commerce_agent.acp` | 83.8 % |
-| `commerce_evaluation` | 75.6 % (el experimento HNP sobre 90 %; los runners del piloto y de conversación casi sin cubrir) |
+| `commerce_evaluation` | 78.1 % |
 
-El umbral del CI es 85 % y aplica solo al producto (`coverage report --include="src/*"`), cuatro
-puntos por debajo de la línea base: atrapa una caída real sin volver ruidosos los PR pequeños.
-`commerce_evaluation` se reporta en el resumen del job pero no tiene umbral. La capa 4 no cuenta
-para estas cifras: sus servicios corren en otros procesos.
+La compuerta exige 85 % solo al producto (`coverage report --include="src/*" --fail-under=85`),
+unos puntos por debajo de su cobertura: atrapa una caída real sin volver ruidosos los cambios
+pequeños. `commerce_evaluation` se reporta pero no tiene piso. La capa 4 no cuenta para estas
+cifras: sus servicios corren en otros procesos.
 
 ## Tiempos de referencia
 
-En macOS con OrbStack, 2026-10-20; las filas HNP y del navegador, 2026-10-21; los conteos, 2026-10-23:
+En una Mac de desarrollo con Docker Desktop:
 
 | Selección | Pruebas | Tiempo |
 | --- | --- | --- |
-| `uv run pytest` (capas 1 y 5) | 3468: 3376 pasan y 92 se omiten | ~1,5 min |
-| `tests/integration` completa | 92 | ~13 min |
-| `tests/integration -m "not slow"` | 81 | ~3 min |
-| `tests/integration/test_live_hnp.py` | 16 | ~1 min |
-| `tests/integration -k browser` | 7 | ~40 s |
+| `scripts/check.sh` completo | Todo lo de la fila siguiente, más `auth/` y `ui/` | ~4 min |
+| `uv run pytest --cov` (capas 1 y 5) | 4644: 4376 pasan y 268 se omiten (la capa 4) | ~3,5 min |
 
-Los conteos salen de `uv run pytest --collect-only -q` con la selección de cada fila.
+La capa 4 tiene 268 pruebas: 257 sin `slow`, 16 en `tests/integration/test_live_hnp.py` y 7
+recorridos del navegador (`-k browser`). Tarda bastante más que la compuerta, y cuánto depende de
+Docker y de la máquina. Los conteos salen de `uv run pytest --collect-only -q` con la selección de
+cada fila.
 
 ## Al escribir una prueba
 

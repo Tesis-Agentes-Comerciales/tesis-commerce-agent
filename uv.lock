@@ -1513,10 +1513,12 @@ dependencies = [
     { name = "anthropic" },
     { name = "ap2" },
     { name = "assistant-stream" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "httpx2" },
     { name = "jsonschema", extra = ["format"] },
+    { name = "jwcrypto" },
     { name = "langchain-core" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
@@ -1524,6 +1526,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "referencing" },
+    { name = "sd-jwt" },
     { name = "uvicorn" },
 ]
 
@@ -1543,10 +1546,12 @@ requires-dist = [
     { name = "anthropic", specifier = ">=2.8,<3" },
     { name = "ap2", git = "https://github.com/google-agentic-commerce/AP2.git?rev=e1ea56db72a6385bce3e5c1112b3a56ce60acb43" },
     { name = "assistant-stream", specifier = ">=0.0.36,<0.0.37" },
+    { name = "cryptography", specifier = ">=46,<47" },
     { name = "fastapi", specifier = ">=0.116,<1" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "httpx2", specifier = ">=2.13,<3" },
     { name = "jsonschema", extras = ["format"], specifier = ">=4.25,<5" },
+    { name = "jwcrypto", specifier = ">=1.5,<2" },
     { name = "langchain-core", specifier = ">=1.6.4,<2" },
     { name = "langgraph", specifier = ">=1.2.12,<2" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1.1,<4" },
@@ -1554,6 +1559,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.10,<3" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10,<3" },
     { name = "referencing", specifier = ">=0.36,<1" },
+    { name = "sd-jwt", specifier = ">=0.10.4,<0.11" },
     { name = "uvicorn", specifier = ">=0.35,<1" },
 ]
 

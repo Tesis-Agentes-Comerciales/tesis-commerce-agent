@@ -7,7 +7,7 @@ import "./agent.css"
 
 const PIN_THRESHOLD = 24
 
-/** Los resúmenes de la Responses API usan `**título**`; se muestran sin interpretar HTML. */
+/** Los resúmenes del razonamiento de Claude pueden traer `**título**`; se muestran sin interpretar HTML. */
 function inline(text: string) {
   return text.split(/(\*\*[^*]+\*\*)/g).map((segment, index) =>
     segment.startsWith("**") && segment.endsWith("**") && segment.length > 4 ? (
