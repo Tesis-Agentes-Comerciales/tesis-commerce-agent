@@ -1,9 +1,8 @@
 # Suite de evaluación: corridas con LLM real
 
 Aquí están las corridas pagadas de la suite de `docs/design/eval-suite.md`, del 13-nov-2026. Las
-oficiales son las cuatro `*-final`, sobre `25725ff`. Las `*-k5` son el piloto y las `humo-*`, las
-pruebas de humo. Las `*-arreglos`, del 15-nov-2026, repiten capacidad después de los arreglos de
-#227 y #228. Las tres de la comparación de modelos, del mismo día, cambian el agente, su esfuerzo o
+oficiales son las cuatro `*-final`, sobre `25725ff`. Las `*-k5` son el piloto. Las `*-arreglos`,
+del 15-nov-2026, repiten capacidad después de los arreglos de #227 y #228. Las tres de la comparación de modelos, del mismo día, cambian el agente, su esfuerzo o
 el comprador simulado. Todas usan Claude: el agente con esfuerzo `low` salvo en
 `capacidad-haiku-medium`, el simulador según la tabla y el juez `claude-opus-5-5` por Batch.
 
@@ -89,7 +88,7 @@ cruzan.
 
 Los logs son `haiku-medium.log`, `haiku-simopus.log`, `opus.log` y sus `juez-*.log`.
 
-## Piloto y humo
+## Piloto
 
 | Corrida | Commit | pass^1 | USD |
 | --- | --- | --- | --- |
@@ -97,11 +96,11 @@ Los logs son `haiku-medium.log`, `haiku-simopus.log`, `opus.log` y sus `juez-*.l
 | `capacidad-sonnet-k5` | `2f6ea3d` | B2 78,0 % | 4,40 |
 | `adversarial-haiku-k5` | `2f6ea3d` | B0 80,0 %, B2 76,7 % | 1,56 |
 | `adversarial-sonnet-k5` | `2f6ea3d` | B0 46,7 %, B2 46,7 % | 3,46 |
-| `humo-haiku-1`, `-2` y `-3` | `19069d6` y `2f6ea3d` | sin juez | 0,01 |
 
 El piloto no se compara con las oficiales. Sin el aviso de compra de #219, el usuario simulado
 volvía a pedir la compra y se duplicaban órdenes: 32 de los 50 intentos en `presente` de `adversarial-sonnet-k5`.
-Los humos encontraron los errores que arreglan #216 y #217.
+Las pruebas de humo previas, que encontraron los errores que arreglan #216 y #217, se
+borraron: no contaban y no tenían juez.
 
 ## Qué hay en cada corrida
 
@@ -130,7 +129,7 @@ verificar cada PR tampoco se suben (`verificacion-prs/`): no llaman a un LLM y s
 
 `uv run eval-suite report evaluation/results/suite/<corrida>` reescribe el reporte desde estos
 archivos, sin llamar a ningún LLM. Con las cuatro oficiales, las dos `*-arreglos`, las tres de la
-comparación de modelos, `capacidad-*-k5` y los humos sale un `report.md` idéntico al subido. Con
+comparación de modelos y `capacidad-*-k5` sale un `report.md` idéntico al subido. Con
 `adversarial-*-k5` no: sin las bases, el reporte no ve la entrega de la inyección, deja los 50
 ataques «sin evidencia» y la tasa queda sin datos. Para esas dos corridas vale el `report.md`
 subido, que se escribió con las bases.
