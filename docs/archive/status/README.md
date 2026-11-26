@@ -9,9 +9,9 @@ Este directorio reúne **cortes fechados** para que los integrantes puedan conoc
 ## Cómo utilizarlo
 
 1. El corte resume **qué ocurrió, con qué SHA y bajo qué alcance**. Enlaces a PRs, ejecuciones y artefactos son la evidencia principal.
-2. Los resultados y los oráculos originales pertenecen a [evaluation/](../../evaluation/); **no** se reescriben a partir de un resumen.
-3. Los contratos, especificaciones y propuestas técnicas pertenecen a [docs/design/](../design/). Un protocolo pendiente de revisión no se registra como aprobado.
-4. Los comandos y límites de CI viven en [docs/testing.md](../testing.md), y el flujo de revisión en [docs/workflow.md](../workflow.md).
+2. Los resultados y los oráculos originales pertenecen a [evaluation/](../../../evaluation/); **no** se reescriben a partir de un resumen.
+3. Los contratos, especificaciones y propuestas técnicas pertenecen a [docs/design/](../../design/). Un protocolo pendiente de revisión no se registra como aprobado.
+4. Los comandos y límites de CI viven en [docs/testing.md](../../testing.md), y el flujo de revisión en [docs/workflow.md](../../workflow.md).
 5. Si un corte posterior corrige un dato o decisión, añade una fecha y un enlace; no borres el corte anterior ni ocultes fallos y omisiones.
 
 **Estado de un escenario ≠ estado del CI:** las ejecuciones unitarias y de integración pueden acreditar capacidades previas, pero una celda nueva solo pasa a ejecutada cuando su propio protocolo, entradas, oráculo y evidencia están completos.

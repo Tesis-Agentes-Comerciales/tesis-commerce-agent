@@ -73,7 +73,7 @@ y pytest lo cubren desde la raíz. Las pruebas están en `../tests/evaluation/`.
 | Ruta | Contenido |
 | --- | --- |
 | `src/commerce_evaluation/conversation.py` | evaluación conversacional contra un agente local |
-| `src/commerce_evaluation/demo_stack.py` | `demo-stack`: stack local de la demo con las condiciones del piloto ([guion](../docs/demo/guion-2026-10-23.md)) |
+| `src/commerce_evaluation/demo_stack.py` | `demo-stack`: stack local de la demo con las condiciones del piloto ([guion](../docs/archive/demo/guion-2026-10-23.md)) |
 | `src/commerce_evaluation/verify_evidence.py` | `verify-evidence`: verificador de la cadena decisión–consentimiento–efecto y métrica H2 ([spec](../docs/design/hp-p2-evidence-chain.md)) |
 | `src/commerce_evaluation/verify_evidence_hnp.py` | perfil HNP de `verify-evidence`: los 17 eslabones de HNP-V1 por tarea y grant, y H2-HNP ([spec](../docs/design/hnp-governed.md), §9.2) |
 | `src/commerce_evaluation/agent_condition.py` | condiciones B0' y B2, llaves D1 de la corrida y chequeos de arranque y de `/health`, para `demo-stack` y la suite viva |
