@@ -241,7 +241,7 @@ En `commerce_evaluation.stack`:
 
 - `environment.py`: requisitos (`missing_requirements`), puertos libres, `wait_until`,
   `clean_environment` (los hijos no heredan credenciales ni el virtualenv) y `git_state`.
-- `postgres.py`: `PostgresContainer`, el PostgreSQL desechable con la imagen del CI del Merchant.
+- `postgres.py`: `PostgresContainer`, el PostgreSQL desechable con la misma imagen que el `compose.yaml` del comercio.
 - `service_server.py`: `ServiceServer` (Merchant, proveedor o Agent HNP bajo uvicorn, con
   listener heredado y, si tiene proxy, detrás de él aunque se reinicie).
 - `fault_proxy.py`: `FaultProxy` (rutas exactas o con `*` por segmento), `await_call` y

@@ -47,7 +47,7 @@ uv sync --frozen --all-groups
 Copia la configuración y pon tu clave en `ANTHROPIC_API_KEY`; es lo único que hay que llenar:
 
 ```sh
-cp .env.example .env
+cp -n .env.example .env
 ```
 
 Revisa los requisitos y arranca:
