@@ -10,7 +10,7 @@ terminado; si uno falla, se vuelve al anterior en lugar de parchear encima.
 | 3. UI en Storybook | Componentes de presentación sin red ni runtime, con una historia por estado, `play` para la interacción y axe en modo error | `ui/src/components/<área>/` | `npm run test-storybook` en verde y el dueño revisa las historias |
 | 4. Backend con TDD | Primero el test que falla, después el código. SQLite real en `tmp_path`, sin mocks del dominio | `src/`, `tests/` | `uv run pytest` en verde; el test falla sin el cambio |
 | 5. Integración | Cableado de la UI con la API, E2E de Playwright con el backend simulado y, si cruza servicios, una prueba en `tests/integration` | `ui/src/features/`, `ui/e2e/`, `tests/integration/` | E2E en verde |
-| 6. PR | Un tema por PR, commits pequeños, CI en verde, checklist completa y revisión de código | GitHub | El dueño aprueba la fusión |
+| 6. PR | Un tema por PR, commits pequeños, la compuerta local (`scripts/check.sh`) en verde, checklist completa y revisión de código | GitHub | El dueño aprueba la fusión |
 
 ## Definición de terminado
 
@@ -18,8 +18,9 @@ Cada PR la copia en su descripción y la marca:
 
 - [ ] La spec refleja lo que se construyó.
 - [ ] Cada test nuevo falla sin el cambio y pasa con él.
-- [ ] `ruff format --check`, `ruff check`, `pyright` y `pytest` en verde.
-- [ ] `npm run lint`, `npm run build`, `npm run test-storybook` y `npm run e2e` en verde.
+- [ ] `scripts/check.sh` en verde: lock, formato, lint, tipos, wheel, `pytest` con su piso de
+      cobertura, las pruebas de `auth/` y el lint y el build de `ui/`.
+- [ ] Si toca `ui/`, también `npm run test-storybook` y `npm run e2e` en verde.
 - [ ] Sin secretos, sin rutas absolutas, sin código muerto y sin TODO sin dueño.
 - [ ] Docs del área al día (README, `docs/testing.md` y el contrato).
 - [ ] UI con el mismo sistema visual (ver abajo).

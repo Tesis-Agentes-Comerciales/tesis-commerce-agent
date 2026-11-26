@@ -1,4 +1,4 @@
-"""The product never imports the evaluation package: its wheel and image do not carry it."""
+"""The product never imports the evaluation package, and its wheel does not carry it."""
 
 import ast
 from pathlib import Path

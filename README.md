@@ -113,14 +113,16 @@ guardada del checkout (`governance/guarded_creation.py`).
 scripts/check.sh
 ```
 
-Es la compuerta local de cada cambio. Corre `uv lock --check`, `ruff format --check`,
-`ruff check`, `pyright`, `pytest` (unitarias, contratos y la evaluación sin modelo), las pruebas
-de `auth/` y el lint y el build de `ui/`. No usa servicios externos ni el modelo. En `ui/` hay
-además `npm run test-storybook` y `npm run e2e`, que necesitan el Chromium de Playwright.
+Es la compuerta local de cada cambio; no hay CI alojado. Corre `uv lock --check`,
+`ruff format --check`, `ruff check`, `pyright`, revisa que el wheel lleve solo el agente, corre
+`pytest` (unitarias, contratos y la evaluación sin modelo) con un piso de cobertura del 85 % para
+el producto, las pruebas de `auth/` y el lint y el build de `ui/`. No usa servicios externos ni
+el modelo. En `ui/` hay además `npm run test-storybook` y `npm run e2e`, que necesitan el
+Chromium de Playwright.
 
 La suite de sistema es opcional: levanta PostgreSQL en Docker, el comercio y el proveedor de pagos
-reales desde los repositorios hermanos, el agente, `auth/` y la interfaz, y tarda unos 13 minutos
-(`-m "not slow"` deja un subconjunto de unos 3):
+reales desde los repositorios hermanos, el agente, `auth/` y la interfaz, y tarda bastante más que
+la compuerta (`-m "not slow"` deja fuera las pruebas más lentas):
 
 ```sh
 uv run playwright install --only-shell chromium

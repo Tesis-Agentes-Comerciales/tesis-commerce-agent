@@ -46,7 +46,7 @@ def p2_lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PurchaseLane]:
         actual = subprocess.check_output(
             ["git", "-C", repository, "rev-parse", "HEAD"], text=True
         ).strip()
-        assert actual == pinned[key]["sha"], "Use the audited SHA in nightly workflow_dispatch"
+        assert actual == pinned[key]["sha"], "Check out the audited SHA from the provenance sheet"
         assert not subprocess.check_output(
             ["git", "-C", repository, "status", "--porcelain=v1"]
         ).strip(), "Sibling checkout must be clean"
