@@ -1,7 +1,7 @@
 # D2-HP: autorización verificada al aprobar
 
 Estado: implementado. Backend en el PR A; traza y UI en el PR B. Ola «HP al 100 %» (P3), 21-oct-2026. Contrato formal:
-[`policy-v1.md`](../b2-governance/policy-v1.md), secciones 2, 4 (`AuthorizationPolicyInput`), 5 y 6
+[`policy-v1.md`](../archive/b2-governance/policy-v1.md), secciones 2, 4 (`AuthorizationPolicyInput`), 5 y 6
 (POL-03..06). Coordinación: decisión compartida 3.
 
 ## Problema

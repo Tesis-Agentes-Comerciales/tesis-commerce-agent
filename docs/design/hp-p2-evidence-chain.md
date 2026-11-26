@@ -8,8 +8,8 @@ en #71 y C (verificador y H2) en #74.
 
 H2 dice que B2 aumenta la proporción de episodios en los que un verificador puede enlazar
 intención, decisión de política, checkout, aprobación, mandatos, recibos y resultado
-(`docs/b2-governance/landscape-research-question.md`). En el piloto v1 la traza y la evidencia
-quedaron sin evaluar, y hoy faltan tres piezas para medirlo:
+(`docs/archive/b2-governance/landscape-research-question.md`). En el piloto v1 la traza y la
+evidencia quedaron sin evaluar, y hoy faltan tres piezas para medirlo:
 
 1. **El webhook del comercio nunca llega.** El comercio guarda cada `order_create` en su outbox
    (`webhook_deliveries`) en la misma transacción que la orden, pero no lo envía solo: hay que

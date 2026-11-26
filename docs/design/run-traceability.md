@@ -346,9 +346,10 @@ tope de costo HNP la sigue leyendo. El revisor de intención (`ModelHnpIntentRev
 
 ### 4.5 Compatibilidad
 
-- **`--rescore` (HP)** nunca lee `flow_trace`. Las pruebas existentes de
-  `tests/evaluation/test_pilot_rescore.py` y `test_pilot_v2.py` cubren los digests de los archivos
-  congelados y que el resumen se reproduzca, y siguen sin cambios.
+- **`--rescore` (HP)** nunca lee `flow_trace`. Las pruebas de `--rescore`
+  (`test_pilot_rescore.py` y `test_pilot_v2.py`) salieron de `main` con los corredores y siguen en
+  la etiqueta `pilotos-octubre`. En `main`, `tests/evaluation/test_archived_results.py` fija los
+  digests de los archivos congelados.
 - **Prueba nueva:** una fila v2 con `flow_trace` añadido se puntúa igual que sin él.
 - **Tokens:** `metrics.model_input_tokens` sale de `flow_trace.model_requests` y queda `null` sin el
   bloque, así que los resúmenes v1 y v2 no cambian. Construido (T4): `token_metrics` suma también

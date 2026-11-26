@@ -1,6 +1,10 @@
 # Lo que no se sube: las bases de cada intento, lo que deja el stack salvo la evidencia,
-# y las corridas de regresión que verificaron cada PR (ver README.md).
+# y las corridas de regresión que verificaron cada PR (ver README.md). Las mismas reglas valen
+# para las corridas archivadas en archivo/.
 */trials/
 */stack/*/*
 !*/stack/*/evidence.jsonl
+archivo/*/trials/
+archivo/*/stack/*/*
+!archivo/*/stack/*/evidence.jsonl
 verificacion-prs/

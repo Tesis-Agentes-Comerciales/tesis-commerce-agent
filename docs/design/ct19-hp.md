@@ -1,4 +1,4 @@
-# CT19 HP â€” real variant identity disappearance
+# CT19 HP — real variant identity disappearance
 
 Approved scope: the CT19 user instruction; harness-only, no product changes, no LLM or payments.
 Base Agent adbe120cecf6bffc3eaf22df5c9270760697a93a (main CI 41960294446, all four jobs passed).

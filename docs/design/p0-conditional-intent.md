@@ -1,10 +1,11 @@
 # P0 — Intención condicional (UX03, UX04, UX05, UX06, UX07)
 
-Estado: propuesta para aprobación de Yair. Base: `main` 343f099. Escenarios de la matriz
+Estado: **implementado** y fusionado en `main`: la spec en #183 y el contrato, la interfaz, HNP y
+HP en #190, #193, #195 y #196. Se escribió sobre `main` 343f099. Escenarios de la matriz
 `evaluation/scenarios/p0/matrix.json` del lado de Yair. El contrato de evaluación de UX03/UX05 es
-el de Maldo, que todavía no está en `main`: protocolo `docs/design/p3-ux03-protocol.md` (#158) y
-validador `evaluation/src/commerce_evaluation/p3_protocol.py` (#176). Este producto tiene que ser
-compatible con él (§3.11).
+el de Maldo: protocolo `docs/design/p3-ux03-protocol.md` (#158) y validador
+`evaluation/src/commerce_evaluation/p3_protocol.py` (#176). Este producto tiene que ser compatible
+con él (§3.11).
 
 ## 1. Objetivo
 

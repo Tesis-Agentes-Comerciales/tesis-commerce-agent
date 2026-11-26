@@ -1,7 +1,8 @@
 # POL-11 en D1 y política `b2-hp-v2`
 
-Estado: implementado en `feat/d1-budget-rule` (ola «HP al 100 %», P1). Contrato de coordinación del
-21-oct-2026, decisiones 1 y 2, y su adenda 1 (reglas por `(fase, purchase_mode)` y razones por id).
+Estado: implementado y fusionado en `main` (#73), en la ola «HP al 100 %» (P1). Contrato de
+coordinación del 21-oct-2026, decisiones 1 y 2, y su adenda 1 (reglas por `(fase, purchase_mode)` y
+razones por id).
 
 ## Problema
 
